@@ -14,13 +14,8 @@
       const file = Game.files.get(inst.payload.fileId);
       if (!file) return;
       inst.decode = 0;   // 0..1, advanced manually by clicking/holding the decode region
-      Game.events.emit('terminal.print', { lines: [`> read ${file.path}`], cls: 'dim' });
-      // One-time hint for the new verb (self-dismissing — only the first read ever).
-      state.flags = state.flags || {};
-      if (!state.flags.hintedDecode) {
-        Game.events.emit('terminal.print', { lines: ['[ tap or hold to decode ]'], cls: 'faint' });
-        state.flags.hintedDecode = true;
-      }
+      // (The "tap & hold to decode" hint now lives ON the decode region via CSS — placed
+      //  where the action is, instead of a faint log line that the feed routes to voice.)
       Game.events.emit('decoding.start', { taskId: inst.id, lines: file.content });
     },
 

@@ -26,6 +26,14 @@
     return document.querySelector(`.decoding-region[data-task-id="${taskId}"]`);
   }
 
+  // The reading surface (#terminal-pane on mobile HOME) shows only when it holds decoded
+  // content — JS-driven so it never depends on CSS :has() support across phones.
+  function syncPane() {
+    const tp = document.getElementById('terminal-pane');
+    const to = document.getElementById('terminal-output');
+    if (tp && to) tp.classList.toggle('has-read', to.children.length > 0);
+  }
+
   // Stable per-character threshold so the reveal order is deterministic
   // (same chars unlock at the same progress on every tick / after reload).
   function threshold(taskId, lineIdx, charIdx) {
@@ -51,6 +59,9 @@
     }
     out.appendChild(region);
     if (pane) pane.scrollTop = pane.scrollHeight;
+    syncPane();
+    // bring the decode into view (it mounts below the files list) so the player sees it
+    requestAnimationFrame(() => { try { region.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} });
   }
 
   function update(taskId, progress) {
@@ -85,6 +96,7 @@
       region.classList.add('decoded');
     }
     targets.delete(taskId);
+    syncPane();
   }
 
   function abort(taskId) {
