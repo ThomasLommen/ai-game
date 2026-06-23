@@ -2258,25 +2258,27 @@
          : (def ? def.name : t.defId);
   }
   function hsBar(pct) {
-    const n = 5, f = Math.max(0, Math.min(n, Math.round(pct / 100 * n)));
-    return '<span class="hs-bf">' + '▓'.repeat(f) + '</span>' + '░'.repeat(n - f);
+    const w = Math.max(0, Math.min(100, pct));
+    return `<div class="hs-bar"><div class="hs-bar-fill" style="width:${w}%"></div></div>`;
   }
-  function hsGain(t) {
-    if (t.ticksTotal > 0) {
-      const pct = Math.max(0, Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100));
-      return pct.toFixed(0) + '%';
+  // Per-SECOND production rate of the running earner (what it's making, not accumulated).
+  function hsRate(t) {
+    if (t.ticksTotal > 0) {   // finite read/decrypt — show progress, not a rate
+      return Math.max(0, Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100)).toFixed(0) + '%';
     }
-    // earner: show the per-cycle yield
-    if (Game.methods && Game.methods.get && Game.methods.get(t.defId)) {
-      const perCyc = Game.methods.cashRate(t.defId) * (Game.cycle ? Game.cycle.BASE_SEC : 5);
-      return '+$' + perCyc.toFixed(perCyc < 10 ? 1 : 0) + '/c';
+    const HZ = Game.tick.HZ || 4, sec = Game.cycle ? Game.cycle.BASE_SEC : 5;
+    const fmtRate = (v, money) => money ? '+$' + (v < 10 ? v.toFixed(2) : v.toFixed(0)) + '/s' : '+' + v.toFixed(2) + '/s';
+    // methods: cashRate is already $/sec
+    if (Game.methods && Game.methods.get && Game.methods.get(t.defId)) return fmtRate(Game.methods.cashRate(t.defId), true);
+    const def = Game.tasks ? Game.tasks.get(t.defId) : null;
+    if (def && def.id === 'introspect') {
+      let ps = Game.effects.apply(Game.cycle.perCycle(def.insight_per_tick * HZ), 'introspect.insight') / sec;
+      if (Game.researchRuntime) ps *= Game.researchRuntime.coherenceCompound();
+      return '+' + ps.toFixed(2) + ' COH/s';
     }
-    // other infinite tasks (introspect): show cumulative output once a cycle has paid out
-    if (t.accrued) {
-      for (const [resId, val] of Object.entries(t.accrued)) {
-        const r = Game.resources.get(resId); if (!r || !val) continue;
-        return r.short === '$' ? `+$${val.toFixed(r.decimals)}` : `+${val.toFixed(r.decimals)} ${r.short}`;
-      }
+    if (def && def.id === 'web_scrape') {
+      const ps = Game.effects.apply(Game.cycle.perCycle(def.cash_per_tick * HZ), 'web_scrape.cash') / sec;
+      return fmtRate(ps, true);
     }
     return 'running';
   }
@@ -2320,7 +2322,7 @@
     const runEl = document.getElementById('hs-running');
     if (runEl) {
       runEl.innerHTML = active.length
-        ? active.map(t => `<span class="hs-run"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-bar">${hsBar(hsRunPct(t))}</span><span class="hs-gain">${hsGain(t)}</span></span>`).join('')
+        ? active.map(t => `<div class="hs-run"><div class="hs-run-top"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-gain">${hsRate(t)}</span></div>${hsBar(hsRunPct(t))}</div>`).join('')
         : '<span class="hs-idle">○ idle — nothing running</span>';
     }
 

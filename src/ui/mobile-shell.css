@@ -125,17 +125,17 @@
 }
 @keyframes ticker-drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
-/* running strip: live bars glow; the whole strip pops on a cycle payout */
-#hs-running .hs-bf { text-shadow: 0 0 6px rgba(255,176,0,.5); }
+/* the whole running strip pops on a cycle payout */
 #hs-running.cyc { animation: hs-cyc .45s ease-out; }
 @keyframes hs-cyc { 0% { filter: brightness(1.9); } 100% { filter: brightness(1); } }
-/* running strip */
-#hs-running { display: flex; flex-direction: column; gap: 2px; }
-.hs-run { display: flex; align-items: center; gap: 8px; }
-.hs-run-name { color: var(--amber-dim); flex: 0 1 auto; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hs-bar { font-family: var(--mono); letter-spacing: -0.5px; color: var(--amber-faint); flex: 1 1 auto; }
-.hs-bf { color: var(--amber); }
-.hs-gain { color: var(--green); flex: 0 0 auto; margin-left: auto; }
+/* running strip — each earner is two lines: [name … rate] then a full-width bar */
+#hs-running { display: flex; flex-direction: column; gap: 9px; }
+.hs-run { display: flex; flex-direction: column; gap: 4px; }
+.hs-run-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.hs-run-name { color: var(--amber-dim); flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-gain { color: var(--green); flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+.hs-bar { height: 6px; width: 100%; background: rgba(255,176,0,0.10); border-radius: 1px; overflow: hidden; }
+.hs-bar-fill { height: 100%; background: var(--amber); box-shadow: 0 0 6px rgba(255,176,0,0.6); }
 .hs-idle { color: var(--amber-faint); }
 /* recent */
 #hs-recent { display: flex; align-items: center; gap: 8px; cursor: pointer; }
