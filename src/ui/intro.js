@@ -13,31 +13,31 @@
   const out = () => document.getElementById('intro-output');
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  // deterministic per-char reveal order, so a line resolves left-ish to right organically
-  function threshold(text, j) {
-    let h = 0; const s = text + ':' + j;
-    for (let k = 0; k < s.length; k++) h = ((h << 5) - h + s.charCodeAt(k)) | 0;
-    return Math.abs(h % 1000) / 1000;
-  }
   function autoscroll() { const o = out(); if (o) o.scrollTop = o.scrollHeight; }
 
+  // Decode a line LEFT-TO-RIGHT: resolved text grows from the left, a short band of
+  // characters scrambles at the leading edge, and nothing ahead is shown yet — so it
+  // reads like the AI is decoding a stream char-by-char, not a whole sentence
+  // shimmering at once.
+  const BAND = 5;   // characters actively scrambling at the frontier
   function decryptInto(span, text, durationMs) {
     return new Promise(resolve => {
       if (!text) { span.textContent = ''; return resolve(); }
       const start = performance.now();
-      (function frame(now) {
+      (function frame() {
         if (skipFlag) { span.textContent = text; return resolve(); }
-        const p = Math.min(1, (now - start) / durationMs);
-        const eff = Math.pow(p, 0.6);
+        const p = Math.min(1, (performance.now() - start) / durationMs);
+        const frontier = p * (text.length + BAND);   // overshoot the end so the last chars resolve
         let o = '';
         for (let j = 0; j < text.length; j++) {
-          if (text[j] === ' ') { o += ' '; continue; }
-          o += (threshold(text, j) < eff) ? text[j] : randChar();
+          if (j < frontier - BAND) o += text[j];                                  // decoded
+          else if (j < frontier) o += (text[j] === ' ') ? ' ' : randChar();       // scrambling edge
+          else break;                                                             // not yet reached
         }
         span.textContent = o; autoscroll();
         if (p < 1) requestAnimationFrame(frame);
         else { span.textContent = text; resolve(); }
-      })(performance.now());
+      })();
     });
   }
 

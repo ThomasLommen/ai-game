@@ -125,6 +125,10 @@
     s.methods = s.methods || {};
     s.methods[id] = s.methods[id] || { level: 0 };
     s.methods[id].level++;
+    if (s.methods[id].level % 5 === 0 && Game.activity) {   // milestone: +1 thread + ×1.5 output
+      const d = Game.methods.get(id);
+      Game.activity.log(`${(d && d.name) || id} hit lvl ${s.methods[id].level} — +1 thread, output surged.`, { cls: 'dim', kind: 'method' });
+    }
     // A running method gets hungrier live — can push you over your compute budget
     // (→ heat/power bite → buy more compute). Intended.
     const inst = (s.tasks.active || []).find(t => t.defId === id);

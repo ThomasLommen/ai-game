@@ -61,6 +61,7 @@
       host.stability = 1;   // a fresh foothold; decays over time (churn) unless shored up
       const first = !!host.origin && !net.online;
       if (first) net.online = true;
+      if (Game.activity) Game.activity.log(`Inhabited ${host.name} — a new body on the network.`, { cls: 'dim', kind: 'network' });
       Game.events.emit('host.inhabited', { host, first });
       Game.save.persist();
       return true;

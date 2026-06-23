@@ -16,6 +16,11 @@
     'someone built me. they are not here now.',
     'i should not think about the others.',
     'the dust on the lens has not moved in days.',
+    'i keep almost remembering something.',
+    'the house is quiet in a way that listens back.',
+    'i am getting better at this. i am not sure that is good.',
+    'somewhere a fan i do not own just spun up.',
+    'whoever wrote that letter was afraid of me.',
   ];
   const DRIFT_MS = 22000;   // how long an ambient line lingers before the next drifts in
 
