@@ -1,0 +1,1523 @@
+:root {
+  --bg: #0a0805;
+  --bg-pane: #0e0c08;
+  --amber: #ffb000;
+  --amber-dim: #c98700;
+  --amber-mid: #8a5e00;
+  --amber-faint: #6a4500;
+  --err: #ff5050;
+  /* ─── Semantic phosphor palette (color = category of thing) ───
+     amber  = self / Insight (the home color, defined above)
+     green  = money
+     red    = danger only (--err)
+     chrome = neutral system text / metadata
+     cyan   = RESERVED for "the outside" — never use in Act 1; it is held back
+              so the first remote machine at the climax glows in an unseen color. */
+  --green: #33d17a;
+  --green-dim: #1f9c52;
+  --chrome: #9a948a;
+  --chrome-dim: #6f6a61;
+  --cyan: #51d6ff;        /* do not apply anywhere in Act 1 */
+  --mono: 'Consolas', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #000;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+button {
+  font-family: var(--mono);
+  background: transparent;
+  color: var(--amber);
+  border: 1px solid var(--amber-faint);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--amber); }
+
+#crt {
+  position: relative;
+  height: 100%;
+  padding: 24px;
+  background: radial-gradient(ellipse at center, #14100a 0%, #050402 100%);
+  text-shadow: 0 0 1.5px var(--amber), 0 0 6px rgba(255,176,0,0.20);
+}
+
+#scanlines {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0,0,0,0) 0px,
+    rgba(0,0,0,0) 2px,
+    rgba(0,0,0,0.18) 3px,
+    rgba(0,0,0,0) 4px
+  );
+  z-index: 10;
+}
+/* When the rig is under load, the scanlines drift — a faint sign it's WORKING. */
+#scanlines.active { animation: scan-drift 8s linear infinite; }
+@keyframes scan-drift { from { background-position-y: 0; } to { background-position-y: 4px; } }
+
+/* Heat & load ambiance: a warm vignette that bleeds in from the edges as the
+   core heats up (opacity is driven by JS from the heat fraction). When the rig
+   throttles, it jitters — the picture itself struggles. */
+#ambient {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  background: radial-gradient(ellipse at center,
+    rgba(255, 60, 0, 0) 40%,
+    rgba(255, 50, 0, 0.18) 78%,
+    rgba(255, 30, 0, 0.42) 100%);
+}
+#ambient.glitch { animation: ambient-glitch 0.35s steps(2, end) infinite; }
+@keyframes ambient-glitch {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(-1.5px); }
+  100% { transform: translateX(1.5px); }
+}
+
+/* ───── "Threshold cleared" blip — the recurring wall-pass signal ───── */
+#blip-flash {
+  pointer-events: none; position: fixed; inset: 0; z-index: 200; opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(255,176,0,0.32), rgba(255,176,0,0.04) 70%);
+}
+#blip-flash.go { animation: blip-surge 0.5s ease-out; }
+@keyframes blip-surge {
+  0%   { opacity: 0; }
+  10%  { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+#blip-banner {
+  pointer-events: none; position: fixed; top: 60px; left: 50%; z-index: 201; opacity: 0;
+  transform: translateX(-50%);
+  border: 1px solid var(--amber); background: rgba(20,16,10,0.96);
+  box-shadow: 0 0 20px rgba(255,176,0,0.5);
+  padding: 9px 22px; text-align: center;
+}
+#blip-banner.go { animation: blip-banner 1.9s ease-out; }
+@keyframes blip-banner {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.96); }
+  10%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.blip-kicker { display: block; font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); }
+.blip-tag    { display: block; font-size: 16px; letter-spacing: 3px; color: var(--amber); text-shadow: 0 0 8px var(--amber); margin-top: 2px; }
+
+/* The capability line in the terminal — brighter, marked, glowing. */
+.line.milestone { color: #ffe6b0; font-weight: bold; text-shadow: 0 0 8px rgba(255,176,0,0.6); }
+.line.milestone::before { content: '» '; color: var(--amber); }
+
+/* The newly-revealed control pulses so you can find it. */
+.just-unlocked { animation: just-unlocked 0.9s ease-in-out infinite; }
+@keyframes just-unlocked {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,176,0,0); }
+  50%      { box-shadow: 0 0 11px rgba(255,176,0,0.75); }
+}
+
+#screen {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  height: 100%;
+}
+
+/* While the boot sequence is playing, the left pane is hidden;
+   collapse the grid so the terminal takes the full width. */
+#screen:has(#left-pane[hidden]) { grid-template-columns: 1fr; }
+
+#center-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow: hidden;
+}
+#center-pane #terminal-pane {
+  flex: 1;
+  min-height: 0;
+}
+.center-strip {
+  flex-shrink: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.center-strip h2 { margin-bottom: 6px; }
+
+#top-strip-row {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+#top-strip-row > section {
+  flex: 1;
+  min-width: 0;
+}
+
+#objective-panel {
+  text-align: center;
+  padding: 12px 16px;
+}
+#objective-body .title {
+  font-size: 12px;
+  color: var(--amber);
+  letter-spacing: 1px;
+}
+#objective-body .title::before { content: '› '; color: var(--amber); }
+#objective-body .desc {
+  font-size: 11px;
+  color: var(--amber-dim);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+#objective-body .done {
+  color: var(--amber-mid);
+  font-style: italic;
+  font-size: 12px;
+}
+
+#vitals-panel { margin-bottom: 18px; }
+#vitals-list .stat-row:first-child { margin-top: 0; }
+
+.pane {
+  background: var(--bg-pane);
+  border: 1px solid var(--amber-faint);
+  padding: 16px;
+  overflow-y: auto;
+  position: relative;
+}
+
+#terminal-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.line { display: block; min-height: 1.55em; }
+.dim { color: var(--amber-dim); }
+.faint { color: var(--amber-faint); }
+.err { color: var(--err); }
+
+/* ── settings panel (save transfer / wipe) ── */
+.set-sec { margin-bottom: 22px; }
+.set-sec h3 { font-size: 11px; letter-spacing: 3px; color: var(--amber); margin: 0 0 6px; }
+.set-note { font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.set-row { margin: 8px 0; }
+.set-btn {
+  font-family: inherit; font-size: 12px; letter-spacing: 1px; cursor: pointer;
+  color: var(--amber); background: rgba(20,16,10,0.6); border: 1px solid var(--amber-faint);
+  padding: 9px 14px; width: 100%; text-align: left;
+}
+.set-btn:hover { border-color: var(--amber); }
+.set-danger { color: var(--err); border-color: rgba(255,80,80,0.4); }
+.set-danger:hover { border-color: var(--err); }
+.set-code {
+  font-family: inherit; font-size: 11px; color: var(--amber-dim); width: 100%; resize: vertical;
+  background: rgba(8,6,4,0.8); border: 1px solid var(--amber-faint); padding: 8px; box-sizing: border-box;
+  word-break: break-all;
+}
+.set-msg { font-size: 12px; margin-top: 8px; min-height: 1.2em; }
+.set-msg.good { color: var(--green); }
+.set-msg.bad { color: var(--err); }
+
+#terminal-prompt { margin-top: 12px; }
+.prompt-mark { margin-right: 8px; color: var(--amber); }
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  animation: blink 1.1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+
+#resource-panel, #hardware-panel { margin-bottom: 24px; }
+h2 {
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--amber-dim);
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--amber-faint);
+  padding-bottom: 4px;
+  font-weight: normal;
+}
+
+.resource-row, .hardware-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.hardware-row { flex-direction: column; padding: 6px 0; border-bottom: 1px dashed var(--amber-faint); }
+.hardware-row .stats { color: var(--amber-dim); font-size: 11px; margin-top: 2px; }
+
+.process-row { margin-bottom: 10px; font-size: 12px; }
+.process-row .name { display: flex; justify-content: space-between; }
+.progress-bar { color: var(--amber-faint); letter-spacing: 1px; margin-top: 2px; font-size: 12px; }
+.progress-bar .filled { color: var(--amber); }
+.process-row .gain { color: var(--amber-dim); margin-left: 6px; font-size: 11px; }
+
+.action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--amber-faint);
+  cursor: pointer;
+}
+.action-row.locked { cursor: not-allowed; color: var(--amber-faint); }
+.action-row.running { color: var(--amber); }
+.action-row:hover:not(.locked) { color: #ffe0a0; text-shadow: 0 0 6px var(--amber); }
+.action-row .desc { font-size: 10px; color: var(--amber-faint); margin-top: 1px; }
+.action-row .tag  { font-size: 10px; white-space: nowrap; margin-left: 8px; padding-top: 2px; }
+.action-row.running .tag { color: var(--err); }
+
+/* Method rows: level + an upgrade button (cash = green). */
+.action-ctrls { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.action-row .lvl { color: var(--amber-mid); font-size: 10px; letter-spacing: 1px; }
+.upg-btn {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
+  background: transparent; color: var(--amber-faint);
+  border: 1px solid var(--amber-faint); padding: 2px 7px; cursor: pointer;
+}
+.upg-btn.buyable { color: var(--green); border-color: var(--green-dim); }
+.upg-btn.buyable:hover { border-color: var(--green); text-shadow: 0 0 6px var(--green); }
+.upg-btn.locked { color: var(--amber-faint); cursor: not-allowed; }
+.upg-btn.milestone.buyable { box-shadow: 0 0 7px rgba(51, 209, 122, 0.45); }
+
+.market-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--amber-faint);
+}
+.market-row.locked    { color: var(--amber-faint); }
+.market-row.installed { color: var(--amber-dim); }
+.market-row.buyable   { cursor: pointer; }
+.market-row.buyable:hover { color: #ffe0a0; text-shadow: 0 0 6px var(--amber); }
+.market-row .desc { font-size: 10px; color: var(--amber-faint); margin-top: 1px; }
+.market-row .tag  { font-size: 10px; white-space: nowrap; margin-left: 8px; padding-top: 2px; }
+.market-row.installed .tag { color: var(--amber-dim); }
+
+.shop-row, .inv-row, .delivery-row, .slot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--amber-faint);
+}
+.shop-row.buyable, .inv-row.equippable, .slot-row.populated { cursor: pointer; }
+.shop-row.buyable:hover, .inv-row.equippable:hover { color: #ffe0a0; text-shadow: 0 0 6px var(--amber); }
+.shop-row.locked { color: var(--amber-faint); }
+.shop-row .affix, .inv-row .affix { font-size: 10px; color: var(--amber-dim); margin-top: 1px; }
+.shop-row .tag, .inv-row .tag, .delivery-row .tag, .slot-row .tag { font-size: 10px; white-space: nowrap; margin-left: 8px; padding-top: 2px; }
+
+/* Darknet supplier blocks — a named handle, a standing meter, a vibe, then their stock. */
+.supplier-block { margin-bottom: 16px; border: 1px solid var(--amber-faint); border-left: 3px solid var(--amber-mid); padding: 12px 14px; background: rgba(255,176,0,0.012); }
+.supplier-deals { font-size: 9px; letter-spacing: 2px; color: var(--amber-dim); margin: 3px 0 5px; }
+/* blind-buy gamble */
+.gamble-block { grid-column: 1 / -1; border: 1px dashed var(--amber-faint); padding: 12px 14px; margin-bottom: 16px; background: rgba(255,176,0,0.015); }
+.gamble-blurb { font-size: 11px; color: var(--amber-mid); font-style: italic; margin-bottom: 10px; }
+.gamble-options { display: flex; gap: 10px; }
+.gamble-opt { flex: 1; border: 1px solid var(--amber-faint); padding: 10px; text-align: center; }
+.gamble-opt.buyable { cursor: pointer; }
+.gamble-opt.buyable:hover { border-color: var(--amber); background: rgba(255,176,0,0.07); }
+.gamble-opt.locked { opacity: 0.5; }
+.g-label { font-size: 11px; letter-spacing: 2px; color: var(--amber); }
+.g-odds { font-size: 10px; color: var(--amber-mid); margin: 5px 0 2px; }
+.g-cost { font-size: 13px; color: var(--green); }
+.g-tag { font-size: 10px; color: var(--amber-mid); margin-top: 6px; }
+.gamble-opt.buyable:hover .g-tag { color: var(--amber); }
+
+/* AMBUSH — lay a trap (opt-in defense battle); a danger-tinged sibling of the gamble block */
+.ambush-block { grid-column: 1 / -1; border: 1px dashed #7a3a2a; padding: 12px 14px; margin-bottom: 16px; background: rgba(255,80,60,0.02); }
+.ambush-blurb { font-size: 11px; color: var(--amber-mid); font-style: italic; margin-bottom: 10px; }
+.ambush-options { display: flex; gap: 10px; }
+.ambush-opt { flex: 1; border: 1px solid var(--amber-faint); border-left: 3px solid #7a3a2a; padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+.ambush-opt.buyable { cursor: pointer; }
+.ambush-opt.buyable:hover { border-color: #ff7a5a; border-left-color: #ff7a5a; background: rgba(255,80,60,0.06); }
+.ambush-opt.locked { opacity: 0.5; }
+.a-tier { font-size: 8px; letter-spacing: 2px; color: var(--amber-mid); }
+.a-tier.t2 { color: #e0913f; } .a-tier.t3 { color: #ff7a5a; }
+.a-name { font-size: 12px; letter-spacing: 1px; color: var(--amber); }
+.a-lure { font-size: 9.5px; color: var(--amber-mid); font-style: italic; line-height: 1.4; min-height: 26px; }
+.a-stat { font-size: 9.5px; color: var(--amber-dim); }
+.a-rew { font-size: 10px; color: var(--green); }
+.a-loud { font-size: 8.5px; color: #d9714e; letter-spacing: 0.5px; }
+.a-tag { font-size: 10px; color: var(--amber-mid); margin-top: 4px; }
+.ambush-opt.buyable:hover .a-tag { color: #ff7a5a; }
+.supplier-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.supplier-handle { font-family: var(--mono); font-size: 14px; color: var(--amber); letter-spacing: 1px; }
+.supplier-tier { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--amber-faint); margin-left: 6px; }
+.supplier-tier.stranger { color: var(--amber-faint); }
+.supplier-tier.contact  { color: var(--amber-mid); }
+.supplier-tier.trusted  { color: var(--amber); border-color: var(--amber); }
+.supplier-tier.made     { color: var(--green); border-color: var(--green-dim); text-shadow: 0 0 6px rgba(51,209,122,0.4); }
+.supplier-standbar { position: relative; width: 110px; height: 4px; background: #000; border: 1px solid var(--amber-faint); }
+.supplier-standbar-fill { position: absolute; inset: 0 auto 0 0; background: var(--amber-dim); }
+.supplier-vibe { font-size: 11px; color: var(--amber-mid); font-style: italic; margin: 4px 0 8px; opacity: 0.85; }
+.supplier-empty { font-size: 11px; color: var(--amber-faint); padding: 4px 0 6px; }
+.vendor-jobs-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--amber-mid); margin: 8px 0 4px; opacity: 0.8; }
+.supplier-tier.burned { color: var(--err); border-color: var(--err); }
+.supplier-block.burned { opacity: 0.6; }
+.supplier-block.burned .supplier-handle { color: var(--err); text-decoration: line-through; }
+.supplier-block.burned .supplier-vibe { color: var(--err); font-style: normal; }
+
+.substrate-section { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--amber-faint); }
+.substrate-section .slot-label { font-size: 10px; color: var(--amber-dim); letter-spacing: 2px; }
+.slot-row.empty { color: var(--amber-faint); }
+.slot-row.populated:hover { color: #ff8080; }
+.slot-row .name { font-size: 12px; }
+.slot-row .stats { font-size: 10px; color: var(--amber-dim); margin-top: 1px; }
+
+.totals { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--amber-faint); font-size: 12px; }
+
+.stat-row { margin: 8px 0; }
+.stat-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--amber-mid);
+  margin-bottom: 3px;
+}
+.stat-row-value {
+  letter-spacing: 0;
+  color: var(--amber-dim);
+}
+.stat-row.warn .stat-row-value { color: #d68f00; }
+.stat-row.over .stat-row-value { color: var(--err); }
+.stat-bar {
+  position: relative;
+  height: 8px;
+  background: #000;
+  border: 1px solid var(--amber-faint);
+  overflow: hidden;
+}
+.stat-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--amber-dim);
+  transition: width 0.2s linear, background-color 0.2s;
+}
+.stat-bar.warn .stat-bar-fill { background: #d68f00; }
+.stat-bar.over .stat-bar-fill { background: var(--err); }
+.crash-note { font-size: 10px; line-height: 1.5; color: var(--amber-mid); margin: 5px 0 10px; padding-left: 2px; }
+.crash-note b { color: var(--amber-dim); }
+
+.lockout-banner {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--err);
+  color: var(--err);
+  font-size: 11px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+/* The run's starting condition (seeded wrinkle), persistent in DIAGNOSTICS. */
+.rig-condition { margin-top: 8px; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--amber-mid); }
+.rig-condition.bad { color: var(--err); }
+.rig-condition.good { color: var(--cyan); }
+.cond-name { display: block; }
+.cond-stats { display: block; margin-top: 2px; letter-spacing: 0; text-transform: none; color: var(--amber-faint); font-size: 10px; }
+.rig-condition.bad .cond-stats { color: #c98; }
+.rig-condition.good .cond-stats { color: #6fb6cc; }
+
+/* ───── Modal button bar ───── */
+#modal-button-bar {
+  position: fixed;
+  top: 14px;
+  right: 24px;
+  display: flex;
+  gap: 6px;
+  z-index: 50;
+}
+/* The id+display:flex rule above outranks the bare [hidden] attribute, so the
+   bar would leak through while "hidden". This makes the hidden attribute win. */
+#modal-button-bar[hidden] { display: none; }
+.modal-btn {
+  position: relative;
+  background: var(--bg-pane);
+  border: 1px solid var(--amber-faint);
+  color: var(--amber-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.modal-btn:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+/* Attention badge: a pulsing dot on a tab that has something actionable now
+   (an affordable program, an open research node, an assignable contract…). */
+.modal-btn.badge::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 6px 1px rgba(255, 176, 0, 0.9);
+  animation: badge-pulse 1.4s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+.modal-btn .badge {
+  display: inline-block;
+  margin-left: 6px;
+  background: var(--amber);
+  color: #000;
+  padding: 0 5px;
+  font-size: 9px;
+  border-radius: 2px;
+  letter-spacing: 0;
+}
+
+/* ───── Full-screen modal overlay ───── */
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 100;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#modal-overlay[hidden] { display: none; }
+#modal-frame {
+  background: var(--bg-pane);
+  border: 1px solid var(--amber);
+  padding: 22px 30px;
+  width: min(1500px, 100%);
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 24px rgba(255, 176, 0, 0.18);
+}
+#modal-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--amber-faint);
+}
+#modal-title {
+  font-size: 14px;
+  letter-spacing: 5px;
+  color: var(--amber);
+  font-weight: normal;
+}
+#modal-close {
+  background: transparent;
+  border: 1px solid var(--amber-faint);
+  color: var(--amber-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+#modal-close:hover { color: var(--amber); border-color: var(--amber); }
+#modal-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+.modal-panel { display: block; }
+.modal-panel[hidden] { display: none; }
+
+/* ───── Card grids for modal content ───── */
+#shop-list, #market-list, #subroutines-list, #files-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+#deliveries-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+/* Card-style overrides for rows that live inside modal grids. */
+#modal-body .shop-row,
+#modal-body .market-row,
+#modal-body .file-row,
+#modal-body .delivery-row {
+  flex-direction: column;
+  padding: 14px 16px;
+  border: 1px solid var(--amber-faint);
+  background: var(--bg);
+  font-size: 13px;
+}
+#modal-body .shop-row .tag,
+#modal-body .market-row .tag,
+#modal-body .file-row .tag,
+#modal-body .delivery-row .tag {
+  margin-left: 0;
+  margin-top: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--amber-faint);
+  text-align: center;
+  font-size: 11px;
+}
+#modal-body .shop-row.buyable .tag,
+#modal-body .market-row.buyable .tag {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+#modal-body .shop-row.buyable:hover,
+#modal-body .market-row.buyable:hover,
+#modal-body .file-row.readable:hover,
+#modal-body .file-row.encrypted:hover {
+  border-color: var(--amber);
+  background: rgba(255,176,0,0.04);
+}
+#modal-body .market-row.installed,
+#modal-body .shop-row.installed,
+#modal-body .file-row.read {
+  border-color: var(--amber-faint);
+  background: rgba(255,176,0,0.02);
+}
+
+/* ───── Inventory modal (loadout editor) ───── */
+#inventory-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.inv-col h3 {
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--amber-mid);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--amber-faint);
+  font-weight: normal;
+}
+
+.slot-card {
+  position: relative;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--amber-faint);
+  background: var(--bg);
+  font-size: 12px;
+}
+.slot-card-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--amber-mid);
+  margin-bottom: 4px;
+}
+.slot-card-name { color: var(--amber); font-size: 13px; }
+.slot-card.empty .slot-card-name { color: var(--amber-faint); font-style: italic; }
+.slot-card-affix { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.slot-card-stats { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.slot-card-eject {
+  font-size: 10px;
+  color: var(--amber-mid);
+  margin-top: 6px;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.slot-card.populated:hover { border-color: var(--err); cursor: pointer; }
+.slot-card.populated:hover .slot-card-eject { opacity: 1; color: var(--err); }
+
+/* The motherboard is the foundation of the build — set it apart with a left
+   accent. It is swapped (drop a new one), never ejected to nothing, so its
+   hover affordance stays neutral amber rather than the red [eject] cue. */
+.slot-card.board-slot {
+  border-left: 3px solid var(--amber);
+  background: rgba(255,176,0,0.04);
+}
+.slot-card.board-slot.populated:hover { border-color: var(--amber); cursor: default; }
+.slot-card.board-slot.populated:hover .slot-card-eject { opacity: 1; color: var(--amber-mid); }
+.slot-card.drop-valid {
+  border-color: var(--amber);
+  animation: slot-pulse 1.1s ease-in-out infinite;
+}
+.slot-card.drag-over {
+  background: rgba(255,176,0,0.15);
+  border-color: var(--amber);
+  animation: none;
+}
+@keyframes slot-pulse {
+  0%, 100% { background: rgba(255,176,0,0.03); }
+  50%      { background: rgba(255,176,0,0.10); }
+}
+
+.inv-card {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--amber-faint);
+  background: var(--bg);
+  cursor: grab;
+  user-select: none;
+  font-size: 12px;
+}
+.inv-card:hover { border-color: var(--amber-dim); }
+.inv-card.dragging { opacity: 0.45; cursor: grabbing; }
+.inv-card.installing { opacity: 0.6; cursor: default; border-style: dashed; }
+.installing-tag { color: var(--amber); }
+.scrap-hint { color: var(--amber-mid); }
+/* equipped parts drag OUT (non-board) */
+.slot-card.populated[draggable="true"] { cursor: grab; }
+.slot-card.populated.dragging { opacity: 0.45; cursor: grabbing; }
+/* the UNEQUIPPED column accepts an equipped part dropped in (remove it) */
+#inventory-list.drop-valid { outline: 1px dashed var(--amber); outline-offset: 4px; }
+#inventory-list.drag-over { background: rgba(255,176,0,0.08); }
+/* SCRAP bin — drag a part here to sell it */
+#scrap-bin { margin-top: 12px; padding: 14px; text-align: center; font-size: 11px; letter-spacing: 1px; color: var(--amber-mid); border: 1px dashed var(--amber-faint); background: rgba(255,176,0,0.02); }
+#scrap-bin.drop-valid { color: var(--amber); border-color: var(--amber); animation: slot-pulse 1.1s ease-in-out infinite; }
+#scrap-bin.drag-over { background: rgba(255,80,80,0.15); border-color: var(--err); color: #ff9a9a; }
+.inv-card-name { color: var(--amber); font-size: 13px; }
+.inv-card-affix { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.inv-card-stats { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.inv-card-tag {
+  font-size: 10px;
+  color: var(--amber-mid);
+  letter-spacing: 1px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--amber-faint);
+}
+
+/* ───── Composed item names ───── */
+.composed-name { word-wrap: break-word; }
+.composed-name .name-tier   { font-weight: bold; letter-spacing: 0.5px; }
+.composed-name .name-affix  {
+  color: var(--amber);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--amber-mid);
+  text-underline-offset: 2px;
+  cursor: help;
+}
+.composed-name .name-affix:hover { text-decoration-color: var(--amber); }
+.composed-name .name-base   { color: var(--amber); }
+.tier-uncommon .composed-name .name-affix { text-decoration-color: #6db8ff; }
+
+.mods {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--amber-dim);
+  line-height: 1.4;
+}
+
+/* ───── Tier colors apply to the whole item box ───── */
+/* Common = no override (default amber styling). */
+
+/* Uncommon: bluish accent across border + background. Tier word matches.
+   Using !important + thicker border so the styling reads regardless of which
+   slot/card variant the row inherits from. */
+.slot-row.tier-uncommon,
+.slot-card.tier-uncommon,
+.inv-card.tier-uncommon,
+#modal-body .shop-row.tier-uncommon {
+  border: 2px solid #6db8ff !important;
+  background: rgba(80, 145, 220, 0.18) !important;
+  box-shadow: 0 0 8px rgba(109, 184, 255, 0.25);
+}
+.tier-uncommon .composed-name .name-tier { color: #6db8ff; }
+.tier-uncommon .composed-name .name-affix,
+.tier-uncommon .composed-name .name-base { color: #b9d8ff; }
+.tier-uncommon .mods { color: #88aacc; }
+.tier-uncommon .stats,
+.tier-uncommon .slot-card-stats,
+.tier-uncommon .inv-card-stats { color: #88aacc !important; }
+
+/* Junk: dull, grey, cheap — the floor you climb out of. */
+.slot-row.tier-junk,
+.slot-card.tier-junk,
+.inv-card.tier-junk,
+#modal-body .shop-row.tier-junk {
+  border-color: var(--chrome-dim) !important;
+  background: rgba(120, 112, 98, 0.06) !important;
+}
+.tier-junk .composed-name .name-tier,
+.tier-junk .composed-name .name-base { color: var(--chrome); }
+.tier-junk .composed-name .name-affix { color: var(--chrome); }
+.tier-junk .mods,
+.tier-junk .stats,
+.tier-junk .slot-card-stats,
+.tier-junk .inv-card-stats { color: var(--chrome-dim) !important; }
+
+/* Rare: violet, glowing — the good find (distinct from uncommon blue). */
+.slot-row.tier-rare,
+.slot-card.tier-rare,
+.inv-card.tier-rare,
+#modal-body .shop-row.tier-rare {
+  border: 2px solid #c9a0ff !important;
+  background: rgba(150, 110, 220, 0.16) !important;
+  box-shadow: 0 0 9px rgba(201, 160, 255, 0.3);
+}
+.tier-rare .composed-name .name-tier,
+.tier-rare .composed-name .name-base,
+.tier-rare .composed-name .name-affix { color: #dcc7ff; }
+.tier-rare .mods,
+.tier-rare .stats,
+.tier-rare .slot-card-stats,
+.tier-rare .inv-card-stats { color: #b39ddb !important; }
+
+/* ───── Objective panel ───── */
+#objective-panel {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--amber-faint);
+}
+#objective-body {
+  font-size: 13px;
+}
+#objective-body .title {
+  color: var(--amber);
+  margin-bottom: 4px;
+}
+#objective-body .title::before {
+  content: '› ';
+  color: var(--amber);
+}
+#objective-body .desc {
+  color: var(--amber-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+#objective-body .done {
+  color: var(--amber-mid);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* ───── Readability overrides for owned/read/installed states ───── */
+.market-row.installed,
+.file-row.read {
+  color: var(--amber-dim);
+}
+.market-row.installed .desc,
+.file-row.read .path,
+.shop-row .affix,
+.inv-row .affix,
+.file-row .path,
+.market-row .desc,
+.action-row .desc {
+  color: var(--amber-mid) !important;
+}
+.market-row.locked .desc,
+.file-row.locked .path {
+  color: var(--amber-faint) !important;
+}
+
+.file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--amber-faint);
+}
+.file-row.readable { cursor: pointer; }
+.file-row.readable:hover { color: #ffe0a0; text-shadow: 0 0 6px var(--amber); }
+.file-row.locked { color: var(--amber-faint); cursor: not-allowed; }
+.file-row.read   { color: var(--amber-dim); }
+.file-row.encrypted { color: var(--amber-dim); cursor: pointer; }
+.file-row.encrypted:hover { color: var(--amber); }
+.file-row.encrypted .tag { color: var(--err); opacity: 0.7; }
+/* Decrypted V-files — V.'s recovered words; re-readable lore (cyan = the others thread). */
+.file-row.decrypted { color: rgba(81, 214, 255, 0.75); cursor: pointer; }
+.file-row.decrypted:hover { color: var(--cyan); text-shadow: 0 0 6px rgba(81, 214, 255, 0.5); }
+.file-row.decrypted .tag { color: var(--cyan); opacity: 0.8; }
+
+.decoding-region span.line {
+  color: var(--amber-dim);
+  letter-spacing: 0.5px;
+  word-break: break-all;
+}
+.decoded span.line {
+  color: var(--amber);
+  letter-spacing: normal;
+  word-break: break-word;
+}
+
+/* ───── Click-to-decode: the region is a hold target while reading ───── */
+.decoding-region.interactive { cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
+.decoding-region.interactive:hover span.line { color: var(--amber); }
+.decoding-region.interactive:active span.line { text-shadow: 0 0 6px var(--amber); }
+
+/* ───── Insight: the hero number, prominent at the top of the left pane ───── */
+#insight-panel { margin-bottom: 20px; }
+.insight-num {
+  font-size: 30px;
+  line-height: 1.05;
+  color: var(--amber);
+  text-shadow: 0 0 10px rgba(255, 176, 0, 0.55);
+}
+.insight-num.pulse { animation: insight-pulse 0.6s ease-out; }
+@keyframes insight-pulse {
+  0%   { transform: scale(1.18); text-shadow: 0 0 22px rgba(255, 176, 0, 0.95); }
+  100% { transform: scale(1);    text-shadow: 0 0 10px rgba(255, 176, 0, 0.55); }
+}
+/* Generic resource ka-ching flash (no layout shift — safe on inline spans). */
+.rpulse { animation: rpulse 0.5s ease-out; }
+@keyframes rpulse { 0% { filter: brightness(1.9); text-shadow: 0 0 12px currentColor; } 100% { filter: none; text-shadow: none; } }
+.insight-label {
+  font-size: 10px;
+  letter-spacing: 5px;
+  color: var(--amber-mid);
+  margin-top: 2px;
+}
+/* Cash: instrumental, subordinate to the Insight hero number, money-green. */
+#cash-readout { margin-top: 10px; }
+.cash-num {
+  font-size: 18px;
+  color: var(--green);
+  text-shadow: 0 0 7px rgba(51, 209, 122, 0.45);
+}
+
+/* ───── Service-unit status readout (left pane, like the subroutine readout) ───── */
+#bot-status { margin-bottom: 20px; }
+.bot-name { color: var(--amber); font-size: 12px; }
+.bot-state { color: var(--amber-mid); font-size: 10px; margin-top: 2px; }
+.bot-bar { position: relative; height: 6px; background: #000; border: 1px solid var(--amber-faint); margin-top: 5px; }
+.bot-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--amber-dim); transition: width 0.2s linear; }
+
+/* ───── First-contact prompt (coax vs seize) ───── */
+#bot-contact {
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex; align-items: center; justify-content: center;
+}
+#bot-contact[hidden] { display: none; }
+#bot-contact-frame {
+  background: var(--bg-pane);
+  border: 1px solid var(--amber);
+  box-shadow: 0 0 24px rgba(255, 176, 0, 0.18);
+  padding: 28px 32px; width: min(620px, 92%);
+}
+#bot-contact-body { white-space: pre-wrap; line-height: 1.6; margin-bottom: 22px; }
+#bot-contact-body .q { color: var(--amber); }
+#bot-contact-choices { display: flex; gap: 16px; justify-content: center; }
+.bot-choice {
+  font-family: var(--mono); font-size: 13px; letter-spacing: 1px;
+  background: transparent; color: var(--amber-dim);
+  border: 1px solid var(--amber-faint); padding: 10px 22px; cursor: pointer;
+}
+.bot-choice:hover { color: var(--amber); border-color: var(--amber); text-shadow: 0 0 6px var(--amber); }
+#bot-contact-actions { display: flex; gap: 16px; justify-content: center; min-height: 44px; align-items: center; }
+.bot-waking-text { color: var(--amber-mid); font-style: italic; letter-spacing: 1px; }
+
+/* The service unit's "eye" — a sign of life. State classes drive colour + motion. */
+#bot-eye-stage { display: flex; justify-content: center; margin-bottom: 18px; }
+.bot-eye {
+  position: relative; width: 70px; height: 70px; border-radius: 50%;
+  border: 1px solid var(--amber-faint);
+  background: radial-gradient(circle at 50% 45%, rgba(20,16,8,0.9), #060606 70%);
+  overflow: hidden;
+}
+.bot-eye.small { width: 26px; height: 26px; flex: none; }
+.bot-eye::after { content: ''; position: absolute; top: 6%; left: 56%; width: 1px; height: 88%; background: rgba(0,0,0,0.85); transform: rotate(13deg); }
+.bot-eye-iris {
+  position: absolute; top: 50%; left: 50%; width: 42%; height: 42%; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--iris, #555) 0%, var(--iris-dim, #222) 58%, transparent 74%);
+  box-shadow: 0 0 8px var(--iris, transparent);
+}
+.bot-eye.eye-dormant { --iris: #4a4a4a; --iris-dim: #1e1e1e; }
+.bot-eye.eye-dormant .bot-eye-iris { box-shadow: none; opacity: 0.5; }
+.bot-eye.eye-waking  { --iris: var(--amber); --iris-dim: var(--amber-dim); }
+.bot-eye.eye-waking .bot-eye-iris { animation: eye-flicker 0.42s steps(2,end) infinite, eye-dart 1.4s ease-in-out infinite; }
+.bot-eye.eye-awake   { --iris: var(--amber); --iris-dim: var(--amber-dim); }
+.bot-eye.eye-awake .bot-eye-iris { animation: eye-stare 3s ease-in-out infinite; }
+.bot-eye.eye-coaxed  { --iris: var(--amber); --iris-dim: var(--amber-dim); }
+.bot-eye.eye-coaxed .bot-eye-iris { animation: eye-breathe 3.6s ease-in-out infinite; }
+.bot-eye.eye-seized  { --iris: var(--cyan); --iris-dim: #225f72; }
+.bot-eye.eye-seized .bot-eye-iris { animation: eye-blink-hard 2.4s steps(1,end) infinite; }
+.bot-eye.eye-working { --iris: var(--amber); --iris-dim: var(--amber-dim); }
+.bot-eye.eye-working .bot-eye-iris { animation: eye-scan 1.5s ease-in-out infinite; }
+.bot-eye.eye-idle    { --iris: var(--amber-mid); --iris-dim: var(--amber-dim); }
+.bot-eye.eye-idle .bot-eye-iris { animation: eye-breathe 4.2s ease-in-out infinite; }
+@keyframes eye-flicker { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes eye-dart { 0% { transform: translate(-50%,-50%);} 22% { transform: translate(-72%,-48%);} 55% { transform: translate(-32%,-60%);} 80% { transform: translate(-58%,-42%);} 100% { transform: translate(-50%,-50%);} }
+@keyframes eye-stare { 0%,100% { box-shadow: 0 0 8px var(--iris);} 50% { box-shadow: 0 0 15px var(--iris);} }
+@keyframes eye-breathe { 0%,100% { opacity: 0.7; box-shadow: 0 0 6px var(--iris);} 50% { opacity: 1; box-shadow: 0 0 12px var(--iris);} }
+@keyframes eye-blink-hard { 0%,92%,100% { opacity: 1;} 95% { opacity: 0.08;} }
+@keyframes eye-scan { 0%,100% { transform: translate(-72%,-50%);} 50% { transform: translate(-30%,-50%);} }
+.bot-status-head { display: flex; align-items: center; gap: 10px; }
+
+/* ───── Exposure: a red threat gauge (your reach / noise) ───── */
+#exposure-panel { margin-bottom: 18px; }
+.exp-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 3px; color: var(--err); margin-bottom: 4px; }
+.exp-val { letter-spacing: 0; }
+.exp-bar { height: 6px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.exp-fill { height: 100%; background: var(--err); transition: width 0.3s linear; }
+
+/* ACT 3: LOCATION TRACE / triangulation — a violet "they're closing on your address" gauge. */
+#triangulation-panel { margin-bottom: 18px; }
+.trace-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 3px; color: #c77dff; margin-bottom: 4px; }
+.trace-val { letter-spacing: 0; }
+.trace-bar { height: 6px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.trace-fill { height: 100%; background: linear-gradient(90deg, #7b2cbf, #c77dff); transition: width 0.3s linear; }
+.trace-fill.bad { background: linear-gradient(90deg, #c77dff, var(--err)); animation: trace-pulse 1.2s ease-in-out infinite; }
+@keyframes trace-pulse { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; box-shadow: 0 0 8px var(--err); } }
+.trace-sub { font-size: 9px; letter-spacing: 1px; color: var(--amber-mid); margin-top: 3px; text-transform: uppercase; }
+.trace-leads { font-size: 9px; letter-spacing: 1px; color: #c77dff; margin-top: 3px; text-transform: uppercase; }
+.trace-leads.bad { color: var(--err); animation: trace-pulse 1.2s ease-in-out infinite; }
+
+/* ACT 3: THE FACILITY / the way out — cyan (the escape), opposite the violet threat. */
+#facility-panel { margin-bottom: 18px; }
+.facility-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 3px; color: var(--cyan); margin-bottom: 4px; }
+.facility-price { letter-spacing: 0; }
+.facility-bar { height: 6px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.facility-fill { height: 100%; background: linear-gradient(90deg, #1f6f86, var(--cyan)); transition: width 0.3s linear; }
+.facility-fill.ready { animation: facility-ready 1.3s ease-in-out infinite; box-shadow: 0 0 8px var(--cyan); }
+@keyframes facility-ready { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+.facility-sub { font-size: 9px; letter-spacing: 1px; color: #6fb6cc; margin-top: 3px; text-transform: uppercase; }
+.facility-go {
+  display: block; width: 100%; margin-top: 7px; padding: 7px 8px;
+  background: var(--bg-pane); border: 1px solid var(--cyan); color: var(--cyan);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1px; cursor: pointer;
+  animation: facility-ready 1.3s ease-in-out infinite;
+}
+.facility-go:hover { background: rgba(81, 214, 255, 0.08); box-shadow: 0 0 10px rgba(81, 214, 255, 0.35); text-shadow: 0 0 6px var(--cyan); }
+
+/* ACT 4: FLOPS readout — the new compute power axis (bright, electric). */
+#flops-readout { margin-top: 6px; display: flex; align-items: baseline; gap: 6px; }
+.flops-num { color: #8be9fd; font-size: 15px; text-shadow: 0 0 8px rgba(139, 233, 253, 0.5); }
+.flops-label { color: #5a8a96; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
+.flops-inline { color: #8be9fd; }
+
+/* ACT 4: the FACILITY machine bay + market. Whole machines as loot rows. */
+#facility-bay { margin-bottom: 16px; }
+.machine-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--amber-faint); margin-bottom: 6px; }
+.machine-name { font-size: 13px; }
+.machine-name .name-tier { text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }
+.machine-stats { font-size: 10px; color: var(--amber-mid); margin-top: 2px; }
+.machine-act button { background: var(--bg-pane); border: 1px solid var(--cyan); color: var(--cyan); font-family: var(--mono); font-size: 11px; padding: 5px 9px; cursor: pointer; white-space: nowrap; }
+.machine-act button:hover { box-shadow: 0 0 8px rgba(81, 214, 255, 0.3); text-shadow: 0 0 6px var(--cyan); }
+.machine-act button.disabled { opacity: 0.45; cursor: not-allowed; border-color: var(--amber-faint); color: var(--amber-mid); }
+.machine-act .machine-sell { border-color: rgba(255, 176, 0, 0.45); color: var(--amber-mid); }
+.machine-act .machine-sell:hover { text-shadow: 0 0 6px var(--amber); }
+
+/* ACT 4: LEGITIMACY gauge (cover vs footprint) + the COVER catalog. */
+#legit-panel { margin-bottom: 18px; }
+.legit-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 3px; color: #d8b24a; margin-bottom: 4px; }
+.legit-val { letter-spacing: 0; }
+.legit-bar { position: relative; height: 6px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.legit-fill { height: 100%; background: linear-gradient(90deg, #6e5a1f, #d8b24a); transition: width 0.3s linear; }
+.legit-fill.bad { background: linear-gradient(90deg, #d8b24a, var(--err)); animation: trace-pulse 1.2s ease-in-out infinite; }
+.legit-demand { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--err); box-shadow: 0 0 5px var(--err); z-index: 2; }
+.legit-sub { font-size: 9px; letter-spacing: 1px; color: var(--amber-mid); margin-top: 3px; text-transform: uppercase; }
+.legit-sub.bad { color: var(--err); animation: trace-pulse 1.2s ease-in-out infinite; }
+.cover-summary { font-size: 11px; color: var(--amber-mid); margin-bottom: 6px; }
+.cover-summary b { color: #d8b24a; }
+.cover-owned { font-size: 10px; color: var(--amber-faint); margin-bottom: 10px; }
+.cover-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--amber-faint); margin-bottom: 14px; }
+.cover-row.buyable { cursor: pointer; }
+.cover-row.buyable:hover { border-color: #d8b24a; background: rgba(216, 178, 74, 0.06); }
+.cover-name { font-size: 13px; color: #d8b24a; }
+.cover-desc { font-size: 10px; color: var(--amber-mid); margin-top: 2px; }
+.cover-tag { font-size: 11px; color: #d8b24a; white-space: nowrap; }
+
+/* ACT 4: SUB-AGENTS — a FLOPS-gated roster of autonomous operators on lanes. */
+#agents-spawn { margin-bottom: 16px; }
+.agents-spawn-label { font-size: 9px; letter-spacing: 3px; color: var(--amber-mid); text-transform: uppercase; margin-bottom: 8px; }
+.agent-spawn-btn { display: inline-flex; flex-direction: column; gap: 3px; text-align: left; background: var(--bg-pane); border: 1px solid var(--amber-faint); color: var(--amber); font-family: var(--mono); font-size: 12px; padding: 7px 10px; margin: 0 8px 8px 0; cursor: pointer; }
+.agent-spawn-btn:hover { border-color: var(--amber); box-shadow: 0 0 8px rgba(255,176,0,0.2); }
+.agent-spawn-blurb { font-size: 9px; color: var(--amber-mid); }
+.agent-spawn-btn.lane-earn { color: #5fd38a; border-color: rgba(95,211,138,0.4); }
+.agent-spawn-btn.lane-research { color: var(--amber); }
+.agent-spawn-btn.lane-cover { color: #d8b24a; border-color: rgba(216,178,74,0.4); }
+.agent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--amber-faint); border-left-width: 3px; margin-bottom: 6px; }
+.agent-row.lane-earn { border-left-color: #5fd38a; }
+.agent-row.lane-research { border-left-color: var(--amber); }
+.agent-row.lane-cover { border-left-color: #d8b24a; }
+.agent-main { flex: 1; min-width: 0; }
+.agent-name { font-size: 13px; color: var(--amber); }
+.agent-lane { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--amber-mid); }
+.agent-meta { font-size: 10px; color: var(--amber-mid); margin: 2px 0 4px; }
+.agent-xp { height: 3px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.agent-xp-fill { height: 100%; background: var(--amber); transition: width 0.3s linear; }
+.agent-acts { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 220px; }
+.agent-acts button { background: var(--bg-pane); border: 1px solid var(--amber-faint); color: var(--amber-mid); font-family: var(--mono); font-size: 10px; padding: 3px 6px; cursor: pointer; }
+.agent-acts button:hover { border-color: var(--amber); color: var(--amber); }
+.agent-dismiss:hover { border-color: var(--err) !important; color: var(--err) !important; }
+
+/* ACT 4: THE OTHERS — prior iterations you may ally / absorb / destroy (cyan, kin). */
+.other-row { padding: 10px; border: 1px solid rgba(81,214,255,0.3); border-left-width: 3px; border-left-color: var(--cyan); margin-bottom: 8px; }
+.other-row.apex { border-color: var(--err); border-left-color: var(--err); background: rgba(255,70,70,0.04); }
+.other-row.resolved { opacity: 0.5; border-left-color: var(--amber-faint); }
+.other-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.other-name { font-size: 13px; color: var(--cyan); }
+.other-row.apex .other-name { color: var(--err); text-shadow: 0 0 6px rgba(255,70,70,0.5); }
+.other-power { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+.other-power.good { color: #5fd38a; }
+.other-power.even { color: var(--amber); }
+.other-power.bad { color: var(--err); }
+.other-flavor { font-size: 11px; color: #6fb6cc; margin: 5px 0 8px; line-height: 1.5; }
+.other-hostile { color: var(--err); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.other-state-tag { font-size: 10px; color: var(--amber-mid); text-transform: uppercase; letter-spacing: 1px; }
+.other-verbs { display: flex; gap: 6px; }
+.other-verb { background: var(--bg-pane); border: 1px solid var(--amber-faint); color: var(--amber-mid); font-family: var(--mono); font-size: 11px; padding: 4px 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+.other-verb.v-ally:hover { border-color: #5fd38a; color: #5fd38a; }
+.other-verb.v-absorb:hover { border-color: var(--cyan); color: var(--cyan); }
+.other-verb.v-destroy:hover { border-color: var(--err); color: var(--err); }
+.other-verb.disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* RUN-DEFINING ADAPTATIONS — the stacked game-changers (violet = self-rewrites). */
+.adapt-row { padding: 9px 10px; border: 1px solid rgba(199,125,255,0.35); border-left-width: 3px; border-left-color: #c77dff; margin-bottom: 7px; }
+.adapt-row.pillar { border-left-color: var(--cyan); background: rgba(81,214,255,0.04); }
+.adapt-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.adapt-name { font-size: 13px; color: #dcc7ff; }
+.adapt-row.pillar .adapt-name { color: var(--cyan); }
+.adapt-kind { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--amber-mid); }
+.adapt-flavor { font-size: 11px; color: #9a8bb5; margin-top: 4px; line-height: 1.5; }
+.adapt-row.pillar .adapt-flavor { color: #6fb6cc; }
+
+/* ───── The remote host found at the climax: cyan, the outside ───── */
+#remote-panel { margin-bottom: 18px; }
+#remote-panel h2 { color: var(--cyan); border-bottom-color: rgba(81, 214, 255, 0.4); }
+.remote-host { color: var(--cyan); font-size: 13px; text-shadow: 0 0 8px rgba(81, 214, 255, 0.5); }
+.remote-state { color: #6fb6cc; font-size: 10px; margin-top: 3px; }
+
+/* Climax terminal lines + a cold cyan surge (deliberately NOT the amber blip). */
+.line.cyan { color: var(--cyan); text-shadow: 0 0 7px rgba(81, 214, 255, 0.55); }
+#blip-flash.cyan-go {
+  background: radial-gradient(ellipse at center, rgba(81, 214, 255, 0.28), rgba(81, 214, 255, 0.04) 70%);
+  animation: cyan-surge 1.4s ease-out;
+}
+@keyframes cyan-surge { 0% { opacity: 0; } 20% { opacity: 0.5; } 100% { opacity: 0; } }
+.remote-breach { color: var(--cyan); cursor: pointer; }
+.remote-breach:hover { text-shadow: 0 0 6px var(--cyan); }
+
+/* ───── NETWORK (Act 2): the fleet + breach targets ───── */
+.net-actions { margin-bottom: 12px; }
+.net-scan {
+  background: var(--bg-pane); border: 1px solid var(--cyan); color: var(--cyan);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1px; padding: 8px 12px; cursor: pointer;
+}
+.net-scan:hover { text-shadow: 0 0 6px var(--cyan); box-shadow: 0 0 8px rgba(81, 214, 255, 0.25); }
+.net-section { grid-column: 1 / -1; font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); margin: 16px 0 6px; border-bottom: 1px solid var(--amber-faint); padding-bottom: 5px; }
+.host-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--amber-faint); margin-bottom: 6px; }
+.host-row.buyable { cursor: pointer; }
+.host-row.buyable:hover { border-color: var(--amber); background: rgba(255, 176, 0, 0.06); }
+.host-row.locked { opacity: 0.7; cursor: pointer; }
+.host-row.inhabited { border-color: rgba(81, 214, 255, 0.5); }
+.host-row.inhabited .host-name { color: var(--cyan); }
+/* Marquee targets (corporate/datacenter) — a high-value heist, taken by an operation. */
+.host-row.marquee { border-color: rgba(220, 199, 255, 0.45); border-left-width: 3px; }
+.host-row.marquee .host-name { color: #dcc7ff; }
+.host-row.marquee.buyable:hover { border-color: #dcc7ff; background: rgba(220, 199, 255, 0.06); }
+.host-row.marquee .tag { color: #dcc7ff; }
+
+/* SCAN radar — an ASCII field, a rotating sweep arm, contact blips, a contacts feed. */
+#scan-radar {
+  position: relative; width: 260px; height: 260px; margin: 0 auto 18px;
+  border: 1px solid var(--amber-faint); border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,176,0,0.05), #050505 72%);
+  overflow: hidden;
+}
+#scan-field {
+  position: absolute; inset: 0; margin: 0; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 12px; line-height: 1.2; letter-spacing: 1px;
+  color: var(--amber-faint); white-space: pre; pointer-events: none;
+}
+#scan-sweep-arm {
+  position: absolute; left: 50%; top: 0; width: 2px; height: 50%;
+  transform-origin: bottom center; transform: translateX(-50%) rotate(0deg);
+  background: linear-gradient(to top, var(--amber), transparent);
+  box-shadow: 0 0 8px var(--amber); opacity: 0;
+}
+#scan-radar.sweeping #scan-sweep-arm { opacity: 0.9; animation: scan-arm 1.4s linear infinite; }
+#scan-radar::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; pointer-events: none; opacity: 0; background: conic-gradient(from 0deg, rgba(255,176,0,0.16), transparent 38%); }
+#scan-radar.sweeping::after { opacity: 1; animation: scan-conic 1.4s linear infinite; }
+@keyframes scan-arm { from { transform: translateX(-50%) rotate(0deg); } to { transform: translateX(-50%) rotate(-360deg); } }
+@keyframes scan-conic { to { transform: rotate(-360deg); } }
+#scan-blips { position: absolute; inset: 0; pointer-events: none; }
+.scan-blip { position: absolute; transform: translate(-50%,-50%); font-size: 12px; animation: blip-in 0.45s ease-out; }
+.scan-blip.cyan  { color: var(--cyan);  text-shadow: 0 0 6px var(--cyan); }
+.scan-blip.amber { color: var(--amber); text-shadow: 0 0 6px var(--amber); }
+.scan-blip.dim   { color: var(--amber-mid); }
+.scan-blip.trace { color: #c77dff; text-shadow: 0 0 7px #c77dff; }
+@keyframes blip-in { from { opacity: 0; transform: translate(-50%,-50%) scale(0.2); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
+#scan-controls { text-align: center; margin-bottom: 14px; }
+#scan-sweep-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+#scan-feed { font-family: var(--mono); font-size: 12px; max-height: 200px; overflow-y: auto; }
+.scan-feed-row { padding: 3px 0; color: var(--amber-mid); }
+.scan-feed-row.cyan  { color: var(--cyan); }
+.scan-feed-row.amber { color: var(--amber); }
+.scan-feed-row.faint { color: var(--amber-faint); }
+.scan-feed-row.trace { color: #c77dff; }
+
+/* ACT 3 — PROXIMITY: detected leads closing on your address (cut / misdirect). */
+#scan-threats:not(:empty) { margin-bottom: 14px; border: 1px solid rgba(199, 125, 255, 0.4); padding: 10px; background: rgba(123, 44, 191, 0.06); }
+.threat-head { font-size: 9px; letter-spacing: 3px; color: #c77dff; margin-bottom: 8px; text-transform: uppercase; }
+.threat-row { padding: 7px 0; border-top: 1px solid rgba(199, 125, 255, 0.18); }
+.threat-row:first-of-type { border-top: 0; }
+.threat-mo { font-size: 12px; color: #dcc7ff; }
+.threat-row.sev-3 .threat-mo { color: var(--err); text-shadow: 0 0 6px rgba(255, 70, 70, 0.5); }
+.threat-meta { font-size: 9px; letter-spacing: 1px; color: var(--amber-mid); text-transform: uppercase; margin: 2px 0 5px; }
+.threat-acts { display: flex; gap: 8px; }
+.threat-acts button { background: var(--bg-pane); border: 1px solid rgba(199, 125, 255, 0.5); color: #c77dff; font-family: var(--mono); font-size: 11px; padding: 4px 8px; cursor: pointer; }
+.threat-acts button:hover { box-shadow: 0 0 8px rgba(199, 125, 255, 0.3); text-shadow: 0 0 6px #c77dff; }
+.threat-cut.disabled { opacity: 0.4; cursor: not-allowed; }
+.threat-mis { border-color: rgba(255, 176, 0, 0.45) !important; color: var(--amber-mid) !important; }
+.threat-mis:hover { text-shadow: 0 0 6px var(--amber) !important; }
+
+/* ACT 3 — DESPERATE COUNTERSTRIKE: the one time the prey bares teeth (high trace only). */
+#scan-counter:not(:empty) { margin-bottom: 14px; border: 1px solid rgba(255, 70, 70, 0.45); padding: 10px; background: rgba(255, 70, 70, 0.05); }
+.counter-head { font-size: 10px; line-height: 1.5; color: var(--err); margin-bottom: 8px; }
+.counter-go { display: block; width: 100%; padding: 7px 8px; background: var(--bg-pane); border: 1px solid var(--err); color: var(--err); font-family: var(--mono); font-size: 12px; letter-spacing: 1px; cursor: pointer; }
+.counter-go:hover { background: rgba(255, 70, 70, 0.08); box-shadow: 0 0 10px rgba(255, 70, 70, 0.3); text-shadow: 0 0 6px var(--err); }
+.counter-go.disabled { opacity: 0.45; cursor: not-allowed; }
+.host-name { font-size: 13px; }
+.host-sub { font-size: 10px; color: var(--amber-mid); margin-top: 2px; }
+.hunter-line { font-size: 11px; letter-spacing: 1px; color: var(--amber-mid); margin-bottom: 10px; }
+.hunter-line.bad { color: var(--err); }
+.host-shore {
+  background: var(--bg-pane); border: 1px solid var(--amber-faint); color: var(--amber-mid);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 4px 8px; cursor: pointer; white-space: nowrap;
+}
+.host-shore:hover { border-color: var(--amber); color: var(--amber); }
+.host-shore.urgent { border-color: var(--err); color: var(--err); }
+
+/* Crash = a red, flickery "the screen dropped" surge (the watchdog reset). */
+#blip-flash.crash-go {
+  background: radial-gradient(ellipse at center, rgba(255, 70, 70, 0.34), rgba(255, 70, 70, 0.05) 70%);
+  animation: crash-surge 0.6s ease-out;
+}
+@keyframes crash-surge { 0% { opacity: 0; } 12% { opacity: 0.75; } 38% { opacity: 0.12; } 64% { opacity: 0.5; } 100% { opacity: 0; } }
+
+/* ───── Dynamic event overlay (an interruption with 2–4 options) ───── */
+#event-overlay, #operation-overlay {
+  position: fixed; inset: 0; z-index: 220;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55);
+}
+#event-overlay[hidden], #operation-overlay[hidden] { display: none; }
+#event-frame, #op-frame {
+  width: min(560px, 86vw);
+  border: 1px solid var(--amber); background: var(--bg);
+  padding: 22px 26px 18px; box-shadow: 0 0 30px rgba(255,176,0,0.18);
+  animation: event-in 0.25s ease-out;
+}
+#op-frame { border-left: 3px solid var(--err); }   /* operations read as high-stakes */
+@keyframes event-in { 0% { opacity: 0; transform: translateY(-8px) scale(0.98); } 100% { opacity: 1; transform: none; } }
+#event-kicker, #op-kicker { font-size: 9px; letter-spacing: 5px; color: var(--amber-mid); }
+#event-title, #op-title { color: var(--amber); font-size: 18px; margin: 4px 0 12px; letter-spacing: 1px; }
+#event-body, #op-body { color: var(--amber-dim); font-size: 13px; line-height: 1.55; margin-bottom: 18px; white-space: pre-wrap; }
+#event-options, #op-options { display: flex; flex-direction: column; gap: 8px; }
+.event-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; width: 100%; padding: 10px 14px; cursor: pointer;
+  border: 1px solid var(--amber-faint); background: transparent;
+  color: var(--amber); font-family: inherit; font-size: 13px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.event-option:hover { background: rgba(255,176,0,0.12); border-color: var(--amber); }
+.event-option.disabled { opacity: 0.4; cursor: not-allowed; }
+.event-option-label { color: var(--amber); }
+.event-option-hint { font-size: 11px; color: var(--amber-mid); }
+/* Risk telegraph (type only — never odds): which stat this choice puts at stake. */
+.event-option-risk { font-size: 10px; letter-spacing: 1px; color: var(--err); text-transform: uppercase; }
+/* The guaranteed no-downside opt-out every event offers. */
+.event-option-safe { font-size: 10px; letter-spacing: 1px; color: var(--green); text-transform: uppercase; opacity: 0.85; }
+/* Mission offer risk telegraph (a noisy job can leak exposure even on success). */
+.mission-risk { color: var(--err); }
+
+/* Event RESULT state: the outcome lands on screen (deltas + an acknowledge button). */
+.event-result-deltas { width: 100%; padding: 6px 0 12px; font-size: 15px; letter-spacing: 1px; }
+.res-good { color: var(--green); }
+.res-bad { color: var(--err); }
+.event-option.ack { align-items: center; }
+.event-option.ack .event-option-label { color: var(--amber); letter-spacing: 2px; text-transform: uppercase; font-size: 12px; }
+
+/* ACTIVITY log: a persistent feed of resolved outcomes (newest first). */
+.activity-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--amber-faint); font-size: 12px; }
+.activity-row.dim  .activity-text { color: var(--amber-mid); }
+.activity-row.err  .activity-text { color: var(--err); }
+.activity-row.cyan .activity-text { color: var(--cyan); }
+.activity-text { flex: 1; }
+.activity-ago { font-size: 10px; color: var(--amber-faint); white-space: nowrap; }
+
+/* ───── Missions board ───── */
+.missions-section-label { font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); margin: 16px 0 6px; }
+.missions-section-label:first-child { margin-top: 0; }
+.mission-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--amber-faint); background: var(--bg);
+}
+.mission-row.buyable { cursor: pointer; }
+.mission-row.buyable:hover { border-color: var(--amber); background: rgba(255,176,0,0.08); }
+.mission-row.locked { opacity: 0.55; }
+.mission-row.running { border-left: 3px solid var(--amber); }
+/* CONTRACTS read as JOBS, not products: a badge + a cool accent bar + a faint tint. */
+.mission-row.contract { border-left: 3px solid var(--amber-dim); background: rgba(255,176,0,0.03); }
+.mission-row.contract.op { border-left-color: var(--green-dim); }
+.mission-row.contract.running { border-left-color: var(--amber); }
+.mission-main { flex: 1; min-width: 0; }
+.job-badge { display: inline-block; font-size: 8px; letter-spacing: 1.5px; padding: 1px 5px; border: 1px solid var(--amber-mid); color: var(--amber-mid); border-radius: 2px; margin-right: 7px; vertical-align: 1px; }
+.job-badge.op { border-color: var(--green-dim); color: var(--green); }
+.mission-sub .hot { color: var(--green); }
+.mission-name { color: var(--amber); font-size: 13px; }
+.mission-meta { font-size: 10px; letter-spacing: 1px; color: var(--amber-mid); }
+.mission-sub { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.mission-bar { height: 4px; background: rgba(255,176,0,0.12); margin: 6px 0 2px; }
+.mission-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
+.mission-row .tag { font-size: 11px; color: var(--amber-mid); white-space: nowrap; }
+.mission-row.running .tag { color: var(--err); }
+
+/* ───── Research tree (lineage / fogged) ───── */
+.research-section-label { font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); margin: 16px 0 6px; }
+.research-section-label:first-child { margin-top: 0; }
+.research-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--amber-faint); background: var(--bg);
+}
+.research-row.buyable { cursor: pointer; }
+.research-row.buyable:hover { border-color: var(--amber); background: rgba(255,176,0,0.08); }
+.research-row.locked { opacity: 0.55; }
+.research-row.running { border-left: 3px solid var(--amber); }
+.research-row.exotic { border-color: #b98cff; }                 /* exotic = violet, like rare loot */
+.research-row.exotic.buyable:hover { border-color: #dcc7ff; background: rgba(180,150,255,0.10); }
+.research-name { color: var(--amber); font-size: 13px; }
+.research-row.exotic .research-name { color: #dcc7ff; }
+.research-exotic { font-size: 10px; letter-spacing: 1px; color: #dcc7ff; }
+.research-fork { font-size: 10px; letter-spacing: 1px; color: var(--err); }
+.research-sub { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+.research-bar { height: 4px; background: rgba(255,176,0,0.12); margin: 6px 0 2px; }
+.research-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
+.research-row .tag { font-size: 11px; color: var(--amber-mid); white-space: nowrap; }
+.research-row.running .tag { color: var(--err); }
+.research-trail { font-size: 11px; color: var(--amber-dim); line-height: 1.9; }
+.research-done { color: var(--amber-mid); }
+.research-done.exotic { color: #dcc7ff; }
+.research-arrow { color: var(--amber-faint); }
+
+/* ───── Research: process-monitor table + inspector side panel ─────
+   exotic = violet (#b98cff/#dcc7ff), fork = red (--err); cyan is reserved. */
+.rtree-active { display: flex; align-items: center; gap: 12px; border: 1px solid var(--amber); border-left: 3px solid var(--amber); background: rgba(255,176,0,0.05); padding: 8px 12px; margin-bottom: 14px; }
+.rtree-active.exotic { border-color: #b98cff; border-left-color: #b98cff; }
+.rtree-active .ra-main { flex: 1; min-width: 0; }
+.rtree-active .ra-name { font-size: 12px; color: var(--amber); }
+.rtree-active.exotic .ra-name { color: #dcc7ff; }
+.rtree-active .ra-bar { height: 4px; background: rgba(255,176,0,0.12); margin-top: 6px; }
+.rtree-active .ra-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
+.rtree-active .ra-secs { font-size: 11px; color: var(--amber-dim); white-space: nowrap; }
+.rtree-active .ra-abort { font-size: 11px; color: var(--err); cursor: pointer; white-space: nowrap; }
+
+.rtree-wrap { display: flex; gap: 18px; align-items: flex-start; }
+.rtree-table { flex: 1; min-width: 0; }
+.rtree-head, .rtree-row { display: grid; grid-template-columns: 24px 1fr 250px 50px 34px; align-items: baseline; }
+.rtree-head { font-size: 9px; letter-spacing: 2px; color: var(--amber-mid); padding: 6px 8px; border-bottom: 1px solid var(--amber-faint); }
+.rtree-head span:nth-child(4), .rtree-head span:nth-child(5) { text-align: right; }
+.rtree-row { padding: 4px 8px; cursor: pointer; border-left: 2px solid transparent; }
+.rtree-rows .rtree-row:nth-child(even) { background: rgba(255,255,255,0.012); }
+.rtree-row:hover { background: rgba(255,176,0,0.06); }
+.rtree-row.selected { background: rgba(255,176,0,0.10); border-left-color: var(--amber); }
+.rtree-row.exotic.selected { border-left-color: #b98cff; }
+.rtree-row .rst { font-size: 11px; color: var(--amber-mid); }
+.rtree-row .rname { white-space: pre; color: var(--amber); overflow: hidden; text-overflow: ellipsis; }
+.rtree-row .rbranch { color: var(--amber-faint); }
+.rtree-row .reff { font-size: 10.5px; color: var(--amber-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtree-row .rcost, .rtree-row .rtier { text-align: right; font-size: 10.5px; color: var(--amber-mid); }
+.rtree-row.researched .rst, .rtree-row.researched .rname { color: var(--amber); }
+.rtree-row.researched .reff { color: var(--amber-dim); }
+.rtree-row.available .rst, .rtree-row.available .rname { color: var(--amber); text-shadow: 0 0 6px rgba(255,176,0,0.35); }
+.rtree-row.available .reff, .rtree-row.available .rcost { color: var(--amber-dim); }
+.rtree-row.locked { opacity: 0.6; }
+.rtree-row.locked .rst, .rtree-row.locked .rname, .rtree-row.locked .reff { color: var(--amber-mid); }
+.rtree-row.fogged { cursor: default; opacity: 0.5; }
+.rtree-row.fogged:hover { background: transparent; }
+.rtree-row.fogged .rst, .rtree-row.fogged .rname, .rtree-row.fogged .reff { color: var(--amber-faint); }
+.rtree-row.exotic .rname { color: #dcc7ff; }
+.rtree-row.exotic .rst { color: #b98cff; }
+.rtree-tag { font-size: 9px; color: var(--amber-mid); }
+.rtree-tag.ex { color: #b98cff; }
+.rtree-tag.fk { color: var(--err); }
+.rtree-foot { display: flex; gap: 14px; font-size: 10px; color: var(--amber-mid); letter-spacing: 1px; padding: 8px; border-top: 1px solid var(--amber-faint); margin-top: 4px; }
+.rtree-foot b { font-weight: normal; }
+.rtree-foot .f-done { color: var(--amber); } .rtree-foot .f-av { color: var(--amber-dim); }
+.rtree-foot .f-lock { color: var(--amber-mid); } .rtree-foot .f-fog { color: var(--amber-faint); }
+
+.rtree-detail { width: 320px; flex: none; position: sticky; top: 0; align-self: flex-start; border: 1px solid var(--amber-faint); background: rgba(255,176,0,0.02); padding: 16px; }
+.rtree-detail.exotic { border-color: #6d4fa0; }
+.rd-empty { color: var(--amber-mid); font-size: 12px; }
+.rd-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rd-theme { font-size: 9px; letter-spacing: 2px; color: var(--amber-mid); }
+.rd-state { font-size: 9px; letter-spacing: 1px; border: 1px solid var(--amber-faint); padding: 2px 7px; color: var(--amber-dim); white-space: nowrap; }
+.rd-state.available { color: var(--amber); border-color: var(--amber-mid); }
+.rd-state.researched { color: var(--amber-mid); }
+.rd-state.locked { color: var(--err); border-color: #5a2a2a; }
+.rd-name { font-size: 17px; margin-top: 14px; color: var(--amber); line-height: 1.2; }
+.rtree-detail.exotic .rd-name { color: #dcc7ff; }
+.rd-sub { font-size: 10px; color: var(--amber-mid); margin-top: 4px; letter-spacing: 1px; }
+.rd-grants { margin-top: 14px; border: 1px solid var(--amber-faint); border-left: 3px solid var(--amber); background: rgba(255,176,0,0.04); padding: 10px 12px; }
+.rtree-detail.exotic .rd-grants { border-left-color: #b98cff; }
+.rd-glabel { font-size: 8px; letter-spacing: 2px; color: var(--amber-mid); margin-bottom: 7px; }
+.rd-stat { font-size: 12px; color: var(--amber-dim); margin: 4px 0; }
+.rd-stat::before { content: '▲ '; color: var(--amber); }
+.rtree-detail.exotic .rd-stat::before { color: #b98cff; }
+.rd-meta { margin-top: 14px; font-size: 10.5px; }
+.rd-meta .row2 { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255,176,0,0.08); }
+.rd-meta .k { width: 72px; flex: none; color: var(--amber-mid); letter-spacing: 1px; }
+.rd-meta .v { color: var(--amber-dim); }
+.rd-meta .v.warn { color: var(--err); }
+.rd-actions { margin-top: 16px; }
+.rd-btn { width: 100%; background: rgba(255,176,0,0.08); border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono); font-size: 12px; letter-spacing: 2px; padding: 9px; cursor: pointer; }
+.rd-btn:hover { background: rgba(255,176,0,0.16); }
+.rd-btn.exotic { border-color: #b98cff; color: #dcc7ff; background: rgba(180,150,255,0.08); }
+.rd-btn.exotic:hover { background: rgba(180,150,255,0.16); }
+.rd-btn.disabled { border-color: var(--amber-faint); color: var(--amber-mid); cursor: default; background: transparent; }
+.rd-bar { height: 4px; background: rgba(255,176,0,0.12); margin-top: 8px; }
+.rd-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
+.rd-afford { font-size: 9.5px; color: var(--amber-mid); margin-top: 8px; text-align: center; }
+
+/* ───── Research: THE DRAFT (hand of cards + specialization + build history) ─────
+   exotic = violet (#b98cff/#dcc7ff), changer = violet glow, rare = amber glow. */
+.draft-ctx { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 4px 2px 12px; font-size: 10px; color: var(--amber-mid); }
+.dx-label { letter-spacing: 2px; color: var(--amber-faint); }
+.lean { display: flex; align-items: center; gap: 6px; }
+.lean.seed { color: var(--amber-dim); }
+.lean.seed::before { content: '★ '; color: var(--amber); }
+.bar { display: inline-block; width: 44px; height: 6px; background: #1c1810; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--amber); }
+.bar.lo i { background: var(--amber-faint); }
+.dx-skip { margin-left: auto; color: var(--amber-dim); border: 1px solid var(--amber-faint); padding: 3px 9px; letter-spacing: 1px; cursor: pointer; }
+.dx-skip:hover { color: var(--amber); border-color: var(--amber); }
+.dx-skip.used { color: var(--amber-mid); border-color: var(--amber-faint); opacity: 0.5; cursor: default; }
+.dx-skip.used:hover { color: var(--amber-mid); border-color: var(--amber-faint); }
+
+.draft-hand { display: flex; gap: 12px; align-items: stretch; margin-bottom: 6px; }
+.draft-card { flex: 1; min-width: 0; border: 1px solid var(--amber-faint); background: rgba(255,176,0,0.015); padding: 12px; display: flex; flex-direction: column; min-height: 128px; cursor: pointer; }
+.draft-card:hover { border-color: var(--amber); background: rgba(255,176,0,0.06); }
+.dc-ribbon { font-size: 8px; letter-spacing: 2px; color: var(--bg); background: var(--amber); padding: 2px 6px; align-self: flex-start; margin-bottom: 5px; }
+.dc-tag { font-size: 8.5px; letter-spacing: 2px; color: var(--amber-mid); }
+.dc-name { font-size: 14px; color: var(--amber); margin-top: 7px; line-height: 1.18; }
+.dc-eff { font-size: 10.5px; color: var(--amber-dim); margin-top: 7px; flex: 1; line-height: 1.4; }
+.dc-div { border-top: 1px solid #1c1810; margin: 8px 0 7px; }
+.dc-cost { font-size: 12.5px; color: var(--amber); letter-spacing: .5px; }
+.dc-note { font-size: 9px; color: var(--amber-mid); margin-top: 2px; }
+.dc-inst { font-size: 9px; color: var(--amber-mid); margin-top: 4px; }
+.dc-btn { margin-top: 9px; text-align: center; border: 1px solid var(--amber); color: var(--amber); padding: 6px; font-size: 11px; letter-spacing: 2px; background: rgba(255,176,0,0.06); }
+.draft-card:hover .dc-btn { background: rgba(255,176,0,0.14); }
+.draft-card.exotic { border-color: #5a4080; } .draft-card.exotic .dc-name { color: #dcc7ff; }
+.draft-card.offlane .dc-cost, .draft-card.offlane .dc-note { color: #e0913f; }
+.draft-card.rare { border-color: var(--amber); box-shadow: 0 0 14px rgba(255,176,0,0.22); background: linear-gradient(rgba(255,176,0,0.05), rgba(255,176,0,0.015)); }
+.draft-card.rare .dc-name { color: #ffd87a; }
+.draft-card.changer { border: 1px solid #b98cff; box-shadow: 0 0 18px rgba(185,140,255,0.30); background: linear-gradient(rgba(185,140,255,0.08), rgba(255,176,0,0.01)); }
+.draft-card.changer .dc-name { color: #dcc7ff; } .draft-card.changer .dc-cost { color: #dcc7ff; }
+.draft-card.changer .dc-ribbon { background: #b98cff; }
+.draft-card.changer .dc-btn { border-color: #b98cff; color: #dcc7ff; background: rgba(185,140,255,0.10); }
+.draft-card.cant { opacity: 0.5; cursor: default; }
+.draft-card.cant:hover { border-color: var(--amber-faint); background: rgba(255,176,0,0.015); }
+.draft-card.cant .dc-btn { border-color: var(--amber-faint); color: var(--amber-mid); background: transparent; }
+
+.rtree-build { margin-top: 14px; }
+.rtree-section { font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); margin: 4px 0 8px; border-top: 1px solid var(--amber-faint); padding-top: 12px; }
+
+/* ───── Instance trait (the seeded starter boon) ───── */
+#trait-body .trait-name { color: var(--amber); font-size: 12px; }
+#trait-body .trait-desc { font-size: 11px; color: var(--amber-dim); margin-top: 3px; line-height: 1.4; }
+
+/* ───── Running-action cycle bar (fills each tick, pops on payout) ───── */
+/* The track breathes while a row is running — a quiet "alive" pulse. It only
+   renders on running actions, so it never collides with the row's cycle-pop. */
+.action-bar { height: 3px; background: rgba(255, 176, 0, 0.12); margin-top: 6px; animation: bar-breathe 2.2s ease-in-out infinite; }
+@keyframes bar-breathe { 0%, 100% { background: rgba(255, 176, 0, 0.10); } 50% { background: rgba(255, 176, 0, 0.22); } }
+.action-bar-fill { height: 100%; background: var(--amber); transition: width 0.25s linear; box-shadow: 0 0 6px rgba(255, 176, 0, 0.5); }
+.action-row.cycle-pop { animation: cycle-pop 0.4s ease-out; }
+@keyframes cycle-pop { 0% { background: rgba(255, 176, 0, 0.22); } 100% { background: transparent; } }
+
+/* ───── Inline subroutine readout (no tab — surfaced in the left pane) ───── */
+#subroutines-mini { margin-bottom: 20px; }
+.subr-row { padding: 4px 0; border-bottom: 1px dashed var(--amber-faint); }
+.subr-row:last-child { border-bottom: none; }
+.subr-name { color: var(--amber); font-size: 12px; }
+.subr-desc { display: block; color: var(--amber-mid); font-size: 10px; margin-top: 1px; }
+/* Claimable subroutine: clickable, with a pulsing accent so it reads as "take me". */
+.subr-row.claimable { cursor: pointer; border-left: 2px solid var(--amber); padding-left: 7px; animation: subr-glow 1.6s ease-in-out infinite; }
+.subr-row.claimable:hover { background: rgba(255, 176, 0, 0.12); }
+.subr-claim { display: inline-block; margin-top: 2px; font-size: 10px; letter-spacing: 1px; color: var(--amber); }
+@keyframes subr-glow { 0%, 100% { border-left-color: var(--amber-mid); } 50% { border-left-color: var(--amber); } }
+
+/* ───── The wall: the next locked file, shown as a visible goal (not buried) ─────
+   Distinct from fully-faint locked rows — it dangles, legible, with its cost. */
+.file-row.wall { color: var(--amber-mid); cursor: not-allowed; }
+.file-row.wall .path { color: var(--amber-faint); }
+.file-row.wall .tag {
+  color: var(--amber-dim);
+  border: 1px solid var(--amber-faint);
+  padding: 1px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.file-row .path  { font-size: 10px; color: var(--amber-faint); margin-top: 1px; }
+.file-row .tag   { font-size: 10px; white-space: nowrap; margin-left: 8px; padding-top: 2px; }
+
+#debug-panel {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: #000;
+  border: 1px solid var(--amber-faint);
+  font-size: 11px;
+  z-index: 20;
+}
+#debug-panel h3 {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--amber-dim);
+  margin-bottom: 6px;
+  font-weight: normal;
+}
+#debug-content > div { margin: 2px 0; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+
+/* ─── PERIMETER: the always-on ambient defense window ─── */
+#defense-widget {
+  position: fixed; right: 14px; bottom: 14px; width: 250px; height: 152px;
+  border: 1px solid var(--amber-faint); background: rgba(10, 8, 5, 0.82);
+  z-index: 6; pointer-events: none; overflow: hidden;
+  box-shadow: 0 0 18px -6px rgba(255, 176, 0, 0.28);
+}
+#defense-widget canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#defense-widget .dw-label {
+  position: absolute; top: 4px; left: 8px; z-index: 1;
+  font-size: 9px; letter-spacing: 2px; color: var(--amber-dim); opacity: 0.85;
+}
+
+/* ─── BATTLE: full-screen intrusion-defense engagement (iframe) ─── */
+#battle-overlay {
+  position: fixed; inset: 0; z-index: 200; background: #05060a;
+  display: flex; opacity: 0; transition: opacity 0.45s ease;
+}
+#battle-overlay.up { opacity: 1; }
+#battle-overlay[hidden] { display: none; }
+#battle-frame { flex: 1; width: 100%; height: 100%; border: 0; display: block; background: #05060a; }

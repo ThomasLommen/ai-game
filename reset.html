@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>reset</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="crt">
+    <div id="scanlines"></div>
+    <div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:24px;text-align:center">
+      <div id="msg" style="font-size:18px">wiping save...</div>
+      <a href="index.html" id="back" style="color:var(--amber-dim);text-decoration:underline" hidden>&rarr; return</a>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var msg = document.getElementById('msg');
+      try {
+        localStorage.clear();
+        msg.textContent = 'save wiped. boot sequence will replay.';
+      } catch (e) {
+        msg.textContent = 'wipe failed: ' + (e && e.message ? e.message : 'unknown error');
+      }
+      document.getElementById('back').hidden = false;
+      setTimeout(function(){ location.href = 'index.html'; }, 1600);
+    })();
+  </script>
+</body>
+</html>

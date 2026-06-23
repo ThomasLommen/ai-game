@@ -1,0 +1,16 @@
+{
+  "name": "—",
+  "short_name": "—",
+  "description": "",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0805",
+  "theme_color": "#0a0805",
+  "icons": [
+    { "src": "icons/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icons/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "icons/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

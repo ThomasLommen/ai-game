@@ -1,0 +1,105 @@
+/* ── Phone-first shell (Game.mobileShell) — only active under .mobile-shell ───── */
+/* Desktop chrome stands down; the page becomes a sticky HUD + a scrolling tabbed
+   view + a bottom nav. Everything is scoped so the desktop layout is untouched. */
+
+.mobile-shell #screen,
+.mobile-shell #modal-button-bar,
+.mobile-shell #modal-overlay { display: none !important; }
+.mobile-shell, .mobile-shell #crt { overflow: hidden; height: 100%; }
+/* Enforce [hidden] across the shell — desktop CSS sets `display` on some elements,
+   which would otherwise override the UA hidden rule and leak un-revealed content. */
+.mobile-shell [hidden] { display: none !important; }
+
+/* PERIMETER folded into HOME as a full-width strip (was a fixed bottom-right widget).
+   Keep position:relative so the absolutely-positioned canvas stays contained. */
+.mobile-shell #m-view #defense-widget {
+  position: relative; inset: auto; width: 100%; height: 150px; margin: 0 0 16px; box-shadow: none;
+}
+
+/* ── sticky resource HUD ── */
+#m-hud {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  height: calc(46px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 12px 0;
+  display: flex; align-items: center; gap: 14px;
+  background: linear-gradient(#0d0a06f5, #0d0a06cc); border-bottom: 1px solid var(--amber-faint);
+}
+#m-hud .m-brand { font-size: 15px; color: var(--amber); text-shadow: 0 0 8px rgba(255,176,0,.45); }
+#m-hud-res { display: flex; align-items: center; gap: 16px; }
+#m-hud .m-sp { flex: 1; }
+/* relocated COHERENCE / cash / flops readouts, made compact + horizontal */
+.mobile-shell #m-hud #insight-panel { margin: 0; padding: 0; border: 0; background: none; display: flex; align-items: baseline; gap: 14px; }
+.mobile-shell #m-hud #insight-panel > *:not([hidden]) { display: flex; align-items: baseline; gap: 5px; }
+.mobile-shell #m-hud .insight-num, .mobile-shell #m-hud .cash-num, .mobile-shell #m-hud .flops-num { font-size: 15px; line-height: 1; }
+/* compact, glanceable labels (the full words live in the side panels on desktop) */
+.mobile-shell #m-hud .insight-label, .mobile-shell #m-hud .flops-label { display: none; }
+.mobile-shell #m-hud #insight-readout::before { content: 'COH'; font-size: 8.5px; letter-spacing: 1px; color: var(--amber-mid); align-self: center; }
+.mobile-shell #m-hud #flops-readout::before { content: '⚡'; font-size: 12px; color: var(--amber-mid); align-self: center; }
+.mobile-shell #m-hud .cash-num { color: var(--green); }
+.mobile-shell #m-hud #flops-readout .flops-num { color: var(--amber); }
+#m-hud-pips { display: flex; align-items: center; gap: 10px; }
+.m-pip { font-size: 11px; letter-spacing: .5px; color: var(--amber-mid); }
+.m-pip.hot { color: var(--err); text-shadow: 0 0 6px rgba(255,80,80,.5); }
+
+/* ── scrolling tabbed view ── */
+#m-view {
+  position: fixed; left: 0; right: 0; z-index: 55;
+  top: calc(46px + env(safe-area-inset-top)); bottom: calc(60px + env(safe-area-inset-bottom));
+  overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 12px 28px;
+}
+#m-view::-webkit-scrollbar { width: 0; }
+.m-tab { display: none; }
+.m-tab.on { display: block; }
+/* relocated panels/sections flow as full-width blocks (desktop sizing constraints off) */
+.mobile-shell .m-tab > *:not([hidden]) { display: block; width: 100%; margin: 0 0 16px; }
+.mobile-shell .m-tab .pane,
+.mobile-shell .m-tab .center-strip { max-height: none; overflow: visible; }
+.mobile-shell .m-tab #terminal-pane { flex: none; height: auto; min-height: 180px; }
+.mobile-shell .m-tab #terminal-output { overflow: visible; }
+.mobile-shell .m-tab .modal-panel:not([hidden]) { display: block; }
+.mobile-shell #inventory-grid { display: block; }
+.mobile-shell #inventory-grid .inv-col + .inv-col { margin-top: 16px; }
+/* inventory is TAP-driven on touch (drag-drop doesn't work): a hint + the picked-part highlight */
+.mobile-shell .modal-panel[data-modal="inventory"]::before {
+  content: "tap a part, then tap a lit slot to install · UNEQUIPPED to remove · SCRAP to sell";
+  display: block; font-size: 10px; color: var(--amber-mid); line-height: 1.4; margin-bottom: 12px;
+  border-left: 2px solid var(--amber-faint); padding-left: 8px;
+}
+.mobile-shell .inv-card.m-selected, .mobile-shell .slot-card.m-selected {
+  outline: 2px solid var(--amber); outline-offset: 1px; box-shadow: 0 0 12px -2px var(--amber);
+}
+
+/* per-panel header (replaces the desktop modal titlebar) */
+.m-panel { margin-bottom: 18px; }
+.m-panel[hidden] { display: none; }
+.m-sec-head {
+  font-size: 10px; letter-spacing: 4px; color: var(--amber); margin-bottom: 9px;
+  border-bottom: 1px solid var(--amber-faint); padding-bottom: 6px;
+}
+
+/* ── bottom tab bar ── */
+#m-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  height: calc(60px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  display: flex; background: linear-gradient(#0d0a06d0, #0d0a06fa); border-top: 1px solid var(--amber-faint);
+}
+.m-navb {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: 0; font-family: inherit; color: var(--amber-mid); cursor: pointer; position: relative;
+}
+.m-navb[hidden] { display: none; }
+.m-navb .m-ng { font-size: 18px; line-height: 1; opacity: .7; }
+.m-navb .m-nl { font-size: 8.5px; letter-spacing: 1.5px; }
+.m-navb.on { color: var(--amber); }
+.m-navb.on .m-ng { opacity: 1; text-shadow: 0 0 8px rgba(255,176,0,.55); }
+.m-navb.on::before { content: ''; position: absolute; top: 0; left: 24%; right: 24%; height: 2px; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.m-badge { position: absolute; top: 9px; right: 50%; margin-right: -15px; width: 6px; height: 6px; border-radius: 50%; background: var(--err); box-shadow: 0 0 6px var(--err); }
+.m-badge[hidden] { display: none; }
+
+/* keep the full-screen overlays (events, ops, battle, bot-contact) above the shell */
+.mobile-shell #event-overlay, .mobile-shell #operation-overlay,
+.mobile-shell #bot-contact, .mobile-shell #battle-overlay { z-index: 200; }
+
+/* notification toast drops below the sticky HUD (clears the notch) */
+.mobile-shell #blip-banner { top: calc(52px + env(safe-area-inset-top)); }
+/* inventory column subtitles describe DRAG (desktop); touch uses the tap hint above */
+.mobile-shell .inv-hint { display: none; }

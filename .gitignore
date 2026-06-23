@@ -1,0 +1,10 @@
+# dev server / tunnel logs
+_tunnel.log
+*.log
+# personal scratch
+my notes.txt
+# OS cruft
+Thumbs.db
+.DS_Store
+# editor
+.vscode/

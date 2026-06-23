@@ -1,0 +1,72 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>THE NODE · td proof</title>
+<style>
+  :root{--amber:#ffb000;--dim:#c98700;--mid:#8a5e00;--faint:#6a4500;--err:#ff5050;--green:#6ee06e;--bg:#070504;}
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--amber);font-family:'Consolas','SF Mono','Menlo',monospace;}
+  #field{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:crosshair;touch-action:none;}
+  b{font-weight:600;} .dim{color:var(--dim);}
+  #topbar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:7px 12px;
+    background:linear-gradient(#0a0805ee,#0a0805aa);border-bottom:1px solid #2a2410;font-size:12px;z-index:5;}
+  .brand{font-size:13px;letter-spacing:3px;}
+  .stat{display:flex;align-items:center;gap:6px;color:var(--mid);font-size:10px;letter-spacing:1px;}
+  .stat b{color:var(--amber);font-size:12px;letter-spacing:0;}
+  .track{width:80px;height:6px;background:#1c1810;position:relative;overflow:hidden;}
+  .track i{position:absolute;left:0;top:0;bottom:0;background:var(--amber);transition:width .12s linear;}
+  .spacer{flex:1;}
+  .btn{background:#140f06;border:1px solid var(--faint);color:var(--dim);font-family:inherit;font-size:11px;letter-spacing:1px;padding:5px 11px;cursor:pointer;}
+  .btn:hover{border-color:var(--amber);color:var(--amber);}
+  .btn.prov{border-color:#7a3a16;color:#ff9e6b;}
+  #prep{color:var(--mid);font-size:10px;letter-spacing:1px;}
+  /* palette */
+  #palette{position:fixed;left:12px;top:64px;width:200px;display:flex;flex-direction:column;gap:7px;z-index:5;}
+  .tw{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:#0c0a06ee;border:1px solid var(--faint);border-left:3px solid var(--c);
+    color:var(--dim);font-family:inherit;padding:8px 10px;cursor:pointer;text-align:left;}
+  .tw:hover{border-color:var(--amber);}
+  .tw.armed{border-color:var(--amber);background:rgba(255,176,0,.12);box-shadow:0 0 8px rgba(255,176,0,.22);}
+  .tw-name{font-size:11px;letter-spacing:1px;color:var(--c);}
+  .tw-desc{font-size:9px;color:var(--mid);}
+  .tw-cost{font-size:11px;color:var(--green);}
+  .tw.noafford{opacity:.5;}
+  #armedhint{position:fixed;top:64px;left:50%;transform:translateX(-50%);display:none;z-index:6;
+    background:#140f06;border:1px solid var(--amber);color:var(--amber);font-size:11px;letter-spacing:1px;padding:6px 14px;}
+  /* inspector + log */
+  .panel{position:fixed;background:#0c0a06ee;border:1px solid #2a2410;z-index:5;font-size:12px;}
+  #inspector{right:12px;bottom:12px;width:230px;padding:12px;display:none;}
+  .i-name{font-size:13px;} .i-stat{font-size:10px;color:var(--dim);margin:5px 0 9px;}
+  .i-btn{width:100%;background:rgba(255,176,0,.08);border:1px solid var(--amber);color:var(--amber);font-family:inherit;font-size:11px;letter-spacing:1px;padding:7px;cursor:pointer;}
+  .i-btn.off{border-color:var(--faint);color:var(--mid);background:transparent;cursor:default;}
+  #log{left:12px;bottom:12px;width:300px;max-height:110px;overflow-y:auto;padding:9px 11px;color:var(--dim);font-size:10.5px;line-height:1.5;}
+  #log div:last-child{color:var(--amber);}
+  .legend{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);font-size:9px;color:var(--faint);letter-spacing:1px;z-index:5;display:flex;gap:14px;}
+  /* win/lose overlay */
+  #overlay{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    background:rgba(7,5,4,0.86);z-index:10;}
+  #ov-title{font-size:30px;letter-spacing:8px;}
+  #overlay.win #ov-title{color:var(--green);text-shadow:0 0 16px rgba(110,224,110,.5);}
+  #overlay.lose #ov-title{color:var(--err);text-shadow:0 0 16px rgba(255,80,80,.5);}
+  #ov-sub{font-size:12px;color:var(--dim);}
+</style></head><body>
+<canvas id="field"></canvas>
+<div id="topbar">
+  <span class="brand">◈ THE NODE<span class="dim" style="letter-spacing:1px"> · td proof</span></span>
+  <div class="stat">CORE <b id="corehp">20 / 20</b><div class="track"><i id="corebar"></i></div></div>
+  <div class="stat">CASH <b id="cash">$160</b></div>
+  <div class="stat">WAVE <b id="wave">0 / 8</b></div>
+  <div class="stat">THREAT <b id="threat">0</b></div>
+  <span id="prep">next wave in 6s</span>
+  <button id="startwave" class="btn">▶ send wave now</button>
+  <button id="provoke" class="btn prov">⚡ provoke (bigger wave)</button>
+  <span class="spacer"></span>
+  <button id="reseed" class="btn">⟳ new node</button>
+</div>
+<div id="armedhint"></div>
+<div id="palette"></div>
+<div id="inspector" class="panel"></div>
+<div id="log" class="panel"></div>
+<div class="legend"><span>arm a tower ◂</span><span>click off-lane to place</span><span>click a tower to upgrade</span><span style="color:var(--err)">red rings = spawns</span></div>
+<div id="overlay"><div id="ov-title"></div><div id="ov-sub"></div><button id="reseed2" class="btn" onclick="document.getElementById('reseed').click()">⟳ new node</button></div>
+<script src="sim.js"></script>
+<script src="app.js"></script>
+</body></html>

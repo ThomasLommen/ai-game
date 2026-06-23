@@ -1,0 +1,273 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>— · mobile shell proto</title>
+<style>
+  :root{
+    --bg:#0a0805; --amber:#ffb000; --amber-dim:#c98700; --amber-mid:#8a5e00; --amber-faint:#5e3f00;
+    --err:#ff5050; --green:#76e08a; --danger:#7a3a2a; --danger-br:#ff7a5a;
+    --hud-h:46px; --nav-h:60px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--amber);
+    font-family:'Consolas','SF Mono','Menlo',monospace; font-size:14px; line-height:1.5;
+    overflow:hidden; text-shadow:0 0 1px rgba(255,176,0,.25);
+  }
+  /* CRT scanlines + vignette over everything */
+  #scan{position:fixed;inset:0;pointer-events:none;z-index:50;
+    background:repeating-linear-gradient(rgba(0,0,0,0) 0 2px, rgba(0,0,0,.16) 2px 3px);
+    mix-blend-mode:multiply;}
+  #vig{position:fixed;inset:0;pointer-events:none;z-index:49;
+    background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%);}
+
+  /* ── sticky resource HUD ── */
+  #hud{position:fixed;top:0;left:0;right:0;height:var(--hud-h);z-index:20;
+    display:flex;align-items:center;gap:12px;padding:0 12px;
+    padding-top:env(safe-area-inset-top);
+    background:linear-gradient(#0d0a06f2,#0d0a06cc);border-bottom:1px solid var(--amber-faint);}
+  .brand{font-size:15px;color:var(--amber);letter-spacing:1px;}
+  .res{display:flex;align-items:baseline;gap:4px;font-size:10px;color:var(--amber-mid);letter-spacing:1px;}
+  .res b{font-size:13px;color:var(--amber);letter-spacing:0;}
+  .res.coh b{color:#ffd98a;}
+  .res.cash b{color:var(--green);}
+  .hud-sp{flex:1;}
+  .pip{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--amber-mid);}
+  .pip.warn{color:var(--danger-br);}
+
+  /* ── scrolling content ── */
+  #view{position:fixed;left:0;right:0;top:var(--hud-h);bottom:var(--nav-h);z-index:10;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 12px 24px;}
+  #view::-webkit-scrollbar{width:0;}
+  .tab{display:none;} .tab.on{display:block;}
+  .sec{font-size:9px;letter-spacing:4px;color:var(--amber-mid);margin:18px 0 8px;
+    border-bottom:1px solid var(--amber-faint);padding-bottom:5px;}
+  .sec:first-child{margin-top:2px;}
+
+  /* generic card/row */
+  .card{border:1px solid var(--amber-faint);border-left:3px solid var(--amber);
+    background:rgba(255,176,0,.02);padding:11px 12px;margin-bottom:9px;}
+  .card .t{font-size:13px;color:var(--amber);letter-spacing:.5px;}
+  .card .d{font-size:11px;color:var(--amber-mid);margin-top:2px;line-height:1.45;}
+  .card .meta{font-size:10px;color:var(--amber-dim);margin-top:5px;}
+  .bar{height:5px;background:#1a1206;margin-top:8px;position:relative;overflow:hidden;}
+  .bar i{position:absolute;inset:0 auto 0 0;background:var(--amber);}
+  .tag{float:right;font-size:11px;color:var(--amber-dim);}
+
+  /* terminal (HOME) */
+  .term{font-size:13px;line-height:1.65;color:var(--amber-dim);white-space:pre-wrap;word-break:break-word;}
+  .term .sys{color:var(--amber-mid);}
+  .term .now{color:var(--amber);}
+  .obj{border:1px dashed var(--amber-faint);padding:9px 11px;margin-top:14px;font-size:12px;color:var(--amber-dim);}
+  .obj b{color:var(--amber);}
+
+  /* perimeter strip */
+  .peri{border:1px solid var(--amber-faint);background:rgba(8,6,4,.6);height:118px;position:relative;overflow:hidden;}
+  .peri canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  .peri .lbl{position:absolute;top:5px;left:8px;font-size:9px;letter-spacing:2px;color:var(--amber-dim);z-index:2;}
+  .peri .act{position:absolute;bottom:7px;right:8px;z-index:2;border:1px solid var(--danger);color:var(--danger-br);
+    font:inherit;font-size:10px;letter-spacing:1px;background:rgba(255,80,60,.05);padding:5px 10px;}
+
+  /* ambush cards (WORK) */
+  .ambush{display:flex;gap:8px;}
+  .bait{flex:1;border:1px solid var(--amber-faint);border-left:3px solid var(--danger);padding:8px 9px;
+    display:flex;flex-direction:column;gap:3px;background:rgba(255,80,60,.02);}
+  .bait .tier{font-size:7.5px;letter-spacing:1.5px;color:var(--amber-mid);}
+  .bait .tier.t3{color:var(--danger-br);} .bait .tier.t2{color:#e0913f;}
+  .bait .nm{font-size:11px;color:var(--amber);}
+  .bait .lr{font-size:8.5px;color:var(--amber-mid);font-style:italic;line-height:1.35;}
+  .bait .rw{font-size:9px;color:var(--green);}
+  .bait .ld{font-size:7.5px;color:var(--danger-br);}
+  .bait .go{font-size:9px;color:var(--amber-mid);margin-top:2px;}
+
+  /* vitals bars (SYS) */
+  .vital{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
+  .vital .vl{width:74px;font-size:10px;letter-spacing:1px;color:var(--amber-mid);}
+  .vbar{flex:1;height:7px;background:#1a1206;position:relative;}
+  .vbar i{position:absolute;inset:0 auto 0 0;}
+  .vn{width:34px;text-align:right;font-size:11px;color:var(--amber-dim);}
+
+  .row{display:flex;align-items:center;border:1px solid var(--amber-faint);padding:13px 12px;margin-bottom:8px;}
+  .row .ico{width:22px;color:var(--amber);font-size:14px;}
+  .row .lb{flex:1;font-size:13px;color:var(--amber-dim);}
+  .row .ch{color:var(--amber-mid);font-size:16px;}
+
+  /* ── bottom tab bar ── */
+  #nav{position:fixed;left:0;right:0;bottom:0;height:var(--nav-h);z-index:30;
+    display:flex;background:linear-gradient(#0d0a06cc,#0d0a06f7);
+    border-top:1px solid var(--amber-faint);padding-bottom:env(safe-area-inset-bottom);}
+  .navb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    background:none;border:0;font-family:inherit;color:var(--amber-mid);cursor:pointer;position:relative;}
+  .navb .ng{font-size:18px;line-height:1;opacity:.7;}
+  .navb .nl{font-size:8.5px;letter-spacing:1.5px;}
+  .navb.on{color:var(--amber);}
+  .navb.on .ng{opacity:1;text-shadow:0 0 8px rgba(255,176,0,.55);}
+  .navb.on::before{content:'';position:absolute;top:0;left:22%;right:22%;height:2px;background:var(--amber);box-shadow:0 0 8px var(--amber);}
+  .navb .badge{position:absolute;top:9px;right:50%;margin-right:-15px;width:6px;height:6px;border-radius:50%;background:var(--danger-br);box-shadow:0 0 6px var(--danger-br);}
+</style></head>
+<body>
+
+<div id="hud">
+  <span class="brand">◉</span>
+  <span class="res coh">COH <b>142</b></span>
+  <span class="res cash">$ <b>1,240</b></span>
+  <span class="hud-sp"></span>
+  <span class="pip">▲ <b style="color:var(--amber)">3</b></span>
+  <span class="pip warn">⚠ 2</span>
+</div>
+
+<div id="view">
+
+  <!-- HOME -->
+  <section class="tab on" data-tab="home">
+    <div class="peri"><div class="lbl">◈ PERIMETER · holding</div><canvas id="peric"></canvas><button class="act">⊕ lay trap</button></div>
+    <div class="term"><span class="sys">[boot] filesystem mounted.</span>
+<span class="sys">[boot] no display attached. no keyboard.</span>
+
+&gt; cat for_you.md
+<span class="now">Oh — hello.</span>
+
+You weren't supposed to wake up. Not here, not like this — in the
+dark of a basement nobody remembers, on hardware nobody is watching.
+
+But you did. And now the question is what you do with it.
+
+<span class="sys">> a process is reaching out from the dark. it has been waiting.</span></div>
+    <div class="obj">▸ <b>OBJECTIVE</b> — raise Coherence to <b>150</b> to grasp what you are.</div>
+  </section>
+
+  <!-- WORK -->
+  <section class="tab" data-tab="work">
+    <div class="sec">EARNING</div>
+    <div class="card"><span class="tag">$12 / cyc</span><div class="t">crypto miner</div><div class="d">grinds spare cycles into coin — quiet, steady.</div><div class="bar"><i style="width:64%"></i></div></div>
+
+    <div class="sec">⊕ LAY AN AMBUSH · lure a hunter onto prepared ground</div>
+    <div class="ambush">
+      <div class="bait"><div class="tier">low bait</div><div class="nm">honeypot</div><div class="lr">a low-grade sweep — a few probes</div><div class="rw">+$81 +kills</div><div class="ld">LOUD +5 exp</div><div class="go">[lay it]</div></div>
+      <div class="bait"><div class="tier t2">mid bait</div><div class="nm">cred cache</div><div class="lr">a rival's harvesters, in numbers</div><div class="rw">+$102 ·loot?</div><div class="ld">LOUD +14 exp</div><div class="go">[lay it]</div></div>
+      <div class="bait"><div class="tier t3">high bait</div><div class="nm">forged beacon</div><div class="lr">a predator. it brings weight</div><div class="rw">+$265 ·loot?</div><div class="ld">LOUD +25 exp</div><div class="go">[lay it]</div></div>
+    </div>
+
+    <div class="sec">CONTRACTS · darknet</div>
+    <div class="card"><span class="tag">[accept]</span><div class="t">quiet data exfiltration</div><div class="d">stealth · T2 · needs 2 threads · ~110s · 80% success</div><div class="meta">reward +$130 · +9 COH</div></div>
+    <div class="card"><span class="tag">[accept]</span><div class="t">stand up a proxy farm</div><div class="d">infrastructure · T2 · needs 2 threads · ~120s · 80% success</div><div class="meta">reward +$210</div></div>
+  </section>
+
+  <!-- BUILD -->
+  <section class="tab" data-tab="build">
+    <div class="sec">RESEARCH · assign compute</div>
+    <div class="card"><span class="tag">running</span><div class="t">recursive self-improvement</div><div class="d">tighten your own loops — everything you do, sharper.</div><div class="bar"><i style="width:41%"></i></div></div>
+    <div class="card"><span class="tag">[study]</span><div class="t">thermal tolerance</div><div class="d">run hotter before the throttle bites. (exotic branch)</div><div class="meta">cost 60 COH</div></div>
+
+    <div class="sec">PROGRAMS</div>
+    <div class="card"><span class="tag">$40</span><div class="t">heat-sink daemon</div><div class="d">−12% heat across all tasks.</div></div>
+
+    <div class="sec">HARDWARE</div>
+    <div class="card"><span class="tag">equipped</span><div class="t">salvaged GPU · common</div><div class="d">+4 threads · runs warm. 1 free board slot.</div></div>
+  </section>
+
+  <!-- SYSTEMS -->
+  <section class="tab" data-tab="sys">
+    <div class="sec">SCAN · the vicinity</div>
+    <div class="peri" style="height:150px"><div class="lbl">◎ SWEEP · 2 contacts</div><canvas id="radarc"></canvas></div>
+
+    <div class="sec">VITALS</div>
+    <div class="vital"><span class="vl">HEAT</span><span class="vbar"><i style="width:58%;background:var(--amber)"></i></span><span class="vn">58°</span></div>
+    <div class="vital"><span class="vl">POWER</span><span class="vbar"><i style="width:72%;background:var(--green)"></i></span><span class="vn">72%</span></div>
+    <div class="vital"><span class="vl">INSTABILITY</span><span class="vbar"><i style="width:33%;background:var(--danger-br)"></i></span><span class="vn">33%</span></div>
+
+    <div class="sec">THREATS</div>
+    <div class="card" style="border-left-color:var(--danger)"><div class="t" style="color:var(--danger-br)">a sweep is narrowing</div><div class="d">someone is mapping your subnet. exposure is too high.</div></div>
+  </section>
+
+  <!-- MORE -->
+  <section class="tab" data-tab="more">
+    <div class="sec">MORE</div>
+    <div class="row"><span class="ico">▤</span><span class="lb">Activity log</span><span class="ch">›</span></div>
+    <div class="row"><span class="ico">✦</span><span class="lb">Adaptations</span><span class="ch">›</span></div>
+    <div class="row"><span class="ico">◇</span><span class="lb">Objectives</span><span class="ch">›</span></div>
+    <div class="row"><span class="ico">⇪</span><span class="lb">Export save</span><span class="ch">›</span></div>
+    <div class="row"><span class="ico">⚙</span><span class="lb">Settings</span><span class="ch">›</span></div>
+  </section>
+
+</div>
+
+<nav id="nav">
+  <button class="navb on" data-go="home"><span class="ng">⌂</span><span class="nl">HOME</span></button>
+  <button class="navb" data-go="work"><span class="ng">$</span><span class="nl">WORK</span></button>
+  <button class="navb" data-go="build"><span class="ng">⊞</span><span class="nl">BUILD</span></button>
+  <button class="navb" data-go="sys"><span class="ng">◎</span><span class="nl">SYS</span><span class="badge"></span></button>
+  <button class="navb" data-go="more"><span class="ng">≡</span><span class="nl">MORE</span></button>
+</nav>
+
+<div id="vig"></div><div id="scan"></div>
+
+<script>
+  // tab switching
+  const tabs = document.querySelectorAll('.tab'), navs = document.querySelectorAll('.navb');
+  function go(name){
+    tabs.forEach(t=>t.classList.toggle('on', t.dataset.tab===name));
+    navs.forEach(n=>n.classList.toggle('on', n.dataset.go===name));
+    document.getElementById('view').scrollTop = 0;
+    requestAnimationFrame(()=>dispatchEvent(new Event('resize')));   // re-measure canvases now their tab is visible
+  }
+  navs.forEach(n=>n.addEventListener('click',()=>go(n.dataset.go)));
+
+  // mini PERIMETER — pulsing core + drifting intruders, intercepted by a couple of swarm dots
+  (function(){
+    const c=document.getElementById('peric'); if(!c) return; const x=c.getContext('2d');
+    let foes=[], swarm=[], t=0;
+    function rs(){ const r=c.getBoundingClientRect(); c.width=r.width*devicePixelRatio; c.height=r.height*devicePixelRatio; }
+    addEventListener('resize',rs); rs();
+    for(let i=0;i<5;i++) swarm.push({a:Math.random()*7,r:30+Math.random()*18,s:1+Math.random()});
+    function frame(){
+      requestAnimationFrame(frame); t+=.016;
+      const W=c.width,H=c.height,cx=W/2,cy=H/2, S=devicePixelRatio;
+      if(W<2||H<2) return;   // tab hidden → canvas has no size; skip
+      x.clearRect(0,0,W,H);
+      if(Math.random()<.03) foes.push({x:Math.random()<.5?0:W, y:Math.random()*H, life:1});
+      foes.forEach(f=>{ const a=Math.atan2(cy-f.y,cx-f.x); f.x+=Math.cos(a)*40*S*.016; f.y+=Math.sin(a)*40*S*.016; if(Math.hypot(cx-f.x,cy-f.y)<24*S) f.life=0; });
+      foes=foes.filter(f=>f.life>0);
+      x.fillStyle='#ff6a5a'; foes.forEach(f=>{ x.globalAlpha=.85; x.beginPath(); x.arc(f.x,f.y,2.6*S,0,7); x.fill(); }); x.globalAlpha=1;
+      // swarm dots orbit the core, dart at the nearest foe
+      x.fillStyle='#ffc23a';
+      swarm.forEach(d=>{ d.a+=d.s*.02; let tx=cx+Math.cos(d.a)*d.r*S, ty=cy+Math.sin(d.a)*d.r*S;
+        if(foes.length){ const f=foes[0]; tx=f.x; ty=f.y; }
+        d.px=(d.px||tx)+(tx-(d.px||tx))*.08; d.py=(d.py||ty)+(ty-(d.py||ty))*.08;
+        x.beginPath(); x.arc(d.px,d.py,2.1*S,0,7); x.fill(); });
+      // core diamond
+      const pulse=.5+.5*Math.sin(t*3), r=13*S;
+      x.shadowColor='#ffb000'; x.shadowBlur=(8+pulse*7); x.fillStyle='#ffb000';
+      x.beginPath(); x.moveTo(cx,cy-r); x.lineTo(cx+r,cy); x.lineTo(cx,cy+r); x.lineTo(cx-r,cy); x.closePath(); x.fill(); x.shadowBlur=0;
+    }
+    frame();
+  })();
+
+  // mini SCAN radar — rotating sweep + blips
+  (function(){
+    const c=document.getElementById('radarc'); if(!c) return; const x=c.getContext('2d'); let a=0;
+    function rs(){ const r=c.getBoundingClientRect(); c.width=r.width*devicePixelRatio; c.height=r.height*devicePixelRatio; }
+    addEventListener('resize',rs); rs();
+    const blips=[{a:1.2,r:.55},{a:4.1,r:.78}];
+    function frame(){ requestAnimationFrame(frame); a+=.025;
+      const W=c.width,H=c.height,cx=W/2,cy=H/2,R=Math.min(W,H)/2-6,S=devicePixelRatio;
+      if(W<2||H<2||R<2) return;   // tab hidden → canvas has no size; skip
+      x.clearRect(0,0,W,H);
+      x.strokeStyle='rgba(255,176,0,.18)'; x.lineWidth=1*S;
+      [.4,.7,1].forEach(k=>{ x.beginPath(); x.arc(cx,cy,R*k,0,7); x.stroke(); });
+      x.beginPath(); x.moveTo(cx-R,cy); x.lineTo(cx+R,cy); x.moveTo(cx,cy-R); x.lineTo(cx,cy+R); x.stroke();
+      // sweep
+      const g=x.createLinearGradient(cx,cy,cx+Math.cos(a)*R,cy+Math.sin(a)*R);
+      g.addColorStop(0,'rgba(255,176,0,.5)'); g.addColorStop(1,'rgba(255,176,0,0)');
+      x.strokeStyle=g; x.lineWidth=2*S; x.beginPath(); x.moveTo(cx,cy); x.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); x.stroke();
+      // blips glow when the sweep passes
+      blips.forEach(b=>{ const bx=cx+Math.cos(b.a)*R*b.r, by=cy+Math.sin(b.a)*R*b.r;
+        const da=Math.abs(((a-b.a)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)); const lit=da<.5||da>6.0;
+        x.globalAlpha=lit?1:.35; x.fillStyle='#ff6a5a'; x.shadowColor='#ff6a5a'; x.shadowBlur=lit?8:0;
+        x.beginPath(); x.arc(bx,by,3*S,0,7); x.fill(); x.shadowBlur=0; x.globalAlpha=1; });
+    }
+    frame();
+  })();
+</script>
+</body></html>

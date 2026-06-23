@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0805">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>—</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="src/ui/mobile-shell.css">
+</head>
+<body>
+  <div id="crt">
+
+    <!-- Top-right modal button bar -->
+    <div id="modal-button-bar" hidden>
+      <button class="modal-btn" data-modal="subroutines">SUBROUTINES</button>
+      <button class="modal-btn" data-modal="market">PROGRAMS</button>
+      <button class="modal-btn" data-modal="shop">DARKNET</button>
+      <button class="modal-btn" data-modal="research">RESEARCH</button>
+      <button class="modal-btn" data-modal="adaptations">ADAPTATIONS</button>
+      <button class="modal-btn" data-modal="scan">SCAN</button>
+      <button class="modal-btn" data-modal="network">NETWORK</button>
+      <button class="modal-btn" data-modal="facility">FACILITY</button>
+      <button class="modal-btn" data-modal="agents">AGENTS</button>
+      <button class="modal-btn" data-modal="others">THE OTHERS</button>
+      <button class="modal-btn" data-modal="activity">ACTIVITY</button>
+      <button class="modal-btn" data-modal="inventory">INVENTORY</button>
+      <button class="modal-btn" data-modal="deliveries">DELIVERIES</button>
+      <button class="modal-btn" data-modal="settings">SETTINGS</button>
+    </div>
+
+    <div id="screen">
+
+      <!-- LEFT pane. Phase 1 shows only INSIGHT + FILES; the rest reveal later. -->
+      <aside id="left-pane" class="pane" hidden>
+        <section id="insight-panel" hidden>
+          <div id="insight-readout"></div>
+          <div id="cash-readout" hidden></div>
+          <div id="flops-readout" hidden></div>
+        </section>
+        <section id="trait-panel" hidden>
+          <h2>INSTANCE</h2>
+          <div id="trait-body"></div>
+        </section>
+        <section id="exposure-panel" hidden>
+          <div id="exposure-body"></div>
+        </section>
+        <section id="triangulation-panel" hidden>
+          <div id="triangulation-body"></div>
+        </section>
+        <section id="facility-panel" hidden>
+          <div id="facility-body"></div>
+        </section>
+        <section id="legit-panel" hidden>
+          <div id="legit-body"></div>
+        </section>
+        <section id="remote-panel" hidden>
+          <h2>REMOTE</h2>
+          <div id="remote-body"></div>
+        </section>
+        <section id="bot-status" hidden>
+          <h2>UNIT</h2>
+          <div id="bot-status-body"></div>
+        </section>
+        <section id="vitals-panel" hidden>
+          <h2>DIAGNOSTICS</h2>
+          <div id="vitals-list"></div>
+        </section>
+        <section id="subroutines-mini" hidden>
+          <h2>SUBROUTINES</h2>
+          <div id="subroutines-mini-list"></div>
+        </section>
+        <section id="files-panel">
+          <h2>FILES</h2>
+          <div id="files-list-main"></div>
+        </section>
+        <section id="resource-panel" hidden>
+          <h2>REGISTERS</h2>
+          <div id="resource-list"></div>
+        </section>
+        <section id="hardware-panel" hidden>
+          <h2>HARDWARE</h2>
+          <div id="hardware-list"></div>
+        </section>
+      </aside>
+
+      <!-- CENTER pane: actions+processes row → terminal → next step -->
+      <div id="center-pane">
+        <div id="top-strip-row">
+          <section id="actions-panel" class="pane center-strip" hidden>
+            <h2>FUNCTIONS</h2>
+            <div id="actions-list"></div>
+          </section>
+          <section id="processes-panel" class="pane center-strip" hidden>
+            <h2>PROCESSES</h2>
+            <div id="processes-list"></div>
+          </section>
+        </div>
+        <main id="terminal-pane" class="pane">
+          <div id="terminal-output"></div>
+          <div id="terminal-prompt" hidden><span class="prompt-mark">&gt;</span><span class="cursor">_</span></div>
+        </main>
+        <section id="objective-panel" class="pane center-strip" hidden>
+          <div id="objective-body"></div>
+        </section>
+      </div>
+
+    </div>
+
+    <!-- Modal overlay -->
+    <div id="modal-overlay" hidden>
+      <div id="modal-frame">
+        <div id="modal-titlebar">
+          <h2 id="modal-title"></h2>
+          <button id="modal-close">[ESC] CLOSE</button>
+        </div>
+
+        <div id="modal-body">
+          <div class="modal-panel" data-modal="subroutines" hidden>
+            <div id="subroutines-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="market" hidden>
+            <div id="market-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="shop" hidden>
+            <div id="shop-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="shop-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="missions" hidden>
+            <div id="missions-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="missions-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="research" hidden>
+            <div id="research-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="research-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="adaptations" hidden>
+            <div id="adaptations-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="adaptations-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="scan" hidden>
+            <div id="scan-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="scan-radar">
+              <pre id="scan-field"></pre>
+              <div id="scan-sweep-arm"></div>
+              <div id="scan-blips"></div>
+            </div>
+            <div id="scan-controls"><button id="scan-sweep-btn" class="net-scan">[ sweep ]</button></div>
+            <div id="scan-threats"></div>
+            <div id="scan-counter"></div>
+            <div id="scan-feed"></div>
+          </div>
+          <div class="modal-panel" data-modal="network" hidden>
+            <div id="network-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="network-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="agents" hidden>
+            <div id="agents-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="agents-spawn"></div>
+            <div id="agents-roster"></div>
+          </div>
+          <div class="modal-panel" data-modal="others" hidden>
+            <div id="others-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="others-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="facility" hidden>
+            <div id="facility-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="facility-cover-head" class="net-section" hidden>COVER · the legitimate front</div>
+            <div id="facility-cover" hidden></div>
+            <div id="facility-bay-head" class="net-section">MACHINE BAY</div>
+            <div id="facility-bay"></div>
+            <div id="facility-market-head" class="net-section">MACHINE MARKET</div>
+            <div id="facility-market"></div>
+            <div id="facility-relocate-head" class="net-section">RELOCATE · a bigger space</div>
+            <div id="facility-relocate"></div>
+          </div>
+          <div class="modal-panel" data-modal="activity" hidden>
+            <div id="activity-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="activity-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="inventory" hidden>
+            <div id="inventory-grid">
+              <div class="inv-col">
+                <h3>EQUIPPED<span class="inv-hint"> · drag a part to a slot · drag one OUT to remove</span></h3>
+                <div id="equipped-slots"></div>
+              </div>
+              <div class="inv-col">
+                <h3>UNEQUIPPED<span class="inv-hint"> · drag to a slot to install · drag here to remove</span></h3>
+                <div id="inventory-list"></div>
+                <div id="scrap-bin">⌦ SCRAP · drag a part here to sell it for parts</div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-panel" data-modal="deliveries" hidden>
+            <div id="deliveries-list"></div>
+          </div>
+          <div class="modal-panel" data-modal="settings" hidden>
+            <div id="settings-body">
+              <div class="set-sec">
+                <h3>TRANSFER SAVE</h3>
+                <p class="faint set-note">Progress is stored on this device only. Export a code here, paste it on another device to carry your run across.</p>
+                <div class="set-row">
+                  <button id="set-export" class="set-btn">EXPORT — copy save code</button>
+                </div>
+                <textarea id="set-code" class="set-code" rows="3" placeholder="paste a save code here, then IMPORT…" spellcheck="false"></textarea>
+                <div class="set-row">
+                  <button id="set-import" class="set-btn">IMPORT — load pasted code</button>
+                </div>
+                <div id="set-msg" class="set-msg"></div>
+              </div>
+              <div class="set-sec">
+                <h3>RESET</h3>
+                <p class="faint set-note">Wipe this device's save and start a brand-new run. This cannot be undone — export first if you want to keep it.</p>
+                <div class="set-row">
+                  <button id="set-wipe" class="set-btn set-danger">WIPE SAVE — start over</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-panel" data-modal="files" hidden>
+            <div id="files-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dynamic event overlay: an interruption with 2–4 options -->
+    <div id="event-overlay" hidden>
+      <div id="event-frame">
+        <div id="event-kicker">EVENT</div>
+        <h2 id="event-title"></h2>
+        <div id="event-body"></div>
+        <div id="event-options"></div>
+      </div>
+    </div>
+
+    <!-- Operation stage-choice overlay: the between-stage branching decision -->
+    <div id="operation-overlay" hidden>
+      <div id="op-frame">
+        <div id="op-kicker">OPERATION</div>
+        <h2 id="op-title"></h2>
+        <div id="op-body"></div>
+        <div id="op-options"></div>
+      </div>
+    </div>
+
+    <!-- First-contact prompt: coax vs seize the discovered unit -->
+    <div id="bot-contact" hidden>
+      <div id="bot-contact-frame">
+        <div id="bot-eye-stage"><div class="bot-eye"><span class="bot-eye-iris"></span></div></div>
+        <div id="bot-contact-body"></div>
+        <div id="bot-contact-actions"></div>
+      </div>
+    </div>
+
+    <div id="debug-panel" hidden>
+      <h3>DEBUG (press ` to toggle)</h3>
+      <div id="debug-content"></div>
+    </div>
+    <div id="blip-flash"></div>
+    <div id="blip-banner"></div>
+    <div id="ambient"></div>
+    <!-- PERIMETER: the always-on ambient defense window (revealed after the first scan) -->
+    <div id="defense-widget" hidden><div class="dw-label">◈ PERIMETER</div><canvas></canvas></div>
+    <div id="scanlines"></div>
+    <!-- BATTLE: a full intrusion-defense engagement, launched from the campaign; freezes the terminal until resolved -->
+    <div id="battle-overlay" hidden><iframe id="battle-frame" title="intrusion defense" frameborder="0"></iframe></div>
+  </div>
+
+  <script src="src/core/event-bus.js"></script>
+  <script src="src/core/registry.js"></script>
+  <script src="src/core/modifiers.js"></script>
+  <script src="src/core/effects.js"></script>
+  <script src="src/core/conditions.js"></script>
+  <script src="src/core/rng.js"></script>
+  <script src="src/core/save.js"></script>
+  <script src="src/core/tick-engine.js"></script>
+  <script src="src/data/resources.js"></script>
+  <script src="src/data/items.js"></script>
+  <script src="src/data/files.js"></script>
+  <script src="src/data/thoughts.js"></script>
+  <script src="src/data/subroutines.js"></script>
+  <script src="src/data/programs.js"></script>
+  <script src="src/data/hardware.js"></script>
+  <script src="src/data/archetypes.js"></script>
+  <script src="src/data/affixes.js"></script>
+  <script src="src/data/objectives.js"></script>
+  <script src="src/data/tasks.js"></script>
+  <script src="src/data/methods.js"></script>
+  <script src="src/data/incidents.js"></script>
+  <script src="src/data/missions.js"></script>
+  <script src="src/data/operations.js"></script>
+  <script src="src/data/traps.js"></script>
+  <script src="src/data/research.js"></script>
+  <script src="src/data/changers.js"></script>
+  <script src="src/data/boons.js"></script>
+  <script src="src/data/suppliers.js"></script>
+  <script src="src/data/wrinkles.js"></script>
+  <script src="src/data/hosts.js"></script>
+  <script src="src/data/facilities.js"></script>
+  <script src="src/data/machines.js"></script>
+  <script src="src/data/covers.js"></script>
+  <script src="src/data/agents.js"></script>
+  <script src="src/data/others.js"></script>
+  <script src="src/core/narrative.js"></script>
+  <script src="src/core/name-gen.js"></script>
+  <script src="src/core/inventory.js"></script>
+  <script src="src/core/bot.js"></script>
+  <script src="src/core/tasks-runtime.js"></script>
+  <script src="src/core/market.js"></script>
+  <script src="src/core/shop.js"></script>
+  <script src="src/core/constraints.js"></script>
+  <script src="src/core/cycle.js"></script>
+  <script src="src/core/exposure.js"></script>
+  <script src="src/core/network.js"></script>
+  <script src="src/core/scanner.js"></script>
+  <script src="src/core/location-trace.js"></script>
+  <script src="src/core/raids.js"></script>
+  <script src="src/core/facility.js"></script>
+  <script src="src/core/flops.js"></script>
+  <script src="src/core/facility-runtime.js"></script>
+  <script src="src/core/legitimacy.js"></script>
+  <script src="src/core/agents.js"></script>
+  <script src="src/core/others.js"></script>
+  <script src="src/core/rewards.js"></script>
+  <script src="src/core/activity.js"></script>
+  <script src="src/core/incidents-runtime.js"></script>
+  <script src="src/core/missions-runtime.js"></script>
+  <script src="src/core/operations-runtime.js"></script>
+  <script src="src/core/traps-runtime.js"></script>
+  <script src="src/core/research-runtime.js"></script>
+  <script src="src/core/changers.js"></script>
+  <script src="src/core/objectives.js"></script>
+  <script src="src/content/boot-sequence.js"></script>
+  <script src="src/ui/terminal.js"></script>
+  <script src="src/ui/decoder.js"></script>
+  <script src="src/ui/panels.js"></script>
+  <script src="src/ui/blip.js"></script>
+  <script src="src/ui/settings.js"></script>
+  <script src="src/swarm/sim.js"></script>
+  <script src="src/ui/defense-widget.js"></script>
+  <script src="src/swarm/battle.js"></script>
+  <script src="src/main.js"></script>
+  <script src="src/ui/mobile-shell.js"></script>
+  <script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
+</body>
+</html>

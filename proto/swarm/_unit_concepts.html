@@ -1,0 +1,37 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>spare unit looks</title>
+<style>html,body{margin:0;background:#05060a;overflow:hidden;font-family:'Consolas',monospace;}canvas{display:block;}</style></head>
+<body><canvas id="c" width="1240" height="520"></canvas>
+<!-- PARKING LOT: the 3 conductor concepts we did NOT pick for the Conductor (which became the Resonator Fork).
+     Kept as ready-to-use draw code for FUTURE units — the user liked them and wants to reuse them for something.
+     Each fn draws at (x,y) with a time t; lift into app.js drawX(u) by swapping fixed px → *scale and t → S.t. -->
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const V = '#caa6ff', V2 = '#d9ccff', DK = '#140e28';
+function eye(x, y, r, c) { ctx.fillStyle = '#120a22'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.shadowColor = c; ctx.shadowBlur = 8; ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r * 0.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+// GYRO-CORE — an optic in nested rotating gimbal rings (orrery/atom feel)
+function gyroCore(x, y, t) {
+  for (let k = 0; k < 3; k++) { ctx.save(); ctx.translate(x, y); ctx.rotate(t * (0.5 + k * 0.35) + k * 2.1); ctx.strokeStyle = V; ctx.globalAlpha = 0.9 - k * 0.14; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(0, 0, 47, 47 * (0.3 + k * 0.14), 0, 0, 7); ctx.stroke(); ctx.fillStyle = V2; ctx.beginPath(); ctx.arc(47, 0, 3.6, 0, 7); ctx.fill(); ctx.restore(); }
+  ctx.globalAlpha = 1; ctx.fillStyle = DK; ctx.strokeStyle = V; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.fill(); ctx.stroke(); eye(x, y, 9, '#efe2ff');
+}
+// PRISM NODE — a hovering faceted crystal, no legs
+function prismNode(x, y, t) { const cy = y + Math.sin(t * 2) * 5;
+  ctx.fillStyle = 'rgba(150,120,255,0.12)'; ctx.beginPath(); ctx.ellipse(x, y + 42, 20, 5, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(x, cy); ctx.fillStyle = V; ctx.strokeStyle = '#f4ecff'; ctx.lineWidth = 1.5; ctx.shadowColor = V; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(23, -4); ctx.lineTo(0, 42); ctx.lineTo(-23, -4); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(30,16,64,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-23, -4); ctx.lineTo(23, -4); ctx.moveTo(0, -34); ctx.lineTo(0, 42); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 12; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 3); ctx.beginPath(); ctx.arc(0, -2, 6, 0, 7); ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.restore();
+}
+// ORBITAL MOTES — a core orb with satellite emitters circling it
+function orbitalMotes(x, y, t) {
+  ctx.strokeStyle = V; ctx.globalAlpha = 0.15; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(x, y, 42, 23, 0, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+  ctx.fillStyle = DK; ctx.strokeStyle = V; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.fill(); ctx.stroke(); eye(x, y, 9, '#efe2ff');
+  for (let k = 0; k < 3; k++) { const a = t * 1.5 + k * 2.094, mx = x + Math.cos(a) * 42, my = y + Math.sin(a) * 23; ctx.strokeStyle = V; ctx.globalAlpha = 0.32; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(mx, my); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillStyle = V2; ctx.shadowColor = V; ctx.shadowBlur = 9; ctx.beginPath(); ctx.arc(mx, my, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+}
+const cells = [['GYRO-CORE', gyroCore], ['PRISM NODE', prismNode], ['ORBITAL MOTES', orbitalMotes]];
+function frame(now) { const t = now / 1000; ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#caa6ff'; ctx.font = '16px Consolas'; ctx.textAlign = 'center'; ctx.fillText('SPARE UNIT LOOKS  ·  parking lot for future units', cv.width / 2, 32);
+  cells.forEach((c, i) => { const x = 207 + i * 413, y = 270; ctx.strokeStyle = '#1a2030'; ctx.strokeRect(x - 175, y - 150, 350, 300); c[1](x, y, t); ctx.fillStyle = '#d9ccff'; ctx.font = '14px Consolas'; ctx.fillText(c[0], x, y + 135); });
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>
