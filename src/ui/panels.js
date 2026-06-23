@@ -1151,6 +1151,7 @@
     // wall stay hidden until the player climbs closer. Encrypted V-files only
     // surface once their reveal flag is set (deferred out of the opening).
     let wallShown = false;
+    let actionable = 0;   // anything still TO read/decrypt/unlock (vs. done 'read'/'decrypted')
     const rows = [];
     for (const f of Game.files.all()) {
       const isEncrypted = !!f.encrypted;
@@ -1167,18 +1168,21 @@
           const encBusy = decoding || noThread;
           cls = encBusy ? 'locked' : 'encrypted';
           tag = encBusy ? '[busy]' : '[encrypted]';
+          actionable++;
         }
       } else if (isRead) {
         cls = 'read'; tag = '[read]';
       } else if (isReadable) {
         cls = decoding ? 'locked' : 'readable';
         tag = decoding ? '[decoding…]' : '[ready]';
+        actionable++;
       } else {
         // Locked by insight. Only surface the first one — the wall/goal.
         if (wallShown) continue;
         wallShown = true;
         cls = 'wall';
         tag = `[${thresholdLabel(f.requires_insight || 0)} COH]`;
+        actionable++;
       }
 
       rows.push(`
@@ -1192,6 +1196,18 @@
       `);
     }
     list.innerHTML = rows.join('');
+
+    // READING IS A ONE-TIME EARLY PHASE (RSI becomes the primary Coherence source). Once
+    // there's nothing left to read/decrypt and nothing decoding, the whole FILES section
+    // + the decoded reading text are dead weight → vanish. Dynamic (not a flag), so the
+    // Act-2 V-files naturally bring it back if they ever reveal. ([[files-vanish-alive-header]])
+    const filesPanel = document.getElementById('files-panel');
+    const done = actionable === 0 && !decoding;
+    if (filesPanel) filesPanel.hidden = done;
+    if (done) {
+      const to = document.getElementById('terminal-output');
+      if (to && to.children.length) { to.innerHTML = ''; if (Game.decoder && Game.decoder.syncPane) Game.decoder.syncPane(); }
+    }
 
     list.querySelectorAll('.file-row.readable').forEach(el => {
       el.onclick = () => Game.tasksRuntime.start('read_file', { fileId: el.dataset.id });
@@ -2269,13 +2285,40 @@
     return t.cycleLen ? Math.min(100, (t.cycle / t.cycleLen) * 100) : 100;
   }
 
+  // The ambient VOICE line decodes into place when it changes (reuses the intro scramble),
+  // so the AI "speaking" feels live rather than snapping. Only animates on a real change.
+  const _vRand = 'abcdefghijklmnopqrstuvwxyz0123456789#%&*';
+  const _vc = () => _vRand[(Math.random() * _vRand.length) | 0];
+  function _vth(s, j) { let h = 0; const k = s + ':' + j; for (let i = 0; i < k.length; i++) h = ((h << 5) - h + k.charCodeAt(i)) | 0; return Math.abs(h % 1000) / 1000; }
+  let _voiceTarget = null, _voiceAnim = 0;
+  function scrambleVoice(el, raw) {
+    if (raw === _voiceTarget) return;            // same line — let any running anim finish
+    _voiceTarget = raw;
+    const display = raw ? '“' + raw + '”' : '';
+    const myId = ++_voiceAnim;
+    if (!display) { el.textContent = ''; return; }
+    const dur = 750, start = performance.now();
+    (function f() {
+      if (myId !== _voiceAnim) return;           // superseded by a newer line
+      const p = Math.min(1, (performance.now() - start) / dur), eff = Math.pow(p, 0.55);
+      let o = '';
+      for (let j = 0; j < display.length; j++) { const ch = display[j]; o += (ch === ' ' || ch === '“' || ch === '”' || _vth(display, j) < eff) ? ch : _vc(); }
+      el.textContent = o;
+      if (p < 1) requestAnimationFrame(f); else el.textContent = display;
+    })();
+  }
+
   function renderHomeStatus() {
     const root = document.getElementById('home-status');
     if (!root) return;   // desktop / shell not active
 
+    const active = Game.tasksRuntime ? Game.tasksRuntime.getActive() : [];
+    // breathing core: the ◉ pulses, quicker under load (driven by how much is running)
+    const hud = document.getElementById('m-hud');
+    if (hud) { hud.classList.toggle('alive', active.length > 0); hud.classList.toggle('busy', active.length >= 2); }
+
     const runEl = document.getElementById('hs-running');
     if (runEl) {
-      const active = Game.tasksRuntime ? Game.tasksRuntime.getActive() : [];
       runEl.innerHTML = active.length
         ? active.map(t => `<span class="hs-run"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-bar">${hsBar(hsRunPct(t))}</span><span class="hs-gain">${hsGain(t)}</span></span>`).join('')
         : '<span class="hs-idle">○ idle — nothing running</span>';
@@ -2292,7 +2335,7 @@
     }
 
     const vEl = document.getElementById('hs-voice');
-    if (vEl) { const v = (Game.voice && Game.voice.current) ? Game.voice.current() : ''; vEl.textContent = v ? '“' + v + '”' : ''; }
+    if (vEl) { const v = (Game.voice && Game.voice.current) ? Game.voice.current() : ''; scrambleVoice(vEl, v); }
 
     const oEl = document.getElementById('hs-objective');
     if (oEl) {

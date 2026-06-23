@@ -105,7 +105,8 @@
       '<div id="hs-running" class="hs-line"></div>' +
       '<div id="hs-recent" class="hs-line" role="button"></div>' +
       '<div id="hs-voice" class="hs-line"></div>' +
-      '<div id="hs-objective" class="hs-line"></div>';
+      '<div id="hs-objective" class="hs-line"></div>' +
+      '<div id="hs-ticker" aria-hidden="true"></div>';   // faint always-drifting waveform = "running"
     crt.appendChild(h);   // parked here; the MOUNT loop relocates it into HOME
     // tap the recent line → open the full activity feed
     h.querySelector('#hs-recent').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('activity'); };

@@ -136,5 +136,5 @@
     region.addEventListener('pointercancel', stop);
   }
 
-  Game.decoder = { start, update, finish, abort, makeInteractive };
+  Game.decoder = { start, update, finish, abort, makeInteractive, syncPane };
 })();

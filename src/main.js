@@ -163,6 +163,8 @@
       Game.panels.renderActions();    // refresh the accrued readout + running-first order
       const row = document.querySelector(`#actions-list .action-row[data-action="${defId}"]`);
       if (row) { row.classList.remove('cycle-pop'); void row.offsetWidth; row.classList.add('cycle-pop'); }
+      const hs = document.getElementById('hs-running');   // pop the pinned running strip on payout
+      if (hs) { hs.classList.remove('cyc'); void hs.offsetWidth; hs.classList.add('cyc'); }
     });
 
     // Claiming a subroutine: refresh the side panel + anything its effect changes.

@@ -101,12 +101,34 @@
   position: sticky; top: 0; z-index: 40;
   /* break out of #m-view's side padding to sit full-bleed; width override beats the
      shell's `width:100%` rule (which otherwise leaves a gap on the right). */
-  width: calc(100% + 24px); margin: 0 0 14px -12px; padding: 8px 12px 9px;
+  width: calc(100% + 24px); margin: 0 0 16px -12px; padding: 12px 13px 14px;
   background: var(--bg); border-bottom: 1px solid var(--amber-faint);
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 6px;
   box-shadow: 0 6px 10px -6px rgba(0,0,0,0.8);
 }
-.hs-line { font-size: 12px; line-height: 1.35; min-height: 1.1em; }
+.hs-line { font-size: 13px; line-height: 1.45; min-height: 1.15em; }
+
+/* breathing core — the ◉ pulses, faster/brighter the more is running */
+#m-hud.alive .m-brand { animation: core-pulse 2.6s ease-in-out infinite; }
+#m-hud.busy .m-brand  { animation-duration: 1.15s; }
+@keyframes core-pulse {
+  0%, 100% { opacity: .55; text-shadow: 0 0 4px rgba(255,176,0,.3); }
+  50%      { opacity: 1;   text-shadow: 0 0 13px rgba(255,176,0,.75); }
+}
+
+/* live status ticker — a faint waveform always drifting across the header bottom */
+#hs-ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; opacity: .45; pointer-events: none; }
+#hs-ticker::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 200%;
+  background: repeating-linear-gradient(90deg, transparent 0 5px, var(--amber-mid) 5px 6px);
+  animation: ticker-drift 7s linear infinite;
+}
+@keyframes ticker-drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* running strip: live bars glow; the whole strip pops on a cycle payout */
+#hs-running .hs-bf { text-shadow: 0 0 6px rgba(255,176,0,.5); }
+#hs-running.cyc { animation: hs-cyc .45s ease-out; }
+@keyframes hs-cyc { 0% { filter: brightness(1.9); } 100% { filter: brightness(1); } }
 /* running strip */
 #hs-running { display: flex; flex-direction: column; gap: 2px; }
 .hs-run { display: flex; align-items: center; gap: 8px; }
