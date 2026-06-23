@@ -1,9 +1,9 @@
 // Service worker — makes the game installable + playable OFFLINE on the phone.
-// Strategy: NETWORK-FIRST for same-origin GETs (so an online session always gets the
-// freshest build during development), falling back to the cache when offline. Every
-// successful response is cached, so after one online load the whole game works offline.
-// Navigations fall back to the cached shell. Bump CACHE to force a clean re-cache.
-const CACHE = 'aigame-v1';
+// Strategy: NETWORK-FIRST for same-origin GETs, fetched with cache:'reload' so the
+// browser's HTTP cache (GitHub Pages sends max-age=600) is BYPASSED and an online
+// session always gets the freshest build — otherwise edits don't reach the phone for
+// ~10 min. Falls back to the runtime cache when offline. Bump CACHE to force a re-cache.
+const CACHE = 'aigame-v2';
 const CORE = [
   './index.html', './style.css', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png'
@@ -27,7 +27,9 @@ self.addEventListener('fetch', e => {
   let url; try { url = new URL(req.url); } catch (_) { return; }
   if (url.origin !== location.origin) return;   // leave cross-origin (CDNs, tunnels) to the network
   e.respondWith(
-    fetch(req)
+    // cache:'reload' → go to the network, bypassing the browser HTTP cache, so a fresh
+    // deploy is seen immediately; the response still updates our runtime cache for offline.
+    fetch(req, { cache: 'reload' })
       .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); return res; })
       .catch(() => caches.match(req).then(hit => hit || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
   );
