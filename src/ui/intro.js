@@ -15,31 +15,44 @@
 
   function autoscroll() { const o = out(); if (o) o.scrollTop = o.scrollHeight; }
 
-  // Decode a line LEFT-TO-RIGHT: resolved text grows from the left, characters scramble
-  // at the leading edge, and nothing ahead is shown yet — reads like the AI is decoding a
-  // stream char-by-char, not a whole sentence shimmering at once. Two INDEPENDENT speeds:
-  //   APPEAR_MS_PER_CHAR — how fast the leading edge advances (text appearing)
-  //   SCRAMBLE_MS        — how long each character scrambles before it locks (decode speed)
-  // so the decode dwell can be slow while the text still appears at a brisk pace.
-  const APPEAR_MS_PER_CHAR = 22;
+  // Decode a line LEFT-TO-RIGHT: resolved text grows from the left, characters scramble at
+  // the leading edge, nothing ahead shown yet. For the LETTER (`heavy`) it reads like
+  // someone WRITING IT LIVE — a deliberate per-char pace plus a HESITATION before each
+  // word — so the words land with weight. Machine boot logs decode fast (not heavy).
+  //   *_CHAR  — ms the leading edge spends per character (appearance pace)
+  //   WORD_PAUSE — extra beat before each new word (the writer pausing)
+  //   SCRAMBLE_MS — how long each char scrambles before it locks
+  const HEAVY_MS_PER_CHAR = 42, LIGHT_MS_PER_CHAR = 15;
+  const WORD_PAUSE = 150;
   const SCRAMBLE_MS = 520;
-  function decryptInto(span, text) {
+  function decryptInto(span, text, heavy) {
     return new Promise(resolve => {
       if (!text) { span.textContent = ''; return resolve(); }
+      const per = heavy ? HEAVY_MS_PER_CHAR : LIGHT_MS_PER_CHAR;
+      const wordPause = heavy ? WORD_PAUSE : 0;
+      // precompute each char's appear time, with a hesitation entering every new word
+      const appearAt = new Array(text.length);
+      let t = 0, inWord = false;
+      for (let j = 0; j < text.length; j++) {
+        const space = text[j] === ' ';
+        if (!space && !inWord) { t += wordPause; inWord = true; }
+        if (space) inWord = false;
+        appearAt[j] = t;
+        t += space ? per * 0.4 : per;
+      }
+      const finishAt = appearAt[text.length - 1] + SCRAMBLE_MS;
       const start = performance.now();
-      const finishAt = (text.length - 1) * APPEAR_MS_PER_CHAR + SCRAMBLE_MS;
       (function frame() {
         if (skipFlag) { span.textContent = text; return resolve(); }
-        const t = performance.now() - start;
+        const tt = performance.now() - start;
         let o = '';
         for (let j = 0; j < text.length; j++) {
-          const appearAt = j * APPEAR_MS_PER_CHAR;
-          if (t < appearAt) break;                                          // not reached yet
-          if (t >= appearAt + SCRAMBLE_MS) o += text[j];                    // locked
-          else o += (text[j] === ' ') ? ' ' : randChar();                  // still scrambling
+          if (tt < appearAt[j]) break;                                     // not reached yet
+          if (tt >= appearAt[j] + SCRAMBLE_MS) o += text[j];               // locked
+          else o += (text[j] === ' ') ? ' ' : randChar();                 // still scrambling
         }
         span.textContent = o; autoscroll();
-        if (t < finishAt) requestAnimationFrame(frame);
+        if (tt < finishAt) requestAnimationFrame(frame);
         else { span.textContent = text; resolve(); }
       })();
     });
@@ -61,9 +74,12 @@
 
     for (const step of (seq.steps || [])) {
       if (skipFlag) break;
-      if (step.kind === 'pause') { await sleep(Math.min(step.ms || 0, 1300)); }
-      else if (step.kind === 'line') { await decryptInto(line(step.cls), step.text || ''); }
-      else if (step.kind === 'typed') { await decryptInto(line(step.cls || 'letter'), step.text || ''); }
+      if (step.kind === 'pause') { await sleep(Math.min(step.ms || 0, 2400)); }
+      else if (step.kind === 'line') { await decryptInto(line(step.cls), step.text || '', false); }
+      else if (step.kind === 'typed') {
+        await decryptInto(line(step.cls || 'letter'), step.text || '', true);   // the letter writes heavy
+        if (!skipFlag) await sleep(Math.max(850, (step.text || '').length * 30));   // let the sentence land before the next
+      }
     }
     if (!skipFlag) await sleep(1200);
     ov.classList.remove('up');
