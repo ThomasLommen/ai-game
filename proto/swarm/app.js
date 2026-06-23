@@ -16,6 +16,8 @@
     if (Q.has('boss')) o.boss = Q.get('boss');
     if (Q.has('escort')) o.escort = qNum('escort');
     if (Q.has('regen')) o.regen = qNum('regen');
+    if (Q.has('ex')) o.ex = Q.get('ex').split(',').filter(Boolean);          // campaign adaptations → battle exotics
+    if (Q.has('unlock')) o.unlock = Q.get('unlock').split(',').filter(Boolean); // → pre-unlocked roster
     return o;
   };
   const newState = () => SWARM.create(makeSeed(), laneMode, Q.has('compute') ? qNum('compute', 120) : undefined, false, battleOpts());

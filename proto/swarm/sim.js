@@ -81,6 +81,11 @@
       won: false, lost: false, log: [],
       SWARMS, ENEMIES, AMMO, UNITS, nextId: 1,
     };
+    // campaign BUILD-MAPPING (battle.js folds these in): pre-engaged exotics + pre-unlocked
+    // roster from your adaptations/agents, so a developed build starts armed, not bare.
+    if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
+    if (s.ex.hive) s.maxFlocks = 10;
+    if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
     if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core); pickWaveLanes(s); }
     say(s, s.laneMode ? 'a node of yours. they come down the lanes — watch the lit ones. field swarms. hold the core.'
                       : 'a node of yours. they come from the dark — every side. field swarms. hold the core.');
