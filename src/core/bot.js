@@ -120,6 +120,7 @@
       const name = inst ? (inst.name || 'part') : 'part';
       Game.inventory.equipTo(instanceId, slotKey, slotIdx);   // emits item.equipped
       Game.events.emit('terminal.print', { lines: [`> unit: ${name} seated. done.`, ''], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Unit installed ${name}.`, { cls: 'dim', kind: 'event' });
       Game.events.emit('bot.job.done', { instanceId });
       Game.save.persist();
     }

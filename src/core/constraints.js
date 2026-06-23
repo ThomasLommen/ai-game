@@ -92,6 +92,7 @@
       'run cooler: fewer tasks at once, or a cooler body.',
       ''
     ], cls: 'err' });
+    if (Game.activity) Game.activity.log(`Thermal shutdown — core hit ${HEAT_CRIT}°C, processes halted.`, { cls: 'err', kind: 'warn' });
     Game.events.emit('thermal.tripped', {});
     Game.save.persist();
   }
@@ -117,6 +118,7 @@
       'pull less at once — unequip something hungry, or run fewer tasks.',
       ''
     ], cls: 'err' });
+    if (Game.activity) Game.activity.log(`Power overload — breaker tripped at ${Math.round(totalPower())}W.`, { cls: 'err', kind: 'warn' });
     Game.events.emit('power.tripped', {});
     Game.save.persist();
   }
@@ -223,6 +225,7 @@
     s.crash.recover = []; s.crash.recoverAtTick = 0;
     for (const r of list) Game.tasksRuntime.start(r.defId, r.payload);
     Game.events.emit('terminal.print', { lines: ['> watchdog: processes restored.', ''], cls: 'dim' });
+    if (Game.activity) Game.activity.log('Watchdog restored your processes after a crash.', { cls: 'dim', kind: 'event' });
     Game.events.emit('crash.recovered', {});
     Game.save.persist();
   }

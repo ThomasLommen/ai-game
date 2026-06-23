@@ -98,6 +98,23 @@
 #hs-objective { color: var(--amber); }
 .hs-next { color: var(--amber); }
 
+/* ── feed toasts (transient happenings/warnings/beats) ── */
+#feed-toasts {
+  position: fixed; left: 8px; right: 8px; z-index: 150;
+  top: calc(46px + env(safe-area-inset-top) + 6px);
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+}
+.feed-toast {
+  font-size: 12px; line-height: 1.35; padding: 7px 11px;
+  background: rgba(20,16,10,0.96); border: 1px solid var(--amber-faint); border-left-width: 3px;
+  color: var(--amber-dim); box-shadow: 0 4px 12px -4px rgba(0,0,0,0.8);
+  opacity: 0; transform: translateY(-8px); transition: opacity .3s, transform .3s;
+}
+.feed-toast.in { opacity: 1; transform: translateY(0); }
+.feed-toast.warning { border-left-color: var(--err); color: #ffb3a0; }
+.feed-toast.beat    { border-left-color: var(--cyan); color: #bfeaff; }
+.feed-toast.happening { border-left-color: var(--amber); }
+
 /* per-panel header (replaces the desktop modal titlebar) */
 .m-panel { margin-bottom: 18px; }
 .m-panel[hidden] { display: none; }

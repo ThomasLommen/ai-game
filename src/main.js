@@ -484,9 +484,13 @@
       Game.panels.pulseResource('cash');   // confirm the upgrade spend
     });
 
-    // Tasks (and anything else) print to the terminal via this event.
-    Game.events.on('terminal.print', ({ lines, cls }) => {
+    // Tasks (and anything else) print to the terminal via this event. The FEED router
+    // (slice 3) fans each print out to the right surface — ambient→voice, else→toast —
+    // while the prose log still receives (slice 4 removes the log).
+    Game.events.on('terminal.print', (payload) => {
+      const { lines, cls } = payload;
       for (const line of lines) Game.terminal.appendLine(line, cls);
+      if (Game.feed) Game.feed.route(payload);
     });
 
     // Decoder hook-up.
@@ -590,9 +594,14 @@
     const avail = Game.subroutines.available ? Game.subroutines.available() : [];
     const newly = avail.filter(sub => !s.flags.subOffered[sub.id]);
     newly.forEach(sub => { s.flags.subOffered[sub.id] = true; });
-    Game.panels.renderSubroutinesMini();   // surface the panel + the claimable rows first
+    // ANNOUNCE ONLY WHEN ACTIONABLE (rework rule): surface the panel AND make its tab
+    // reachable BEFORE announcing — otherwise the message points at a place that isn't
+    // there yet on the phone (the old "mentioned before it was available" bug).
+    Game.panels.renderSubroutinesMini();
+    if (Game.mobileShell && Game.mobileShell.active()) Game.mobileShell.syncTabs();
     for (const sub of newly) {
-      Game.events.emit('terminal.print', { lines: ['', `> a subroutine is available to acquire: ${sub.name} — ${sub.description}`, '  (claim it under SUBROUTINES in the side panel.)', ''], cls: 'dim' });
+      Game.events.emit('terminal.print', { lines: ['', `> a subroutine is available to acquire: ${sub.name} — ${sub.description}`, '  (claim it in BUILD → SUBROUTINES.)', ''], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Subroutine available: ${sub.name} — claim it in BUILD.`, { cls: 'dim', kind: 'subroutine' });
       Game.blip.fire({ headline: `subroutine available: ${sub.name}. claim it.`, tag: 'SUBROUTINE', target: '#subroutines-mini' });
     }
     if (newly.length) Game.save.persist();
