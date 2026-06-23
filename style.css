@@ -283,6 +283,9 @@ h2 {
 .action-row .desc { font-size: 10px; color: var(--amber-faint); margin-top: 1px; }
 .action-row .tag  { font-size: 10px; white-space: nowrap; margin-left: 8px; padding-top: 2px; }
 .action-row.running .tag { color: var(--err); }
+/* accumulated yield on a RUNNING row (folds the old PROCESSES data into the row) */
+.action-accrued { font-size: 10px; color: var(--green); margin-top: 3px; }
+.action-accrued .faint { color: var(--amber-faint); }
 
 /* Method rows: level + an upgrade button (cash = green). */
 .action-ctrls { display: flex; align-items: center; gap: 8px; white-space: nowrap; }

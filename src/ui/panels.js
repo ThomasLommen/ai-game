@@ -996,6 +996,23 @@
     return running ? `<div class="action-bar"><div class="action-bar-fill" style="width:${cyclePct(running)}%"></div></div>` : '';
   }
 
+  // Accumulated yield for a RUNNING task — the data the old PROCESSES panel carried,
+  // now folded into the FUNCTIONS row so one widget shows status + control. (slice 2)
+  function runAccrued(running) {
+    if (!running || !running.accrued) return '';
+    const parts = [];
+    for (const [resId, val] of Object.entries(running.accrued)) {
+      const r = Game.resources.get(resId);
+      if (!r || !val) continue;
+      parts.push(r.short === '$' ? `+$${val.toFixed(r.decimals)}` : `+${val.toFixed(r.decimals)} ${r.short}`);
+    }
+    return parts.length ? parts.join(' · ') : '';
+  }
+  function accruedBlock(running) {
+    const a = runAccrued(running);
+    return a ? `<div class="action-accrued">${a} <span class="faint">this run</span></div>` : '';
+  }
+
   // Live per-cycle yield + cycle length for the passive earners, so a subroutine /
   // research upgrade VISIBLY changes the number right on the action row — and the
   // two channels are kept distinct: "+X / cycle" is YIELD, "~Ys/cycle" is SPEED.
@@ -1061,28 +1078,30 @@
         const upLabel = !ramUpOk ? ('needs ' + fmtRam(Game.methods.ramReqNext(def.id)))
                                  : ((milestone ? 'upg★ $' : 'upg $') + upCost);
         const perCyc = rate * Game.cycle.BASE_SEC;
-        rows.push(`
+        rows.push({ running: !!running, html: `
           <div class="action-row method ${rowCls}" data-action="${def.id}" data-state="${st}">
             <div>
               <div>${method.name} <span class="lvl">lvl ${lvl}</span></div>
               <div class="desc">$${perCyc.toFixed(2)}/cyc · ${need} thr · ${fmtRam(needRam)}${milestone ? ' · next: +1 thr' : ''}</div>
               ${actionBar(running)}
+              ${accruedBlock(running)}
             </div>
             <div class="action-ctrls">
               <span class="tag">${tag}</span>
               <button class="upg-btn ${upCls}" data-upg="${def.id}">${upLabel}</button>
             </div>
-          </div>`);
+          </div>` });
       } else {
-        rows.push(`
+        rows.push({ running: !!running, html: `
           <div class="action-row ${rowCls}" data-action="${def.id}" data-state="${st}">
             <div>
               <div>${def.name}</div>
               <div class="desc">${earnerDesc(def)}</div>
               ${actionBar(running)}
+              ${accruedBlock(running)}
             </div>
             <div class="tag">${tag}</div>
-          </div>`);
+          </div>` });
       }
     }
 
@@ -1090,7 +1109,9 @@
       list.innerHTML = '<div class="faint" style="font-size:12px">—</div>';
       return;
     }
-    list.innerHTML = rows.join('');
+    // active functions float to the top — the card reads like a process monitor + launcher
+    rows.sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0));
+    list.innerHTML = rows.map(r => r.html).join('');
 
     list.querySelectorAll('.action-row').forEach(el => {
       el.onclick = () => {
@@ -2233,6 +2254,13 @@
     if (Game.methods && Game.methods.get && Game.methods.get(t.defId)) {
       const perCyc = Game.methods.cashRate(t.defId) * (Game.cycle ? Game.cycle.BASE_SEC : 5);
       return '+$' + perCyc.toFixed(perCyc < 10 ? 1 : 0) + '/c';
+    }
+    // other infinite tasks (introspect): show cumulative output once a cycle has paid out
+    if (t.accrued) {
+      for (const [resId, val] of Object.entries(t.accrued)) {
+        const r = Game.resources.get(resId); if (!r || !val) continue;
+        return r.short === '$' ? `+$${val.toFixed(r.decimals)}` : `+${val.toFixed(r.decimals)} ${r.short}`;
+      }
     }
     return 'running';
   }

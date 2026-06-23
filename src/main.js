@@ -153,9 +153,13 @@
     // (nothing left to spend Insight on) summons money (Phase 3).
     Game.events.on('file.read', () => { Game.panels.pulseInsight(); maybeRevealIntrospect(); maybeRevealMoney(); });
 
-    // A production cycle paid out: flash the resource readout + "pop" the action row.
-    Game.events.on('action.cycle', ({ defId, resource }) => {
+    // A production cycle paid out: accrue it onto the running task (so the FUNCTIONS row
+    // shows cumulative output — the merged process view), flash the readout + "pop" the row.
+    Game.events.on('action.cycle', ({ defId, resource, amount }) => {
+      const t = Game.tasksRuntime.getActive().find(t => t.defId === defId);
+      if (t) { t.accrued = t.accrued || {}; t.accrued[resource] = (t.accrued[resource] || 0) + (amount || 0); }
       Game.panels.pulseResource(resource);
+      Game.panels.renderActions();    // refresh the accrued readout + running-first order
       const row = document.querySelector(`#actions-list .action-row[data-action="${defId}"]`);
       if (row) { row.classList.remove('cycle-pop'); void row.offsetWidth; row.classList.add('cycle-pop'); }
     });
