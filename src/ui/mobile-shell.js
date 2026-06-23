@@ -14,6 +14,7 @@
     { id: 'home',  glyph: '⌂', label: 'HOME' },
     { id: 'work',  glyph: '$', label: 'WORK' },
     { id: 'build', glyph: '⊞', label: 'BUILD' },
+    { id: 'gear',  glyph: '▦', label: 'GEAR' },
     { id: 'sys',   glyph: '◎', label: 'SYS' },
     { id: 'more',  glyph: '≡', label: 'MORE' },
   ];
@@ -26,9 +27,11 @@
     // they're dropped from the scrolling body. ([[home-dashboard-rework]])
     // #terminal-pane stays in HOME as the file-READING surface (decode regions render
     // into it) — it's no longer a prose log, and collapses to nothing when empty.
-    home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#defense-widget', '#trait-panel', '#bot-status'],
+    // PERIMETER (defense-widget) sits at the BOTTOM of HOME now.
+    home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#defense-widget'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
-    build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="inventory"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#hardware-panel', '#subroutines-mini'],
+    build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
+    gear:  ['#hardware-panel', '.modal-panel[data-modal="inventory"]'],   // INVENTORY is its own tab now
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#vitals-panel', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
     more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]'],   // SETTINGS lives behind the HUD gear, not here
   };
@@ -132,6 +135,7 @@
 
   function show(tab) {
     curTab = tab;
+    if (tab === 'work' && Game.panels && Game.panels.markContractsSeen) Game.panels.markContractsSeen();   // clear the WORK badge on view
     if (typeof clearInvSel === 'function') clearInvSel();   // drop any held inventory part on tab change
     document.querySelectorAll('#m-view .m-tab').forEach(s => s.classList.toggle('on', s.dataset.tab === tab));
     document.querySelectorAll('#m-nav .m-navb').forEach(b => b.classList.toggle('on', b.dataset.go === tab));
@@ -167,13 +171,9 @@
     syncHud();
   }
 
-  // glanceable status pips in the HUD (exposure = how loud/noticed you are)
-  function syncHud() {
-    const pips = document.getElementById('m-hud-pips'); if (!pips) return;
-    const s = (Game.save && Game.save.state) || {};
-    const exp = Math.round(s.exposure || 0);
-    pips.innerHTML = exp > 0 ? `<span class="m-pip${exp >= 50 ? ' hot' : ''}">⚠ ${exp}</span>` : '';
-  }
+  // HUD status pips (exposure + heat) are built by panels.renderHomeStatus each tick so
+  // heat stays live; nudge a refresh on resource changes too.
+  function syncHud() { if (Game.panels && Game.panels.renderHomeStatus) Game.panels.renderHomeStatus(); }
 
   // ── INVENTORY touch: drag-drop is dead on touch, so tap-to-select a part, then tap a
   //    valid target (a lit slot to install/swap, UNEQUIPPED to remove, SCRAP to sell). ──

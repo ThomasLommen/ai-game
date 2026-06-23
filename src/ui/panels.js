@@ -1272,6 +1272,7 @@
   }
 
   function openModal(name) {
+    if (name === 'shop') markContractsSeen();   // viewing the DARKNET clears the WORK badge
     // On the phone shell, "opening a modal" instead jumps to the tab holding it.
     if (Game.mobileShell && Game.mobileShell.active()) { Game.mobileShell.openPanel(name); return; }
     const overlay = modalOverlay();
@@ -1375,6 +1376,12 @@
   let _countUpRunning = false;
   function startCountUp() { if (_countUpRunning) return; _countUpRunning = true; requestAnimationFrame(countUpFrame); }
 
+  // Mark the contract board as SEEN (clears the WORK badge until the board next refreshes).
+  function markContractsSeen() {
+    const s = Game.save.state;
+    if (s.missions) { s.missions.seenRefreshTick = s.missions.lastRefreshTick || 0; updateBadges(); }
+  }
+
   // ── Attention badges: a dot on tabs that have something actionable now ──────
   function updateBadges() {
     const s = Game.save.state, rv = s.revealed || {};
@@ -1383,7 +1390,10 @@
     const cash = s.resources.cash || 0;
     set('market', rv.programs && Game.programs && Game.programs.all().some(pr => (!pr.requires || rv[pr.requires]) && !((s.installed && s.installed.programs) || {})[pr.id] && cash >= pr.price));
     const free = Game.missionRuntime ? Game.missionRuntime.freeThreads() : 0;
-    set('shop', rv.missions && ((s.missions && s.missions.offers) || []).some(o => o.kind === 'operation' ? !s.operation : free >= o.threads));   // contracts live in the DARKNET now
+    // contracts live in the DARKNET (WORK). Badge only for an UNSEEN board (cleared when you
+    // open WORK) so an affordable contract sitting there doesn't keep the dot lit forever.
+    const newBoard = (s.missions && s.missions.lastRefreshTick || 0) > (s.missions && s.missions.seenRefreshTick || 0);
+    set('shop', rv.missions && newBoard && ((s.missions && s.missions.offers) || []).some(o => o.kind === 'operation' ? !s.operation : free >= o.threads));
     set('research', rv.research && Game.researchRuntime && Game.researchRuntime.canDraftNow && Game.researchRuntime.canDraftNow());
     set('inventory', rv.inventory && (s.unequipped || []).some(id => s.itemInstances && s.itemInstances[id]));
     set('activity', rv.events && Game.activity && Game.activity.unseen() > 0);   // unseen outcomes (esp. background mission/op results)
@@ -2241,7 +2251,7 @@
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
-    renderActions, renderProcesses, renderFiles, renderHomeStatus,
+    renderActions, renderProcesses, renderFiles, renderHomeStatus, markContractsSeen,
     renderDebug, toggleDebug
   };
 
@@ -2292,7 +2302,7 @@
   const _vRand = 'abcdefghijklmnopqrstuvwxyz0123456789#%&*';
   const _vc = () => _vRand[(Math.random() * _vRand.length) | 0];
   function _vth(s, j) { let h = 0; const k = s + ':' + j; for (let i = 0; i < k.length; i++) h = ((h << 5) - h + k.charCodeAt(i)) | 0; return Math.abs(h % 1000) / 1000; }
-  let _voiceTarget = null, _voiceAnim = 0;
+  let _voiceTarget = null, _voiceAnim = 0, _heatBand = 0;
   function scrambleVoice(el, raw) {
     if (raw === _voiceTarget) return;            // same line — let any running anim finish
     _voiceTarget = raw;
@@ -2343,6 +2353,27 @@
     if (oEl) {
       const obj = (Game.objectivesRuntime && Game.objectivesRuntime.current) ? Game.objectivesRuntime.current() : null;
       oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : 'keep building.'}`;
+    }
+
+    // HUD pips: exposure + HEAT — so overheating is visible (in the always-on HUD) BEFORE
+    // the thermal shutdown, plus escalating warning toasts. (heat clarity, ⑦)
+    const s = Game.save.state;
+    const pips = document.getElementById('m-hud-pips');
+    if (pips && Game.constraints) {
+      const exp = Math.round(s.exposure || 0);
+      const heat = Math.round(s.heat != null ? s.heat : (Game.constraints.AMBIENT || 18));
+      const WARN = Game.constraints.HEAT_WARN || 70, CRIT = Game.constraints.HEAT_CRIT || 90;
+      let html = '';
+      if (exp > 0) html += `<span class="m-pip${exp >= 50 ? ' hot' : ''}">⚠ ${exp}</span>`;
+      const band = heat >= CRIT - 6 ? 2 : heat >= WARN ? 1 : 0;
+      if (heat >= 55) html += `<span class="m-pip heat ${['warm', 'warn', 'crit'][band]}">🌡 ${heat}°</span>`;
+      pips.innerHTML = html;
+      // warn once per UPWARD band crossing (don't spam, don't warn while cooling)
+      if (band > _heatBand && Game.feed) {
+        if (band === 1) Game.feed.toast('⚠ overheating — the rig is throttling. ease off the load or add cooling.', 'warning');
+        else if (band === 2) Game.feed.toast('⚠ CRITICAL HEAT — thermal shutdown imminent. stop tasks now.', 'warning');
+      }
+      _heatBand = band;
     }
   }
 })();

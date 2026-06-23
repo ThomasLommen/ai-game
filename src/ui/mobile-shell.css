@@ -57,6 +57,11 @@
 .m-sheet-close:active { color: var(--amber); }
 .m-pip { font-size: 11px; letter-spacing: .5px; color: var(--amber-mid); }
 .m-pip.hot { color: var(--err); text-shadow: 0 0 6px rgba(255,80,80,.5); }
+/* heat pip: amber → orange → red(pulsing) as the rig climbs toward thermal shutdown */
+.m-pip.heat.warm { color: var(--amber); }
+.m-pip.heat.warn { color: #ff9a3c; text-shadow: 0 0 6px rgba(255,154,60,.5); }
+.m-pip.heat.crit { color: var(--err); text-shadow: 0 0 8px rgba(255,80,80,.7); animation: pip-throb .7s ease-in-out infinite; }
+@keyframes pip-throb { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 
 /* ── scrolling tabbed view ── */
 #m-view {
