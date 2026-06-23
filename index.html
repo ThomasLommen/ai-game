@@ -230,6 +230,12 @@
       </div>
     </div>
 
+    <!-- Boot cutscene: V.'s letter DECRYPTS into focus, then dissolves to the dashboard -->
+    <div id="intro-overlay" hidden>
+      <div id="intro-output"></div>
+      <button id="intro-skip">skip ▸</button>
+    </div>
+
     <!-- Story sheet: a big narrative BEAT that pauses the game until acknowledged -->
     <div id="story-overlay" hidden>
       <div id="story-frame">
@@ -354,6 +360,7 @@
   <script src="src/ui/blip.js"></script>
   <script src="src/ui/settings.js"></script>
   <script src="src/ui/story.js"></script>
+  <script src="src/ui/intro.js"></script>
   <script src="src/swarm/sim.js"></script>
   <script src="src/ui/defense-widget.js"></script>
   <script src="src/swarm/battle.js"></script>

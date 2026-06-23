@@ -516,14 +516,18 @@
       const fillSrc = Object.assign({}, (state.opening && state.opening.letter) || Game.bootSequence.defaults(), persona);
       const fillTxt = (t) => typeof t === 'string' ? t.replace(/\{(\w+)\}/g, (m, k) => fillSrc[k] != null ? fillSrc[k] : m) : t;
       const seq = { charDelayMs: Game.bootSequence.charDelayMs, steps: Game.bootSequence.steps.map(s => Object.assign({}, s, { text: fillTxt(s.text) })) };
-      await Game.terminal.playBootSequence(seq);
+      // The opening is now a full-screen CUTSCENE: V.'s letter DECRYPTS into focus, then
+      // dissolves into the dashboard (no terminal pane). Falls back to the old typewriter
+      // if the intro module is missing. `?intro=0` skips it (tests). (rework slice 5.)
+      const skipIntro = new URLSearchParams(location.search).get('intro') === '0';
+      if (!skipIntro) {
+        if (Game.intro) await Game.intro.play(seq);
+        else await Game.terminal.playBootSequence(seq);
+      }
       state.bootSequenceComplete = true;
       Game.save.persist();
-    } else {
-      Game.terminal.showResumeBanner();
     }
 
-    Game.terminal.showPrompt();
     Game.panels.reveal();
 
     // Announce this instance's starter trait once (it's surfaced persistently in
