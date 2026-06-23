@@ -44,11 +44,12 @@
 #m-view {
   position: fixed; left: 0; right: 0; z-index: 55;
   top: calc(46px + env(safe-area-inset-top)); bottom: calc(60px + env(safe-area-inset-bottom));
-  overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 12px 28px;
+  overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 12px 28px;   /* top padding lives on the tab, so HOME's sticky header can sit flush under the HUD */
 }
 #m-view::-webkit-scrollbar { width: 0; }
-.m-tab { display: none; }
+.m-tab { display: none; padding-top: 10px; }      /* breathing room for normal tabs */
 .m-tab.on { display: block; }
+.m-tab[data-tab="home"] { padding-top: 0; }        /* HOME header is sticky + flush; no top gap */
 /* relocated panels/sections flow as full-width blocks (desktop sizing constraints off) */
 .mobile-shell .m-tab > *:not([hidden]) { display: block; width: 100%; margin: 0 0 16px; }
 .mobile-shell .m-tab .pane,
@@ -71,7 +72,9 @@
 /* ── HOME dashboard: the pinned status header (running · recent · voice · objective) ── */
 #home-status {
   position: sticky; top: 0; z-index: 40;
-  margin: -10px -12px 14px; padding: 8px 12px 9px;
+  /* break out of #m-view's side padding to sit full-bleed; width override beats the
+     shell's `width:100%` rule (which otherwise leaves a gap on the right). */
+  width: calc(100% + 24px); margin: 0 0 14px -12px; padding: 8px 12px 9px;
   background: var(--bg); border-bottom: 1px solid var(--amber-faint);
   display: flex; flex-direction: column; gap: 4px;
   box-shadow: 0 6px 10px -6px rgba(0,0,0,0.8);
