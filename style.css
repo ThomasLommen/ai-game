@@ -1211,6 +1211,35 @@ h2 {
 @keyframes crash-surge { 0% { opacity: 0; } 12% { opacity: 0.75; } 38% { opacity: 0.12; } 64% { opacity: 0.5; } 100% { opacity: 0; } }
 
 /* ───── Dynamic event overlay (an interruption with 2–4 options) ───── */
+/* ── story sheet: a big narrative BEAT that takes over the screen (slice 4) ── */
+#story-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2,4,6,0.92); opacity: 0; transition: opacity .35s ease;
+}
+#story-overlay[hidden] { display: none; }
+#story-overlay.up { opacity: 1; }
+#story-frame {
+  width: min(620px, 90vw); padding: 8vh 28px; text-align: left;
+  display: flex; flex-direction: column; gap: 26px;
+}
+#story-body { display: flex; flex-direction: column; gap: 14px; }
+.story-line {
+  color: var(--cyan); font-size: 17px; line-height: 1.6; letter-spacing: .3px;
+  text-shadow: 0 0 10px rgba(81,214,255,0.25);
+  opacity: 0; animation: story-line-in .5s ease forwards;
+}
+.story-line:nth-child(2) { animation-delay: .18s; }
+.story-line:nth-child(3) { animation-delay: .36s; }
+.story-line:nth-child(n+4) { animation-delay: .5s; }
+@keyframes story-line-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+#story-continue {
+  align-self: flex-start; font-family: inherit; font-size: 13px; letter-spacing: 2px; cursor: pointer;
+  color: var(--cyan); background: transparent; border: 1px solid rgba(81,214,255,0.4);
+  padding: 10px 20px; opacity: 0; animation: story-line-in .5s ease .7s forwards;
+}
+#story-continue:hover { border-color: var(--cyan); box-shadow: 0 0 12px -2px var(--cyan); }
+
 #event-overlay, #operation-overlay {
   position: fixed; inset: 0; z-index: 220;
   display: flex; align-items: center; justify-content: center;

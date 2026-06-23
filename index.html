@@ -230,6 +230,14 @@
       </div>
     </div>
 
+    <!-- Story sheet: a big narrative BEAT that pauses the game until acknowledged -->
+    <div id="story-overlay" hidden>
+      <div id="story-frame">
+        <div id="story-body"></div>
+        <button id="story-continue">continue ▸</button>
+      </div>
+    </div>
+
     <!-- Dynamic event overlay: an interruption with 2–4 options -->
     <div id="event-overlay" hidden>
       <div id="event-frame">
@@ -345,6 +353,7 @@
   <script src="src/ui/panels.js"></script>
   <script src="src/ui/blip.js"></script>
   <script src="src/ui/settings.js"></script>
+  <script src="src/ui/story.js"></script>
   <script src="src/swarm/sim.js"></script>
   <script src="src/ui/defense-widget.js"></script>
   <script src="src/swarm/battle.js"></script>

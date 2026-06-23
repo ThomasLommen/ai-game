@@ -65,6 +65,7 @@
         if (Game.panels && Game.panels.isModalOpen && Game.panels.isModalOpen()) return true;
         if (Game.incidentRuntime && Game.incidentRuntime.current()) return true;
         if (Game.operationRuntime && Game.operationRuntime.current()) return true;
+        if (Game.story && Game.story.active && Game.story.active()) return true;   // a narrative beat sheet freezes the game
         const b = (Game.bot && Game.bot.ensureState) ? Game.bot.ensureState() : null;
         if (b && b.found && !b.connected && b.wakePhase === 'awake') return true;   // pause only at the CHOICE, not the wake-up cutscene
       } catch (e) {}
@@ -484,12 +485,11 @@
       Game.panels.pulseResource('cash');   // confirm the upgrade spend
     });
 
-    // Tasks (and anything else) print to the terminal via this event. The FEED router
-    // (slice 3) fans each print out to the right surface — ambient→voice, else→toast —
-    // while the prose log still receives (slice 4 removes the log).
+    // Tasks (and anything else) emit narration via this event. The FEED router (slices
+    // 3-4) fans each one out to the right surface — ambient→voice, beat→story sheet,
+    // else→toast. The old scrolling prose LOG is gone (slice 4); boot still types its
+    // letter directly via Game.terminal during the cutscene, not through this event.
     Game.events.on('terminal.print', (payload) => {
-      const { lines, cls } = payload;
-      for (const line of lines) Game.terminal.appendLine(line, cls);
       if (Game.feed) Game.feed.route(payload);
     });
 
@@ -1087,7 +1087,7 @@
         ? '> the service unit puts itself in the doorway — the thing you woke and never had to. it buys you the seconds. you do not look back at what it costs it.'
         : '> the service unit executes its last command without complaint, the way a tool does, and is still executing it when the line goes dead. you took it. it served. that was all it was ever allowed to be.',
       ''
-    ], cls: 'dim' });
+    ], cls: 'cyan' });   // a climax beat — a story sheet, not a transient toast
 
     // The flee: keep everything; reset the basement trace; cross into Act 4.
     st.locationTrace = 0;

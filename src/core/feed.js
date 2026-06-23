@@ -28,6 +28,10 @@
     const booted = !!(Game.save && Game.save.state && Game.save.state.bootSequenceComplete);
     if (lane === 'ambient') { if (Game.voice) Game.voice.say(text); return; }
     if (!booted) return;
+    if (lane === 'beat' && Game.story) {   // big narrative beats take over the screen (paused)
+      Game.story.present((payload.lines || []).map(clean).filter(Boolean));
+      return;
+    }
     toast(text, lane);
   }
 
