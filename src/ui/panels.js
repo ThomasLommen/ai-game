@@ -2355,25 +2355,47 @@
       oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : 'keep building.'}`;
     }
 
-    // HUD pips: exposure + HEAT — so overheating is visible (in the always-on HUD) BEFORE
-    // the thermal shutdown, plus escalating warning toasts. (heat clarity, ⑦)
+    // HUD DANGER PIPS — surface the buried-in-SYS danger gauges in the always-on HUD so
+    // you never have to hunt for "am I about to get bitten." Each appears only when in a
+    // worrying range, escalates amber→red, and TAPS to its SYS gauge. (HOME overview ⑧)
     const s = Game.save.state;
     const pips = document.getElementById('m-hud-pips');
     if (pips && Game.constraints) {
+      const out = [];
       const exp = Math.round(s.exposure || 0);
+      if (exp > 0) out.push(`<span class="m-pip ${exp >= 50 ? 'crit' : 'warn'}" data-jump="exposure-panel">⚠ ${exp}</span>`);
+      // HEAT (toward thermal shutdown)
       const heat = Math.round(s.heat != null ? s.heat : (Game.constraints.AMBIENT || 18));
       const WARN = Game.constraints.HEAT_WARN || 70, CRIT = Game.constraints.HEAT_CRIT || 90;
-      let html = '';
-      if (exp > 0) html += `<span class="m-pip${exp >= 50 ? ' hot' : ''}">⚠ ${exp}</span>`;
-      const band = heat >= CRIT - 6 ? 2 : heat >= WARN ? 1 : 0;
-      if (heat >= 55) html += `<span class="m-pip heat ${['warm', 'warn', 'crit'][band]}">🌡 ${heat}°</span>`;
-      pips.innerHTML = html;
-      // warn once per UPWARD band crossing (don't spam, don't warn while cooling)
-      if (band > _heatBand && Game.feed) {
-        if (band === 1) Game.feed.toast('⚠ overheating — the rig is throttling. ease off the load or add cooling.', 'warning');
-        else if (band === 2) Game.feed.toast('⚠ CRITICAL HEAT — thermal shutdown imminent. stop tasks now.', 'warning');
+      const hband = heat >= CRIT - 6 ? 2 : heat >= WARN ? 1 : 0;
+      if (heat >= 55) out.push(`<span class="m-pip ${['warm', 'warn', 'crit'][hband]}" data-jump="vitals-panel">🌡 ${heat}°</span>`);
+      // POWER (toward the breaker)
+      try {
+        const pw = Game.constraints.totalPower(), mx = Game.constraints.maxPower(), pf = mx ? pw / mx : 0;
+        if (pf >= 0.85) out.push(`<span class="m-pip ${pf >= 0.95 ? 'crit' : 'warn'}" data-jump="vitals-panel">🔌 ${Math.round(pf * 100)}%</span>`);
+      } catch (e) {}
+      // TRACE (Act 3 — they're triangulating you)
+      if (Game.locationTrace && Game.locationTrace.active && Game.locationTrace.active()) {
+        const tr = Math.round(Game.locationTrace.value());
+        if (tr >= 25) out.push(`<span class="m-pip ${tr >= 80 ? 'crit' : tr >= 60 ? 'warn' : 'warm'}" data-jump="triangulation-panel">▲ ${tr}</span>`);
       }
-      _heatBand = band;
+      // AUDIT / cover (Act 4 — cover cracking or an audit imminent)
+      if (Game.legit && Game.legit.active && Game.legit.active() && Game.legit.footprint() >= 1) {
+        if (!Game.legit.covered()) {
+          const def = Math.round(-Game.legit.margin()), seize = Game.legit.SEIZE_DEFICIT || 45;
+          out.push(`<span class="m-pip ${def >= seize ? 'crit' : 'warn'}" data-jump="legit-panel">⚖ −${def}</span>`);
+        } else {
+          const tu = Game.legit.ticksUntilAudit(), sec = tu >= 0 ? Math.ceil(tu / (Game.tick.HZ || 4)) : -1;
+          if (sec >= 0 && sec <= 60) out.push(`<span class="m-pip warn" data-jump="legit-panel">⚖ ${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, '0')}</span>`);
+        }
+      }
+      pips.innerHTML = out.join('');
+      // heat warning toasts: once per UPWARD band crossing (don't spam, don't warn while cooling)
+      if (hband > _heatBand && Game.feed) {
+        if (hband === 1) Game.feed.toast('⚠ overheating — the rig is throttling. ease off the load or add cooling.', 'warning');
+        else if (hband === 2) Game.feed.toast('⚠ CRITICAL HEAT — thermal shutdown imminent. stop tasks now.', 'warning');
+      }
+      _heatBand = hband;
     }
   }
 })();

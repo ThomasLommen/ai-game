@@ -175,6 +175,15 @@
   // heat stays live; nudge a refresh on resource changes too.
   function syncHud() { if (Game.panels && Game.panels.renderHomeStatus) Game.panels.renderHomeStatus(); }
 
+  // tapping a HUD danger pip jumps to its gauge in the SYS tab
+  function onPipTap(e) {
+    const pip = e.target.closest('.m-pip[data-jump]');
+    if (!pip) return;
+    const id = pip.dataset.jump;
+    show('sys');
+    requestAnimationFrame(() => { const el = document.getElementById(id); if (el && el.offsetParent !== null) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+  }
+
   // ── INVENTORY: drag-drop is off the table. Tap a part → a small ACTION MENU
   //    (Install / Unequip / Scrap, context-dependent). ──
   function closeInvMenu() { const m = document.getElementById('inv-menu'); if (m) m.remove(); }
@@ -230,6 +239,7 @@
       build(); syncTabs();
       if (Game.events) Game.events.on('resource.changed', syncHud);   // keep HUD pips live
       document.addEventListener('click', onInvTap);                   // inventory tap-to-equip
+      document.addEventListener('click', onPipTap);                   // danger pip → SYS gauge
     } catch (e) { console.error('[mobileShell] init failed', e); activeFlag = false; document.body.classList.remove('mobile-shell'); }
   }
 
