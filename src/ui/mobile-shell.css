@@ -54,7 +54,9 @@
 .mobile-shell .m-tab > *:not([hidden]) { display: block; width: 100%; margin: 0 0 16px; }
 .mobile-shell .m-tab .pane,
 .mobile-shell .m-tab .center-strip { max-height: none; overflow: visible; }
-.mobile-shell .m-tab #terminal-pane { flex: none; height: auto; min-height: 180px; }
+/* reading surface: auto-height, and collapsed when there's nothing being read */
+.mobile-shell .m-tab #terminal-pane { flex: none; height: auto; min-height: 0; }
+.mobile-shell .m-tab #terminal-pane:has(#terminal-output:empty) { display: none; }
 .mobile-shell .m-tab #terminal-output { overflow: visible; }
 .mobile-shell .m-tab .modal-panel:not([hidden]) { display: block; }
 .mobile-shell #inventory-grid { display: block; }
