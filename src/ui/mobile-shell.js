@@ -175,31 +175,52 @@
   // heat stays live; nudge a refresh on resource changes too.
   function syncHud() { if (Game.panels && Game.panels.renderHomeStatus) Game.panels.renderHomeStatus(); }
 
-  // ── INVENTORY touch: drag-drop is dead on touch, so tap-to-select a part, then tap a
-  //    valid target (a lit slot to install/swap, UNEQUIPPED to remove, SCRAP to sell). ──
-  let invSel = null;   // { id, source: 'equipped'|'unequipped' }
-  function clearInvSel() {
-    invSel = null;
-    document.querySelectorAll('.m-selected').forEach(e => e.classList.remove('m-selected'));
-    document.querySelectorAll('#equipped-slots .drop-valid, #inventory-list.drop-valid, #scrap-bin.drop-valid').forEach(e => e.classList.remove('drop-valid'));
+  // ── INVENTORY: drag-drop is off the table. Tap a part → a small ACTION MENU
+  //    (Install / Unequip / Scrap, context-dependent). ──
+  function closeInvMenu() { const m = document.getElementById('inv-menu'); if (m) m.remove(); }
+  function clearInvSel() { closeInvMenu(); }   // (called on tab change)
+  function partSlotKey(id) { const inst = Game.inventory && Game.inventory.getInstance(id); return inst ? inst.slot : null; }
+  function installIdx(slotKey) {
+    const eq = (Game.save.state.equipped && Game.save.state.equipped[slotKey]) || [];
+    if (!eq.length) return -1;                       // the board has no slot of this type
+    const free = eq.findIndex(x => !x);
+    return free >= 0 ? free : 0;                      // first empty slot, else swap into slot 0
   }
-  function markTargets(slotKey, source) {
-    document.querySelectorAll(`#equipped-slots .slot-card[data-slot-key="${slotKey}"]`).forEach(s => s.classList.add('drop-valid'));
-    const z = document.getElementById(source === 'unequipped' ? 'scrap-bin' : 'inventory-list'); if (z) z.classList.add('drop-valid');
+  function showInvMenu(card, items) {
+    closeInvMenu();
+    const menu = el('div', 'inv-menu'); menu.id = 'inv-menu';
+    items.forEach(it => {
+      const b = el('button', 'inv-menu-item' + (it.danger ? ' danger' : ''));
+      b.textContent = it.label;
+      b.onclick = ev => { ev.stopPropagation(); try { it.act(); } catch (e) {} closeInvMenu(); };
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    const r = card.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8) + 'px';
   }
   function onInvTap(e) {
-    if (!activeFlag || !e.target.closest('.modal-panel[data-modal="inventory"]')) return;
-    if (invSel) {   // a part is held — did we tap a valid target?
-      const slot = e.target.closest('.slot-card.drop-valid');
-      if (slot) { Game.bot && Game.bot.requestInstall(invSel.id, slot.dataset.slotKey, parseInt(slot.dataset.slotIdx, 10)); return clearInvSel(); }
-      const bin = e.target.closest('#scrap-bin.drop-valid'); if (bin) { Game.inventory.scrap(invSel.id); return clearInvSel(); }
-      const il = e.target.closest('#inventory-list.drop-valid'); if (il && invSel.source === 'equipped') { Game.inventory.unequip(invSel.id); return clearInvSel(); }
-      clearInvSel();   // tapped elsewhere → drop the selection, then allow picking a new part below
-    }
+    if (!activeFlag) return;
+    if (e.target.closest('#inv-menu')) return;        // taps inside the menu are the buttons
+    closeInvMenu();                                    // any other tap closes an open menu
+    if (!e.target.closest('.modal-panel[data-modal="inventory"]')) return;
     const inv = e.target.closest('.inv-card:not(.installing)');
-    if (inv && inv.dataset.instanceId) { invSel = { id: inv.dataset.instanceId, source: 'unequipped' }; inv.classList.add('m-selected'); return markTargets(inv.dataset.slotKey, 'unequipped'); }
+    if (inv && inv.dataset.instanceId) {               // an UNEQUIPPED part → Install / Scrap
+      const id = inv.dataset.instanceId, sk = partSlotKey(id), idx = installIdx(sk);
+      const items = [];
+      if (idx >= 0) items.push({ label: 'Install', act: () => Game.bot && Game.bot.requestInstall(id, sk, idx) });
+      items.push({ label: 'Scrap', danger: true, act: () => Game.inventory.scrap(id) });
+      return showInvMenu(inv, items);
+    }
     const eq = e.target.closest('.slot-card.populated');
-    if (eq && eq.dataset.instanceId && eq.dataset.slotKey !== 'motherboard') { invSel = { id: eq.dataset.instanceId, source: 'equipped' }; eq.classList.add('m-selected'); return markTargets(eq.dataset.slotKey, 'equipped'); }
+    if (eq && eq.dataset.instanceId && eq.dataset.slotKey !== 'motherboard') {   // an EQUIPPED part → Unequip / Scrap
+      const id = eq.dataset.instanceId;
+      return showInvMenu(eq, [
+        { label: 'Unequip', act: () => Game.inventory.unequip(id) },
+        { label: 'Scrap', danger: true, act: () => { Game.inventory.unequip(id); Game.inventory.scrap(id); } },
+      ]);
+    }
   }
 
   function init() {
