@@ -21,7 +21,10 @@
   // `#id` = a left-pane / center section. The order here is the stacking order in the tab.
   // NB: scope modal selectors to `.modal-panel` — the modal-BUTTONS also carry data-modal.
   const MOUNT = {
-    home:  ['#defense-widget', '#actions-panel', '#processes-panel', '#terminal-pane', '#objective-panel', '#files-panel', '#trait-panel', '#bot-status'],
+    // HOME dashboard (rework slice 1): a PINNED status header (#home-status, built below) +
+    // a functions-first body. PROCESSES + OBJECTIVE are folded into the pinned header, so
+    // they're dropped from the scrolling body. ([[home-dashboard-rework]])
+    home:  ['#home-status', '#actions-panel', '#files-panel', '#defense-widget', '#terminal-pane', '#trait-panel', '#bot-status'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="inventory"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#hardware-panel', '#subroutines-mini'],
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#vitals-panel', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
@@ -62,6 +65,10 @@
     const sl = document.getElementById('scanlines');
     crt.insertBefore(hud, sl); crt.insertBefore(view, sl); crt.insertBefore(nav, sl);
 
+    // the pinned HOME status header (sticky glances: running · recent · voice · objective).
+    // Built here so the MOUNT loop below can relocate it into the HOME tab as the first item.
+    buildHomeStatus(crt);
+
     // relocate existing DOM into the shell (IDs preserved → render fns unaffected)
     const hudRes = hud.querySelector('#m-hud-res');
     HUD.forEach(sel => { const e = document.querySelector(sel); if (e) hudRes.appendChild(e); });
@@ -84,6 +91,20 @@
     document.body.classList.add('mobile-shell');
     hideSel('#screen'); hideSel('#modal-button-bar'); hideSel('#modal-overlay');
     show('home');
+  }
+
+  // The pinned HOME dashboard header — four always-visible glances. Content is filled by
+  // panels.renderHomeStatus() (live each tick); this just builds the shell + wires taps.
+  function buildHomeStatus(crt) {
+    const h = el('div'); h.id = 'home-status';
+    h.innerHTML =
+      '<div id="hs-running" class="hs-line"></div>' +
+      '<div id="hs-recent" class="hs-line" role="button"></div>' +
+      '<div id="hs-voice" class="hs-line"></div>' +
+      '<div id="hs-objective" class="hs-line"></div>';
+    crt.appendChild(h);   // parked here; the MOUNT loop relocates it into HOME
+    // tap the recent line → open the full activity feed
+    h.querySelector('#hs-recent').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('activity'); };
   }
 
   function show(tab) {

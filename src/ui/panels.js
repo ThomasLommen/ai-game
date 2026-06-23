@@ -2113,7 +2113,9 @@
       activity:    !!rv.events,   // the log comes online with dynamic events
       inventory:   !!rv.inventory,
       deliveries:  !!rv.deliveries,
-      settings:    true   // save transfer / wipe — always available
+      // save transfer / wipe — lives in the mobile MORE tab; on desktop (not a target)
+      // it stays hidden so the Phase-1 button bar is still empty.
+      settings:    !!(Game.mobileShell && Game.mobileShell.active())
     };
     let anyTab = false;
     document.querySelectorAll('.modal-btn').forEach(b => {
@@ -2202,7 +2204,72 @@
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
-    renderActions, renderProcesses, renderFiles,
+    renderActions, renderProcesses, renderFiles, renderHomeStatus,
     renderDebug, toggleDebug
   };
+
+  // ── HOME dashboard pinned header (mobile slice 1) — fills the 4 glance lines.
+  //    No-ops on desktop (the #home-status element only exists in the mobile shell).
+  //    ([[home-dashboard-rework]]) ──
+  function hsTaskLabel(t) {
+    const def = Game.tasks ? Game.tasks.get(t.defId) : null;
+    const file = t.payload && t.payload.fileId && Game.files ? Game.files.get(t.payload.fileId) : null;
+    return t.defId === 'mission'    ? ((t.mission && t.mission.name) || 'mission')
+         : t.defId === 'operation'  ? (t.opLabel || 'operation')
+         : t.defId === 'research'   ? ('research: ' + (t.label || '?'))
+         : file ? `${def && def.name === 'decrypt' ? 'decrypt' : 'read'} ${file.name}`
+         : (def ? def.name : t.defId);
+  }
+  function hsBar(pct) {
+    const n = 5, f = Math.max(0, Math.min(n, Math.round(pct / 100 * n)));
+    return '<span class="hs-bf">' + '▓'.repeat(f) + '</span>' + '░'.repeat(n - f);
+  }
+  function hsGain(t) {
+    if (t.ticksTotal > 0) {
+      const pct = Math.max(0, Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100));
+      return pct.toFixed(0) + '%';
+    }
+    // earner: show the per-cycle yield
+    if (Game.methods && Game.methods.get && Game.methods.get(t.defId)) {
+      const perCyc = Game.methods.cashRate(t.defId) * (Game.cycle ? Game.cycle.BASE_SEC : 5);
+      return '+$' + perCyc.toFixed(perCyc < 10 ? 1 : 0) + '/c';
+    }
+    return 'running';
+  }
+  function hsRunPct(t) {
+    if (t.ticksTotal > 0) return Math.max(0, Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100));
+    return t.cycleLen ? Math.min(100, (t.cycle / t.cycleLen) * 100) : 100;
+  }
+
+  function renderHomeStatus() {
+    const root = document.getElementById('home-status');
+    if (!root) return;   // desktop / shell not active
+
+    const runEl = document.getElementById('hs-running');
+    if (runEl) {
+      const active = Game.tasksRuntime ? Game.tasksRuntime.getActive() : [];
+      runEl.innerHTML = active.length
+        ? active.map(t => `<span class="hs-run"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-bar">${hsBar(hsRunPct(t))}</span><span class="hs-gain">${hsGain(t)}</span></span>`).join('')
+        : '<span class="hs-idle">○ idle — nothing running</span>';
+    }
+
+    const recEl = document.getElementById('hs-recent');
+    if (recEl) {
+      const list = (Game.activity && Game.activity.all) ? Game.activity.all() : [];
+      const last = list.length ? list[list.length - 1] : null;
+      const unseen = (Game.activity && Game.activity.unseen) ? Game.activity.unseen() : 0;
+      recEl.innerHTML = last
+        ? `<span class="hs-rec-txt ${last.cls || ''}">◔ ${last.text}</span>${unseen > 0 ? `<span class="hs-rec-badge">${unseen}</span>` : ''}`
+        : '<span class="hs-idle">◔ no activity yet</span>';
+    }
+
+    const vEl = document.getElementById('hs-voice');
+    if (vEl) { const v = (Game.voice && Game.voice.current) ? Game.voice.current() : ''; vEl.textContent = v ? '“' + v + '”' : ''; }
+
+    const oEl = document.getElementById('hs-objective');
+    if (oEl) {
+      const obj = (Game.objectivesRuntime && Game.objectivesRuntime.current) ? Game.objectivesRuntime.current() : null;
+      oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : 'keep building.'}`;
+    }
+  }
 })();

@@ -68,6 +68,33 @@
   outline: 2px solid var(--amber); outline-offset: 1px; box-shadow: 0 0 12px -2px var(--amber);
 }
 
+/* ── HOME dashboard: the pinned status header (running · recent · voice · objective) ── */
+#home-status {
+  position: sticky; top: 0; z-index: 40;
+  margin: -10px -12px 14px; padding: 8px 12px 9px;
+  background: var(--bg); border-bottom: 1px solid var(--amber-faint);
+  display: flex; flex-direction: column; gap: 4px;
+  box-shadow: 0 6px 10px -6px rgba(0,0,0,0.8);
+}
+.hs-line { font-size: 12px; line-height: 1.35; min-height: 1.1em; }
+/* running strip */
+#hs-running { display: flex; flex-direction: column; gap: 2px; }
+.hs-run { display: flex; align-items: center; gap: 8px; }
+.hs-run-name { color: var(--amber-dim); flex: 0 1 auto; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-bar { font-family: var(--mono); letter-spacing: -0.5px; color: var(--amber-faint); flex: 1 1 auto; }
+.hs-bf { color: var(--amber); }
+.hs-gain { color: var(--green); flex: 0 0 auto; margin-left: auto; }
+.hs-idle { color: var(--amber-faint); }
+/* recent */
+#hs-recent { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.hs-rec-txt { color: var(--amber-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.hs-rec-badge { flex: 0 0 auto; background: var(--err); color: #150a0a; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center; }
+/* voice (ambient dread) */
+#hs-voice { color: var(--amber-mid); font-style: italic; font-size: 11.5px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* objective */
+#hs-objective { color: var(--amber); }
+.hs-next { color: var(--amber); }
+
 /* per-panel header (replaces the desktop modal titlebar) */
 .m-panel { margin-bottom: 18px; }
 .m-panel[hidden] { display: none; }

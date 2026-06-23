@@ -108,6 +108,8 @@
       Game.missionRuntime.tick();     // refresh the contract board when stale
       if (Game.trapRuntime) Game.trapRuntime.tick();   // refresh the ambush baits when stale (combat layer)
       Game.panels.renderProcesses();
+      if (Game.voice) Game.voice.tick();             // drift the ambient HOME voice line
+      Game.panels.renderHomeStatus();                // HOME dashboard pinned header (mobile)
       Game.panels.tickActionBars();   // animate the running-action cycle bars
       Game.panels.renderVitals();
       Game.panels.renderTriangulation();   // Act 3: the location-trace gauge
