@@ -28,9 +28,10 @@
   }
 
   let scale = 1, ox = 0, oy = 0;
+  const ZOOM = 0.8;   // <1 = zoomed OUT (more of the field visible, with breathing room)
   function resize() {
     cvs.width = cvs.clientWidth * devicePixelRatio; cvs.height = cvs.clientHeight * devicePixelRatio;
-    scale = Math.min(cvs.width / S.W, cvs.height / S.H);
+    scale = Math.min(cvs.width / S.W, cvs.height / S.H) * ZOOM;
     ox = (cvs.width - S.W * scale) / 2; oy = (cvs.height - S.H * scale) / 2;
   }
   window.addEventListener('resize', resize); resize();
@@ -263,9 +264,23 @@
     const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = 34 * scale, hpf = S.core.hp / S.core.maxHp;
     ctx.strokeStyle = hpf > 0.4 ? 'rgba(255,176,0,0.35)' : 'rgba(255,80,80,0.6)'; ctx.lineWidth = 3.5 * scale;
     ctx.beginPath(); ctx.arc(cx, cy, cr + 11 * scale, -Math.PI / 2, -Math.PI / 2 + hpf * 7); ctx.stroke();
-    ctx.shadowColor = '#ffb000'; ctx.shadowBlur = 18 + pulse * 14; ctx.fillStyle = '#ffb000';
-    ctx.beginPath(); ctx.moveTo(cx, cy - cr); ctx.lineTo(cx + cr, cy); ctx.lineTo(cx, cy + cr); ctx.lineTo(cx - cr, cy); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur = 0; ctx.fillStyle = '#1a1206'; ctx.font = `${Math.round(13 * scale)}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('CORE', cx, cy); ctx.textBaseline = 'alphabetic';
+    // GYRO-CORE — an optic in nested rotating gimbal rings (from the saved unit concepts).
+    const low = hpf <= 0.4;
+    const cMain = low ? '#ff5a5a' : '#ffb000', cAcc = low ? '#ffd0d0' : '#ffd24a', cEye = low ? '#ffe2e2' : '#fff3d0';
+    for (let k = 0; k < 3; k++) {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(S.t * (0.5 + k * 0.4) + k * 2.1);
+      ctx.strokeStyle = cMain; ctx.globalAlpha = 0.85 - k * 0.16; ctx.lineWidth = 2.4 * scale;
+      ctx.beginPath(); ctx.ellipse(0, 0, cr * 0.92, cr * 0.92 * (0.32 + k * 0.16), 0, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = cAcc; ctx.shadowColor = cMain; ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(cr * 0.92, 0, 2.6 * scale, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#140e06'; ctx.strokeStyle = cMain; ctx.lineWidth = 2 * scale;   // hub
+    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.42, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.shadowColor = cMain; ctx.shadowBlur = 14 + pulse * 12;                        // the optic / eye
+    ctx.fillStyle = cEye; ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26 * (0.85 + pulse * 0.2), 0, 7); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#140e06'; ctx.beginPath(); ctx.arc(cx, cy, cr * 0.12, 0, 7); ctx.fill();
 
     // ── boss health bar (top) while the JUGGERNAUT lives ──
     const boss = S.enemies.find(e => e.type === 'juggernaut');

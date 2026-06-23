@@ -76,7 +76,7 @@
       boss: opts.boss || 'juggernaut', bossEscort: (opts.escort != null) ? opts.escort : 6,   // the climax — what's drawn in + escort count (a trap's bait reshapes this)
       spawnAccum: 0, surgeT: 9, warn: null,    // warn = { ang, t } surge telegraph
       ex: { hive: false, flame: false, bloom: false },
-      unlocked: { hunter: true, locust: true, strider: true },   // STARTER set — the rest are drafted in mid-run
+      unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
       won: false, lost: false, log: [],
       SWARMS, ENEMIES, AMMO, UNITS, nextId: 1,
@@ -182,7 +182,7 @@
       return;
     }
     if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — stop feeding so you can clear the field + finish it
-    const rate = 0.5 + s.threat * 0.03 + s.t * 0.004;  // continuous trickle, escalating
+    const rate = 0.4 + s.threat * 0.03 + s.t * 0.004;  // continuous trickle — gentler at the start, escalating
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
@@ -200,7 +200,7 @@
         : '>> THE BAIT IS TAKEN — they close in for the kill. break them and the ground is yours. <<');
       return;
     }
-    const probes = 6 + s.surge * 2, specials = Math.min(12, Math.floor(s.surge * 1.3)), pool = surgePool(s.surge);
+    const probes = 3 + s.surge * 2, specials = Math.min(12, Math.floor(s.surge * 1.3)), pool = surgePool(s.surge);   // smaller early surges
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', from());
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', from());
     s.surgeT = 15 + s.rng() * 4;
