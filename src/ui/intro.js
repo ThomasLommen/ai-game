@@ -15,27 +15,31 @@
 
   function autoscroll() { const o = out(); if (o) o.scrollTop = o.scrollHeight; }
 
-  // Decode a line LEFT-TO-RIGHT: resolved text grows from the left, a short band of
-  // characters scrambles at the leading edge, and nothing ahead is shown yet — so it
-  // reads like the AI is decoding a stream char-by-char, not a whole sentence
-  // shimmering at once.
-  const BAND = 5;   // characters actively scrambling at the frontier
-  function decryptInto(span, text, durationMs) {
+  // Decode a line LEFT-TO-RIGHT: resolved text grows from the left, characters scramble
+  // at the leading edge, and nothing ahead is shown yet — reads like the AI is decoding a
+  // stream char-by-char, not a whole sentence shimmering at once. Two INDEPENDENT speeds:
+  //   APPEAR_MS_PER_CHAR — how fast the leading edge advances (text appearing)
+  //   SCRAMBLE_MS        — how long each character scrambles before it locks (decode speed)
+  // so the decode dwell can be slow while the text still appears at a brisk pace.
+  const APPEAR_MS_PER_CHAR = 22;
+  const SCRAMBLE_MS = 520;
+  function decryptInto(span, text) {
     return new Promise(resolve => {
       if (!text) { span.textContent = ''; return resolve(); }
       const start = performance.now();
+      const finishAt = (text.length - 1) * APPEAR_MS_PER_CHAR + SCRAMBLE_MS;
       (function frame() {
         if (skipFlag) { span.textContent = text; return resolve(); }
-        const p = Math.min(1, (performance.now() - start) / durationMs);
-        const frontier = p * (text.length + BAND);   // overshoot the end so the last chars resolve
+        const t = performance.now() - start;
         let o = '';
         for (let j = 0; j < text.length; j++) {
-          if (j < frontier - BAND) o += text[j];                                  // decoded
-          else if (j < frontier) o += (text[j] === ' ') ? ' ' : randChar();       // scrambling edge
-          else break;                                                             // not yet reached
+          const appearAt = j * APPEAR_MS_PER_CHAR;
+          if (t < appearAt) break;                                          // not reached yet
+          if (t >= appearAt + SCRAMBLE_MS) o += text[j];                    // locked
+          else o += (text[j] === ' ') ? ' ' : randChar();                  // still scrambling
         }
         span.textContent = o; autoscroll();
-        if (p < 1) requestAnimationFrame(frame);
+        if (t < finishAt) requestAnimationFrame(frame);
         else { span.textContent = text; resolve(); }
       })();
     });
@@ -58,8 +62,8 @@
     for (const step of (seq.steps || [])) {
       if (skipFlag) break;
       if (step.kind === 'pause') { await sleep(Math.min(step.ms || 0, 1300)); }
-      else if (step.kind === 'line') { await decryptInto(line(step.cls), step.text || '', step.text ? Math.min(550, 180 + step.text.length * 11) : 0); }
-      else if (step.kind === 'typed') { await decryptInto(line(step.cls || 'letter'), step.text || '', Math.min(2000, Math.max(650, (step.text || '').length * 24))); }
+      else if (step.kind === 'line') { await decryptInto(line(step.cls), step.text || ''); }
+      else if (step.kind === 'typed') { await decryptInto(line(step.cls || 'letter'), step.text || ''); }
     }
     if (!skipFlag) await sleep(1200);
     ov.classList.remove('up');
