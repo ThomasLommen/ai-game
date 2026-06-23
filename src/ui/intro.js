@@ -22,7 +22,7 @@
   //   SCRAMBLE_MS        — how long each character scrambles before it locks (decode speed)
   // so the decode dwell can be slow while the text still appears at a brisk pace.
   const APPEAR_MS_PER_CHAR = 22;
-  const SCRAMBLE_MS = 520;
+  const SCRAMBLE_MS = 2500;
   function decryptInto(span, text) {
     return new Promise(resolve => {
       if (!text) { span.textContent = ''; return resolve(); }
