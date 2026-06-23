@@ -435,8 +435,8 @@
           </div>
           ${burned ? '' : `<div class="supplier-deals">DEALS IN · ${supplierDeals(sup)}</div>`}
           <div class="supplier-vibe">${burned ? 'cut off. they know it was you. there is no walking this one back.' : sup.vibe}</div>
-          ${burned ? '' : (mine.length ? mine.map(l => listingRow(l, cash)).join('') : '<div class="supplier-empty">nothing on the board right now.</div>')}
-          ${jobs.length ? `<div class="vendor-jobs-label">jobs from ${sup.handle}</div>` + jobs.map(o => contractOfferRow(o, free, true)).join('') : ''}
+          ${burned ? '' : (mine.length ? `<div class="net-label stock">▸ for sale</div>` + mine.map(l => listingRow(l, cash)).join('') : '<div class="supplier-empty">nothing on the board right now.</div>')}
+          ${jobs.length ? `<div class="net-label jobs">▸ jobs from ${sup.handle}</div>` + jobs.map(o => contractOfferRow(o, free, true)).join('') : ''}
         </div>`;
       }
       const orphan = listings.filter(l => !l.supplierId || !roster.some(r => r.id === l.supplierId));

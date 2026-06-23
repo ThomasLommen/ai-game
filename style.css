@@ -324,6 +324,8 @@ h2 {
   font-size: 12px;
   border-bottom: 1px dashed var(--amber-faint);
 }
+.shop-row { border-left: 2px solid var(--amber-faint); padding-left: 10px; }   /* stock = amber-edged buyable rows */
+.shop-row.buyable { border-left-color: var(--amber-mid); }
 .shop-row.buyable, .inv-row.equippable, .slot-row.populated { cursor: pointer; }
 .shop-row.buyable:hover, .inv-row.equippable:hover { color: #ffe0a0; text-shadow: 0 0 6px var(--amber); }
 .shop-row.locked { color: var(--amber-faint); }
@@ -1119,7 +1121,11 @@ h2 {
   font-family: var(--mono); font-size: 12px; letter-spacing: 1px; padding: 8px 12px; cursor: pointer;
 }
 .net-scan:hover { text-shadow: 0 0 6px var(--cyan); box-shadow: 0 0 8px rgba(81, 214, 255, 0.25); }
-.net-section { grid-column: 1 / -1; font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); margin: 16px 0 6px; border-bottom: 1px solid var(--amber-faint); padding-bottom: 5px; }
+.net-section { grid-column: 1 / -1; font-size: 11px; letter-spacing: 3px; color: var(--amber); margin: 22px 0 9px; border-bottom: 1px solid var(--amber-faint); padding-bottom: 6px; text-shadow: 0 0 6px rgba(255,176,0,0.25); }
+/* in-block sub-labels: "for sale" (stock) vs "jobs from X" (contracts) — clear, distinct */
+.net-label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin: 12px 0 5px; }
+.net-label.stock { color: var(--amber-dim); }
+.net-label.jobs  { color: var(--green-dim); }   /* jobs/contracts read green (like the OPERATION badge) vs amber stock */
 .host-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--amber-faint); margin-bottom: 6px; }
 .host-row.buyable { cursor: pointer; }
 .host-row.buyable:hover { border-color: var(--amber); background: rgba(255, 176, 0, 0.06); }
@@ -1328,12 +1334,12 @@ h2 {
 .mission-row.locked { opacity: 0.55; }
 .mission-row.running { border-left: 3px solid var(--amber); }
 /* CONTRACTS read as JOBS, not products: a badge + a cool accent bar + a faint tint. */
-.mission-row.contract { border-left: 3px solid var(--amber-dim); background: rgba(255,176,0,0.03); }
-.mission-row.contract.op { border-left-color: var(--green-dim); }
+.mission-row.contract { border-left: 3px solid var(--green-dim); background: rgba(51,209,122,0.04); }   /* jobs = green-edged (vs amber stock) */
+.mission-row.contract.op { border-left-color: var(--green); background: rgba(51,209,122,0.07); }
 .mission-row.contract.running { border-left-color: var(--amber); }
 .mission-main { flex: 1; min-width: 0; }
-.job-badge { display: inline-block; font-size: 8px; letter-spacing: 1.5px; padding: 1px 5px; border: 1px solid var(--amber-mid); color: var(--amber-mid); border-radius: 2px; margin-right: 7px; vertical-align: 1px; }
-.job-badge.op { border-color: var(--green-dim); color: var(--green); }
+.job-badge { display: inline-block; font-size: 8.5px; letter-spacing: 1.5px; padding: 2px 6px; border: 1px solid var(--green-dim); color: var(--green-dim); border-radius: 2px; margin-right: 7px; vertical-align: 1px; }
+.job-badge.op { border-color: var(--green); color: var(--green); }
 .mission-sub .hot { color: var(--green); }
 .mission-name { color: var(--amber); font-size: 13px; }
 .mission-meta { font-size: 10px; letter-spacing: 1px; color: var(--amber-mid); }
