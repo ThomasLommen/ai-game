@@ -37,6 +37,24 @@
 .mobile-shell #m-hud .cash-num { color: var(--green); }
 .mobile-shell #m-hud #flops-readout .flops-num { color: var(--amber); }
 #m-hud-pips { display: flex; align-items: center; gap: 10px; }
+/* HUD gear → settings sheet */
+#m-gear { background: none; border: 0; color: var(--amber-mid); font-size: 17px; padding: 0 0 0 12px; cursor: pointer; line-height: 1; }
+#m-gear:active { color: var(--amber); }
+
+/* settings slide-up SHEET (save transfer + reset), opened by the gear */
+#m-sheet { position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; opacity: 0; transition: opacity .25s; }
+#m-sheet[hidden] { display: none; }
+#m-sheet.up { opacity: 1; }
+.m-sheet-inner {
+  width: 100%; max-height: 86vh; overflow-y: auto; background: var(--bg-pane);
+  border-top: 1px solid var(--amber-faint); padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+  transform: translateY(14px); transition: transform .25s;
+}
+#m-sheet.up .m-sheet-inner { transform: translateY(0); }
+#m-sheet .modal-panel { display: block; }
+.m-sheet-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; letter-spacing: 4px; color: var(--amber); border-bottom: 1px solid var(--amber-faint); padding-bottom: 8px; margin-bottom: 14px; }
+.m-sheet-close { background: none; border: 0; color: var(--amber-mid); font-size: 16px; cursor: pointer; padding: 4px 8px; }
+.m-sheet-close:active { color: var(--amber); }
 .m-pip { font-size: 11px; letter-spacing: .5px; color: var(--amber-mid); }
 .m-pip.hot { color: var(--err); text-shadow: 0 0 6px rgba(255,80,80,.5); }
 

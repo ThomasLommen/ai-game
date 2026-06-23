@@ -30,7 +30,7 @@
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="inventory"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#hardware-panel', '#subroutines-mini'],
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#vitals-panel', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
-    more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]', '.modal-panel[data-modal="settings"]'],
+    more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]'],   // SETTINGS lives behind the HUD gear, not here
   };
   const HUD = ['#insight-panel'];   // the resource readouts ride in the sticky header
   // headers for the stacked modal panels (they lose the desktop modal titlebar)
@@ -54,7 +54,7 @@
     const crt = document.getElementById('crt') || document.body;
 
     const hud = el('div'); hud.id = 'm-hud';
-    hud.innerHTML = '<span class="m-brand">◉</span><span id="m-hud-res"></span><span class="m-sp"></span><span id="m-hud-pips"></span>';
+    hud.innerHTML = '<span class="m-brand">◉</span><span id="m-hud-res"></span><span class="m-sp"></span><span id="m-hud-pips"></span><button id="m-gear" aria-label="settings">⚙</button>';
     const view = el('div'); view.id = 'm-view';
     TABS.forEach(t => { const s = el('section', 'm-tab'); s.dataset.tab = t.id; view.appendChild(s); });
     const nav = el('nav'); nav.id = 'm-nav';
@@ -87,8 +87,10 @@
       });
     }
 
-    // SETTINGS isn't gated content (save transfer / wipe) — always reachable in MORE.
-    const setP = view.querySelector('.modal-panel[data-modal="settings"]'); if (setP) setP.hidden = false;
+    // SETTINGS (save transfer / wipe) lives in its own slide-up SHEET behind the HUD gear,
+    // so it isn't jammed in with the activity feed when you tap the recent line.
+    buildSettingsSheet(crt);
+    const gear = hud.querySelector('#m-gear'); if (gear) gear.onclick = showSheet;
 
     document.body.classList.add('mobile-shell');
     hideSel('#screen'); hideSel('#modal-button-bar'); hideSel('#modal-overlay');
@@ -108,6 +110,24 @@
     // tap the recent line → open the full activity feed
     h.querySelector('#hs-recent').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('activity'); };
   }
+
+  // SETTINGS slide-up sheet (save transfer + reset), opened by the HUD gear.
+  function buildSettingsSheet(crt) {
+    const sheet = el('div'); sheet.id = 'm-sheet'; sheet.hidden = true;
+    const inner = el('div', 'm-sheet-inner');
+    const head = el('div', 'm-sheet-head');
+    head.innerHTML = '<span>SETTINGS</span>';
+    const close = el('button', 'm-sheet-close'); close.textContent = '✕'; close.onclick = hideSheet;
+    head.appendChild(close);
+    inner.appendChild(head);
+    const setP = document.querySelector('.modal-panel[data-modal="settings"]');
+    if (setP) { setP.hidden = false; inner.appendChild(setP); }   // relocate the panel into the sheet
+    sheet.appendChild(inner);
+    sheet.onclick = e => { if (e.target === sheet) hideSheet(); };   // tap backdrop to close
+    crt.appendChild(sheet);
+  }
+  function showSheet() { const s = document.getElementById('m-sheet'); if (s) { s.hidden = false; requestAnimationFrame(() => s.classList.add('up')); } }
+  function hideSheet() { const s = document.getElementById('m-sheet'); if (s) { s.classList.remove('up'); setTimeout(() => { s.hidden = true; }, 300); } }
 
   function show(tab) {
     curTab = tab;
