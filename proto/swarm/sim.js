@@ -87,7 +87,7 @@
       // dominant BUILD channel. (battle-duel-rework v2.)
       counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
       pick: null, picksTaken: [], newPicks: [], picksOff: !!opts.picksOff,   // picksTaken = all (incl pre-applied run-build); newPicks = taken THIS battle → persisted to the run
-      chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
+      chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, regenMul: 1,
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -228,9 +228,8 @@
   }
   function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
     const { ch, lead } = readLean(s);
-    let mag = Math.max(0, Math.min(1, (lead - (s.feint || 0)) / 0.9));   // 1 channel-pick (≈0.3 lead) → ~0.33; ~3 picks → full. FEINT cuts the read
-    if (s.overextend) mag = Math.min(1, mag * 1.5);           // OVEREXTEND: harder lean → harder counter
-    mag *= (1 - (s.counterResist || 0));                      // ADAPTIVE PLATING blunts the counter
+    let mag = Math.max(0, Math.min(1, lead / 0.9));           // 1 channel-pick (≈0.3 lead) → ~0.33; ~3 picks → full
+    if (s.overextend) mag = Math.min(1, mag * 1.5);           // OVEREXTEND: harder lean → harder counter (the only duel kiss/curse)
     if (mag < 0.08) { s.counter = null; s.threatRead = null; return; }
     s.counter = { channel: ch, mag };
     s.threatRead = `the guard reads your ${COUNTER[ch].read} — ${COUNTER[ch].tell}.`;
@@ -260,13 +259,10 @@
     { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
     // ── duel-answers: clean, no cost ──
     { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
-    { id: 'adaptive',   name: 'ADAPTIVE PLATING', kind: 'duel', tier: 'rewrite', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
-    { id: 'feint',      name: 'FEINT PROTOCOL',   kind: 'duel', tier: 'rewrite', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 0.15; } },
     // ── FOCUS-FIRE theme (the triage tap) ──
     { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
     { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
     // ── CORE theme (the thing you defend) ──
-    { id: 'riposte',      name: 'RIPOSTE FIELD',  kind: 'core', tier: 'rewrite', desc: 'the core pulses a damaging shockwave whenever it is hit', apply: s => { s.riposte = true; } },
     { id: 'siege_cannon', name: 'SIEGE CANNON',   kind: 'core', tier: 'marquee', max: 1, cost: 'the core stops self-repairing', desc: 'the core fires a heavy beam down your focus line', apply: s => { s.siegeCannon = true; s.regenMul = 0; } },
     // ── SWARM theme (the flocks) ──
     { id: 'split_doctrine', name: 'SPLIT DOCTRINE', kind: 'swarm', tier: 'rewrite', desc: 'kills split off a fresh mini-flock (brief cooldown)', apply: s => { s.splitDoctrine = true; } },
@@ -276,14 +272,12 @@
     { id: 'scorched_earth', name: 'SCORCHED EARTH', kind: 'death', tier: 'marquee', max: 1, cost: 'the blasts hurt your own swarms too', desc: 'every enemy death detonates an AoE', apply: s => { s.scorchedEarth = true; } },
     // ── DUEL theme (the guard counter) ──
     { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
-    { id: 'mirror',         name: 'MIRROR PROTOCOL', kind: 'duel', tier: 'marquee', max: 1, cost: 'you can no longer take Adaptive or Feint', desc: 'a counter you survive HEALS your core instead of hurting it', apply: s => { s.mirror = true; } },
     // ── EXPANSION: a 2nd solid rewrite per theme (deepens each axis) ──
     { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
     { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 flock cap; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
     { id: 'bulwark_arc', name: 'BULWARK ARC',       kind: 'core',  tier: 'rewrite', desc: 'the core projects a barrier toward your focus target, slowing enemies on that side', apply: s => { s.bulwarkArc = true; } },
     { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
     { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },
-    { id: 'turncoat',    name: 'TURNCOAT',          kind: 'duel',  tier: 'rewrite', desc: 'when the guard counters you, that surge spawns frail', apply: s => { s.turncoat = true; } },
     { id: 'viral_load',  name: 'VIRAL LOAD',        kind: 'death', tier: 'rewrite', desc: 'kills near a focus target spread a contagion to nearby enemies', apply: s => { s.viralLoad = true; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
@@ -301,13 +295,12 @@
   function offerPick(s) {
     if (s.pick || s.won || s.lost || s.picksOff) return;
     // the everyday hand = commons + solid rewrites (marquees are rare + telegraphed, injected below)
-    const locked = id => (s.mirror && (id === 'adaptive' || id === 'feint'));   // MIRROR PROTOCOL locks out the duel-answers
-    const avail = PICKS.filter(p => p.tier !== 'marquee' && !locked(p.id) && pickCount(s, p.id) < (p.max || 99));
+    const avail = PICKS.filter(p => p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
     for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
     const hand = avail.slice(0, 3);
     // ONE special slot: a roster SIGNATURE (more likely), else sometimes a rare MARQUEE
     const sigs = eligibleSigs(s);
-    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1) && !(p.id === 'mirror' && (pickCount(s, 'adaptive') + pickCount(s, 'feint') > 0)));   // can't offer Mirror once you've taken a duel-answer
+    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
     const r = s.rng();
     if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
     else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
@@ -326,7 +319,6 @@
     const def = ENEMIES[type], hp = def.hp * ENEMY_HP_MUL * (1 + s.threat * 0.012);   // tankier so they don't pop instantly
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
-    if (opts && opts.surge && s.turncoat && s.counter) { e.hp *= 0.55; e.maxHp *= 0.55; }   // TURNCOAT: a countered surge spawns frail
     if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
       e.laneIdx = li; const p = posOnLane(s.lanes[li], 0); e.x = p.x; e.y = p.y;
@@ -625,10 +617,6 @@
   }
   function coreHit(s, e) {
     e.dead = true;
-    if (s.riposte) {   // RIPOSTE FIELD — being hit pulses a damaging shockwave
-      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, s.core.x, s.core.y) < 135) damageEnemy(s, o, 26 * chMult(s, 'core'));
-      s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.4, color: '#ffb000', ring: true });
-    }
     if (s.core.invuln) return;
     s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1);
     if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); }
@@ -675,7 +663,6 @@
       // NO baseline self-repair — regen comes ONLY from the SHIELD channel + the SELF-REPAIR pick.
       const regen = ((s.chBonus.shield || 0) * 6 + (s.selfRepairFlat || 0)) * (s.regenMul == null ? 1 : s.regenMul);
       if (regen > 0) s.core.hp = Math.min(s.core.maxHp, s.core.hp + regen * dt);
-      if (s.mirror && s.counter) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 9 * dt);   // MIRROR PROTOCOL — a counter you survive heals you
     }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
