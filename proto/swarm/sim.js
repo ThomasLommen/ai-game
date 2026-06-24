@@ -373,6 +373,7 @@
       const dCore = dist(e.x, e.y, s.core.x, s.core.y), dFlock = dist(e.x, e.y, f.cx, f.cy);
       let v = s.stance === 'guard' ? dCore : s.stance === 'hunt' ? (e.elite ? 0 : 1e4) + dFlock : dFlock;
       if (f.behavior === 'lock' && e.elite) v -= 60;           // hunters favour the heavies
+      if (s.core.marks.indexOf(e.id) >= 0) v -= 5000;          // FOCUS-FIRE — the swarm concentrates on your marked target(s)
       if (v < bv) { bv = v; best = e; }
     }
     f.tgtId = best ? best.id : null; f.tx = best ? best.x : null; f.ty = best ? best.y : null;
@@ -431,16 +432,9 @@
   }
   function updateCore(s, dt) {
     s.core.cd -= dt;
+    // marks are PLAYER-SET (triage tap) only — so the reticle unambiguously means "you focused this".
+    // No mark = the swarm defends on its stance default (nearest-to-core for GUARD).
     s.core.marks = s.core.marks.filter(id => s.enemies.some(e => e.id === id));   // drop focus targets that died/left
-    // top up to maxMarks with a sensible default (nearest-to-core elite) so the army always has a priority
-    if (s.core.cd <= 0) {
-      s.core.cd = 0.6;
-      while (s.core.marks.length < s.core.maxMarks) {
-        let best = null, bv = -Infinity;
-        for (const e of s.enemies) { if (s.core.marks.indexOf(e.id) >= 0) continue; const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }
-        if (!best) break; s.core.marks.push(best.id);
-      }
-    }
     s._markPos = s.core.marks.map(id => { const e = s.enemies.find(x => x.id === id); return e ? { x: e.x, y: e.y } : null; }).filter(Boolean);
     if (s.executioner || s.sunder) for (const id of s.core.marks) {   // FOCUS rewrites that act ON the marked target
       const e = s.enemies.find(x => x.id === id); if (!e) continue;
@@ -667,12 +661,12 @@
 
   // TRIAGE: the player taps an enemy → the whole army focus-fires it.
   function setFocus(s, id) {
-    if (!s.enemies.some(e => e.id === id)) return false;
+    const e = s.enemies.find(x => x.id === id); if (!e) return false;
     const i = s.core.marks.indexOf(id);
     if (i >= 0) { s.core.marks.splice(i, 1); return true; }   // tap an already-focused enemy = un-focus it
     s.core.marks.push(id);
     while (s.core.marks.length > s.core.maxMarks) s.core.marks.shift();   // evict the oldest mark
-    s.core.cd = 2.5;   // hold the player's choice before the auto-painter tops up
+    s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ffd24a', ring: true });   // a confirm pulse on the new focus
     return true;
   }
   global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };

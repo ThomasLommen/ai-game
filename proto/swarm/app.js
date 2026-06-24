@@ -58,8 +58,11 @@
   let selId = null;
   function pickPod(wx, wy) { let hit = null; for (const u of S.units) if (S.UNITS[u.type].movable && Math.hypot(u.x - wx, u.y - wy) < u.r + 16) hit = u; return hit; }
   function onTap(wx, wy) {
+    // finger-friendly: forgiveness is a fixed ~32 CSS-px radius in SCREEN space (converted to
+    // world units via the live scale) so taps land regardless of how far you're zoomed out.
+    const reach = 64 / scale;
     let en = null, ed = 1e9;
-    for (const e of S.enemies) { const d = Math.hypot(e.x - wx, e.y - wy); if (d < (e.r + 26) && d < ed) { ed = d; en = e; } }
+    for (const e of S.enemies) { const d = Math.hypot(e.x - wx, e.y - wy); if (d < (e.r + reach) && d < ed) { ed = d; en = e; } }
     if (en) { SWARM.setFocus(S, en.id); return; }              // TRIAGE — your army focus-fires it
     const hit = pickPod(wx, wy);
     if (hit) selId = (selId === hit.id ? null : hit.id);
@@ -275,10 +278,10 @@
     for (const mid of S.core.marks) {
       const e = S.enemies.find(o => o.id === mid);
       if (!e) continue;
-      const ex = X(e.x), ey = Y(e.y), rr = (S.ENEMIES[e.type].r + 11) * scale;
-      ctx.strokeStyle = 'rgba(255,210,74,0.28)'; ctx.lineWidth = 1 * scale; ctx.setLineDash([4 * scale, 5 * scale]); ctx.lineDashOffset = -S.t * 24;
+      const ex = X(e.x), ey = Y(e.y), rr = Math.max((S.ENEMIES[e.type].r + 11) * scale, 17);   // min on-screen size so the focus reticle reads when zoomed out
+      ctx.strokeStyle = 'rgba(255,210,74,0.55)'; ctx.lineWidth = Math.max(1 * scale, 1.4); ctx.setLineDash([5, 5]); ctx.lineDashOffset = -S.t * 24;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
-      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2 * scale; ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 6;
+      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = Math.max(2 * scale, 2.4); ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 8;
       ctx.save(); ctx.translate(ex, ey); ctx.rotate(S.t * 1.6);
       for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(rr, -rr * 0.45); ctx.lineTo(rr, -rr); ctx.lineTo(rr * 0.45, -rr); ctx.stroke(); }
       ctx.restore(); ctx.shadowBlur = 0;
