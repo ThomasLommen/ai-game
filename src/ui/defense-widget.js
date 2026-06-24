@@ -8,8 +8,18 @@
   const wrap = document.getElementById('defense-widget');
   if (!wrap || typeof SWARM === 'undefined') return;
   const cvs = wrap.querySelector('canvas'), ctx = cvs.getContext('2d');
-  const FLOCKS = ['hunter', 'locust', 'leech', 'hunter'];
   let S = null, last = performance.now(), shown = false;
+
+  // Field the player's ROSTER here (coherence: the SAME units you drafted fight in the
+  // perimeter AND in full battles). Tops up each frame, so a freshly-drafted unit shows.
+  function applyRoster() {
+    if (!S || !window.Game || !Game.roster) return;
+    Game.roster.exotics().forEach(k => { if (S.ex && (k in S.ex) && !S.ex[k]) SWARM.toggleEx(S, k); });
+    Game.roster.units().forEach(id => {
+      if (SWARM.SWARMS[id]) { if (!S.flocks.some(f => f.type === id)) SWARM.summonFlock(S, id); }
+      else if (SWARM.UNITS[id]) { if (!S.units.some(u => u.type === id)) SWARM.fieldUnit(S, id); }
+    });
+  }
 
   function revealedFlag() { return !!(window.Game && Game.save && Game.save.state && Game.save.state.revealed && Game.save.state.revealed.perimeter); }
   function reveal() {
@@ -19,10 +29,14 @@
     last = performance.now(); resize();
   }
   // the first scan brings the perimeter online (and persists it)
-  if (window.Game && Game.events) Game.events.on('scan.sweep.done', () => {
-    const st = Game.save && Game.save.state; if (st) { st.revealed = st.revealed || {}; if (!st.revealed.perimeter) { st.revealed.perimeter = true; Game.save.persist && Game.save.persist(); } }
-    reveal();
-  });
+  if (window.Game && Game.events) {
+    Game.events.on('scan.sweep.done', () => {
+      const st = Game.save && Game.save.state; if (st) { st.revealed = st.revealed || {}; if (!st.revealed.perimeter) { st.revealed.perimeter = true; Game.save.persist && Game.save.persist(); } }
+      reveal();
+    });
+    // the battle-first opening: drafting your first unit brings the perimeter alive too
+    Game.events.on('roster.changed', () => { const st = Game.save && Game.save.state; if (st) { st.revealed = st.revealed || {}; st.revealed.perimeter = true; } reveal(); });
+  }
 
   function resize() { if (!shown) return; const r = cvs.getBoundingClientRect(); cvs.width = Math.max(1, r.width * devicePixelRatio); cvs.height = Math.max(1, r.height * devicePixelRatio); }
   addEventListener('resize', resize);
@@ -32,8 +46,8 @@
     if (!shown) { if (revealedFlag()) reveal(); else return; }     // reload case: appear once the save says it's unlocked
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     S.compute = 9999;                                  // ambient — never resource-starve
-    S.core.hp = S.core.maxHp;                           // and never actually lose; it's just ambiance
-    while (S.flocks.length < 4) SWARM.summonFlock(S, FLOCKS[S.flocks.length % FLOCKS.length]);
+    S.core.hp = S.core.maxHp;                           // and never actually lose; it's holding the line
+    applyRoster();                                      // field the player's roster (coherence w/ battles)
     SWARM.tick(S, dt);
     draw();
   }
@@ -50,10 +64,21 @@
     S.bursts.forEach(b => { const f = 1 - b.life / 0.42; ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), (3 + f * 9) * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
     S.flocks.forEach(f => f.dots.forEach(d => { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(X(d.x), Y(d.y), Math.max(1, 2 * s2), 0, 7); ctx.fill(); }));
 
-    const cx = X(S.core.x), cy = Y(S.core.y), cr = Math.max(7, 15 * s2), pulse = 0.5 + 0.5 * Math.sin(S.t * 3);
-    ctx.shadowColor = '#ffb000'; ctx.shadowBlur = 7 + pulse * 5; ctx.fillStyle = '#ffb000';
-    ctx.beginPath(); ctx.moveTo(cx, cy - cr); ctx.lineTo(cx + cr, cy); ctx.lineTo(cx, cy + cr); ctx.lineTo(cx - cr, cy); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+    // GYRO-CORE — matches the full-battle core (coherence)
+    const cx = X(S.core.x), cy = Y(S.core.y), cr = Math.max(8, 16 * s2), pulse = 0.5 + 0.5 * Math.sin(S.t * 3), lw = Math.max(1, 1.6 * s2);
+    for (let k = 0; k < 3; k++) {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(S.t * (0.5 + k * 0.4) + k * 2.1);
+      ctx.strokeStyle = '#ffb000'; ctx.globalAlpha = 0.85 - k * 0.18; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.ellipse(0, 0, cr * 0.92, cr * 0.92 * (0.32 + k * 0.16), 0, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(cr * 0.92, 0, Math.max(1, 2 * s2), 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1; ctx.fillStyle = '#140e06'; ctx.strokeStyle = '#ffb000'; ctx.lineWidth = Math.max(1, 1.3 * s2);
+    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.42, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.shadowColor = '#ffb000'; ctx.shadowBlur = 8 + pulse * 6; ctx.fillStyle = '#fff3d0';
+    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
   }
 
   requestAnimationFrame(frame);
+  if (window.Game) { Game._perimeter = { sim: () => S, reveal }; }   // test/debug hook
 })();
