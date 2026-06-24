@@ -113,7 +113,7 @@
   const CHANNELS = ['offense', 'shield', 'core'];
   // channel multiplier = 1.0 baseline + accrued pick/roster/boost bonus. The dominant
   // channel is your LEAN — what the guard reads and counters.
-  function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0); }
+  function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0) + (s.overextend && ch === readLean(s).ch ? 0.5 : 0); }   // OVEREXTEND amps your dominant channel
   function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
   // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
   function ensureField(s) {
@@ -139,7 +139,7 @@
     let ox = s.core.x, oy = s.core.y, on = false;
     if (f.owned) { const o = s.units.find(u => u.id === f.owned); if (o) { ox = o.x; oy = o.y; on = true; } }   // brood prints ON its fabricator
     const a = s.rng() * TAU, r = on ? s.rng() * 13 : 26 + s.rng() * 34;
-    return { x: ox + Math.cos(a) * r, y: oy + Math.sin(a) * r, vx: 0, vy: 0, hp: SWARMS[f.type].dotHp };
+    return { x: ox + Math.cos(a) * r, y: oy + Math.sin(a) * r, vx: 0, vy: 0, hp: SWARMS[f.type].dotHp * (s.dotHpMul || 1) };   // ENDLESS TIDE halves dot HP
   }
 
   function unitCost(s, type) { const u = s.units.find(u => u.type === type); return u ? Math.round(UNITS[type].cost * (0.7 + u.lvl * 0.55)) : UNITS[type].cost; }
@@ -207,6 +207,7 @@
   function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
     const { ch, lead } = readLean(s);
     let mag = Math.max(0, Math.min(1, (lead - (s.feint || 0)) / 0.9));   // 1 channel-pick (≈0.3 lead) → ~0.33; ~3 picks → full. FEINT cuts the read
+    if (s.overextend) mag = Math.min(1, mag * 1.5);           // OVEREXTEND: harder lean → harder counter
     mag *= (1 - (s.counterResist || 0));                      // ADAPTIVE PLATING blunts the counter
     if (mag < 0.08) { s.counter = null; s.threatRead = null; return; }
     s.counter = { channel: ch, mag };
@@ -242,6 +243,18 @@
     // ── FOCUS-FIRE theme (the triage tap) ──
     { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
     { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
+    // ── CORE theme (the thing you defend) ──
+    { id: 'riposte',      name: 'RIPOSTE FIELD',  kind: 'core', tier: 'rewrite', desc: 'the core pulses a damaging shockwave whenever it is hit', apply: s => { s.riposte = true; } },
+    { id: 'siege_cannon', name: 'SIEGE CANNON',   kind: 'core', tier: 'marquee', max: 1, cost: 'the core stops self-repairing', desc: 'the core fires a heavy beam down your focus line', apply: s => { s.siegeCannon = true; s.regenMul = 0; } },
+    // ── SWARM theme (the flocks) ──
+    { id: 'split_doctrine', name: 'SPLIT DOCTRINE', kind: 'swarm', tier: 'rewrite', desc: 'kills split off a fresh mini-flock (brief cooldown)', apply: s => { s.splitDoctrine = true; } },
+    { id: 'endless_tide',   name: 'ENDLESS TIDE',   kind: 'swarm', tier: 'marquee', max: 1, cost: 'every swarm dot has half HP', desc: 'no flock cap and swarms regrow almost instantly', apply: s => { s.endlessTide = true; s.maxFlocks += 30; s.dotHpMul = (s.dotHpMul || 1) * 0.5; } },
+    // ── DEATH theme (what kills trigger) ──
+    { id: 'harvest_field',  name: 'HARVEST FIELD',  kind: 'death', tier: 'rewrite', desc: 'enemy deaths heal your core a little', apply: s => { s.harvestField = true; } },
+    { id: 'scorched_earth', name: 'SCORCHED EARTH', kind: 'death', tier: 'marquee', max: 1, cost: 'the blasts hurt your own swarms too', desc: 'every enemy death detonates an AoE', apply: s => { s.scorchedEarth = true; } },
+    // ── DUEL theme (the guard counter) ──
+    { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
+    { id: 'mirror',         name: 'MIRROR PROTOCOL', kind: 'duel', tier: 'marquee', max: 1, cost: 'you can no longer take Adaptive or Feint', desc: 'a counter you survive HEALS your core instead of hurting it', apply: s => { s.mirror = true; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -258,12 +271,13 @@
   function offerPick(s) {
     if (s.pick || s.won || s.lost || s.picksOff) return;
     // the everyday hand = commons + solid rewrites (marquees are rare + telegraphed, injected below)
-    const avail = PICKS.filter(p => p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
+    const locked = id => (s.mirror && (id === 'adaptive' || id === 'feint'));   // MIRROR PROTOCOL locks out the duel-answers
+    const avail = PICKS.filter(p => p.tier !== 'marquee' && !locked(p.id) && pickCount(s, p.id) < (p.max || 99));
     for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
     const hand = avail.slice(0, 3);
     // ONE special slot: a roster SIGNATURE (more likely), else sometimes a rare MARQUEE
     const sigs = eligibleSigs(s);
-    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
+    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1) && !(p.id === 'mirror' && (pickCount(s, 'adaptive') + pickCount(s, 'feint') > 0)));   // can't offer Mirror once you've taken a duel-answer
     const r = s.rng();
     if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
     else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
@@ -373,7 +387,7 @@
         const v = Math.hypot(d.vx, d.vy) || 1; if (v > spd) { d.vx = d.vx / v * spd; d.vy = d.vy / v * spd; }
         d.x += d.vx * dt; d.y += d.vy * dt;
       }
-      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.hiveRegen ? 0.32 : s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }   // HIVE OVERMIND signature regrows even faster
+      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.endlessTide ? 0.12 : s.hiveRegen ? 0.32 : s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }   // ENDLESS TIDE / HIVE OVERMIND regrow faster
     }
     for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — redeploying.`); s.flocks.splice(i, 1); }
   }
@@ -418,6 +432,14 @@
       }
     }
     s._markPos = s.core.marks.map(id => { const e = s.enemies.find(x => x.id === id); return e ? { x: e.x, y: e.y } : null; }).filter(Boolean);
+    if (s.siegeCannon) {   // SIEGE CANNON — the core fires a heavy beam down your focus line
+      s.core.cannonCd = (s.core.cannonCd || 0) - dt;
+      if (s.core.cannonCd <= 0 && s.core.marks.length) {
+        s.core.cannonCd = 1.6;
+        const tgt = s.enemies.find(x => x.id === s.core.marks[0]);
+        if (tgt) { hitEnemy(s, tgt, 120 * chMult(s, 'core')); s.beams.push({ x1: s.core.x, y1: s.core.y, x2: tgt.x, y2: tgt.y, life: 0.18, color: '#ffd24a', rail: true }); }
+      }
+    }
     // move all live shots
     for (const sh of s.shots) {
       const e = s.enemies.find(x => x.id === sh.tid); const tx = e ? e.x : sh.tx, ty = e ? e.y : sh.ty;
@@ -547,8 +569,28 @@
       for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < (s.pandemic ? 150 : 96)) o.poison = Math.min(60, o.poison + 30);   // PANDEMIC signature widens the bloom
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
+    if (s.harvestField && !s.core.invuln) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 1.5);   // HARVEST FIELD: kills heal the core
+    if (s.scorchedEarth) {                                       // SCORCHED EARTH: every death detonates — and singes your own swarms
+      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < 85) damageEnemy(s, o, 30 * chMult(s, 'offense'));
+      for (const f of s.flocks) for (const d of f.dots) if (dist(d.x, d.y, e.x, e.y) < 85) d.hp -= 8;
+      s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ff7a3a', ring: true });
+    }
+    if (s.splitDoctrine && (s.t - (s.splitTime || -9) > 1.0) && s.flocks.filter(f => !f.owned).length < s.maxFlocks) {   // SPLIT DOCTRINE: a kill spins off a fresh mini-flock
+      const def = SWARMS.hunter, f = { id: uid(s), type: 'hunter', color: def.color, behavior: def.behavior, applies: def.applies || null, cap: 6, dots: [], tgtId: null, tx: null, ty: null, cx: e.x, cy: e.y, tgtT: 0, regenT: 0 };
+      for (let i = 0; i < 4; i++) f.dots.push({ x: e.x + (s.rng() - 0.5) * 20, y: e.y + (s.rng() - 0.5) * 20, vx: 0, vy: 0, hp: def.dotHp * (s.dotHpMul || 1) });
+      s.flocks.push(f); s.splitTime = s.t;
+    }
   }
-  function coreHit(s, e) { e.dead = true; if (s.core.invuln) return; s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1); if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
+  function coreHit(s, e) {
+    e.dead = true;
+    if (s.riposte) {   // RIPOSTE FIELD — being hit pulses a damaging shockwave
+      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, s.core.x, s.core.y) < 135) damageEnemy(s, o, 26 * chMult(s, 'core'));
+      s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.4, color: '#ffb000', ring: true });
+    }
+    if (s.core.invuln) return;
+    s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1);
+    if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); }
+  }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
@@ -584,6 +626,7 @@
       s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
       s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul == null ? 1 : s.regenMul) * dt);   // SELF-REPAIR doubles regen; 0 disables
+      if (s.mirror && s.counter) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 9 * dt);   // MIRROR PROTOCOL — a counter you survive heals you
     }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
