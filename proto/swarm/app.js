@@ -459,9 +459,9 @@
       const sig = S.pick.hand.map(p => p.id).join(',');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
-        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff' };
+        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
         $('draft-cards').innerHTML = S.pick.hand.map(p =>
-          `<button class="draftcard" data-pick="${p.id}" style="--c:${KCOL[p.kind] || '#ffb000'}"><div class="dc-tag">${p.kind.toUpperCase()}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div></button>`
+          `<button class="draftcard${p.kind === 'sig' ? ' sig' : ''}" data-pick="${p.id}" style="--c:${KCOL[p.kind] || '#ffb000'}"><div class="dc-tag">${p.kind === 'sig' ? '★ SIGNATURE' : p.kind.toUpperCase()}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div></button>`
         ).join('');
       }
       dr.style.display = 'flex';
