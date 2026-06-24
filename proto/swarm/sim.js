@@ -94,7 +94,7 @@
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
       threat: 0, surge: 0, kills: 0, bossSpawned: false,
-      spawnAccum: 0, surgeT: 3, warn: null,    // warn = { ang, t } surge telegraph — first wave comes quickly
+      spawnAccum: 0, surgeT: 1.5, warn: null,    // warn = { ang, t } surge telegraph — first wave comes quickly
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
@@ -341,12 +341,14 @@
       while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
       return;
     }
-    if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — stop feeding so you can clear the field + finish it
-    const rate = (0.5 + s.threat * 0.03 + s.t * 0.003) * (s.intensity || 1);  // gentle steady trickle (surges are the real pressure)
-    s.spawnAccum += dt * rate;
-    while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
+    if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — clear the field to finish
+    // WAVE DEFENSE: no trickle — each surge is a discrete wave, and the NEXT one only
+    // telegraphs once you've cleared every enemy from the last.
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
-    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // the guard reads your lean at telegraph time (armCounter)
+    else if (s.enemies.length === 0) {   // field clear → arm the next wave after a short beat
+      s.surgeT -= dt;
+      if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.2 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); }
+    }
   }
   // THREAT TIER gates the enemy menagerie (set by act + mission): tier 0 = all standard
   // probes; higher tiers unlock the nastier types. Surges escalate DENSITY, not the menu.
@@ -369,7 +371,7 @@
     const probes = Math.round((2 + s.surge * 1.3) * (s.intensity || 1));   // WAVE pressure piles on count
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
-    s.surgeT = 10 + s.rng() * 3;
+    s.surgeT = 1.5 + s.rng() * 1;   // brief beat after the field clears before the next wave telegraphs
     say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
     offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
   }

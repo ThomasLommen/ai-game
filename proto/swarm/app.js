@@ -115,10 +115,7 @@
     ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, cvs.width, cvs.height);
     const cx = X(S.core.x), cy = Y(S.core.y);
 
-    // faint vision ring
-    ctx.strokeStyle = 'rgba(120,150,200,0.10)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, S.viewR * scale, 0, 7); ctx.stroke();
-
-    // ── lanes (dim paths; the fog veils the far ends) ──
+    // ── lanes (dim paths) ──
     if (S.laneMode) S.lanes.forEach((lane, li) => {
       const active = S.waveLanes.indexOf(li) >= 0;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -189,11 +186,6 @@
       ctx.beginPath(); ctx.arc(x, y, (sh.rocket ? 5 : sh.bomblet ? 2.6 : sh.splash ? 5.2 : 3.4) * scale, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
     });
 
-    // ── fog veil: a LIGHT dimming far past the vision ring (enemies spawn out in the lanes,
-    // so a heavy veil made them look like they "faded in" slowly — keep it gentle + far out).
-    const g = ctx.createRadialGradient(cx, cy, S.viewR * scale * 1.05, cx, cy, S.viewR * scale * 2.1);
-    g.addColorStop(0, 'rgba(5,6,10,0)'); g.addColorStop(1, 'rgba(5,6,10,0.4)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, cvs.width, cvs.height);
 
     // ── surge telegraph (over the fog) ──
     if (S.laneMode) {                                          // light the active lanes (where the surge pours in) + spawn arrows
