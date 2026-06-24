@@ -2251,7 +2251,7 @@
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
-    renderActions, renderProcesses, renderFiles, renderHomeStatus, markContractsSeen,
+    renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderDebug, toggleDebug
   };
 
@@ -2318,6 +2318,20 @@
       el.textContent = o;
       if (p < 1) requestAnimationFrame(f); else el.textContent = display;
     })();
+  }
+
+  // The SIEGE meter on the perimeter widget — builds toward the next surge; shows DEFEND
+  // when a surge is inbound. ([[start-defense-pivot]])
+  function renderSiege() {
+    const wrap = document.getElementById('siege');
+    if (!wrap || !Game.siege) return;
+    if (!Game.siege.active()) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const ready = Game.siege.ready();
+    const fill = document.getElementById('siege-fill'); if (fill) fill.style.width = (Game.siege.frac() * 100) + '%';
+    const txt = document.getElementById('siege-text'); if (txt) txt.textContent = ready ? '⚠ SURGE INBOUND' : `wave ${Game.siege.wave() + 1} · siege building`;
+    const btn = document.getElementById('siege-defend'); if (btn) btn.hidden = !ready;
+    wrap.classList.toggle('ready', ready);
   }
 
   function renderHomeStatus() {

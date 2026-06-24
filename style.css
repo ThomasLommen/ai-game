@@ -1603,6 +1603,15 @@ h2 {
   position: absolute; top: 4px; left: 8px; z-index: 1;
   font-size: 9px; letter-spacing: 2px; color: var(--amber-dim); opacity: 0.85;
 }
+/* siege meter + DEFEND prompt (the macro loop) */
+#siege { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 6px 8px; display: flex; align-items: center; gap: 8px; background: linear-gradient(transparent, rgba(8,6,4,0.92)); pointer-events: none; }
+#siege-meter { flex: 1; height: 4px; background: rgba(255,176,0,0.12); overflow: hidden; }
+#siege-fill { height: 100%; width: 0; background: var(--amber); transition: width .2s linear; }
+#siege.ready #siege-fill { background: var(--err); }
+#siege-text { font-size: 9px; letter-spacing: 1px; color: var(--amber-dim); white-space: nowrap; }
+#siege.ready #siege-text { color: var(--err); }
+#siege-defend { pointer-events: auto; font-family: inherit; font-size: 11px; letter-spacing: 1px; color: var(--err); background: rgba(40,10,10,0.92); border: 1px solid var(--err); padding: 5px 12px; cursor: pointer; animation: pip-throb .8s ease-in-out infinite; }
+#siege-defend[hidden] { display: none; }
 
 /* ─── BATTLE: full-screen intrusion-defense engagement (iframe) ─── */
 #battle-overlay {

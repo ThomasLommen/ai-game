@@ -84,6 +84,9 @@
     // The battle-first OPENING ([[start-defense-pivot]]): draft a starter unit → fight the
     // GUARD PROGRAM → on win, draft a prize. Returns a promise so boot can await it.
     // Ctrl+Shift+G runs it standalone (debug).
+    // DEFEND a surge → the wave battle (siege.js)
+    { const sd = document.getElementById('siege-defend'); if (sd) sd.onclick = () => Game.siege && Game.siege.defend(); }
+
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
       return new Promise((resolve) => {
@@ -145,8 +148,10 @@
       Game.missionRuntime.tick();     // refresh the contract board when stale
       if (Game.trapRuntime) Game.trapRuntime.tick();   // refresh the ambush baits when stale (combat layer)
       Game.panels.renderProcesses();
+      if (Game.siege) Game.siege.tick();             // build the surge meter (the macro loop)
       if (Game.voice) Game.voice.tick();             // drift the ambient HOME voice line
       Game.panels.renderHomeStatus();                // HOME dashboard pinned header (mobile)
+      Game.panels.renderSiege();                     // perimeter siege meter + DEFEND prompt
       Game.panels.tickActionBars();   // animate the running-action cycle bars
       Game.panels.renderVitals();
       Game.panels.renderTriangulation();   // Act 3: the location-trace gauge

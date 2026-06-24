@@ -290,7 +290,9 @@
     <div id="blip-banner"></div>
     <div id="ambient"></div>
     <!-- PERIMETER: the always-on ambient defense window (revealed after the first scan) -->
-    <div id="defense-widget" hidden><div class="dw-label">◈ PERIMETER</div><canvas></canvas></div>
+    <div id="defense-widget" hidden><div class="dw-label">◈ PERIMETER</div><canvas></canvas>
+      <div id="siege"><div id="siege-meter"><div id="siege-fill"></div></div><span id="siege-text">holding</span><button id="siege-defend" hidden>⚠ DEFEND</button></div>
+    </div>
     <div id="scanlines"></div>
     <!-- BATTLE: a full intrusion-defense engagement, launched from the campaign; freezes the terminal until resolved -->
     <div id="battle-overlay" hidden><iframe id="battle-frame" title="intrusion defense" frameborder="0"></iframe></div>
@@ -362,6 +364,7 @@
   <script src="src/core/objectives.js"></script>
   <script src="src/core/voice.js"></script>
   <script src="src/core/roster.js"></script>
+  <script src="src/core/siege.js"></script>
   <script src="src/core/feed.js"></script>
   <script src="src/content/boot-sequence.js"></script>
   <script src="src/ui/terminal.js"></script>
