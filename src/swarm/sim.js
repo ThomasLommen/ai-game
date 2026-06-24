@@ -94,7 +94,7 @@
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
       threat: 0, surge: 0, kills: 0, bossSpawned: false,
-      spawnAccum: 0, surgeT: 9, warn: null,    // warn = { ang, t } surge telegraph
+      spawnAccum: 0, surgeT: 3, warn: null,    // warn = { ang, t } surge telegraph — first wave comes quickly
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
@@ -342,7 +342,7 @@
       return;
     }
     if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — stop feeding so you can clear the field + finish it
-    const rate = 0.4 + s.threat * 0.03 + s.t * 0.004;  // continuous trickle — gentler at the start, escalating
+    const rate = (1.1 + s.threat * 0.035 + s.t * 0.004) * (s.intensity || 1);  // steady stream from the start, escalating
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
@@ -369,7 +369,7 @@
     const probes = Math.round((3 + s.surge * 2) * (s.intensity || 1));   // WAVE pressure piles on count
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
-    s.surgeT = 15 + s.rng() * 4;
+    s.surgeT = 10 + s.rng() * 3;
     say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
     offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
   }
@@ -407,7 +407,7 @@
       const spd0 = SWARMS[f.type].speed * (f.buff ? 1.25 : 1);        // conductor overclock
       // LEASH — the swarm holds a PERIMETER around the core (so enemies advance into view
       // before being met) unless you're in PRESS stance. guard = tight, hunt = wider.
-      const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 1.3 : 1.05);   // wide — the swarm ranges over the field, just not into the far fog
+      const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 1.7 : 1.45);   // wide — the swarm ranges out to meet enemies near where they enter
       for (const d of f.dots) {
         const spd = disrupt.length && jammedAt(disrupt, d.x, d.y) ? spd0 * 0.55 : spd0;   // DISRUPTOR jam slows the swarm
         let tx, ty;
