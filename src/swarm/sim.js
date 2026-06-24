@@ -255,6 +255,14 @@
     // ── DUEL theme (the guard counter) ──
     { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
     { id: 'mirror',         name: 'MIRROR PROTOCOL', kind: 'duel', tier: 'marquee', max: 1, cost: 'you can no longer take Adaptive or Feint', desc: 'a counter you survive HEALS your core instead of hurting it', apply: s => { s.mirror = true; } },
+    // ── EXPANSION: a 2nd solid rewrite per theme (deepens each axis) ──
+    { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
+    { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 flock cap; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
+    { id: 'bulwark_arc', name: 'BULWARK ARC',       kind: 'core',  tier: 'rewrite', desc: 'the core projects a barrier toward your focus target, slowing enemies on that side', apply: s => { s.bulwarkArc = true; } },
+    { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
+    { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },
+    { id: 'turncoat',    name: 'TURNCOAT',          kind: 'duel',  tier: 'rewrite', desc: 'when the guard counters you, that surge spawns frail', apply: s => { s.turncoat = true; } },
+    { id: 'viral_load',  name: 'VIRAL LOAD',        kind: 'death', tier: 'rewrite', desc: 'kills near a focus target spread a contagion to nearby enemies', apply: s => { s.viralLoad = true; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -296,6 +304,7 @@
     const def = ENEMIES[type], hp = def.hp * (1 + s.threat * 0.012);
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
+    if (opts && opts.surge && s.turncoat && s.counter) { e.hp *= 0.55; e.maxHp *= 0.55; }   // TURNCOAT: a countered surge spawns frail
     if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
       e.laneIdx = li; const p = posOnLane(s.lanes[li], 0); e.x = p.x; e.y = p.y;
@@ -387,7 +396,7 @@
         const v = Math.hypot(d.vx, d.vy) || 1; if (v > spd) { d.vx = d.vx / v * spd; d.vy = d.vy / v * spd; }
         d.x += d.vx * dt; d.y += d.vy * dt;
       }
-      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.endlessTide ? 0.12 : s.hiveRegen ? 0.32 : s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }   // ENDLESS TIDE / HIVE OVERMIND regrow faster
+      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.endlessTide ? 0.12 : s.hiveRegen ? 0.32 : s.relentlessRegen ? 0.5 : s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }   // ENDLESS TIDE / HIVE / RELENTLESS regrow faster
     }
     for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — redeploying.`); s.flocks.splice(i, 1); }
   }
@@ -404,6 +413,7 @@
         if (s.firestorm) e.poison = Math.min(60, e.poison + 12 * dt);   // FIRESTORM signature: every swarm sets enemies alight
         d.hp -= ENEMIES[e.type].dotDmg * dt;                      // the enemy fights back while latched
       }
+      if (s.kamikaze) for (const d of f.dots) if (d.hp <= 0) { for (const e of s.enemies) if (dist(e.x, e.y, d.x, d.y) < 44) damageEnemy(s, e, 14 * chMult(s, 'offense')); s.bursts.push({ x: d.x, y: d.y, life: 0.28, color: '#ffae5a' }); }   // KAMIKAZE: dying dots detonate
       f.dots = f.dots.filter(d => d.hp > 0);
     }
   }
@@ -415,7 +425,7 @@
   function markMul(s, e) {
     const base = (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core');
     const twinPen = s.core.maxMarks > 1 ? 0.55 : 1;
-    if (s.core.marks.indexOf(e.id) >= 0) return base * twinPen;
+    if (s.core.marks.indexOf(e.id) >= 0) return base * twinPen + (s.sunder ? 0.45 * chMult(s, 'core') : 0);   // SUNDER: extra vuln on focus targets
     if (s.chainFocus && s._markPos) { for (const mp of s._markPos) if (dist(e.x, e.y, mp.x, mp.y) < 95) return base * 0.5 * twinPen; }
     return 0;
   }
@@ -432,6 +442,11 @@
       }
     }
     s._markPos = s.core.marks.map(id => { const e = s.enemies.find(x => x.id === id); return e ? { x: e.x, y: e.y } : null; }).filter(Boolean);
+    if (s.executioner || s.sunder) for (const id of s.core.marks) {   // FOCUS rewrites that act ON the marked target
+      const e = s.enemies.find(x => x.id === id); if (!e) continue;
+      if (s.sunder && e.shield > 0) e.shield = Math.max(0, e.shield - 70 * dt);   // SUNDER melts the shield
+      if (s.executioner && e.hp > 0 && e.hp < e.maxHp * 0.18) { e.hp = 0; s.bursts.push({ x: e.x, y: e.y, life: 0.4, color: '#ff5a6a', ring: true }); }   // EXECUTIONER finishes it
+    }
     if (s.siegeCannon) {   // SIEGE CANNON — the core fires a heavy beam down your focus line
       s.core.cannonCd = (s.core.cannonCd || 0) - dt;
       if (s.core.cannonCd <= 0 && s.core.marks.length) {
@@ -570,6 +585,10 @@
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
     if (s.harvestField && !s.core.invuln) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 1.5);   // HARVEST FIELD: kills heal the core
+    if (s.viralLoad && s._markPos && s._markPos.some(mp => dist(mp.x, mp.y, e.x, e.y) < 120)) {   // VIRAL LOAD: a kill near a focus target seeds contagion
+      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < 90) o.poison = Math.min(60, o.poison + 25);
+      s.bursts.push({ x: e.x, y: e.y, life: 0.4, color: '#76e08a', ring: true });
+    }
     if (s.scorchedEarth) {                                       // SCORCHED EARTH: every death detonates — and singes your own swarms
       for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < 85) damageEnemy(s, o, 30 * chMult(s, 'offense'));
       for (const f of s.flocks) for (const d of f.dots) if (dist(d.x, d.y, e.x, e.y) < 85) d.hp -= 8;
@@ -603,6 +622,11 @@
       e.blockedBy = block ? block.id : null;
       const chillSlow = e.chill > 0 ? 1 - Math.min(0.6, e.chill / 100 * 0.6) : 1;
       let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1);   // CORE-GUN counter speeds them up
+      if (s.bulwarkArc && s._markPos && s._markPos.length) {   // BULWARK ARC: a barrier toward your focus target slows enemies on that side
+        const mp = s._markPos[0], aMark = Math.atan2(mp.y - s.core.y, mp.x - s.core.x), aEne = Math.atan2(e.y - s.core.y, e.x - s.core.x);
+        const dA = Math.abs(((aEne - aMark + Math.PI) % TAU) - Math.PI);
+        if (dA < 0.8 && dist(e.x, e.y, s.core.x, s.core.y) < 180) sp *= 0.4;
+      }
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;
       } else if (e.laneIdx != null && s.lanes[e.laneIdx]) {           // follow its lane in to the core
