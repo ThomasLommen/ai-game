@@ -186,7 +186,7 @@
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
-    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); offerDraft(s); } }
+    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // units come from the between-battle ROSTER now, not an in-battle draft
   }
   function surgePool(surge) { const p = []; if (surge >= 2) p.push('rusher', 'enforcer'); if (surge >= 3) p.push('ward'); if (surge >= 4) p.push('splitter', 'disruptor'); return p; }   // threats unlock as the run escalates
   function doSurge(s, ang) {

@@ -1246,27 +1246,28 @@ h2 {
 #draft-overlay {
   position: fixed; inset: 0; z-index: 320;
   background: rgba(2,4,6,0.94); opacity: 0; transition: opacity .3s ease;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
 }
 #draft-overlay[hidden] { display: none; }
 #draft-overlay.up { opacity: 1; }
-#draft-frame { width: min(560px, 92vw); padding: 22px; }
+#draft-frame { width: min(560px, 92vw); padding: 3vh 18px calc(3vh + env(safe-area-inset-bottom)); margin: auto; }
 #draft-kicker { font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); text-align: center; }
-#draft-title { color: var(--amber); font-size: 16px; line-height: 1.5; margin: 8px 0 20px; text-align: center; font-weight: normal; }
-#draft-cards { display: flex; flex-direction: column; gap: 10px; }
-.draft-card {
-  display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
-  width: 100%; padding: 14px 16px; cursor: pointer; font-family: inherit;
+#draft-title { color: var(--amber); font-size: 15px; line-height: 1.45; margin: 7px 0 16px; text-align: center; font-weight: normal; }
+#draft-cards { display: flex; flex-direction: column; gap: 8px; }
+#draft-cards .draft-card {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
+  width: 100%; min-height: 0; padding: 11px 14px; cursor: pointer; font-family: inherit;
   background: rgba(20,16,10,0.6); border: 1px solid var(--amber-faint); border-left-width: 3px;
   opacity: 0; animation: draft-in .35s ease forwards;
 }
-.draft-card:nth-child(2){animation-delay:.05s}.draft-card:nth-child(3){animation-delay:.1s}.draft-card:nth-child(4){animation-delay:.15s}.draft-card:nth-child(5){animation-delay:.2s}
+#draft-cards .draft-card:nth-child(2){animation-delay:.05s}#draft-cards .draft-card:nth-child(3){animation-delay:.1s}#draft-cards .draft-card:nth-child(4){animation-delay:.15s}#draft-cards .draft-card:nth-child(5){animation-delay:.2s}
 @keyframes draft-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.draft-card.unit { border-left-color: var(--amber-mid); }
-.draft-card.exotic { border-left-color: #b98cff; }
-.draft-card:hover { border-color: var(--amber); background: rgba(255,176,0,0.07); }
+#draft-cards .draft-card.unit { border-left-color: var(--amber-mid); }
+#draft-cards .draft-card.exotic { border-left-color: #b98cff; }
+#draft-cards .draft-card:hover { border-color: var(--amber); background: rgba(255,176,0,0.07); }
 .draft-card-kind { font-size: 8px; letter-spacing: 2px; color: var(--amber-mid); }
-.draft-card.exotic .draft-card-kind { color: #b98cff; }
+#draft-cards .draft-card.exotic .draft-card-kind { color: #b98cff; }
 .draft-card-name { font-size: 15px; color: var(--amber); }
 .draft-card-desc { font-size: 11px; color: var(--amber-dim); }
 

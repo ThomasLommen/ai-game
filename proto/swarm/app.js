@@ -27,13 +27,17 @@
     try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
   }
 
-  let scale = 1, ox = 0, oy = 0;
-  const ZOOM = 0.8;   // <1 = zoomed OUT (more of the field visible, with breathing room)
+  let scale = 1, ox = 0, oy = 0, userZoom = 1;
+  const ZOOM = 0.8;   // base fit (<1 = zoomed out with breathing room); userZoom is the player's pinch/buttons
+  function recompute() {
+    scale = Math.min(cvs.width / S.W, cvs.height / S.H) * ZOOM * userZoom;
+    ox = (cvs.width - S.W * scale) / 2; oy = (cvs.height - S.H * scale) / 2;   // stays centred on the core
+  }
   function resize() {
     cvs.width = cvs.clientWidth * devicePixelRatio; cvs.height = cvs.clientHeight * devicePixelRatio;
-    scale = Math.min(cvs.width / S.W, cvs.height / S.H) * ZOOM;
-    ox = (cvs.width - S.W * scale) / 2; oy = (cvs.height - S.H * scale) / 2;
+    recompute();
   }
+  function setZoom(z) { userZoom = Math.max(0.6, Math.min(3.5, z)); recompute(); }
   window.addEventListener('resize', resize); resize();
   const X = x => ox + x * scale, Y = y => oy + y * scale;
   const s2wX = sx => (sx * devicePixelRatio - ox) / scale, s2wY = sy => (sy * devicePixelRatio - oy) / scale;
@@ -43,7 +47,18 @@
   function pickPod(wx, wy) { let hit = null; for (const u of S.units) if (S.UNITS[u.type].movable && Math.hypot(u.x - wx, u.y - wy) < u.r + 16) hit = u; return hit; }
   function onTap(wx, wy) { const hit = pickPod(wx, wy); if (hit) selId = (selId === hit.id ? null : hit.id); else if (selId && S.units.some(u => u.id === selId)) SWARM.moveUnit(S, selId, wx, wy); else selId = null; }
   cvs.addEventListener('click', e => onTap(s2wX(e.clientX), s2wY(e.clientY)));
-  cvs.addEventListener('touchend', e => { const t = e.changedTouches && e.changedTouches[0]; if (t) onTap(s2wX(t.clientX), s2wY(t.clientY)); }, { passive: true });
+  // pinch-to-zoom the battlefield (two fingers); a pinch suppresses the tap
+  let pinch = null, pinched = false;
+  const dist2 = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+  cvs.addEventListener('touchstart', e => { if (e.touches.length === 2) { pinch = { d: dist2(e.touches), z: userZoom }; pinched = true; } }, { passive: true });
+  cvs.addEventListener('touchmove', e => { if (e.touches.length === 2 && pinch) { e.preventDefault(); setZoom(pinch.z * dist2(e.touches) / pinch.d); } }, { passive: false });
+  cvs.addEventListener('touchend', e => {
+    if (e.touches.length < 2) pinch = null;
+    if (pinched) { if (e.touches.length === 0) pinched = false; return; }   // don't tap-place after a pinch
+    const t = e.changedTouches && e.changedTouches[0]; if (t) onTap(s2wX(t.clientX), s2wY(t.clientY));
+  }, { passive: true });
+  // desktop: wheel zooms
+  cvs.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 
   // ── input — static buttons wired by id (no rebuild = no eaten clicks) ──
   $('s_hunter').onclick = () => SWARM.summonFlock(S, 'hunter');
@@ -65,6 +80,10 @@
   $('ex_hive').onclick  = () => SWARM.toggleEx(S, 'hive');
   $('ex_flame').onclick = () => SWARM.toggleEx(S, 'flame');
   $('ex_bloom').onclick = () => SWARM.toggleEx(S, 'bloom');
+  // zoom + collapse-the-menus (visible in embed too — gameplay, not dev chrome)
+  $('zoomin').onclick  = () => setZoom(userZoom * 1.25);
+  $('zoomout').onclick = () => setZoom(userZoom / 1.25);
+  $('hideui').onclick  = () => document.body.classList.toggle('ui-hidden');
   $('reseed').onclick   = () => { S = newState(); posted = false; lastLogLen = -1; };
   $('mode').onclick     = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; };
   $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-draft]'); if (c) SWARM.pickDraft(S, c.dataset.draft); });
