@@ -94,7 +94,7 @@
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
-      threat: 0, surge: 0, kills: 0, bossSpawned: false,
+      threat: 0, surge: 0, kills: 0, leaks: 0, bossSpawned: false,   // leaks = intruders that reached the core (perimeter NET = kills − leaks)
       spawnAccum: 0, surgeT: 1.5, warn: null,    // warn = { ang, t } surge telegraph — first wave comes quickly
       rushed: 0,                                  // waves you FORCED early — each one improves end-of-battle loot
       ex: { hive: false, flame: false, bloom: false },
@@ -631,6 +631,7 @@
   }
   function coreHit(s, e) {
     e.dead = true;
+    s.leaks++;                          // a leak — counts even in the perimeter (where hp is pinned): drives the NET gauge
     if (s.core.invuln) return;
     s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1);
     if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); }

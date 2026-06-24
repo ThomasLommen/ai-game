@@ -9,6 +9,7 @@
   if (!wrap || typeof SWARM === 'undefined') return;
   const cvs = wrap.querySelector('canvas'), ctx = cvs.getContext('2d');
   let S = null, last = performance.now(), shown = false;
+  let pKills = 0, pLeaks = 0;   // last-sampled sim counters → feed the persisted perimeter NET (kills − leaks since the last DEFEND)
 
   // Field the player's ROSTER here (coherence: the SAME units you drafted fight in the
   // perimeter AND in full battles). Tops up each frame, so a freshly-drafted unit shows.
@@ -26,6 +27,7 @@
     if (shown) return; shown = true;
     wrap.hidden = false;
     S = SWARM.create((Math.random() * 1e9) | 0, false, 0, true);   // open-mode, ambient
+    pKills = 0; pLeaks = 0;                                          // fresh sim → re-baseline the NET sampler
     last = performance.now(); resize();
   }
   // the first scan brings the perimeter online (and persists it)
@@ -49,6 +51,14 @@
     S.core.hp = S.core.maxHp;                           // and never actually lose; it's holding the line
     applyRoster();                                      // field the player's roster (coherence w/ battles)
     SWARM.tick(S, dt);
+    // PERIMETER STAKES: accumulate NET = kills − leaks (since the last DEFEND) onto the
+    // save. Net+ banks into the next battle's loot; net− accelerates the siege. (siege.js
+    // reads state.perimeter.net.) The core never actually falls — leaks are the only cost.
+    const st = window.Game && Game.save && Game.save.state;
+    if (st) {
+      const dk = (S.kills || 0) - pKills, dl = (S.leaks || 0) - pLeaks;
+      if (dk || dl) { st.perimeter = st.perimeter || { net: 0 }; st.perimeter.net += dk - dl; pKills = S.kills || 0; pLeaks = S.leaks || 0; }
+    }
     draw();
   }
 
@@ -77,6 +87,18 @@
     ctx.beginPath(); ctx.arc(cx, cy, cr * 0.42, 0, 7); ctx.fill(); ctx.stroke();
     ctx.shadowColor = '#ffb000'; ctx.shadowBlur = 8 + pulse * 6; ctx.fillStyle = '#fff3d0';
     ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+
+    // NET readout — the perimeter scoreboard since the last DEFEND (kills − leaks).
+    const st = window.Game && Game.save && Game.save.state;
+    const net = st && st.perimeter ? Math.round(st.perimeter.net || 0) : 0;
+    const fs = Math.max(9, Math.round(11 * devicePixelRatio));
+    ctx.font = '700 ' + fs + 'px ui-monospace, Menlo, monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.32)'; ctx.fillText('HOLDING', 6 * devicePixelRatio, 5 * devicePixelRatio);
+    const label = (net >= 0 ? 'NET +' : 'NET ') + net;
+    ctx.fillStyle = net >= 0 ? '#76e08a' : '#ff6b5a';
+    const tw = ctx.measureText(label).width;
+    ctx.fillText(label, cvs.width - tw - 6 * devicePixelRatio, 5 * devicePixelRatio);
   }
 
   requestAnimationFrame(frame);
