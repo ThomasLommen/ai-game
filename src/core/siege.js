@@ -29,7 +29,9 @@
     if (s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return;   // hold while inbound / mid-battle
     const HZ = (Game.tick && Game.tick.HZ) || 4;
     const exposure = Game.save.state.exposure || 0;
-    const rate = (MAX / (BASE_SECONDS * HZ)) * (1 + Math.min(2, exposure * 0.02));   // louder → faster surges
+    const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
+    const slow = feed ? (1 - (feed.siegeSlow || 0)) : 1;   // load-balancer subroutine eases the siege
+    const rate = (MAX / (BASE_SECONDS * HZ)) * (1 + Math.min(2, exposure * 0.02)) * slow;   // louder → faster surges
     s.meter += rate;
     if (s.meter >= MAX) { s.meter = MAX; s.ready = true; Game.events && Game.events.emit('siege.ready', { wave: s.wave }); }
   }
@@ -44,8 +46,10 @@
   function grantBattleLoot(r) {
     if (!Game.rewards) return;
     const rushed = Math.max(0, (r && r.rushed) | 0), st = Game.save.state;
-    Game.rewards.apply({ cash: 50 + rushed * 35 }, st);
-    const chance = Math.min(0.95, 0.18 + rushed * 0.15);
+    const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
+    const lootBonus = feed ? (feed.loot || 0) : 0;   // salvage-routines subroutine sweetens every drop
+    Game.rewards.apply({ cash: Math.round((50 + rushed * 35) * (1 + lootBonus)) }, st);
+    const chance = Math.min(0.95, 0.18 + rushed * 0.15 + lootBonus);
     if (Game.rng && Game.rng.chance(chance)) Game.rewards.apply({ item: true }, st);
   }
 

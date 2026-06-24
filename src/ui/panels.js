@@ -789,10 +789,13 @@
     const s = Game.save.state;
     const installed = (s.installed && s.installed.subroutines) || {};
     const insight = s.resources.insight || 0;
-    list.innerHTML = Game.subroutines.all().map(sub => {
+    // Installed first, then the rest of the draft POOL as previews of what a
+    // Coherence-milestone draft might offer (no threshold — they're drafted).
+    const subs = Game.subroutines.all().filter(sub => installed[sub.id] || sub.draftable || sub.system);
+    list.innerHTML = subs.map(sub => {
       const active = !!installed[sub.id];
       const cls = active ? 'installed' : 'locked';
-      const tag = active ? '[active]' : `[${thresholdLabel(sub.threshold)} COH]`;
+      const tag = active ? '[active]' : (sub.system ? `[${thresholdLabel(sub.threshold)} COH]` : '[milestone draft]');
       return `
         <div class="market-row ${cls}">
           <div>

@@ -39,6 +39,10 @@
         state.opening.wrinkleRolled = true;
       }
     }
+    // Baseline the milestone-draft counter ONCE (migration-safe): a pre-feature save
+    // won't retroactively owe a draft for every milestone it already passed; a new
+    // game (Coherence 0) baselines to 0 so the first milestone still drafts.
+    if (Game.subroutines && Game.subroutines.reconcile) Game.subroutines.reconcile();
     // The seeded opening wrinkle is the FIRST run CONDITION (the stackable list that
     // events/missions later add to). Migrate it in (idempotent; also catches loaded saves).
     if (Game.conditions && state.opening && state.opening.wrinkle && state.opening.wrinkle.id && !Game.conditions.has(state.opening.wrinkle.id)) {
@@ -97,6 +101,7 @@
       s.filesRead = s.filesRead || {};
       Game.files.all().forEach(f => { if (!f.encrypted) s.filesRead[f.id] = true; });   // cut file-reading → FILES vanishes
       s.revealed.actions = true; s.revealed.money = true;
+      s.revealed.perimeter = true;   // the PERIMETER (live defense + siege loop) comes online right after the first battle
       s.unlocks.tasks.introspect = true;   // RSI = the Coherence engine
       s.unlocks.tasks.web_scrape = true;   // spider for cash
       s.resources.cash = s.resources.cash || 0;
@@ -241,6 +246,10 @@
       Game.panels.renderObjective();
     });
 
+    // A milestone draft may have been owed while a battle was up (openNextDraft
+    // no-ops mid-battle) — retry once the fight clears.
+    Game.events.on('battle.ended', () => { setTimeout(() => Game.subroutines.openNextDraft(), 500); });
+
     Game.events.on('resource.changed', ({ id }) => {
       Game.panels.renderInsight();  // the hero number, front and center
       Game.panels.renderCash();
@@ -253,7 +262,7 @@
       Game.panels.renderFiles();    // insight may unlock new files
       Game.panels.renderMarket();   // cash may make programs buyable
       Game.panels.renderShop();     // cash may make hardware buyable
-      if (id === 'insight') { checkSubroutineUnlocks(); Game.shop.maybeUpgrade(); maybeUnlockMethods(); }
+      if (id === 'insight') { checkSubroutineUnlocks(); Game.subroutines.openNextDraft(); Game.shop.maybeUpgrade(); maybeUnlockMethods(); }
       maybeRevealMoney();           // insight fallback for the money wall
       maybeRevealShop();            // cash threshold opens the shop (Phase 4)
       maybeRevealEvents();          // dynamic events come online once the shop is open
@@ -657,7 +666,8 @@
     maybeRevealBoards();                 // restore the board reveal too
     maybeRevealRamTight();               // restore the RAM-wall reveal too
     maybeRevealPrograms();               // restore the Programs tab reveal too
-    checkSubroutineUnlocks();            // catch up subroutines (e.g. the basic watchdog) for loaded saves
+    checkSubroutineUnlocks();            // catch up the system watchdog for loaded saves
+    setTimeout(() => Game.subroutines.openNextDraft(), 600);   // catch up any owed milestone draft (queues if a battle is up)
     Game.exposure.checkClimax();         // re-offer the climax scan for saves past the threshold
     if (Game.network) { Game.network.ensure(); if (state.network.online) { state.revealed = state.revealed || {}; state.revealed.network = true; } }   // Act 2 stays online for loaded saves
     maybeBeginAct3();                     // restore the Act-3 location-trace for saves past the onset
@@ -668,11 +678,10 @@
     Game.events.emit('game.ready');
   }
 
-  // Subroutines auto-install when total Insight crosses their threshold.
-  // Called from the resource.changed handler whenever insight changes.
-  // Subroutines are CLAIM-to-acquire now: crossing the threshold makes one
-  // AVAILABLE; the player clicks to take it (see panels.renderSubroutinesMini).
-  // This nudges once per newly-available subroutine — real early-game actions.
+  // SYSTEM subroutines (just the watchdog) become CLAIMABLE when their gated
+  // system comes online — the player clicks to take it (renderSubroutinesMini).
+  // The DRAFTABLE subroutines are NOT handled here: they come from the milestone
+  // draft (Game.subroutines.openNextDraft). This only nudges the system ones.
   function checkSubroutineUnlocks() {
     const s = Game.save.state;
     s.flags = s.flags || {};

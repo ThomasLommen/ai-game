@@ -62,6 +62,12 @@
       // power → a flat BOOST to every compute-allocation channel (the dial rework: a
       // developed build starts the duel with stronger channels, no hoard-and-spend).
       out.boost = Math.min(0.6, out.computeBonus / 430 + out.regenBonus * 0.03);
+
+      // SUBROUTINE battle-feed (the milestone draft): boost stacks, opener grants a
+      // free make-or-break pick on every defense. ([[start-defense-pivot]])
+      const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
+      if (feed) { out.boost = Math.min(0.85, out.boost + (feed.boost || 0)); out.opener = !!feed.opener; }
+
       if (out.boost) out.notes.push('+' + Math.round(out.boost * 100) + '% channel power');
       if (out.ex.length)    out.notes.push(out.ex.join('+') + ' engaged');
       if (out.unlock.length) out.notes.push([...new Set(out.unlock)].join('+') + ' online');
@@ -105,7 +111,7 @@
     if (opts.wave != null) q.set('wave', opts.wave | 0);       // WAVE drives the pressure (count/HP/surge length)
     if (snap.boost > 0.01) q.set('boost', snap.boost.toFixed(3));   // build power → stronger dial channels
     if (Array.isArray(opts.picks) && opts.picks.length) q.set('picks', opts.picks.join(','));   // the RUN-BUILD: picks carried across the run's battles
-    if (opts.opener) q.set('opener', '1');                     // the first battle opens on a make-or-break pick
+    if (opts.opener || snap.opener) q.set('opener', '1');      // first battle / combat-heuristics subroutine → opens on a make-or-break pick
     if (exSet.length) q.set('ex', exSet.join(','));            // campaign adaptations → battle exotics
     if (unlockSet.length) q.set('unlock', unlockSet.join(',')); // → pre-unlocked roster
     if (snap.notes.length) emit('terminal.print', { lines: ['> build deploys: ' + snap.notes.join(' · '), ''], cls: 'dim' });
