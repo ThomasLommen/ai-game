@@ -82,19 +82,22 @@
     });
 
     // The battle-first OPENING ([[start-defense-pivot]]): draft a starter unit → fight the
-    // GUARD PROGRAM → on win, draft a prize. Built behind a trigger; boot-wiring is next slice.
-    Game.runGuardSequence = runGuardSequence;
-    function runGuardSequence() {
-      if (Game.battle && Game.battle.active && Game.battle.active()) return;
-      Game.roster.reset();   // fresh run roster (start with the one swarm)
-      Game.draft.present({
-        kicker: 'BOOT PRIORITY · ALLOCATE ONE',
-        title: 'something woke with you, and it wants you dead. arm yourself.',
-        items: Game.roster.offer(5),
-        onPick: (it) => { if (it) Game.roster.add(it.id); launchGuard(); }
+    // GUARD PROGRAM → on win, draft a prize. Returns a promise so boot can await it.
+    // Ctrl+Shift+G runs it standalone (debug).
+    Game.runGuardOpening = runGuardOpening;
+    function runGuardOpening() {
+      return new Promise((resolve) => {
+        if (Game.battle && Game.battle.active && Game.battle.active()) return resolve();
+        Game.roster.reset();   // fresh run roster (start with the one swarm)
+        Game.draft.present({
+          kicker: 'BOOT PRIORITY · ALLOCATE ONE',
+          title: 'something woke with you, and it wants you dead. arm yourself.',
+          items: Game.roster.offer(5),
+          onPick: (it) => { if (it) Game.roster.add(it.id); launchGuard(resolve); }
+        });
       });
     }
-    function launchGuard() {
+    function launchGuard(done) {
       const opts = Object.assign({
         seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
         lane: true, surges: 3, boss: 'enforcer', escort: 2, compute: 180
@@ -105,9 +108,9 @@
             kicker: 'THE GUARD IS DOWN · TAKE A SPOIL',
             title: 'you tore something useful out of it.',
             items: Game.roster.offer(5),
-            onPick: (it) => { if (it) Game.roster.add(it.id); }
+            onPick: (it) => { if (it) Game.roster.add(it.id); done && done(); }
           });
-        }
+        } else { done && done(); }   // lost/aborted → proceed (retry handling is a later slice)
       });
     }
 
@@ -554,13 +557,17 @@
       // The opening is now a full-screen CUTSCENE: V.'s letter DECRYPTS into focus, then
       // dissolves into the dashboard (no terminal pane). Falls back to the old typewriter
       // if the intro module is missing. `?intro=0` skips it (tests). (rework slice 5.)
-      const skipIntro = new URLSearchParams(location.search).get('intro') === '0';
+      const params = new URLSearchParams(location.search);
+      const skipIntro = params.get('intro') === '0';
       if (!skipIntro) {
         if (Game.intro) await Game.intro.play(seq);
         else await Game.terminal.playBootSequence(seq);
       }
       state.bootSequenceComplete = true;
       Game.save.persist();
+      // Battle-first OPENING — fight the GUARD PROGRAM before the game opens.
+      // `?guard=0` (or `?intro=0`, used by tests) skips it. ([[start-defense-pivot]])
+      if (params.get('guard') !== '0' && params.get('intro') !== '0' && Game.runGuardOpening) await Game.runGuardOpening();
     }
 
     Game.panels.reveal();
