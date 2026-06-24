@@ -22,6 +22,8 @@
     if (Q.has('picks')) o.picks = Q.get('picks').split(',').filter(Boolean); // the carried RUN-BUILD
     if (Q.get('opener') === '1') o.opener = true;                            // first-battle opener pick
     if (Q.has('tier')) o.tier = qNum('tier', 2);                             // act/mission threat tier (enemy menagerie)
+    if (Q.has('act')) o.act = qNum('act', 1);                                // ACT band → lanes / menagerie / boss
+    if (Q.has('wave')) o.wave = qNum('wave', 0);                             // WAVE → count / HP / surge length
     return o;
   };
   const newState = () => SWARM.create(makeSeed(), laneMode, Q.has('compute') ? qNum('compute', 120) : undefined, false, battleOpts());

@@ -101,6 +101,8 @@
     if (opts.boss != null) q.set('boss', opts.boss);
     if (opts.escort != null) q.set('escort', opts.escort);
     if (opts.tier != null) q.set('tier', opts.tier | 0);       // act/mission THREAT TIER gates the enemy menagerie
+    if (opts.act != null) q.set('act', opts.act | 0);          // ACT band drives the difficulty structure (lanes/menagerie/boss)
+    if (opts.wave != null) q.set('wave', opts.wave | 0);       // WAVE drives the pressure (count/HP/surge length)
     if (snap.boost > 0.01) q.set('boost', snap.boost.toFixed(3));   // build power → stronger dial channels
     if (Array.isArray(opts.picks) && opts.picks.length) q.set('picks', opts.picks.join(','));   // the RUN-BUILD: picks carried across the run's battles
     if (opts.opener) q.set('opener', '1');                     // the first battle opens on a make-or-break pick

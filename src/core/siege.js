@@ -17,7 +17,7 @@
     return s.siege;
   }
   // online once the perimeter is (after the guard opening / first scan)
-  function active() { const s = Game.save.state; return !!(s.revealed && s.revealed.perimeter) && !(s.flags && s.flags.act4Begun); }
+  function active() { const s = Game.save.state; return !!(s.revealed && s.revealed.perimeter); }   // the defense loop is the spine across ALL acts
   function meter() { return ensure().meter; }
   function wave()  { return ensure().wave; }
   function ready() { return ensure().ready; }
@@ -34,9 +34,9 @@
     if (s.meter >= MAX) { s.meter = MAX; s.ready = true; Game.events && Game.events.emit('siege.ready', { wave: s.wave }); }
   }
 
-  // difficulty scales with the run's wave; `tier` gates which enemy TYPES appear (slice D)
+  // difficulty derives from ACT (structure) + WAVE (pressure) inside the sim's difficulty() curve.
   function waveOpts(w) {
-    return { lane: true, surges: 3 + w, escort: 1 + Math.floor(w / 2), boss: ((w + 1) % 4 === 0) ? 'juggernaut' : 'enforcer', tier: 1 + Math.floor(w / 2) };
+    return { lane: true, act: (Game.acts ? Game.acts.current() : 1), wave: w };
   }
 
   function defend() {

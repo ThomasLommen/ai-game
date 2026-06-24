@@ -55,7 +55,19 @@
     for (let i = 1; i <= steps; i++) { const t = i / (steps + 1), bx = spawn.x + (core.x - spawn.x) * t, by = spawn.y + (core.y - spawn.y) * t; let off = bias; for (const h of harmonics) off += (h.amp / norm) * Math.sin(t * h.freq * Math.PI * 2 + h.phase); off *= baseAmp * Math.sin(Math.PI * t); let x = bx + Math.cos(perp) * off, y = by + Math.sin(perp) * off; pts.push({ x: Math.max(45, Math.min(W - 45, x)), y: Math.max(45, Math.min(H - 45, y)) }); }
     pts.push({ x: core.x, y: core.y }); return pts;
   }
-  function genLanes(rng, W, H, core) { const n = 4, lanes = [], base = rng() * Math.PI * 2; for (let i = 0; i < n; i++) { const ang = base + i * (Math.PI * 2 / n) + (rng() - 0.5) * 0.7; lanes.push(laneGeom(genLanePts(rng, W, H, core, ang))); } return lanes; }
+  function genLanes(rng, W, H, core, n) { n = Math.max(1, n || 4); const lanes = [], base = rng() * Math.PI * 2; for (let i = 0; i < n; i++) { const ang = base + i * (Math.PI * 2 / n) + (rng() - 0.5) * 0.7; lanes.push(laneGeom(genLanePts(rng, W, H, core, ang))); } return lanes; }
+  // ── DIFFICULTY CURVE: ACT = structure (lanes / menagerie / boss), WAVE = pressure
+  // (count / HP / surge length). Every fight is a real challenge from #1. (difficulty-scaling-design)
+  function difficulty(act, wave) {
+    act = Math.max(1, act | 0); wave = Math.max(0, wave | 0);
+    const lanes = Math.min(5, 1 + (act - 1) + Math.floor(wave / 5));
+    const tier = act === 1 ? (wave >= 3 ? 1 : 0) : Math.min(3, act);   // act1 probes→rusher/enforcer late; act2 +ward; act3+ full
+    const intensity = 1 + wave * 0.12 + (act - 1) * 0.15;              // count + HP multiplier
+    const surges = 3 + Math.floor(wave / 3) + (act - 1);              // longer battles deeper in
+    const boss = act >= 4 ? 'juggernaut' : (act >= 2 && wave % 4 === 3) ? 'juggernaut' : 'enforcer';
+    const escort = 1 + Math.floor((act - 1) + wave / 4);             // boss escort grows with depth
+    return { lanes, tier, intensity, surges, boss, escort };
+  }
   function pickWaveLanes(s) { const n = s.lanes.length; if (!n) { s.waveLanes = []; return; } const count = Math.max(1, Math.min(n, 1 + Math.floor(s.rng() * (1 + s.surge * 0.5)))); const idx = [...Array(n).keys()]; for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = idx[i]; idx[i] = idx[j]; idx[j] = t; } s.waveLanes = idx.slice(0, count).sort((a, b) => a - b); }
 
   function create(seed, laneMode, startCompute, ambient, opts) {
@@ -80,9 +92,7 @@
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
-      threat: 0, surge: 0, GOAL_SURGES: opts.surges || 8, kills: 0, bossSpawned: false,   // GOAL_SURGES = the surge the BOSS arrives on (the run's climax)
-      boss: opts.boss || 'juggernaut', bossEscort: (opts.escort != null) ? opts.escort : 6,   // the climax — what's drawn in + escort count (a trap's bait reshapes this)
-      tier: opts.tier != null ? opts.tier : 2,   // THREAT TIER (act + mission) gates which enemy TYPES appear; surges escalate DENSITY within it (slice D)
+      threat: 0, surge: 0, kills: 0, bossSpawned: false,
       spawnAccum: 0, surgeT: 9, warn: null,    // warn = { ang, t } surge telegraph
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
@@ -96,10 +106,20 @@
     if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
     if (s.ex.hive) s.maxFlocks = 10;
     if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
+    // DIFFICULTY: derive the curve from ACT (structure) + WAVE (pressure); explicit opts override (traps/guard).
+    s.act = Math.max(1, opts.act || 1); s.wave = Math.max(0, opts.wave || 0);
+    const D = difficulty(s.act, s.wave);
+    s.tier = opts.tier != null ? opts.tier : D.tier;
+    s.intensity = opts.intensity != null ? opts.intensity : D.intensity;
+    s.GOAL_SURGES = opts.surges || D.surges;
+    s.boss = opts.boss || D.boss;
+    s.bossEscort = (opts.escort != null) ? opts.escort : D.escort;
+    s.laneCount = opts.laneCount != null ? opts.laneCount : (opts.lanes != null ? opts.lanes : D.lanes);
+    s.threat = (s.intensity - 1) * 42;   // wave/act pressure → tougher enemies from the first hit
     // RUN-BUILD: the picks you've accrued so far this RUN are pre-applied each battle
     // (they persist across the run's battles; the campaign carries the list).
     if (Array.isArray(opts.picks)) opts.picks.forEach(id => { const p = PICKS.find(x => x.id === id) || (SIGNATURES[Object.keys(SIGNATURES).find(k => SIGNATURES[k].id === id)]); if (p) { p.apply(s); s.picksTaken.push(id); } });
-    if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core); pickWaveLanes(s); }
+    if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core, s.laneCount); pickWaveLanes(s); }
     say(s, s.laneMode ? 'a node of yours. they come down the lit lanes — hold the core. TAP a threat to focus fire.'
                       : 'a node of yours. they come from the dark — hold the core. TAP a threat to focus fire.');
     ensureField(s);   // your roster auto-deploys; your BUILD governs how strong it is
@@ -235,7 +255,7 @@
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
     { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'cap',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
     { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
-    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
+    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
     // ── duel-answers: clean, no cost ──
     { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
     { id: 'adaptive',   name: 'ADAPTIVE PLATING', kind: 'duel', tier: 'rewrite', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
@@ -345,7 +365,7 @@
     const c = s.counter;
     let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
     if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
-    const probes = 3 + s.surge * 2;
+    const probes = Math.round((3 + s.surge * 2) * (s.intensity || 1));   // WAVE pressure piles on count
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
     s.surgeT = 15 + s.rng() * 4;
@@ -643,7 +663,9 @@
     if (!s.core.invuln) {
       s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
-      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul == null ? 1 : s.regenMul) * dt);   // SELF-REPAIR doubles regen; 0 disables
+      // NO baseline self-repair — regen comes ONLY from the SHIELD channel + the SELF-REPAIR pick.
+      const regen = ((s.chBonus.shield || 0) * 6 + (s.selfRepairFlat || 0)) * (s.regenMul == null ? 1 : s.regenMul);
+      if (regen > 0) s.core.hp = Math.min(s.core.maxHp, s.core.hp + regen * dt);
       if (s.mirror && s.counter) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 9 * dt);   // MIRROR PROTOCOL — a counter you survive heals you
     }
     s.threat += dt * 0.18;
@@ -669,5 +691,5 @@
     s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ffd24a', ring: true });   // a confirm pulse on the new focus
     return true;
   }
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, difficulty, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

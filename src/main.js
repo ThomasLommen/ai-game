@@ -114,6 +114,9 @@
       reset() { Game.save.state.runBuild = { picks: [] }; },
     };
 
+    // current ACT (1-5) from the narrative flags — drives battle difficulty structure.
+    Game.acts = { current() { const f = (Game.save.state && Game.save.state.flags) || {}; return f.act5Hooked ? 5 : f.act4Begun ? 4 : f.act3Begun ? 3 : f.act2Capstone ? 2 : 1; } };
+
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
       return new Promise((resolve) => {
@@ -126,7 +129,7 @@
     function launchGuard(done) {
       const opts = Object.assign({
         seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
-        lane: true, surges: 3, boss: 'enforcer', escort: 2, tier: 0,   // the FIRST battle is standard probes only
+        lane: true, act: Game.acts.current(), wave: 0,   // first battle of the run → difficulty(act,0): 1 lane, probes
         opener: true, picks: Game.runBuild.picks(),   // first battle opens on a pick
       }, Game.roster.toOpts());   // the roster decides WHAT you field
       Game.battle.launch(opts, (r) => {
