@@ -297,6 +297,11 @@
     bloom:  { id: 'sig_bloom',  name: 'PANDEMIC',          kind: 'sig', req: s => s.ex.bloom,       desc: 'contagion deaths seed a much wider radius',             apply: s => { s.pandemic = true; } },
     reaper: { id: 'sig_reaper', name: 'HARVEST PROTOCOL',  kind: 'sig', req: s => s.unlocked.reaper, desc: 'your reaper executes enemies from much higher HP',     apply: s => { s.harvest = true; } },
     siege:  { id: 'sig_siege',  name: 'SATURATION FIRE',   kind: 'sig', req: s => s.unlocked.siege,  desc: 'your siege scatters far more cluster bomblets',        apply: s => { s.saturation = true; } },
+    strider:    { id: 'sig_strider',    name: 'OVERCHARGED RAILGUN', kind: 'sig', req: s => s.unlocked.strider,    desc: 'your strider\'s railgun hits far harder',                 apply: s => { s.striderOver = true; } },
+    bulwark:    { id: 'sig_bulwark',    name: 'AEGIS WALL',          kind: 'sig', req: s => s.unlocked.bulwark,    desc: 'your bulwark is far tougher and self-repairs much faster', apply: s => { s.aegisWall = true; const u = s.units.find(x => x.type === 'bulwark'); if (u) { u.maxHp = Math.round(u.maxHp * 1.8); u.hp = Math.round(u.hp * 1.8); } } },
+    glacier:    { id: 'sig_glacier',    name: 'DEEP FREEZE',         kind: 'sig', req: s => s.unlocked.glacier,    desc: 'your glacier thumps faster, freezing a much wider ring',  apply: s => { s.deepFreeze = true; } },
+    conductor:  { id: 'sig_conductor',  name: 'POWER GRID',          kind: 'sig', req: s => s.unlocked.conductor,  desc: 'your conductor overclocks a wider swarm, much harder',    apply: s => { s.powerGrid = true; } },
+    fabricator: { id: 'sig_fabricator', name: 'MASS PRODUCTION',     kind: 'sig', req: s => s.unlocked.fabricator, desc: 'your fabricator prints a much bigger drone brood',        apply: s => { s.massProduction = true; } },
   };
   function eligibleSigs(s) { return Object.keys(SIGNATURES).map(k => SIGNATURES[k]).filter(g => g.req(s) && pickCount(s, g.id) < 1); }
   function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
@@ -407,7 +412,7 @@
     for (const f of s.flocks) {
       let cx = 0, cy = 0; for (const d of f.dots) { cx += d.x; cy += d.y; } const n = f.dots.length || 1; f.cx = cx / n; f.cy = cy / n;
       f.tgtT -= dt; if (f.tgtT <= 0) { f.tgtT = 0.3; pickFlockTarget(s, f); }
-      const spd0 = SWARMS[f.type].speed * (f.buff ? 1.25 : 1);        // conductor overclock
+      const spd0 = SWARMS[f.type].speed * (f.buff ? (s.powerGrid ? 1.5 : 1.25) : 1);        // conductor overclock (POWER GRID stronger)
       // LEASH — the swarm holds a PERIMETER around the core (so enemies advance into view
       // before being met) unless you're in PRESS stance. guard = tight, hunt = wider.
       const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 1.7 : 1.45);   // wide — the swarm ranges out to meet enemies near where they enter
@@ -433,7 +438,7 @@
   function dotDamage(s, dt) {
     const CONTACT = 20, disruptors = s.enemies.filter(e => e.type === 'disruptor');
     for (const f of s.flocks) {
-      const dmg = SWARMS[f.type].dotDmg * (f.buff ? 1.4 : 1) * chMult(s, 'offense');   // OFFENSE channel scales swarm DPS
+      const dmg = SWARMS[f.type].dotDmg * (f.buff ? (s.powerGrid ? 1.8 : 1.4) : 1) * chMult(s, 'offense');   // OFFENSE channel scales swarm DPS (POWER GRID stronger overclock)
       for (const d of f.dots) {
         const e = nearestEnemy(s, d.x, d.y, CONTACT); if (!e) continue;
         let m = 1 + markMul(s, e); if (e.poison > 0) m += 0.5; if (e.frozen > 0) m += 1.0;   // SYNERGY: marked + poisoned (+50%) + frozen (+100% shatter)
@@ -543,7 +548,7 @@
   function uAnchor(s, u, dt) {                             // BULWARK — a player-placed WALL: walk to where you put it, then plug + grind; self-repairs
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 95 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
     u.aim = Math.atan2(s.core.y - u.y, s.core.x - u.x);
-    u.hp = Math.min(u.maxHp, u.hp + 16 * dt);                          // self-repair
+    u.hp = Math.min(u.maxHp, u.hp + (s.aegisWall ? 40 : 16) * dt);     // self-repair (AEGIS WALL repairs faster)
     if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, pdmg(s, u)); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
   }
   function uArtillery(s, u, dt) {                          // SIEGE — player-placed; lobs cluster rockets at distant clusters (poison bomblets on contagion ammo)
@@ -559,8 +564,8 @@
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 70, 88, dt);
     if (u.thumpT > 0) u.thumpT -= dt;
     if (u.cd <= 0 && tgt && dist(tgt.x, tgt.y, u.x, u.y) < 300) {
-      u.cd = 2.2; u.thumpT = 0.32;                          // recover + play the slam
-      s.waves.push({ x: u.x, y: u.y, r: 0, maxR: 245, speed: 300, hit: {} });
+      u.cd = s.deepFreeze ? 1.4 : 2.2; u.thumpT = 0.32;     // recover + play the slam (DEEP FREEZE thumps faster + wider)
+      s.waves.push({ x: u.x, y: u.y, r: 0, maxR: s.deepFreeze ? 360 : 245, speed: 300, hit: {} });
     }
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 22) u.hp -= ENEMIES[e.type].dotDmg * dt;
   }
@@ -574,7 +579,7 @@
   function uSupport(s, u, dt) {                            // CONDUCTOR — hovers with the swarm; flocks in range get OVERCLOCKED (faster, harder, regen quicker)
     let cx = 0, cy = 0, n = 0; for (const f of s.flocks) { cx += f.cx; cy += f.cy; n++; }
     roam(s, u, n ? cx / n : null, n ? cy / n : null, 40, 92, dt);
-    for (const f of s.flocks) if (dist(f.cx, f.cy, u.x, u.y) < 235) f.buff = true;
+    for (const f of s.flocks) if (dist(f.cx, f.cy, u.x, u.y) < (s.powerGrid ? 360 : 235)) f.buff = true;   // POWER GRID overclocks a wider swarm
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 18) u.hp -= ENEMIES[e.type].dotDmg * dt;
   }
   function uReaper(s, u, dt) {                             // REAPER — fast; DETONATES a poisoned target's stacks as AoE, EXECUTES low-HP enemies for a COMPUTE refund
@@ -591,8 +596,9 @@
     const tgt = nearestEnemy(s, u.x, u.y);
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 240, 32, dt);   // slow hexapod carrier
     let brood = s.flocks.find(f => f.owned === u.id);
-    if (!brood) { brood = makeBrood(s, u.id, 8 + u.lvl * 2); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); say(s, 'fabricator spins up a drone brood.'); }
-    else brood.cap = 8 + u.lvl * 2;
+    const bcap = (s.massProduction ? 16 : 8) + u.lvl * (s.massProduction ? 3 : 2);   // MASS PRODUCTION → bigger brood
+    if (!brood) { brood = makeBrood(s, u.id, bcap); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); say(s, 'fabricator spins up a drone brood.'); }
+    else brood.cap = bcap;
   }
 
   function onKill(s, e) {
