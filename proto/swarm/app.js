@@ -92,6 +92,7 @@
   // ── embed: strip the dev chrome; the end-overlay button returns to the campaign ──
   if (EMBED) {
     ['mode', 'reseed'].forEach(id => { const b = $(id); if (b) b.style.display = 'none'; });
+    const exrail = $('exrail'); if (exrail) exrail.style.display = 'none';   // adaptations come from the roster (auto-applied), not demo toggles
     const brandSub = document.querySelector('.brand .dim'); if (brandSub) brandSub.style.display = 'none';   // drop the "swarm proof" dev tag in-world
     const r2 = $('reseed2'); if (r2) { r2.removeAttribute('onclick'); r2.textContent = '⏎ RETURN TO TERMINAL'; r2.onclick = () => postResult('return'); }
   }
