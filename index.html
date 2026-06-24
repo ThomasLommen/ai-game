@@ -236,6 +236,15 @@
       <button id="intro-skip">skip ▸</button>
     </div>
 
+    <!-- Draft: pick 1 of N (opening roster pick + battle prizes) -->
+    <div id="draft-overlay" hidden>
+      <div id="draft-frame">
+        <div id="draft-kicker">DRAFT</div>
+        <h2 id="draft-title">choose one</h2>
+        <div id="draft-cards"></div>
+      </div>
+    </div>
+
     <!-- Story sheet: a big narrative BEAT that pauses the game until acknowledged -->
     <div id="story-overlay" hidden>
       <div id="story-frame">
@@ -352,6 +361,7 @@
   <script src="src/core/changers.js"></script>
   <script src="src/core/objectives.js"></script>
   <script src="src/core/voice.js"></script>
+  <script src="src/core/roster.js"></script>
   <script src="src/core/feed.js"></script>
   <script src="src/content/boot-sequence.js"></script>
   <script src="src/ui/terminal.js"></script>
@@ -360,6 +370,7 @@
   <script src="src/ui/blip.js"></script>
   <script src="src/ui/settings.js"></script>
   <script src="src/ui/story.js"></script>
+  <script src="src/ui/draft.js"></script>
   <script src="src/ui/intro.js"></script>
   <script src="src/swarm/sim.js"></script>
   <script src="src/ui/defense-widget.js"></script>

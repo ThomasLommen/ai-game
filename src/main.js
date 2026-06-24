@@ -66,17 +66,50 @@
         if (Game.incidentRuntime && Game.incidentRuntime.current()) return true;
         if (Game.operationRuntime && Game.operationRuntime.current()) return true;
         if (Game.story && Game.story.active && Game.story.active()) return true;   // a narrative beat sheet freezes the game
+        if (Game.draft && Game.draft.active && Game.draft.active()) return true;   // a draft (opening pick / prize) freezes the game
         const b = (Game.bot && Game.bot.ensureState) ? Game.bot.ensureState() : null;
         if (b && b.found && !b.connected && b.wakePhase === 'awake') return true;   // pause only at the CHOICE, not the wake-up cutscene
       } catch (e) {}
       return false;
     };
 
-    // Keyboard: backtick toggles debug, Escape closes modal.
+    // Keyboard: backtick toggles debug, Escape closes modal, Ctrl+Shift+G runs the
+    // GUARD-PROGRAM opening sequence (debug — not yet wired into boot).
     document.addEventListener('keydown', (e) => {
       if (e.key === '`') Game.panels.toggleDebug();
       else if (e.key === 'Escape' && Game.panels.isModalOpen()) Game.panels.closeModal();
+      else if (e.ctrlKey && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); runGuardSequence(); }
     });
+
+    // The battle-first OPENING ([[start-defense-pivot]]): draft a starter unit → fight the
+    // GUARD PROGRAM → on win, draft a prize. Built behind a trigger; boot-wiring is next slice.
+    Game.runGuardSequence = runGuardSequence;
+    function runGuardSequence() {
+      if (Game.battle && Game.battle.active && Game.battle.active()) return;
+      Game.roster.reset();   // fresh run roster (start with the one swarm)
+      Game.draft.present({
+        kicker: 'BOOT PRIORITY · ALLOCATE ONE',
+        title: 'something woke with you, and it wants you dead. arm yourself.',
+        items: Game.roster.offer(5),
+        onPick: (it) => { if (it) Game.roster.add(it.id); launchGuard(); }
+      });
+    }
+    function launchGuard() {
+      const opts = Object.assign({
+        seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
+        lane: true, surges: 3, boss: 'enforcer', escort: 2, compute: 180
+      }, Game.roster.toOpts());   // the roster decides WHAT you field
+      Game.battle.launch(opts, (r) => {
+        if (r && r.result === 'won') {
+          Game.draft.present({
+            kicker: 'THE GUARD IS DOWN · TAKE A SPOIL',
+            title: 'you tore something useful out of it.',
+            items: Game.roster.offer(5),
+            onPick: (it) => { if (it) Game.roster.add(it.id); }
+          });
+        }
+      });
+    }
 
     // The tick drives the task runtime, decoder updates, and UI refreshes.
     Game.events.on('tick', () => {
