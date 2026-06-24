@@ -60,9 +60,10 @@
   let selId = null;
   function pickPod(wx, wy) { let hit = null; for (const u of S.units) if (S.UNITS[u.type].movable && Math.hypot(u.x - wx, u.y - wy) < u.r + 16) hit = u; return hit; }
   function onTap(wx, wy) {
-    // finger-friendly: forgiveness is a fixed ~32 CSS-px radius in SCREEN space (converted to
-    // world units via the live scale) so taps land regardless of how far you're zoomed out.
-    const reach = 64 / scale;
+    // finger-friendly: a fat ~72 CSS-px forgiveness radius, DPI-aware (× devicePixelRatio)
+    // and converted to world units via the live scale, so it's the same generous target on
+    // any phone + zoom. Picks the nearest enemy within reach.
+    const reach = 72 * devicePixelRatio / scale;
     let en = null, ed = 1e9;
     for (const e of S.enemies) { const d = Math.hypot(e.x - wx, e.y - wy); if (d < (e.r + reach) && d < ed) { ed = d; en = e; } }
     if (en) { SWARM.setFocus(S, en.id); return; }              // TRIAGE — your army focus-fires it
@@ -82,13 +83,14 @@
     if (e.touches.length === 2 && pinch) { e.preventDefault(); setZoom(pinch.z * dist2(e.touches) / pinch.d); }
     else if (e.touches.length === 1 && drag) { const dx = e.touches[0].clientX - drag.x, dy = e.touches[0].clientY - drag.y; if (Math.hypot(dx, dy) > 14) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); }
   }, { passive: false });
+  let touchedAt = 0;   // touch fires synthetic mouse events ~after touchend — ignore the mouse for a beat so a tap isn't handled TWICE (which toggled the focus straight back off)
   cvs.addEventListener('touchend', e => {
     if (e.touches.length < 2) pinch = null;
-    if (e.touches.length === 0) { if (drag && !moved) { const t = e.changedTouches[0]; onTap(s2wX(t.clientX), s2wY(t.clientY)); } drag = null; }
+    if (e.touches.length === 0) { touchedAt = performance.now(); if (drag && !moved) { const t = e.changedTouches[0]; onTap(s2wX(t.clientX), s2wY(t.clientY)); } drag = null; }
   }, { passive: true });
-  cvs.addEventListener('mousedown', e => { drag = { x: e.clientX, y: e.clientY, px: panX, py: panY }; moved = false; });
+  cvs.addEventListener('mousedown', e => { if (performance.now() - touchedAt < 700) return; drag = { x: e.clientX, y: e.clientY, px: panX, py: panY }; moved = false; });
   window.addEventListener('mousemove', e => { if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.hypot(dx, dy) > 8) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); } });
-  window.addEventListener('mouseup', e => { if (drag && !moved) onTap(s2wX(e.clientX), s2wY(e.clientY)); drag = null; });
+  window.addEventListener('mouseup', e => { if (performance.now() - touchedAt < 700) return; if (drag && !moved) onTap(s2wX(e.clientX), s2wY(e.clientY)); drag = null; });
   cvs.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 
   // ── input — static buttons wired by id ──
@@ -498,5 +500,5 @@
   }
   requestAnimationFrame(frame);
 
-  window.__sw = { state: () => S };
+  window.__sw = { state: () => S, toScreenCss: (wx, wy) => ({ x: (ox + wx * scale) / devicePixelRatio, y: (oy + wy * scale) / devicePixelRatio }) };
 })();
