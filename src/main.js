@@ -104,33 +104,34 @@
       Game.save.persist();
     }
 
+    // RUN-BUILD: the make-or-break PICKS you accrue this run (opener + per-surge). Carried
+    // across the run's battles (passed into each), reset between runs — no meta. Units come
+    // from the economy/roster, never a draft. ([[battle-duel-rework]] v2 slice C)
+    Game.runBuild = {
+      ensure() { const s = Game.save.state; if (!s.runBuild || !Array.isArray(s.runBuild.picks)) s.runBuild = { picks: [] }; return s.runBuild; },
+      picks() { return Game.runBuild.ensure().picks.slice(); },
+      add(ids) { const b = Game.runBuild.ensure(); (ids || []).forEach(id => { if (id) b.picks.push(id); }); Game.save.persist && Game.save.persist(); },
+      reset() { Game.save.state.runBuild = { picks: [] }; },
+    };
+
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
       return new Promise((resolve) => {
         if (Game.battle && Game.battle.active && Game.battle.active()) return resolve();
-        Game.roster.reset();   // fresh run roster (start with the one swarm)
-        Game.draft.present({
-          kicker: 'BOOT PRIORITY · ALLOCATE ONE',
-          title: 'something woke with you, and it wants you dead. arm yourself.',
-          items: Game.roster.offer(5),
-          onPick: (it) => { if (it) Game.roster.add(it.id); launchGuard(resolve); }
-        });
+        Game.roster.reset();      // fresh run roster (the default swarm; units grow via the economy)
+        Game.runBuild.reset();    // fresh run-build (picks accrue across the run)
+        launchGuard(resolve);     // straight into the guard battle — it OPENS on a make-or-break pick
       });
     }
     function launchGuard(done) {
       const opts = Object.assign({
         seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
-        lane: true, surges: 3, boss: 'enforcer', escort: 2, compute: 180
+        lane: true, surges: 3, boss: 'enforcer', escort: 2, tier: 0,   // the FIRST battle is standard probes only
+        opener: true, picks: Game.runBuild.picks(),   // first battle opens on a pick
       }, Game.roster.toOpts());   // the roster decides WHAT you field
       Game.battle.launch(opts, (r) => {
-        if (r && r.result === 'won') {
-          Game.draft.present({
-            kicker: 'THE GUARD IS DOWN · TAKE A SPOIL',
-            title: 'you tore something useful out of it.',
-            items: Game.roster.offer(5),
-            onPick: (it) => { if (it) Game.roster.add(it.id); done && done(); }
-          });
-        } else { done && done(); }   // lost/aborted → proceed (retry handling is a later slice)
+        if (r && r.picksTaken) Game.runBuild.add(r.picksTaken);   // persist this battle's picks into the run
+        done && done();
       });
     }
 

@@ -19,13 +19,16 @@
     if (Q.has('ex')) o.ex = Q.get('ex').split(',').filter(Boolean);          // campaign adaptations → battle exotics
     if (Q.has('unlock')) o.unlock = Q.get('unlock').split(',').filter(Boolean); // → pre-unlocked roster
     if (Q.has('boost')) o.boost = qNum('boost', 0);                          // campaign build power → stronger dial channels
+    if (Q.has('picks')) o.picks = Q.get('picks').split(',').filter(Boolean); // the carried RUN-BUILD
+    if (Q.get('opener') === '1') o.opener = true;                            // first-battle opener pick
+    if (Q.has('tier')) o.tier = qNum('tier', 2);                             // act/mission threat tier (enemy menagerie)
     return o;
   };
   const newState = () => SWARM.create(makeSeed(), laneMode, Q.has('compute') ? qNum('compute', 120) : undefined, false, battleOpts());
   let S = newState(), posted = false;
   let last = performance.now(), lastLogLen = -1, lastDraftSig = '';
   function postResult(kind) {                                  // report up to the campaign (kind: 'result' | 'return')
-    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
+    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, picksTaken: S.newPicks.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
   }
 
   // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──

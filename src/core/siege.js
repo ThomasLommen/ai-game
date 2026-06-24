@@ -34,25 +34,23 @@
     if (s.meter >= MAX) { s.meter = MAX; s.ready = true; Game.events && Game.events.emit('siege.ready', { wave: s.wave }); }
   }
 
-  // difficulty scales with the run's wave
+  // difficulty scales with the run's wave; `tier` gates which enemy TYPES appear (slice D)
   function waveOpts(w) {
-    return { lane: true, surges: 3 + w, escort: 1 + Math.floor(w / 2), boss: ((w + 1) % 4 === 0) ? 'juggernaut' : 'enforcer', compute: 150 + w * 10 };
+    return { lane: true, surges: 3 + w, escort: 1 + Math.floor(w / 2), boss: ((w + 1) % 4 === 0) ? 'juggernaut' : 'enforcer', tier: 1 + Math.floor(w / 2) };
   }
 
   function defend() {
     const s = ensure();
     if (!s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return false;
     s.ready = false;
-    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0 }, waveOpts(s.wave), Game.roster.toOpts());
+    const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
+    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks }, waveOpts(s.wave), Game.roster.toOpts());
     Game.battle.launch(opts, (r) => {
       const st = ensure();
+      if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
         Game.events && Game.events.emit('siege.won', { wave: st.wave });
-        Game.draft && Game.draft.present({
-          kicker: 'PERIMETER HELD · TAKE A SPOIL', title: 'you tore something useful out of the wave.',
-          items: Game.roster.offer(5), onPick: (it) => { if (it) Game.roster.add(it.id); }
-        });
       } else {
         st.meter = MAX * 0.4;   // setback — it rebuilds
         Game.events && Game.events.emit('siege.lost', { wave: st.wave });

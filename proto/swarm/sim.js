@@ -73,7 +73,7 @@
       // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
       // dominant BUILD channel. (battle-duel-rework v2.)
       counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
-      pick: null, picksTaken: [], picksOff: !!opts.picksOff,   // one make-or-break PICK per round; picksOff = headless sims
+      pick: null, picksTaken: [], newPicks: [], picksOff: !!opts.picksOff,   // picksTaken = all (incl pre-applied run-build); newPicks = taken THIS battle → persisted to the run
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
@@ -82,6 +82,7 @@
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
       threat: 0, surge: 0, GOAL_SURGES: opts.surges || 8, kills: 0, bossSpawned: false,   // GOAL_SURGES = the surge the BOSS arrives on (the run's climax)
       boss: opts.boss || 'juggernaut', bossEscort: (opts.escort != null) ? opts.escort : 6,   // the climax — what's drawn in + escort count (a trap's bait reshapes this)
+      tier: opts.tier != null ? opts.tier : 2,   // THREAT TIER (act + mission) gates which enemy TYPES appear; surges escalate DENSITY within it (slice D)
       spawnAccum: 0, surgeT: 9, warn: null,    // warn = { ang, t } surge telegraph
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
@@ -95,10 +96,14 @@
     if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
     if (s.ex.hive) s.maxFlocks = 10;
     if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
+    // RUN-BUILD: the picks you've accrued so far this RUN are pre-applied each battle
+    // (they persist across the run's battles; the campaign carries the list).
+    if (Array.isArray(opts.picks)) opts.picks.forEach(id => { const p = PICKS.find(x => x.id === id) || (SIGNATURES[Object.keys(SIGNATURES).find(k => SIGNATURES[k].id === id)]); if (p) { p.apply(s); s.picksTaken.push(id); } });
     if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core); pickWaveLanes(s); }
-    say(s, s.laneMode ? 'a node of yours. they come down the lanes — watch the lit ones. BUDGET your compute. hold the core.'
-                      : 'a node of yours. they come from the dark — every side. BUDGET your compute. hold the core.');
-    ensureField(s);   // your roster auto-deploys; the DIAL governs how strong it is
+    say(s, s.laneMode ? 'a node of yours. they come down the lit lanes — hold the core. TAP a threat to focus fire.'
+                      : 'a node of yours. they come from the dark — hold the core. TAP a threat to focus fire.');
+    ensureField(s);   // your roster auto-deploys; your BUILD governs how strong it is
+    if (opts.opener && !s.picksOff) offerPick(s);   // the FIRST battle opens on a make-or-break pick
     return s;
   }
   function say(s, m) { s.log.push(m); if (s.log.length > 40) s.log.shift(); }
@@ -255,7 +260,7 @@
   function takePick(s, id) {
     if (!s.pick) return false;
     const p = s.pick.hand.find(x => x.id === id);
-    if (p) { p.apply(s); s.picksTaken.push(id); say(s, `picked ${p.name}.`); }
+    if (p) { p.apply(s); s.picksTaken.push(id); s.newPicks.push(id); say(s, `picked ${p.name}.`); }
     s.pick = null; return true;
   }
 
@@ -286,7 +291,9 @@
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
     else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // the guard reads your lean at telegraph time (armCounter)
   }
-  function surgePool(surge) { const p = []; if (surge >= 2) p.push('rusher', 'enforcer'); if (surge >= 3) p.push('ward'); if (surge >= 4) p.push('splitter', 'disruptor'); return p; }   // threats unlock as the run escalates
+  // THREAT TIER gates the enemy menagerie (set by act + mission): tier 0 = all standard
+  // probes; higher tiers unlock the nastier types. Surges escalate DENSITY, not the menu.
+  function tierPool(tier) { const p = []; if (tier >= 1) p.push('rusher', 'enforcer'); if (tier >= 2) p.push('ward'); if (tier >= 3) p.push('splitter', 'disruptor'); return p; }
   function doSurge(s, ang) {
     s.surge++; s.threat += 6;
     const from = () => s.laneMode ? { lane: s.waveLanes[Math.floor(s.rng() * s.waveLanes.length)] } : { ang: ang + (s.rng() - 0.5) * 0.3 };
@@ -300,7 +307,7 @@
       return;
     }
     const c = s.counter;
-    let pool = surgePool(s.surge), specials = Math.min(12, Math.floor(s.surge * 1.3));   // smaller early surges
+    let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
     if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
     const probes = 3 + s.surge * 2;
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));

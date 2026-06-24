@@ -100,7 +100,10 @@
     if (opts.surges != null) q.set('surges', opts.surges);     // a TRAP's bait reshapes the climax
     if (opts.boss != null) q.set('boss', opts.boss);
     if (opts.escort != null) q.set('escort', opts.escort);
+    if (opts.tier != null) q.set('tier', opts.tier | 0);       // act/mission THREAT TIER gates the enemy menagerie
     if (snap.boost > 0.01) q.set('boost', snap.boost.toFixed(3));   // build power → stronger dial channels
+    if (Array.isArray(opts.picks) && opts.picks.length) q.set('picks', opts.picks.join(','));   // the RUN-BUILD: picks carried across the run's battles
+    if (opts.opener) q.set('opener', '1');                     // the first battle opens on a make-or-break pick
     if (exSet.length) q.set('ex', exSet.join(','));            // campaign adaptations → battle exotics
     if (unlockSet.length) q.set('unlock', unlockSet.join(',')); // → pre-unlocked roster
     if (snap.notes.length) emit('terminal.print', { lines: ['> build deploys: ' + snap.notes.join(' · '), ''], cls: 'dim' });
