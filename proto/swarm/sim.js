@@ -404,12 +404,17 @@
       let cx = 0, cy = 0; for (const d of f.dots) { cx += d.x; cy += d.y; } const n = f.dots.length || 1; f.cx = cx / n; f.cy = cy / n;
       f.tgtT -= dt; if (f.tgtT <= 0) { f.tgtT = 0.3; pickFlockTarget(s, f); }
       const spd0 = SWARMS[f.type].speed * (f.buff ? 1.25 : 1);        // conductor overclock
+      // LEASH — the swarm holds a PERIMETER around the core (so enemies advance into view
+      // before being met) unless you're in PRESS stance. guard = tight, hunt = wider.
+      const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 0.9 : 0.62);
       for (const d of f.dots) {
         const spd = disrupt.length && jammedAt(disrupt, d.x, d.y) ? spd0 * 0.55 : spd0;   // DISRUPTOR jam slows the swarm
         let tx, ty;
         if (f.behavior === 'peel') { const e = nearestEnemy(s, d.x, d.y); tx = e ? e.x : s.core.x; ty = e ? e.y : s.core.y; }
         else if (f.behavior === 'swirl') { const px = f.tx ?? f.cx, py = f.ty ?? f.cy, a = Math.atan2(d.y - py, d.x - px) + 1.15; tx = px + Math.cos(a) * 44; ty = py + Math.sin(a) * 44; }
         else { tx = f.tx ?? f.cx; ty = f.ty ?? f.cy; }            // lock → the one enemy
+        const tdc = dist(tx, ty, s.core.x, s.core.y);            // clamp the chase target to the leash ring
+        if (tdc > leash) { const k = leash / tdc; tx = s.core.x + (tx - s.core.x) * k; ty = s.core.y + (ty - s.core.y) * k; }
         const dd = dist(d.x, d.y, tx, ty) || 1; let ax = (tx - d.x) / dd, ay = (ty - d.y) / dd;
         for (const o of f.dots) { if (o === d) continue; const sx = d.x - o.x, sy = d.y - o.y, m = sx * sx + sy * sy; if (m < 220 && m > 0) { const im = 1 / Math.sqrt(m); ax += sx * im * 0.55; ay += sy * im * 0.55; } }
         ax += (f.cx - d.x) * 0.0018; ay += (f.cy - d.y) * 0.0018;  // mild cohesion
