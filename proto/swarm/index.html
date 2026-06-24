@@ -61,7 +61,7 @@
   .dial.countered{border-color:#ff5a6a;box-shadow:0 0 10px rgba(255,90,106,.25);}
   .dial.countered .dialname::after{content:' ⚠ COUNTERED';color:#ff7a86;font-size:8px;letter-spacing:1px;}
   /* threat-read telegraph banner */
-  #threatread{position:fixed;top:124px;left:50%;transform:translateX(-50%);max-width:min(420px,86vw);z-index:8;
+  #threatread{position:fixed;top:46px;left:50%;transform:translateX(-50%);max-width:min(420px,90vw);z-index:8;
     background:rgba(40,10,12,.92);border:1px solid #ff5a6a;color:#ffb0b6;font-size:10.5px;letter-spacing:.5px;
     padding:7px 13px;text-align:center;border-radius:3px;box-shadow:0 0 16px rgba(255,90,106,.3);animation:tr-pulse 1.3s ease-in-out infinite;}
   @keyframes tr-pulse{0%,100%{opacity:.78;}50%{opacity:1;}}
@@ -76,12 +76,15 @@
   .ex .d{font-size:8.5px;color:#8a7ec0;}
   .extag{font-size:8px;letter-spacing:2px;color:#7a6cb0;margin-bottom:1px;}
   /* log + hero readout */
-  .panel{position:fixed;background:#0b0e16ee;border:1px solid #1a2030;z-index:5;font-size:12px;}
-  #log{left:11px;bottom:10px;width:330px;max-height:104px;overflow-y:auto;padding:8px 11px;color:var(--dim);font-size:10.5px;line-height:1.5;}
-  #log div:last-child{color:var(--amber);}
-  #hero{right:11px;bottom:10px;width:182px;padding:9px 11px;color:var(--dim);font-size:10px;display:none;}
-  #hero .hn{color:var(--amber);font-size:12px;letter-spacing:1px;}
-  .legend{position:fixed;left:50%;bottom:7px;transform:translateX(-50%);font-size:8.5px;color:var(--faint);letter-spacing:1px;z-index:4;display:flex;gap:13px;}
+  .lean{color:var(--cyan)!important;font-size:13px!important;letter-spacing:1px;}
+  .lean.countered{color:var(--err)!important;}
+  /* bottom bar — pod status + a short log, anchored to the bottom edge */
+  #bottombar{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:4px;padding:6px 11px calc(7px + env(safe-area-inset-bottom));
+    background:linear-gradient(#080a1200,#080a12cc 38%);pointer-events:none;}
+  #hero{display:flex;flex-wrap:wrap;gap:5px 12px;color:var(--dim);font-size:10px;}
+  #hero .hn{color:var(--mid);letter-spacing:1px;} #hero .hn b{color:var(--amber);}
+  #log{max-height:62px;overflow:hidden;color:var(--mid);font-size:9.5px;line-height:1.45;}
+  #log div:last-child{color:var(--dim);}
   /* overlay */
   /* research draft */
   #draft{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;background:rgba(5,6,10,0.93);z-index:12;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:5vh 14px calc(5vh + env(safe-area-inset-bottom));}
@@ -105,54 +108,22 @@
 <canvas id="field"></canvas>
 
 <div id="topbar">
-  <span class="brand">◉ THE CORE<span class="dim" style="letter-spacing:1px"> · swarm proof</span></span>
-  <div class="stat compute">LEAN <b id="compute">—</b></div>
   <div class="stat">CORE <b id="corehp">100</b><div class="track"><i id="corebar"></i></div></div>
-  <div class="stat">THREAT <b id="threat">0</b></div>
   <div class="stat">SURGE <b id="surge">0 / 6</b></div>
+  <div class="stat">LEAN <b id="lean" class="lean">BALANCED</b></div>
   <span class="spacer"></span>
   <button id="zoomout" class="btn" title="zoom out">−</button>
   <button id="zoomin" class="btn" title="zoom in">+</button>
-  <button id="hideui" class="btn" title="hide/show menus">☰</button>
+  <button id="recenter" class="btn" title="recenter on core">◎</button>
   <button id="mode" class="btn">MODE: LANES</button>
   <button id="reseed" class="btn">⟳ new node</button>
 </div>
 
 <div id="threatread" hidden></div>
 
-<div id="rail">
-  <div class="group">
-    <div class="glabel">COMPUTE ALLOCATION · budget the pool</div>
-    <div class="dial" id="dial_offense" style="--c:#49d2ff"><button class="dialbtn" id="dec_offense">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">OFFENSE</span><span class="dialpct" id="pct_offense">34</span></div><div class="dialbar"><i id="bar_offense"></i></div><span class="dialsub">swarm + pod damage</span></div><button class="dialbtn" id="inc_offense">+</button><button class="dialbtn ocbtn" id="oc_offense" title="overclock">⚡</button></div>
-    <div class="dial" id="dial_shield" style="--c:#76e08a"><button class="dialbtn" id="dec_shield">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">SHIELD</span><span class="dialpct" id="pct_shield">33</span></div><div class="dialbar"><i id="bar_shield"></i></div><span class="dialsub">core max-HP + regen</span></div><button class="dialbtn" id="inc_shield">+</button><button class="dialbtn ocbtn" id="oc_shield" title="overclock">⚡</button></div>
-    <div class="dial" id="dial_core" style="--c:#ffb000"><button class="dialbtn" id="dec_core">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">CORE-GUN</span><span class="dialpct" id="pct_core">33</span></div><div class="dialbar"><i id="bar_core"></i></div><span class="dialsub">core function potency</span></div><button class="dialbtn" id="inc_core">+</button><button class="dialbtn ocbtn" id="oc_core" title="overclock">⚡</button></div>
-    <div class="ocheat"><span>OC HEAT</span><div class="ocheatbar"><i id="ocheatbar"></i></div></div>
-  </div>
-  <div class="group">
-    <div class="glabel">STANCE</div>
-    <div class="seg" id="stance"><button id="st_guard" class="on">GUARD</button><button id="st_hunt">HUNT</button><button id="st_press">PRESS</button></div>
-  </div>
-  <div class="group">
-    <div class="glabel">THE CORE · one function at a time</div>
-    <button class="act" id="u_corefn" style="--c:#ffb000"><span class="n" id="corefn_n">CORE: MARK</span><span class="d" id="corefn_d">paints the biggest threat — tap to cycle</span></button>
-    <button class="act" id="u_ammo" style="--c:#ffd9a0"><span class="n" id="ammo_n">AMMO: KINETIC</span><span class="d" id="ammo_d">fast direct rounds — tap to swap</span></button>
-  </div>
-</div>
-
-<div id="exrail">
-  <div class="extag">ADAPTATIONS · demo toggles</div>
-  <button class="ex" id="ex_hive"><span class="n">⬡ HIVE</span><span class="d">flock cap 3→6, faster regen</span></button>
-  <button class="ex" id="ex_flame"><span class="n">▲ FLAME RIG</span><span class="d">tripod → short cone, ignites</span></button>
-  <button class="ex" id="ex_bloom"><span class="n">✸ CONTAGION BLOOM</span><span class="d">poisoned deaths seed neighbours</span></button>
-</div>
-
-<div id="log" class="panel"></div>
-<div id="hero" class="panel"></div>
-<div class="legend">
-  <span style="color:var(--cyan)">▟ swarms hunt automatically</span>
-  <span style="color:var(--amber)">⬡ click a bulwark/siege, then click to move it</span>
-  <span style="color:var(--err)">lit lane = surge incoming</span>
-  <span style="color:var(--green)">green = poison</span>
+<div id="bottombar">
+  <div id="hero"></div>
+  <div id="log"></div>
 </div>
 
 <div id="draft">

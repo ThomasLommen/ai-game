@@ -108,23 +108,13 @@
     fr.src = SRC + '?' + q.toString();
     ov.hidden = false;
     requestAnimationFrame(() => ov.classList.add('up'));   // fade in
-    lockLandscape();                                       // the board is landscape; turn the phone (installed PWA)
     emit('battle.launched', opts);
     return true;
   }
 
-  // The combat board is landscape-shaped; in the phone shell, request landscape for the
-  // duration (works in the installed PWA's standalone mode; a no-op in a plain tab).
-  function lockLandscape() {
-    if (!(Game.mobileShell && Game.mobileShell.active())) return;
-    try { const o = screen.orientation; if (o && o.lock) o.lock('landscape').catch(() => {}); } catch (e) {}
-  }
-  function unlockOrientation() { try { const o = screen.orientation; if (o && o.unlock) o.unlock(); } catch (e) {} }
-
   function resolve(result) {
     if (!activeFlag) return;
     activeFlag = false;
-    unlockOrientation();
     const ov = overlayEl(), fr = frameEl(), cb = onResolveCb; onResolveCb = null;
     if (ov) { ov.classList.remove('up'); setTimeout(() => { ov.hidden = true; if (fr) fr.src = 'about:blank'; }, 450); }
     emit('battle.ended', result);

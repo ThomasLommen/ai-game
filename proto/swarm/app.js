@@ -28,60 +28,67 @@
     try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
   }
 
-  let scale = 1, ox = 0, oy = 0, userZoom = 1;
-  const ZOOM = 0.8;   // base fit (<1 = zoomed out with breathing room); userZoom is the player's pinch/buttons
+  // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──
+  let scale = 1, ox = 0, oy = 0, userZoom = 1, panX = 0, panY = 0;   // panX/Y = screen-px offset (device px)
+  const ZOOM = 0.92;   // base fit; userZoom multiplies
+  function clampPan() {
+    const sw = cvs.width, sh = cvs.height;
+    const slackX = Math.max(sw * 0.18, (S.W * scale - sw) / 2 + sw * 0.32);
+    const slackY = Math.max(sh * 0.18, (S.H * scale - sh) / 2 + sh * 0.32);
+    panX = Math.max(-slackX, Math.min(slackX, panX));
+    panY = Math.max(-slackY, Math.min(slackY, panY));
+  }
   function recompute() {
     scale = Math.min(cvs.width / S.W, cvs.height / S.H) * ZOOM * userZoom;
-    ox = (cvs.width - S.W * scale) / 2; oy = (cvs.height - S.H * scale) / 2;   // stays centred on the core
+    clampPan();
+    ox = (cvs.width - S.W * scale) / 2 + panX;
+    oy = (cvs.height - S.H * scale) / 2 + panY;
   }
-  function resize() {
-    cvs.width = cvs.clientWidth * devicePixelRatio; cvs.height = cvs.clientHeight * devicePixelRatio;
-    recompute();
-  }
+  function resize() { cvs.width = cvs.clientWidth * devicePixelRatio; cvs.height = cvs.clientHeight * devicePixelRatio; recompute(); }
   function setZoom(z) { userZoom = Math.max(0.6, Math.min(3.5, z)); recompute(); }
+  function recenter() { panX = 0; panY = 0; userZoom = 1; recompute(); }
   window.addEventListener('resize', resize); resize();
   const X = x => ox + x * scale, Y = y => oy + y * scale;
   const s2wX = sx => (sx * devicePixelRatio - ox) / scale, s2wY = sy => (sy * devicePixelRatio - oy) / scale;
 
-  // ── select + move the placeable pods (bulwark/siege) on the field ──
+  // ── tap = TRIAGE (focus-fire the tapped enemy) / select+move a placeable pod ──
   let selId = null;
   function pickPod(wx, wy) { let hit = null; for (const u of S.units) if (S.UNITS[u.type].movable && Math.hypot(u.x - wx, u.y - wy) < u.r + 16) hit = u; return hit; }
-  function onTap(wx, wy) { const hit = pickPod(wx, wy); if (hit) selId = (selId === hit.id ? null : hit.id); else if (selId && S.units.some(u => u.id === selId)) SWARM.moveUnit(S, selId, wx, wy); else selId = null; }
-  cvs.addEventListener('click', e => onTap(s2wX(e.clientX), s2wY(e.clientY)));
-  // pinch-to-zoom the battlefield (two fingers); a pinch suppresses the tap
-  let pinch = null, pinched = false;
+  function onTap(wx, wy) {
+    let en = null, ed = 1e9;
+    for (const e of S.enemies) { const d = Math.hypot(e.x - wx, e.y - wy); if (d < (e.r + 26) && d < ed) { ed = d; en = e; } }
+    if (en) { SWARM.setFocus(S, en.id); return; }              // TRIAGE — your army focus-fires it
+    const hit = pickPod(wx, wy);
+    if (hit) selId = (selId === hit.id ? null : hit.id);
+    else if (selId && S.units.some(u => u.id === selId)) SWARM.moveUnit(S, selId, wx, wy);
+    else selId = null;
+  }
+  // pointer: 1-finger drag = PAN, tap = onTap; 2-finger = pinch zoom. mouse mirrors it.
+  let drag = null, moved = false, pinch = null;
   const dist2 = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
-  cvs.addEventListener('touchstart', e => { if (e.touches.length === 2) { pinch = { d: dist2(e.touches), z: userZoom }; pinched = true; } }, { passive: true });
-  cvs.addEventListener('touchmove', e => { if (e.touches.length === 2 && pinch) { e.preventDefault(); setZoom(pinch.z * dist2(e.touches) / pinch.d); } }, { passive: false });
+  cvs.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) { pinch = { d: dist2(e.touches), z: userZoom }; drag = null; }
+    else if (e.touches.length === 1) { drag = { x: e.touches[0].clientX, y: e.touches[0].clientY, px: panX, py: panY }; moved = false; }
+  }, { passive: true });
+  cvs.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinch) { e.preventDefault(); setZoom(pinch.z * dist2(e.touches) / pinch.d); }
+    else if (e.touches.length === 1 && drag) { const dx = e.touches[0].clientX - drag.x, dy = e.touches[0].clientY - drag.y; if (Math.hypot(dx, dy) > 6) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); }
+  }, { passive: false });
   cvs.addEventListener('touchend', e => {
     if (e.touches.length < 2) pinch = null;
-    if (pinched) { if (e.touches.length === 0) pinched = false; return; }   // don't tap-place after a pinch
-    const t = e.changedTouches && e.changedTouches[0]; if (t) onTap(s2wX(t.clientX), s2wY(t.clientY));
+    if (e.touches.length === 0) { if (drag && !moved) { const t = e.changedTouches[0]; onTap(s2wX(t.clientX), s2wY(t.clientY)); } drag = null; }
   }, { passive: true });
-  // desktop: wheel zooms
+  cvs.addEventListener('mousedown', e => { drag = { x: e.clientX, y: e.clientY, px: panX, py: panY }; moved = false; });
+  window.addEventListener('mousemove', e => { if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.hypot(dx, dy) > 4) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); } });
+  window.addEventListener('mouseup', e => { if (drag && !moved) onTap(s2wX(e.clientX), s2wY(e.clientY)); drag = null; });
   cvs.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 
-  // ── input — static buttons wired by id (no rebuild = no eaten clicks) ──
-  // COMPUTE-ALLOCATION DIAL: ±8% to a channel; the other two give way; momentum eases it in
-  SWARM.CHANNELS.forEach(ch => {
-    $('inc_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, +8);
-    $('dec_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, -8);
-    $('oc_' + ch).onclick  = () => SWARM.overclock(S, ch);
-  });
-  $('st_guard').onclick = () => SWARM.setStance(S, 'guard');
-  $('st_hunt').onclick  = () => SWARM.setStance(S, 'hunt');
-  $('st_press').onclick = () => SWARM.setStance(S, 'press');
-  $('u_corefn').onclick = () => SWARM.swapCoreFn(S);
-  $('u_ammo').onclick   = () => SWARM.swapAmmo(S);
-  $('ex_hive').onclick  = () => SWARM.toggleEx(S, 'hive');
-  $('ex_flame').onclick = () => SWARM.toggleEx(S, 'flame');
-  $('ex_bloom').onclick = () => SWARM.toggleEx(S, 'bloom');
-  // zoom + collapse-the-menus (visible in embed too — gameplay, not dev chrome)
-  $('zoomin').onclick  = () => setZoom(userZoom * 1.25);
-  $('zoomout').onclick = () => setZoom(userZoom / 1.25);
-  $('hideui').onclick  = () => document.body.classList.toggle('ui-hidden');
-  $('reseed').onclick   = () => { S = newState(); posted = false; lastLogLen = -1; };
-  $('mode').onclick     = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; };
+  // ── input — static buttons wired by id ──
+  $('zoomin').onclick   = () => setZoom(userZoom * 1.25);
+  $('zoomout').onclick  = () => setZoom(userZoom / 1.25);
+  $('recenter').onclick = () => recenter();
+  const re = $('reseed'); if (re) re.onclick = () => { S = newState(); posted = false; lastLogLen = -1; recenter(); };
+  const md = $('mode'); if (md) md.onclick = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; recenter(); };
   $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
 
   // ── embed: strip the dev chrome; the end-overlay button returns to the campaign ──
@@ -262,7 +269,7 @@
     }
 
     // ── core ──
-    if (S.core.markId) {                                       // MARK — a rotating reticle on the designated target + a designator line
+    if (S.core.markId) {                                       // FOCUS-FIRE target (triage) — a rotating reticle + designator line from the core
       const e = S.enemies.find(o => o.id === S.core.markId);
       if (e) {
         const ex = X(e.x), ey = Y(e.y), rr = (S.ENEMIES[e.type].r + 11) * scale;
@@ -274,8 +281,6 @@
         ctx.restore(); ctx.shadowBlur = 0;
       }
     }
-    if (S.core.fn === 'slow') { const R = (150 + S.core.lvl * 22) * scale; ctx.fillStyle = 'rgba(127,168,201,0.05)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(127,168,201,0.28)'; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke(); }
-    else if (S.core.fn === 'aura') { const R = (150 + S.core.lvl * 22) * scale; ctx.strokeStyle = 'rgba(255,176,0,0.16)'; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke(); }
     const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = 34 * scale, hpf = S.core.hp / S.core.maxHp;
     ctx.strokeStyle = hpf > 0.4 ? 'rgba(255,176,0,0.35)' : 'rgba(255,80,80,0.6)'; ctx.lineWidth = 3.5 * scale;
     ctx.beginPath(); ctx.arc(cx, cy, cr + 11 * scale, -Math.PI / 2, -Math.PI / 2 + hpf * 7); ctx.stroke();
@@ -421,47 +426,29 @@
   function hx(c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
 
   // ── UI (update text/classes only — never rebuild a button) ──
+  const CH_LABEL = { offense: 'OFFENSE', shield: 'SHIELD', core: 'CORE' };
   function ui() {
-    // compute-allocation dial: live bars + the dominant LEAN in the topbar
-    let lean = 'offense', lv = -1;
-    SWARM.CHANNELS.forEach(ch => {
-      const eff = S.allocEff[ch], tgt = Math.round(S.alloc[ch]);
-      $('bar_' + ch).style.width = eff + '%';
-      $('pct_' + ch).textContent = tgt;
-      if (eff > lv) { lv = eff; lean = ch; }
-    });
-    $('compute').textContent = (lean === 'core' ? 'CORE-GUN' : lean.toUpperCase()) + ' ' + Math.round(lv) + '%';
-    // THE DUEL: mark the channel the guard is countering + show the threat-read telegraph
-    SWARM.CHANNELS.forEach(ch => {
-      const d = $('dial_' + ch);
-      d.classList.toggle('countered', !!(S.counter && S.counter.channel === ch));
-      d.classList.toggle('ocburst', !!(S.oc && S.oc.ch === ch && S.oc.phase === 'burst'));
-      d.classList.toggle('ocbrown', !!(S.oc && S.oc.ch === ch && S.oc.phase === 'brown'));
-      d.classList.toggle('ocbtn-hot', S.ocHeat >= 6);
-    });
-    $('ocheatbar').style.width = Math.min(100, S.ocHeat / 6 * 100) + '%';
+    // LEAN = your dominant BUILD channel (what the guard reads). chBonus accrues from picks.
+    let lean = 'offense', lv = -Infinity;
+    SWARM.CHANNELS.forEach(ch => { const b = S.chBonus[ch] || 0; if (b > lv) { lv = b; lean = ch; } });
+    const allEven = SWARM.CHANNELS.every(ch => (S.chBonus[ch] || 0) === (S.chBonus.offense || 0));
+    $('lean').textContent = allEven ? 'BALANCED' : CH_LABEL[lean];
+    $('lean').className = 'lean ' + (S.counter ? 'countered' : '');
+    // the guard's threat-read telegraph (transient banner)
     const tr = $('threatread');
     if (S.threatRead) { tr.textContent = S.threatRead; tr.hidden = false; } else tr.hidden = true;
+
     $('corehp').textContent = Math.ceil(S.core.hp);
     const cb = $('corebar'); cb.style.width = Math.max(0, S.core.hp / S.core.maxHp * 100) + '%'; cb.style.background = S.core.hp / S.core.maxHp < 0.35 ? '#ff5050' : 'var(--amber)';
-    $('threat').textContent = Math.round(S.threat);
     $('surge').textContent = S.surge + ' / ' + S.GOAL_SURGES;
-    $('mode').textContent = 'MODE: ' + (laneMode ? 'LANES' : 'OPEN');
+    const md = $('mode'); if (md) md.textContent = 'MODE: ' + (laneMode ? 'LANES' : 'OPEN');
 
-    const FNDESC = { mark: 'paints the biggest threat — your army hits it harder', slow: 'slows enemies near the core', aura: 'pulses AoE damage around the core', drones: 'passively prints a free brood' };
-    $('corefn_n').textContent = 'CORE: ' + S.core.fn.toUpperCase();
-    $('corefn_d').textContent = FNDESC[S.core.fn] + ' — tap to cycle';
-    $('u_ammo').style.display = S.core.fn === 'turret' ? '' : 'none';
-    $('ammo_n').textContent = 'AMMO: ' + S.core.ammo.toUpperCase(); $('ammo_d').textContent = S.AMMO[S.core.ammo].desc + ' — tap to swap';
-
-    $('st_guard').classList.toggle('on', S.stance === 'guard'); $('st_hunt').classList.toggle('on', S.stance === 'hunt'); $('st_press').classList.toggle('on', S.stance === 'press');
-    $('ex_hive').classList.toggle('on', S.ex.hive); $('ex_flame').classList.toggle('on', S.ex.flame); $('ex_bloom').classList.toggle('on', S.ex.bloom);
-
+    // pod status (bottom strip)
     const hp = $('hero');
-    if (S.units.length) { hp.style.display = 'block'; hp.innerHTML = S.units.map(u => `<div class="hn" style="color:${u.color}">${u.type.toUpperCase()} · mk${u.lvl}</div><div style="color:var(--mid);margin-bottom:5px">hp ${Math.ceil(u.hp)}/${u.maxHp}${u.dmg ? ` · dmg ${u.dmg}` : ''}${u.type === 'strider' && S.ex.flame ? ' · flame' : ''}</div>`).join(''); }
+    if (S.units.length) { hp.style.display = ''; hp.innerHTML = S.units.map(u => `<span class="hn" style="color:${u.color}">${u.type.toUpperCase()} mk${u.lvl} <b>${Math.ceil(u.hp)}</b></span>`).join(''); }
     else hp.style.display = 'none';
 
-    if (S.log.length !== lastLogLen) { const l = $('log'); l.innerHTML = S.log.slice(-6).map(m => `<div>${m}</div>`).join(''); l.scrollTop = l.scrollHeight; lastLogLen = S.log.length; }
+    if (S.log.length !== lastLogLen) { const l = $('log'); l.innerHTML = S.log.slice(-4).map(m => `<div>${m}</div>`).join(''); l.scrollTop = l.scrollHeight; lastLogLen = S.log.length; }
 
     const dr = $('draft');                                // the make-or-break PICK (pauses the board)
     if (S.pick) {

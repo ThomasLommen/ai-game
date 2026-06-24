@@ -61,22 +61,20 @@
   function create(seed, laneMode, startCompute, ambient, opts) {
     opts = opts || {};   // opts = battle shape (a TRAP's bait reshapes the climax): { surges, boss, escort, regen }
     const rng = mulberry32((seed | 0) || 7);
-    const W = ambient ? 480 : 2000, H = ambient ? 290 : 1280;   // ambient = the small always-on idle-defense window (tight, core-centred)
+    // PORTRAIT arena (the game is played in portrait — no landscape lock). ambient = the
+    // small always-on perimeter window on HOME (kept as its own small shape).
+    const W = ambient ? 480 : 1280, H = ambient ? 290 : 2000;
+    const mn = Math.min(W, H);
     const s = {
       W, H, rng, t: 0, seed: (seed | 0) || 7,
-      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, fn: 'mark', markId: null, ammo: 'kinetic', cd: 0 },
-      viewR: ambient ? 200 : 600, spawnR: ambient ? 175 : 820, ambient: !!ambient,
-      // COMPUTE is no longer a hoard-and-spend currency — it's a fixed pool you ALLOCATE
-      // live across 3 channels (Offense / Shield / Core-gun). `alloc` = your target split,
-      // `allocEff` = the live value that LERPS toward it (momentum, so a swing takes ~0.6s).
-      // Units/core scale from their channel's share. (battle-duel-rework slice 1.)
-      alloc:    { offense: 34, shield: 33, core: 33 },
-      allocEff: { offense: 34, shield: 33, core: 33 },
-      counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel (slice 2)
-      pick: null, picksTaken: [], picksOff: !!opts.picksOff,   // one make-or-break PICK per round (slice 3); picksOff = headless sims
-
+      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, markId: null, cd: 0 },   // markId = the player's FOCUS-FIRE target (triage, slice B)
+      viewR: ambient ? 200 : Math.round(mn * 0.469), spawnR: ambient ? 175 : Math.round(mn * 0.64), ambient: !!ambient,
+      // BATTLE v2: no live compute economy. Channels (offense/shield/core) are BUILD-STATS
+      // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
+      // dominant BUILD channel. (battle-duel-rework v2.)
+      counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
+      pick: null, picksTaken: [], picksOff: !!opts.picksOff,   // one make-or-break PICK per round; picksOff = headless sims
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
-      oc: null, ocHeat: 0,                 // OVERCLOCK/RISK: burst a channel past 100%, then it browns out; heat gates spam (slice 5)
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -106,49 +104,12 @@
   function say(s, m) { s.log.push(m); if (s.log.length > 40) s.log.shift(); }
   const uid = s => 'u' + (s.nextId++);
 
-  // ── COMPUTE ALLOCATION DIAL (the new tactical layer) ─────────────────────────
+  // ── CHANNELS as BUILD-STATS (no live dial) ───────────────────────────────────
   const CHANNELS = ['offense', 'shield', 'core'];
-  // effective multiplier for a channel: even split (33.3%) → 1.0; all-in (≈100%) → ≈2.1; starved (≈0%) → 0.45.
-  function chMult(s, ch) {
-    let m = 0.45 + (s.allocEff[ch] || 0) * 0.0165 + (s.chBonus[ch] || 0);   // picks add flat channel bonuses
-    if (s.oc && s.oc.ch === ch) { if (s.oc.phase === 'burst') m += 0.9; else m *= 0.4; }   // OVERCLOCK burst spikes, then the channel browns out
-    return m;
-  }
-  // OVERCLOCK a channel: a ~3.5s burst (+0.9 mult), then a brownout (×0.4) that LENGTHENS
-  // with heat. Heat rises per overclock + decays; too hot = denied. The risk lever.
-  function overclock(s, ch) {
-    if (s.won || s.lost || s.pick || s.oc || CHANNELS.indexOf(ch) < 0) return false;
-    if (s.ocHeat >= 6) { say(s, 'overclock denied — the core is too hot.'); return false; }
-    s.oc = { ch, phase: 'burst', t: 3.5 }; s.ocHeat += 2;
-    say(s, `OVERCLOCK · ${ch === 'core' ? 'CORE-GUN' : ch.toUpperCase()} — surging.`);
-    return true;
-  }
-  function tickOc(s, dt) {
-    s.ocHeat = Math.max(0, s.ocHeat - dt * 0.5);
-    if (!s.oc) return;
-    s.oc.t -= dt;
-    if (s.oc.t <= 0) {
-      if (s.oc.phase === 'burst') { s.oc.phase = 'brown'; s.oc.t = 3 + s.ocHeat * 0.7; say(s, `${s.oc.ch === 'core' ? 'CORE-GUN' : s.oc.ch.toUpperCase()} brownout — recovering.`); }
-      else s.oc = null;
-    }
-  }
+  // channel multiplier = 1.0 baseline + accrued pick/roster/boost bonus. The dominant
+  // channel is your LEAN — what the guard reads and counters.
+  function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0); }
   function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
-  // set one channel's TARGET %, giving way proportionally from the other two (each floored at 5%), renormalized to 100.
-  function setAlloc(s, ch, pct) {
-    if (CHANNELS.indexOf(ch) < 0) return;
-    pct = Math.max(5, Math.min(90, pct));
-    const others = CHANNELS.filter(c => c !== ch), a = s.alloc;
-    const osum = others.reduce((t, c) => t + a[c], 0) || 1, remain = 100 - pct;
-    a[ch] = pct; others.forEach(c => { a[c] = Math.max(5, remain * (a[c] / osum)); });
-    const tot = CHANNELS.reduce((t, c) => t + a[c], 0) || 1, k = 100 / tot;
-    CHANNELS.forEach(c => { a[c] = Math.round(a[c] * k); });
-    const drift = 100 - CHANNELS.reduce((t, c) => t + a[c], 0); a[ch] += drift;   // park rounding on the channel you set
-  }
-  function nudgeAlloc(s, ch, delta) { setAlloc(s, ch, (s.alloc[ch] || 0) + delta); }
-  function tickAlloc(s, dt) {                                // lerp the live split toward the target (momentum)
-    const k = Math.min(1, dt * 1.6);                        // ~0.6s to mostly catch up
-    CHANNELS.forEach(c => { s.allocEff[c] += (s.alloc[c] - s.allocEff[c]) * k; });
-  }
   // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
   function ensureField(s) {
     if (s.won || s.lost) return;
@@ -198,7 +159,6 @@
   }
   function coreCost(s) { return 50 + s.core.lvl * 45; }
   function upgradeCore(s) { if (s.won || s.lost || !spend(s, coreCost(s))) return false; s.core.lvl++; say(s, `core-gun tuned to v${s.core.lvl}.`); return true; }
-  function swapAmmo(s) { s.core.ammo = s.core.ammo === 'kinetic' ? 'contagion' : 'kinetic'; say(s, `core-gun loaded: ${s.core.ammo}.`); }
   function setStance(s, st) { s.stance = st; say(s, `swarm stance: ${st}.`); }
   function toggleEx(s, k) {
     s.ex[k] = !s.ex[k];
@@ -231,12 +191,19 @@
     shield:  { read: 'SHIELD',   tell: 'massing breakers — they will hit the core harder',   add: ['enforcer', 'rusher'], coredmg: 1.1 },  // anti-turtle: raw core pressure
     core:    { read: 'CORE-GUN', tell: 'flooding fast rushers — they outrun your core',       add: ['rusher'],              speed: 0.6 },   // anti-core: speed overwhelms the function
   };
-  function readLean(s) { let ch = 'offense', v = -1; CHANNELS.forEach(c => { if (s.allocEff[c] > v) { v = s.allocEff[c]; ch = c; } }); return { ch, share: v }; }
+  // your LEAN = the dominant build channel + how far it LEADS the others (commitment).
+  function readLean(s) {
+    let ch = 'offense', v = -Infinity;
+    CHANNELS.forEach(c => { const b = s.chBonus[c] || 0; if (b > v) { v = b; ch = c; } });
+    const others = CHANNELS.filter(c => c !== ch).map(c => s.chBonus[c] || 0);
+    const avgOther = others.reduce((a, b) => a + b, 0) / (others.length || 1);
+    return { ch, lead: v - avgOther };
+  }
   function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
-    const { ch, share } = readLean(s);
-    let mag = Math.max(0, Math.min(1, (share - 40 - (s.feint || 0)) / 45));  // ≤40% even-ish = no counter; FEINT softens the read
+    const { ch, lead } = readLean(s);
+    let mag = Math.max(0, Math.min(1, (lead - (s.feint || 0)) / 0.9));   // 1 channel-pick (≈0.3 lead) → ~0.33; ~3 picks → full. FEINT cuts the read
     mag *= (1 - (s.counterResist || 0));                      // ADAPTIVE PLATING blunts the counter
-    if (mag < 0.06) { s.counter = null; s.threatRead = null; return; }
+    if (mag < 0.08) { s.counter = null; s.threatRead = null; return; }
     s.counter = { channel: ch, mag };
     s.threatRead = `the guard reads your ${COUNTER[ch].read} — ${COUNTER[ch].tell}.`;
     say(s, '>> ' + s.threatRead + ' <<');
@@ -261,7 +228,7 @@
     { id: 'hardened',   name: 'HARDENED CORE',       kind: 'edge', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
     { id: 'selfrepair', name: 'SELF-REPAIR',         kind: 'edge', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
     { id: 'adaptive',   name: 'ADAPTIVE PLATING',    kind: 'duel', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
-    { id: 'feint',      name: 'FEINT PROTOCOL',      kind: 'duel', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 12; } },
+    { id: 'feint',      name: 'FEINT PROTOCOL',      kind: 'duel', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 0.15; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -409,27 +376,21 @@
 
   // ── core-gun (projectiles) ──────────────────────────────────────────────────
   function makeBrood(s, owner, cap) { return { id: uid(s), type: 'brood', color: '#ffd24a', behavior: 'peel', applies: null, cap, dots: [], tgtId: null, tx: null, ty: null, cx: s.core.x, cy: s.core.y, tgtT: 0, regenT: 0, owned: owner }; }
-  function swapCoreFn(s) {
-    const fns = ['mark', 'slow', 'aura', 'drones']; s.core.fn = fns[(fns.indexOf(s.core.fn) + 1) % fns.length];
-    if (s.core.fn !== 'drones') { const bi = s.flocks.findIndex(f => f.owned === 'core'); if (bi >= 0) s.flocks.splice(bi, 1); }   // retire the core brood when leaving drones
-    if (s.core.fn !== 'mark') s.core.markId = null;          // drop the mark when leaving designator
-    say(s, `core reconfigured → ${s.core.fn.toUpperCase()}.`);
-  }
-  function markMul(s, e) { return s.core.markId === e.id ? (0.75 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core') : 0; }   // CORE channel scales the mark bonus
+  // CORE channel = FOCUS-FIRE potency: how much extra your army does to the marked target (triage).
+  function markMul(s, e) { return s.core.markId === e.id ? (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core') : 0; }
   function updateCore(s, dt) {
-    const lv = s.core.lvl; s.core.cd -= dt;
-    if (s.core.fn === 'mark') {                              // DESIGNATOR — paint the biggest threat; the army hits it harder (no damage itself)
-      if (s.core.cd <= 0 || !s.enemies.some(e => e.id === s.core.markId)) {
-        s.core.cd = 1.2; let best = null, bv = -Infinity;
-        for (const e of s.enemies) { const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }   // nearest-to-core elite, else most-advanced
+    s.core.cd -= dt;
+    // the FOCUS-FIRE target. The player TAPS to set it (triage, slice B); when none is set
+    // (or the focus dies), auto-paint the nearest-to-core elite so the army always has a priority.
+    if (s.core.cd <= 0 || !s.enemies.some(e => e.id === s.core.markId)) {
+      s.core.cd = 0.6;
+      if (!s.enemies.some(e => e.id === s.core.markId)) {
+        let best = null, bv = -Infinity;
+        for (const e of s.enemies) { const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }
         s.core.markId = best ? best.id : null;
       }
-    } else if (s.core.fn === 'aura') {                       // pulsing close-range AoE shock
-      if (s.core.cd <= 0) { s.core.cd = 1.1; const R = 150 + lv * 22; for (const e of s.enemies) if (dist(e.x, e.y, s.core.x, s.core.y) < R) hitEnemy(s, e, (14 + lv * 6) * chMult(s, 'core')); s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.45, color: '#ffb000', ring: true }); }
-    } else if (s.core.fn === 'drones') {                     // passively keep a free brood topped up
-      let brood = s.flocks.find(f => f.owned === 'core'); if (!brood) { brood = makeBrood(s, 'core', 4 + lv * 2); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); } else brood.cap = 4 + lv * 2;
     }
-    // (the SLOW function is applied in updateEnemies) — move all live shots regardless of fn
+    // move all live shots
     for (const sh of s.shots) {
       const e = s.enemies.find(x => x.id === sh.tid); const tx = e ? e.x : sh.tx, ty = e ? e.y : sh.ty;
       const dx = tx - sh.x, dy = ty - sh.y, d = Math.hypot(dx, dy) || 1; sh.x += dx / d * sh.speed * dt; sh.y += dy / d * sh.speed * dt; sh.life -= dt;
@@ -572,7 +533,6 @@
       e.blockedBy = block ? block.id : null;
       const chillSlow = e.chill > 0 ? 1 - Math.min(0.6, e.chill / 100 * 0.6) : 1;
       let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1);   // CORE-GUN counter speeds them up
-      if (s.core.fn === 'slow' && dist(e.x, e.y, s.core.x, s.core.y) < 150 + s.core.lvl * 22) sp *= 0.5;   // CORE slow function
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;
       } else if (e.laneIdx != null && s.lanes[e.laneIdx]) {           // follow its lane in to the core
@@ -590,14 +550,12 @@
   function tick(s, dt) {
     if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
-    tickAlloc(s, dt);                                              // ease the live split toward the target
-    tickOc(s, dt);                                                 // advance overclock burst → brownout + bleed heat
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
     // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
     if (!s.core.invuln) {
       s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
-      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul || 1) * dt);   // SELF-REPAIR doubles regen
+      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul == null ? 1 : s.regenMul) * dt);   // SELF-REPAIR doubles regen; 0 disables
     }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
@@ -612,5 +570,7 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, overclock, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, SWARMS, ENEMIES, AMMO, UNITS };
+  // TRIAGE: the player taps an enemy → the whole army focus-fires it.
+  function setFocus(s, id) { if (s.enemies.some(e => e.id === id)) { s.core.markId = id; s.core.cd = 2.5; return true; } return false; }
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);
