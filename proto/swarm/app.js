@@ -139,7 +139,7 @@
         else if (e.poison > 0) col = blend(e.color, '#76e08a', Math.min(0.6, e.poison / 60));  // poisoned
       }
       ctx.fillStyle = col; ctx.strokeStyle = '#05060a'; ctx.lineWidth = 1.5;
-      const r = def.r * scale * (flash ? 1.3 : 1), T = e.type;
+      const r = Math.max(def.r * scale, 12) * (flash ? 1.3 : 1), T = e.type;   // min on-screen size so enemies READ the instant they appear, even zoomed out
       ctx.save(); ctx.translate(x, y);
       if (T === 'enforcer') {                         // hexagon + ring (tanky heavy)
         ctx.rotate(ang);

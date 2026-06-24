@@ -633,7 +633,7 @@
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
-      if (e.fade < 1) e.fade = Math.min(1, e.fade + dt * 7);   // fade in FAST right where they appear (no popping in half-way)
+      if (e.fade < 1) e.fade = Math.min(1, e.fade + dt * 14);   // near-instant fade-in right where they appear
       if (e.poison > 0) { e.hp -= e.poison * 0.25 * dt; e.poison = Math.max(0, e.poison - dt * 4); }   // poison BYPASSES shields (the WARD counter)
       if (e.shieldMax && e.shield < e.shieldMax && s.t - e.lastHit > 2) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * 0.5 * dt);   // WARD shield regen when not pressured
       if (e.frozen > 0) { e.frozen -= dt; e.chill = 100; e.blockedBy = null; continue; }   // frozen solid — it doesn't move
