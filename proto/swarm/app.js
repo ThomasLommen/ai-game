@@ -466,7 +466,7 @@
       const sig = S.pick.hand.map(p => p.id).join(',');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
-        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', focus: '#ffd24a', swarm: '#76e08a', death: '#ff6a5a', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
+        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', focus: '#ffd24a', swarm: '#76e08a', death: '#ff6a5a', pod: '#ff9e6b', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
         $('draft-cards').innerHTML = S.pick.hand.map(p => {
           const marquee = p.tier === 'marquee', sigc = p.kind === 'sig';
           const cls = 'draftcard' + (sigc ? ' sig' : '') + (marquee ? ' marquee' : '');

@@ -88,6 +88,7 @@
       counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
       pick: null, picksTaken: [], newPicks: [], picksOff: !!opts.picksOff,   // picksTaken = all (incl pre-applied run-build); newPicks = taken THIS battle → persisted to the run
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, regenMul: 1,
+      podDmgMul: 1, podHpMul: 1, podXpMul: 1,   // POD theme: greater-unit damage / HP / level-speed
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -136,7 +137,8 @@
   // channel multiplier = 1.0 baseline + accrued pick/roster/boost bonus. The dominant
   // channel is your LEAN — what the guard reads and counters.
   function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0) + (s.overextend && ch === readLean(s).ch ? 0.5 : 0); }   // OVEREXTEND amps your dominant channel
-  function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
+  function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage (swarm + pods)
+  function pdmg(s, u) { return od(s, u.dmg) * (s.podDmgMul || 1) * (u.type === 'strider' && s.striderOver ? 1.8 : 1); }   // a POD's attack damage (pod theme + strider signature)
   // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
   function ensureField(s) {
     if (s.won || s.lost) return;
@@ -176,7 +178,8 @@
     if (s.units.length >= (s.podCap || 2)) { say(s, `pod cap reached — only ${s.podCap || 2} pods at a time.`); return false; }
     if (!spend(s, d.cost)) return false;
     const ang = s.rng() * TAU, rr = 78, sx = s.core.x + Math.cos(ang) * rr, sy = s.core.y + Math.sin(ang) * rr;
-    s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: d.hp, maxHp: d.hp, lvl: 1, xp: 0, dmg: d.dmg, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
+    const phb = Math.round(d.hp * (s.podHpMul || 1));   // POD theme: tougher chassis
+    s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: phb, maxHp: phb, lvl: 1, xp: 0, dmg: d.dmg, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
     say(s, `${d.name} deployed — ${d.role}.`); return true;
   }
   function moveUnit(s, id, x, y) {                          // player repositions a movable pod (bulwark/siege)
@@ -254,7 +257,7 @@
     { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.3 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.3; } },
     // ── solid rewrites / build tools ──
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
-    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'cap',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
+    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
     { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
     { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
     // ── duel-answers: clean, no cost ──
@@ -279,6 +282,11 @@
     { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
     { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },
     { id: 'viral_load',  name: 'VIRAL LOAD',        kind: 'death', tier: 'rewrite', desc: 'kills near a focus target spread a contagion to nearby enemies', apply: s => { s.viralLoad = true; } },
+    // ── POD theme (the greater units — strider/bulwark/siege/glacier/conductor/reaper/fabricator) ──
+    { id: 'heavy_ordnance',     name: 'HEAVY ORDNANCE',     kind: 'pod', tier: 'rewrite', desc: 'your pods hit 40% harder', apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.4; } },
+    { id: 'reinforced_chassis', name: 'REINFORCED CHASSIS', kind: 'pod', tier: 'rewrite', desc: 'your pods have +60% HP', apply: s => { const k = 1.6; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
+    { id: 'field_promotion',    name: 'FIELD PROMOTION',    kind: 'pod', tier: 'rewrite', desc: 'your pods gain rank from field XP much faster', apply: s => { s.podXpMul = (s.podXpMul || 1) * 2.2; } },
+    { id: 'overlord',           name: 'OVERLORD PROTOCOL',  kind: 'pod', tier: 'marquee', max: 1, cost: 'you can field only ONE pod', desc: 'your single pod is vastly stronger (×2.2 damage + HP)', apply: s => { s.podCap = 1; const k = 2.2; s.podDmgMul = (s.podDmgMul || 1) * k; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); if (s.units.length > 1) s.units.length = 1; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -530,13 +538,13 @@
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 22) u.hp -= ENEMIES[e.type].dotDmg * dt;
     if (u.cd > 0 || !tgt) return;
     if (s.ex.flame) { u.cd = 1 / 3.4; const ang = u.aim; for (const e of s.enemies) { const a2 = Math.atan2(e.y - u.y, e.x - u.x), dA = Math.abs(((a2 - ang + Math.PI) % TAU) - Math.PI); if (dist(e.x, e.y, u.x, u.y) < 300 && dA < 0.5) { hitEnemy(s, e, 17); e.poison = Math.min(60, e.poison + 10); } } s.beams.push({ x1: u.x, y1: u.y, x2: u.x + Math.cos(ang) * 300, y2: u.y + Math.sin(ang) * 300, life: 0.13, color: '#ff8a3a', cone: true, ang }); }
-    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, od(s, u.dmg)); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
+    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, pdmg(s, u)); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
   }
   function uAnchor(s, u, dt) {                             // BULWARK — a player-placed WALL: walk to where you put it, then plug + grind; self-repairs
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 95 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
     u.aim = Math.atan2(s.core.y - u.y, s.core.x - u.x);
     u.hp = Math.min(u.maxHp, u.hp + 16 * dt);                          // self-repair
-    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, od(s, u.dmg)); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
+    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, pdmg(s, u)); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
   }
   function uArtillery(s, u, dt) {                          // SIEGE — player-placed; lobs cluster rockets at distant clusters (poison bomblets on contagion ammo)
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 70 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
@@ -544,7 +552,7 @@
     if (tgt) u.aim = Math.atan2(tgt.y - u.y, tgt.x - u.x);
     if (u.cd > 0 || !tgt) return;
     u.cd = 1 / 0.5;
-    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: od(s, u.dmg), splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: s.saturation ? 8 : 5 });   // SATURATION FIRE signature
+    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: pdmg(s, u), splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: s.saturation ? 8 : 5 });   // SATURATION FIRE signature
   }
   function uCryo(s, u, dt) {                               // GLACIER — roams in, then THUMPS the ground → an expanding FREEZING SHOCKWAVE (chill → freeze → shatter)
     const tgt = nearestEnemy(s, u.x, u.y);
@@ -576,7 +584,7 @@
     if (u.cd > 0 || !tgt || dist(tgt.x, tgt.y, u.x, u.y) > 48) return;
     u.cd = 1 / 1.7; s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.1, color: '#9ef0c0' });
     if (tgt.hp <= tgt.maxHp * (s.harvest ? 0.32 : 0.18)) { tgt.hp = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.4, color: '#9ef0c0', ring: true }); return; }   // EXECUTE the weak (HARVEST signature lifts the threshold)
-    hitEnemy(s, tgt, od(s, u.dmg));
+    hitEnemy(s, tgt, pdmg(s, u));
     if (tgt.poison > 0) { const blast = tgt.poison * 1.6; for (const o of s.enemies) if (dist(o.x, o.y, tgt.x, tgt.y) < 92) damageEnemy(s, o, blast); tgt.poison = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.45, color: '#76e08a', ring: true }); }
   }
   function uFabricator(s, u, dt) {                         // FABRICATOR — slow; keeps a free BROOD flock of mini-drones topped up (doesn't count vs the flock cap)
@@ -590,7 +598,7 @@
   function onKill(s, e) {
     s.kills++;
     s.bursts.push({ x: e.x, y: e.y, life: 0.42, color: e.color, big: e.elite });
-    for (const u of s.units) { u.xp += e.elite ? 14 : 4; checkUnitLevel(s, u); }
+    for (const u of s.units) { u.xp += (e.elite ? 14 : 4) * (s.podXpMul || 1); checkUnitLevel(s, u); }   // FIELD PROMOTION speeds pod XP
     if (ENEMIES[e.type].splits) {                                // SPLITTER bursts into spawnlings (on its lane, where it fell)
       const d2 = ENEMIES.spawnling;
       for (let i = 0; i < ENEMIES[e.type].splits; i++) { const a = s.rng() * TAU; s.enemies.push({ id: uid(s), type: 'spawnling', x: e.x + Math.cos(a) * 18, y: e.y + Math.sin(a) * 18, hp: d2.hp, maxHp: d2.hp, r: d2.r, color: d2.color, elite: false, poison: 0, chill: 0, frozen: 0, shield: 0, shieldMax: 0, lastHit: 0, hitT: 0, fade: 1, laneIdx: e.laneIdx, dist: Math.max(0, e.dist - 12), blockedBy: null }); }
