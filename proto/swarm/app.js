@@ -80,14 +80,14 @@
   }, { passive: true });
   cvs.addEventListener('touchmove', e => {
     if (e.touches.length === 2 && pinch) { e.preventDefault(); setZoom(pinch.z * dist2(e.touches) / pinch.d); }
-    else if (e.touches.length === 1 && drag) { const dx = e.touches[0].clientX - drag.x, dy = e.touches[0].clientY - drag.y; if (Math.hypot(dx, dy) > 6) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); }
+    else if (e.touches.length === 1 && drag) { const dx = e.touches[0].clientX - drag.x, dy = e.touches[0].clientY - drag.y; if (Math.hypot(dx, dy) > 14) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); }
   }, { passive: false });
   cvs.addEventListener('touchend', e => {
     if (e.touches.length < 2) pinch = null;
     if (e.touches.length === 0) { if (drag && !moved) { const t = e.changedTouches[0]; onTap(s2wX(t.clientX), s2wY(t.clientY)); } drag = null; }
   }, { passive: true });
   cvs.addEventListener('mousedown', e => { drag = { x: e.clientX, y: e.clientY, px: panX, py: panY }; moved = false; });
-  window.addEventListener('mousemove', e => { if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.hypot(dx, dy) > 4) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); } });
+  window.addEventListener('mousemove', e => { if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.hypot(dx, dy) > 8) moved = true; panX = drag.px + dx * devicePixelRatio; panY = drag.py + dy * devicePixelRatio; recompute(); } });
   window.addEventListener('mouseup', e => { if (drag && !moved) onTap(s2wX(e.clientX), s2wY(e.clientY)); drag = null; });
   cvs.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 
@@ -276,16 +276,20 @@
       }
     }
 
-    // ── core ── FOCUS-FIRE targets (triage): a rotating reticle + designator line per mark
+    // ── core ── FOCUS-FIRE targets (triage): a BOLD, unmistakable marker per mark
     for (const mid of S.core.marks) {
       const e = S.enemies.find(o => o.id === mid);
       if (!e) continue;
-      const ex = X(e.x), ey = Y(e.y), rr = Math.max((S.ENEMIES[e.type].r + 11) * scale, 17);   // min on-screen size so the focus reticle reads when zoomed out
-      ctx.strokeStyle = 'rgba(255,210,74,0.55)'; ctx.lineWidth = Math.max(1 * scale, 1.4); ctx.setLineDash([5, 5]); ctx.lineDashOffset = -S.t * 24;
+      const ex = X(e.x), ey = Y(e.y), rr = Math.max((S.ENEMIES[e.type].r + 13) * scale, 22), pz = 1 + 0.12 * Math.sin(S.t * 6);
+      // dashed designator line from the core
+      ctx.strokeStyle = 'rgba(255,210,74,0.45)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]); ctx.lineDashOffset = -S.t * 30;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
-      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = Math.max(2 * scale, 2.4); ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 8;
-      ctx.save(); ctx.translate(ex, ey); ctx.rotate(S.t * 1.6);
-      for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(rr, -rr * 0.45); ctx.lineTo(rr, -rr); ctx.lineTo(rr * 0.45, -rr); ctx.stroke(); }
+      // a solid bright ring (pulsing) so it reads at any zoom
+      ctx.strokeStyle = '#ffe27a'; ctx.lineWidth = 3; ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(ex, ey, rr * pz, 0, Math.PI * 2); ctx.stroke();
+      // rotating corner brackets
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(S.t * 1.6); ctx.lineWidth = 3;
+      for (let i = 0; i < 4; i++) { const br = rr * 1.5; ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(br, -br * 0.4); ctx.lineTo(br, -br); ctx.lineTo(br * 0.4, -br); ctx.stroke(); }
       ctx.restore(); ctx.shadowBlur = 0;
     }
     const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = 34 * scale, hpf = S.core.hp / S.core.maxHp;

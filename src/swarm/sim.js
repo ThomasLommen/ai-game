@@ -8,6 +8,7 @@
 (function (global) {
   function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   const TAU = Math.PI * 2;
+  const ENEMY_HP_MUL = 2;   // global enemy-HP knob (they were dying too fast)
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -321,7 +322,7 @@
 
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
-    const def = ENEMIES[type], hp = def.hp * (1 + s.threat * 0.012);
+    const def = ENEMIES[type], hp = def.hp * ENEMY_HP_MUL * (1 + s.threat * 0.012);   // tankier so they don't pop instantly
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (opts && opts.surge && s.turncoat && s.counter) { e.hp *= 0.55; e.maxHp *= 0.55; }   // TURNCOAT: a countered surge spawns frail
@@ -406,7 +407,7 @@
       const spd0 = SWARMS[f.type].speed * (f.buff ? 1.25 : 1);        // conductor overclock
       // LEASH — the swarm holds a PERIMETER around the core (so enemies advance into view
       // before being met) unless you're in PRESS stance. guard = tight, hunt = wider.
-      const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 0.9 : 0.62);
+      const leash = s.stance === 'press' ? 1e9 : s.viewR * (s.stance === 'hunt' ? 1.3 : 1.05);   // wide — the swarm ranges over the field, just not into the far fog
       for (const d of f.dots) {
         const spd = disrupt.length && jammedAt(disrupt, d.x, d.y) ? spd0 * 0.55 : spd0;   // DISRUPTOR jam slows the swarm
         let tx, ty;
@@ -632,7 +633,7 @@
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
-      if (e.fade < 1) e.fade = Math.min(1, e.fade + dt * 1.8);
+      if (e.fade < 1) e.fade = Math.min(1, e.fade + dt * 7);   // fade in FAST right where they appear (no popping in half-way)
       if (e.poison > 0) { e.hp -= e.poison * 0.25 * dt; e.poison = Math.max(0, e.poison - dt * 4); }   // poison BYPASSES shields (the WARD counter)
       if (e.shieldMax && e.shield < e.shieldMax && s.t - e.lastHit > 2) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * 0.5 * dt);   // WARD shield regen when not pressured
       if (e.frozen > 0) { e.frozen -= dt; e.chill = 100; e.blockedBy = null; continue; }   // frozen solid — it doesn't move
