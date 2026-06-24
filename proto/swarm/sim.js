@@ -67,7 +67,7 @@
     const mn = Math.min(W, H);
     const s = {
       W, H, rng, t: 0, seed: (seed | 0) || 7,
-      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, markId: null, cd: 0 },   // markId = the player's FOCUS-FIRE target (triage, slice B)
+      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, marks: [], maxMarks: 1, cd: 0 },   // marks = your FOCUS-FIRE targets (triage); maxMarks 2 via Twin Marks
       viewR: ambient ? 200 : Math.round(mn * 0.469), spawnR: ambient ? 175 : Math.round(mn * 0.64), ambient: !!ambient,
       // BATTLE v2: no live compute economy. Channels (offense/shield/core) are BUILD-STATS
       // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
@@ -223,17 +223,25 @@
   // ── THE PICKS: one make-or-break choice per round reshapes your build ─────────
   // Baseline deck (slice 3). Some stack (channel overclocks), some cap out. Several
   // answer the DUEL directly (pierce/adaptive/feint) so a hand can address the counter.
+  // tier: 'common' = small stat tune (smoothing) · 'rewrite' = a solid rule-rewrite ·
+  // 'marquee' = a rare, telegraphed run-definer that carries a COST (kiss/curse). Duel-answers stay clean.
   const PICKS = [
-    { id: 'od_offense', name: 'OVERCLOCK · OFFENSE', kind: 'offense', desc: '+0.3 to your offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
-    { id: 'od_shield',  name: 'REINFORCE · SHIELD',  kind: 'shield',  desc: '+0.3 to your shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
-    { id: 'od_core',    name: 'TUNE · CORE-GUN',     kind: 'core',    desc: '+0.3 to your core-gun multiplier (function potency)',   apply: s => { s.chBonus.core += 0.3; } },
-    { id: 'swarm_cap',  name: 'SWARM EXPANSION',     kind: 'cap',  max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
-    { id: 'extra_pod',  name: 'EXTRA POD BAY',       kind: 'cap',  max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
-    { id: 'pierce',     name: 'PIERCING ROUNDS',     kind: 'edge', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
-    { id: 'hardened',   name: 'HARDENED CORE',       kind: 'edge', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
-    { id: 'selfrepair', name: 'SELF-REPAIR',         kind: 'edge', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
-    { id: 'adaptive',   name: 'ADAPTIVE PLATING',    kind: 'duel', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
-    { id: 'feint',      name: 'FEINT PROTOCOL',      kind: 'duel', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 0.15; } },
+    // ── commons: a thin layer of stat tunes ──
+    { id: 'od_offense', name: 'TUNE · OFFENSE',   kind: 'offense', tier: 'common', desc: '+0.3 offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
+    { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.3 shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
+    { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.3 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.3; } },
+    // ── solid rewrites / build tools ──
+    { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
+    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'cap',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
+    { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
+    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
+    // ── duel-answers: clean, no cost ──
+    { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
+    { id: 'adaptive',   name: 'ADAPTIVE PLATING', kind: 'duel', tier: 'rewrite', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
+    { id: 'feint',      name: 'FEINT PROTOCOL',   kind: 'duel', tier: 'rewrite', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 0.15; } },
+    // ── FOCUS-FIRE theme (the triage tap) ──
+    { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
+    { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -249,11 +257,16 @@
   function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
   function offerPick(s) {
     if (s.pick || s.won || s.lost || s.picksOff) return;
-    const avail = PICKS.filter(p => pickCount(s, p.id) < (p.max || 99));
+    // the everyday hand = commons + solid rewrites (marquees are rare + telegraphed, injected below)
+    const avail = PICKS.filter(p => p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
     for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
     const hand = avail.slice(0, 3);
-    const sigs = eligibleSigs(s);   // the roster's marquee cards muscle into the hand
-    if (sigs.length && s.rng() < 0.6) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
+    // ONE special slot: a roster SIGNATURE (more likely), else sometimes a rare MARQUEE
+    const sigs = eligibleSigs(s);
+    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
+    const r = s.rng();
+    if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
+    else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
     s.pick = { hand };
     say(s, 'a make-or-break PICK opens — reshape your build.');
   }
@@ -383,20 +396,28 @@
 
   // ── core-gun (projectiles) ──────────────────────────────────────────────────
   function makeBrood(s, owner, cap) { return { id: uid(s), type: 'brood', color: '#ffd24a', behavior: 'peel', applies: null, cap, dots: [], tgtId: null, tx: null, ty: null, cx: s.core.x, cy: s.core.y, tgtT: 0, regenT: 0, owned: owner }; }
-  // CORE channel = FOCUS-FIRE potency: how much extra your army does to the marked target (triage).
-  function markMul(s, e) { return s.core.markId === e.id ? (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core') : 0; }
+  // CORE channel = FOCUS-FIRE potency: how much extra your army does to the marked target.
+  // CHAIN FOCUS rewrite bleeds a fraction to enemies near a mark; TWIN MARKS halves the per-target bonus.
+  function markMul(s, e) {
+    const base = (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core');
+    const twinPen = s.core.maxMarks > 1 ? 0.55 : 1;
+    if (s.core.marks.indexOf(e.id) >= 0) return base * twinPen;
+    if (s.chainFocus && s._markPos) { for (const mp of s._markPos) if (dist(e.x, e.y, mp.x, mp.y) < 95) return base * 0.5 * twinPen; }
+    return 0;
+  }
   function updateCore(s, dt) {
     s.core.cd -= dt;
-    // the FOCUS-FIRE target. The player TAPS to set it (triage, slice B); when none is set
-    // (or the focus dies), auto-paint the nearest-to-core elite so the army always has a priority.
-    if (s.core.cd <= 0 || !s.enemies.some(e => e.id === s.core.markId)) {
+    s.core.marks = s.core.marks.filter(id => s.enemies.some(e => e.id === id));   // drop focus targets that died/left
+    // top up to maxMarks with a sensible default (nearest-to-core elite) so the army always has a priority
+    if (s.core.cd <= 0) {
       s.core.cd = 0.6;
-      if (!s.enemies.some(e => e.id === s.core.markId)) {
+      while (s.core.marks.length < s.core.maxMarks) {
         let best = null, bv = -Infinity;
-        for (const e of s.enemies) { const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }
-        s.core.markId = best ? best.id : null;
+        for (const e of s.enemies) { if (s.core.marks.indexOf(e.id) >= 0) continue; const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }
+        if (!best) break; s.core.marks.push(best.id);
       }
     }
+    s._markPos = s.core.marks.map(id => { const e = s.enemies.find(x => x.id === id); return e ? { x: e.x, y: e.y } : null; }).filter(Boolean);
     // move all live shots
     for (const sh of s.shots) {
       const e = s.enemies.find(x => x.id === sh.tid); const tx = e ? e.x : sh.tx, ty = e ? e.y : sh.ty;
@@ -578,6 +599,14 @@
   }
 
   // TRIAGE: the player taps an enemy → the whole army focus-fires it.
-  function setFocus(s, id) { if (s.enemies.some(e => e.id === id)) { s.core.markId = id; s.core.cd = 2.5; return true; } return false; }
+  function setFocus(s, id) {
+    if (!s.enemies.some(e => e.id === id)) return false;
+    const i = s.core.marks.indexOf(id);
+    if (i >= 0) { s.core.marks.splice(i, 1); return true; }   // tap an already-focused enemy = un-focus it
+    s.core.marks.push(id);
+    while (s.core.marks.length > s.core.maxMarks) s.core.marks.shift();   // evict the oldest mark
+    s.core.cd = 2.5;   // hold the player's choice before the auto-painter tops up
+    return true;
+  }
   global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

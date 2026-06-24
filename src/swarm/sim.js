@@ -61,12 +61,20 @@
   function create(seed, laneMode, startCompute, ambient, opts) {
     opts = opts || {};   // opts = battle shape (a TRAP's bait reshapes the climax): { surges, boss, escort, regen }
     const rng = mulberry32((seed | 0) || 7);
-    const W = ambient ? 480 : 2000, H = ambient ? 290 : 1280;   // ambient = the small always-on idle-defense window (tight, core-centred)
+    // PORTRAIT arena (the game is played in portrait — no landscape lock). ambient = the
+    // small always-on perimeter window on HOME (kept as its own small shape).
+    const W = ambient ? 480 : 1280, H = ambient ? 290 : 2000;
+    const mn = Math.min(W, H);
     const s = {
       W, H, rng, t: 0, seed: (seed | 0) || 7,
-      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, fn: 'mark', markId: null, ammo: 'kinetic', cd: 0 },
-      viewR: ambient ? 200 : 600, spawnR: ambient ? 175 : 820, ambient: !!ambient,
-      compute: startCompute || 120, computeRegen: opts.regen || 7,
+      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, marks: [], maxMarks: 1, cd: 0 },   // marks = your FOCUS-FIRE targets (triage); maxMarks 2 via Twin Marks
+      viewR: ambient ? 200 : Math.round(mn * 0.469), spawnR: ambient ? 175 : Math.round(mn * 0.64), ambient: !!ambient,
+      // BATTLE v2: no live compute economy. Channels (offense/shield/core) are BUILD-STATS
+      // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
+      // dominant BUILD channel. (battle-duel-rework v2.)
+      counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
+      pick: null, picksTaken: [], newPicks: [], picksOff: !!opts.picksOff,   // picksTaken = all (incl pre-applied run-build); newPicks = taken THIS battle → persisted to the run
+      chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -74,23 +82,46 @@
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
       threat: 0, surge: 0, GOAL_SURGES: opts.surges || 8, kills: 0, bossSpawned: false,   // GOAL_SURGES = the surge the BOSS arrives on (the run's climax)
       boss: opts.boss || 'juggernaut', bossEscort: (opts.escort != null) ? opts.escort : 6,   // the climax — what's drawn in + escort count (a trap's bait reshapes this)
+      tier: opts.tier != null ? opts.tier : 2,   // THREAT TIER (act + mission) gates which enemy TYPES appear; surges escalate DENSITY within it (slice D)
       spawnAccum: 0, surgeT: 9, warn: null,    // warn = { ang, t } surge telegraph
       ex: { hive: false, flame: false, bloom: false },
-      unlocked: { hunter: true, locust: true, strider: true },   // STARTER set — the rest are drafted in mid-run
+      unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
       won: false, lost: false, log: [],
       SWARMS, ENEMIES, AMMO, UNITS, nextId: 1,
     };
+    // campaign BUILD-MAPPING (battle.js folds these in): pre-engaged exotics + pre-unlocked
+    // roster from your adaptations/agents, so a developed build starts armed, not bare.
+    if (opts.boost) { const bb = +opts.boost || 0; s.chBonus.offense += bb; s.chBonus.shield += bb; s.chBonus.core += bb; }   // campaign build power lifts every channel
+    if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
+    if (s.ex.hive) s.maxFlocks = 10;
+    if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
+    // RUN-BUILD: the picks you've accrued so far this RUN are pre-applied each battle
+    // (they persist across the run's battles; the campaign carries the list).
+    if (Array.isArray(opts.picks)) opts.picks.forEach(id => { const p = PICKS.find(x => x.id === id) || (SIGNATURES[Object.keys(SIGNATURES).find(k => SIGNATURES[k].id === id)]); if (p) { p.apply(s); s.picksTaken.push(id); } });
     if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core); pickWaveLanes(s); }
-    say(s, s.laneMode ? 'a node of yours. they come down the lanes — watch the lit ones. field swarms. hold the core.'
-                      : 'a node of yours. they come from the dark — every side. field swarms. hold the core.');
+    say(s, s.laneMode ? 'a node of yours. they come down the lit lanes — hold the core. TAP a threat to focus fire.'
+                      : 'a node of yours. they come from the dark — hold the core. TAP a threat to focus fire.');
+    ensureField(s);   // your roster auto-deploys; your BUILD governs how strong it is
+    if (opts.opener && !s.picksOff) offerPick(s);   // the FIRST battle opens on a make-or-break pick
     return s;
   }
   function say(s, m) { s.log.push(m); if (s.log.length > 40) s.log.shift(); }
   const uid = s => 'u' + (s.nextId++);
 
-  // ── COMPUTE economy / player actions ────────────────────────────────────────
-  function spend(s, n) { if (s.compute < n) return false; s.compute -= n; return true; }
+  // ── CHANNELS as BUILD-STATS (no live dial) ───────────────────────────────────
+  const CHANNELS = ['offense', 'shield', 'core'];
+  // channel multiplier = 1.0 baseline + accrued pick/roster/boost bonus. The dominant
+  // channel is your LEAN — what the guard reads and counters.
+  function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0); }
+  function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
+  // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
+  function ensureField(s) {
+    if (s.won || s.lost) return;
+    for (const t in SWARMS) { if (t === 'brood' || !s.unlocked[t]) continue; if (s.flocks.length >= s.maxFlocks) break; if (!s.flocks.some(f => f.type === t && !f.owned)) summonFlock(s, t); }
+    for (const t in UNITS) { if (!s.unlocked[t]) continue; if (s.units.length >= (s.podCap || 2)) break; if (!s.units.some(u => u.type === t)) fieldUnit(s, t); }
+  }
+  function spend(s, n) { return true; }                     // compute is no longer spent — kept as a no-op so existing call sites stay intact
   function flockCap(s, type) { return SWARMS[type].cap + (s.ex.hive ? 5 : 0); }
 
   function summonFlock(s, type) {
@@ -120,7 +151,7 @@
       ex.lvl++; ex.dmg = Math.round(ex.dmg * 1.4); ex.maxHp = Math.round(ex.maxHp * 1.25); ex.hp = ex.maxHp;
       say(s, `${d.name} refit to mk${ex.lvl}.`); return true;
     }
-    if (s.units.length >= 2) { say(s, 'pod cap reached — only 2 pods at a time. refit one, or retire it for a new node.'); return false; }
+    if (s.units.length >= (s.podCap || 2)) { say(s, `pod cap reached — only ${s.podCap || 2} pods at a time.`); return false; }
     if (!spend(s, d.cost)) return false;
     const ang = s.rng() * TAU, rr = 78, sx = s.core.x + Math.cos(ang) * rr, sy = s.core.y + Math.sin(ang) * rr;
     s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: d.hp, maxHp: d.hp, lvl: 1, xp: 0, dmg: d.dmg, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
@@ -133,7 +164,6 @@
   }
   function coreCost(s) { return 50 + s.core.lvl * 45; }
   function upgradeCore(s) { if (s.won || s.lost || !spend(s, coreCost(s))) return false; s.core.lvl++; say(s, `core-gun tuned to v${s.core.lvl}.`); return true; }
-  function swapAmmo(s) { s.core.ammo = s.core.ammo === 'kinetic' ? 'contagion' : 'kinetic'; say(s, `core-gun loaded: ${s.core.ammo}.`); }
   function setStance(s, st) { s.stance = st; say(s, `swarm stance: ${st}.`); }
   function toggleEx(s, k) {
     s.ex[k] = !s.ex[k];
@@ -157,10 +187,101 @@
     s.draft = null; return true;
   }
 
+  // ── THE DUEL: the guard reads your dominant lean + counters that channel ───────
+  // You COMMIT by where you pour compute; each surge the guard reads your lean and
+  // floods the anti-build for it, scaled to how hard you've leaned. Counter = a soft
+  // TAX, not a wall (it LAGS your lean by a round → outrace / diversify / bait-pivot).
+  const COUNTER = {
+    offense: { read: 'OFFENSE',  tell: 'hardening its shells — shielded breakers inbound', add: ['ward', 'disruptor'], shield: 95 },   // anti-swarm: tanky + jam blunts your DPS
+    shield:  { read: 'SHIELD',   tell: 'massing breakers — they will hit the core harder',   add: ['enforcer', 'rusher'], coredmg: 1.1 },  // anti-turtle: raw core pressure
+    core:    { read: 'CORE-GUN', tell: 'flooding fast rushers — they outrun your core',       add: ['rusher'],              speed: 0.6 },   // anti-core: speed overwhelms the function
+  };
+  // your LEAN = the dominant build channel + how far it LEADS the others (commitment).
+  function readLean(s) {
+    let ch = 'offense', v = -Infinity;
+    CHANNELS.forEach(c => { const b = s.chBonus[c] || 0; if (b > v) { v = b; ch = c; } });
+    const others = CHANNELS.filter(c => c !== ch).map(c => s.chBonus[c] || 0);
+    const avgOther = others.reduce((a, b) => a + b, 0) / (others.length || 1);
+    return { ch, lead: v - avgOther };
+  }
+  function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
+    const { ch, lead } = readLean(s);
+    let mag = Math.max(0, Math.min(1, (lead - (s.feint || 0)) / 0.9));   // 1 channel-pick (≈0.3 lead) → ~0.33; ~3 picks → full. FEINT cuts the read
+    mag *= (1 - (s.counterResist || 0));                      // ADAPTIVE PLATING blunts the counter
+    if (mag < 0.08) { s.counter = null; s.threatRead = null; return; }
+    s.counter = { channel: ch, mag };
+    s.threatRead = `the guard reads your ${COUNTER[ch].read} — ${COUNTER[ch].tell}.`;
+    say(s, '>> ' + s.threatRead + ' <<');
+  }
+  function applyCounter(s, e) {                              // bake the locked counter into a surge enemy's stats
+    const c = s.counter; if (!c) return; const def = COUNTER[c.channel];
+    if (def.shield) { const add = def.shield * c.mag; e.shield += add; e.shieldMax += add; }
+    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * c.mag;
+    if (def.speed) e.speedMul = 1 + def.speed * c.mag;
+  }
+
+  // ── THE PICKS: one make-or-break choice per round reshapes your build ─────────
+  // Baseline deck (slice 3). Some stack (channel overclocks), some cap out. Several
+  // answer the DUEL directly (pierce/adaptive/feint) so a hand can address the counter.
+  // tier: 'common' = small stat tune (smoothing) · 'rewrite' = a solid rule-rewrite ·
+  // 'marquee' = a rare, telegraphed run-definer that carries a COST (kiss/curse). Duel-answers stay clean.
+  const PICKS = [
+    // ── commons: a thin layer of stat tunes ──
+    { id: 'od_offense', name: 'TUNE · OFFENSE',   kind: 'offense', tier: 'common', desc: '+0.3 offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
+    { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.3 shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
+    { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.3 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.3; } },
+    // ── solid rewrites / build tools ──
+    { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
+    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'cap',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
+    { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
+    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
+    // ── duel-answers: clean, no cost ──
+    { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
+    { id: 'adaptive',   name: 'ADAPTIVE PLATING', kind: 'duel', tier: 'rewrite', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
+    { id: 'feint',      name: 'FEINT PROTOCOL',   kind: 'duel', tier: 'rewrite', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 0.15; } },
+    // ── FOCUS-FIRE theme (the triage tap) ──
+    { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
+    { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
+  ];
+  // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
+  // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
+  // req(s) reads what you fielded (s.ex exotics, s.unlocked units). One-shot (max 1).
+  const SIGNATURES = {
+    hive:   { id: 'sig_hive',   name: 'HIVE OVERMIND',     kind: 'sig', req: s => s.ex.hive,        desc: '+3 flock cap and swarms regrow far faster',            apply: s => { s.maxFlocks += 3; s.hiveRegen = true; } },
+    flame:  { id: 'sig_flame',  name: 'FIRESTORM',         kind: 'sig', req: s => s.ex.flame,       desc: 'your swarms set enemies alight (damage-over-time)',     apply: s => { s.firestorm = true; } },
+    bloom:  { id: 'sig_bloom',  name: 'PANDEMIC',          kind: 'sig', req: s => s.ex.bloom,       desc: 'contagion deaths seed a much wider radius',             apply: s => { s.pandemic = true; } },
+    reaper: { id: 'sig_reaper', name: 'HARVEST PROTOCOL',  kind: 'sig', req: s => s.unlocked.reaper, desc: 'your reaper executes enemies from much higher HP',     apply: s => { s.harvest = true; } },
+    siege:  { id: 'sig_siege',  name: 'SATURATION FIRE',   kind: 'sig', req: s => s.unlocked.siege,  desc: 'your siege scatters far more cluster bomblets',        apply: s => { s.saturation = true; } },
+  };
+  function eligibleSigs(s) { return Object.keys(SIGNATURES).map(k => SIGNATURES[k]).filter(g => g.req(s) && pickCount(s, g.id) < 1); }
+  function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
+  function offerPick(s) {
+    if (s.pick || s.won || s.lost || s.picksOff) return;
+    // the everyday hand = commons + solid rewrites (marquees are rare + telegraphed, injected below)
+    const avail = PICKS.filter(p => p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
+    for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
+    const hand = avail.slice(0, 3);
+    // ONE special slot: a roster SIGNATURE (more likely), else sometimes a rare MARQUEE
+    const sigs = eligibleSigs(s);
+    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
+    const r = s.rng();
+    if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
+    else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
+    s.pick = { hand };
+    say(s, 'a make-or-break PICK opens — reshape your build.');
+  }
+  function takePick(s, id) {
+    if (!s.pick) return false;
+    const p = s.pick.hand.find(x => x.id === id);
+    if (p) { p.apply(s); s.picksTaken.push(id); s.newPicks.push(id); say(s, `picked ${p.name}.`); }
+    s.pick = null; return true;
+  }
+
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
     const def = ENEMIES[type], hp = def.hp * (1 + s.threat * 0.012);
-    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
+    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
+    if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
       e.laneIdx = li; const p = posOnLane(s.lanes[li], 0); e.x = p.x; e.y = p.y;
@@ -177,36 +298,46 @@
       return;
     }
     if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — stop feeding so you can clear the field + finish it
-    const rate = 0.5 + s.threat * 0.03 + s.t * 0.004;  // continuous trickle, escalating
+    const rate = 0.4 + s.threat * 0.03 + s.t * 0.004;  // continuous trickle — gentler at the start, escalating
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
-    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); offerDraft(s); } }
+    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // the guard reads your lean at telegraph time (armCounter)
   }
-  function surgePool(surge) { const p = []; if (surge >= 2) p.push('rusher', 'enforcer'); if (surge >= 3) p.push('ward'); if (surge >= 4) p.push('splitter', 'disruptor'); return p; }   // threats unlock as the run escalates
+  // THREAT TIER gates the enemy menagerie (set by act + mission): tier 0 = all standard
+  // probes; higher tiers unlock the nastier types. Surges escalate DENSITY, not the menu.
+  function tierPool(tier) { const p = []; if (tier >= 1) p.push('rusher', 'enforcer'); if (tier >= 2) p.push('ward'); if (tier >= 3) p.push('splitter', 'disruptor'); return p; }
   function doSurge(s, ang) {
     s.surge++; s.threat += 6;
     const from = () => s.laneMode ? { lane: s.waveLanes[Math.floor(s.rng() * s.waveLanes.length)] } : { ang: ang + (s.rng() - 0.5) * 0.3 };
+    const surgeAt = (mk) => Object.assign({ surge: true }, mk());   // tag surge spawns so the counter bakes in
     if (s.surge >= s.GOAL_SURGES) {                          // CLIMAX — the boss wave ends the run
-      s.bossSpawned = true; spawnEnemy(s, s.boss, from());
-      for (let i = 0; i < s.bossEscort; i++) spawnEnemy(s, 'enforcer', from());
+      s.bossSpawned = true; spawnEnemy(s, s.boss, surgeAt(from));
+      for (let i = 0; i < s.bossEscort; i++) spawnEnemy(s, 'enforcer', surgeAt(from));
       say(s, s.boss === 'juggernaut'
         ? '>> THE JUGGERNAUT BREAKS FROM THE DARK. bring it down and the node is yours. <<'
         : '>> THE BAIT IS TAKEN — they close in for the kill. break them and the ground is yours. <<');
       return;
     }
-    const probes = 6 + s.surge * 2, specials = Math.min(12, Math.floor(s.surge * 1.3)), pool = surgePool(s.surge);
-    for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', from());
-    for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', from());
+    const c = s.counter;
+    let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
+    if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
+    const probes = 3 + s.surge * 2;
+    for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
+    for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
     s.surgeT = 15 + s.rng() * 4;
-    say(s, `SURGE ${s.surge}/${s.GOAL_SURGES} ${s.laneMode ? 'pours down the lit lanes' : 'breaks from the dark'} — ${probes + specials} hostiles.`);
+    say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
+    offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
   }
 
   function nearestEnemy(s, x, y, maxR) { let b = null, bd = maxR || 1e9; for (const e of s.enemies) { const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; b = e; } } return b; }
   function densestEnemy(s) { let b = null, bn = -1; for (const e of s.enemies) { let n = 0; for (const o of s.enemies) if (dist(e.x, e.y, o.x, o.y) < 80) n++; if (n > bn) { bn = n; b = e; } } return b; }
   function damageEnemy(s, e, amt) {                          // all army damage routes here → shields soak first (WARD)
     if (amt <= 0) return; e.hitT = s.t; e.lastHit = s.t;
-    if (e.shield > 0) { const a = Math.min(e.shield, amt); e.shield -= a; amt -= a; }
+    if (e.shield > 0) {
+      if (s.pierce > 0) { const through = amt * s.pierce; e.hp -= through; amt -= through; }   // PIERCING ROUNDS bypass part of the shield
+      const a = Math.min(e.shield, amt); e.shield -= a; amt -= a;
+    }
     if (amt > 0) e.hp -= amt;
   }
   function jammedAt(disruptors, x, y) { for (const z of disruptors) if (dist(x, y, z.x, z.y) < ENEMIES[z.type].jam) return true; return false; }   // inside a DISRUPTOR's jam field?
@@ -242,20 +373,21 @@
         const v = Math.hypot(d.vx, d.vy) || 1; if (v > spd) { d.vx = d.vx / v * spd; d.vy = d.vy / v * spd; }
         d.x += d.vx * dt; d.y += d.vy * dt;
       }
-      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }
+      f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.hiveRegen ? 0.32 : s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }   // HIVE OVERMIND signature regrows even faster
     }
-    for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — re-summon it.`); s.flocks.splice(i, 1); }
+    for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — redeploying.`); s.flocks.splice(i, 1); }
   }
   function dotDamage(s, dt) {
     const CONTACT = 20, disruptors = s.enemies.filter(e => e.type === 'disruptor');
     for (const f of s.flocks) {
-      const dmg = SWARMS[f.type].dotDmg * (f.buff ? 1.4 : 1);        // conductor overclock
+      const dmg = SWARMS[f.type].dotDmg * (f.buff ? 1.4 : 1) * chMult(s, 'offense');   // OFFENSE channel scales swarm DPS
       for (const d of f.dots) {
         const e = nearestEnemy(s, d.x, d.y, CONTACT); if (!e) continue;
         let m = 1 + markMul(s, e); if (e.poison > 0) m += 0.5; if (e.frozen > 0) m += 1.0;   // SYNERGY: marked + poisoned (+50%) + frozen (+100% shatter)
         let amt = dmg * m * dt; if (disruptors.length && jammedAt(disruptors, d.x, d.y)) amt *= 0.45;   // DISRUPTOR jam blunts the swarm
         damageEnemy(s, e, amt);
         if (f.applies === 'poison') e.poison = Math.min(60, e.poison + 20 * dt);
+        if (s.firestorm) e.poison = Math.min(60, e.poison + 12 * dt);   // FIRESTORM signature: every swarm sets enemies alight
         d.hp -= ENEMIES[e.type].dotDmg * dt;                      // the enemy fights back while latched
       }
       f.dots = f.dots.filter(d => d.hp > 0);
@@ -264,27 +396,29 @@
 
   // ── core-gun (projectiles) ──────────────────────────────────────────────────
   function makeBrood(s, owner, cap) { return { id: uid(s), type: 'brood', color: '#ffd24a', behavior: 'peel', applies: null, cap, dots: [], tgtId: null, tx: null, ty: null, cx: s.core.x, cy: s.core.y, tgtT: 0, regenT: 0, owned: owner }; }
-  function swapCoreFn(s) {
-    const fns = ['mark', 'slow', 'aura', 'drones']; s.core.fn = fns[(fns.indexOf(s.core.fn) + 1) % fns.length];
-    if (s.core.fn !== 'drones') { const bi = s.flocks.findIndex(f => f.owned === 'core'); if (bi >= 0) s.flocks.splice(bi, 1); }   // retire the core brood when leaving drones
-    if (s.core.fn !== 'mark') s.core.markId = null;          // drop the mark when leaving designator
-    say(s, `core reconfigured → ${s.core.fn.toUpperCase()}.`);
+  // CORE channel = FOCUS-FIRE potency: how much extra your army does to the marked target.
+  // CHAIN FOCUS rewrite bleeds a fraction to enemies near a mark; TWIN MARKS halves the per-target bonus.
+  function markMul(s, e) {
+    const base = (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core');
+    const twinPen = s.core.maxMarks > 1 ? 0.55 : 1;
+    if (s.core.marks.indexOf(e.id) >= 0) return base * twinPen;
+    if (s.chainFocus && s._markPos) { for (const mp of s._markPos) if (dist(e.x, e.y, mp.x, mp.y) < 95) return base * 0.5 * twinPen; }
+    return 0;
   }
-  function markMul(s, e) { return s.core.markId === e.id ? 0.75 + (s.core.lvl - 1) * 0.25 : 0; }   // bonus your army does to the MARKED target
   function updateCore(s, dt) {
-    const lv = s.core.lvl; s.core.cd -= dt;
-    if (s.core.fn === 'mark') {                              // DESIGNATOR — paint the biggest threat; the army hits it harder (no damage itself)
-      if (s.core.cd <= 0 || !s.enemies.some(e => e.id === s.core.markId)) {
-        s.core.cd = 1.2; let best = null, bv = -Infinity;
-        for (const e of s.enemies) { const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }   // nearest-to-core elite, else most-advanced
-        s.core.markId = best ? best.id : null;
+    s.core.cd -= dt;
+    s.core.marks = s.core.marks.filter(id => s.enemies.some(e => e.id === id));   // drop focus targets that died/left
+    // top up to maxMarks with a sensible default (nearest-to-core elite) so the army always has a priority
+    if (s.core.cd <= 0) {
+      s.core.cd = 0.6;
+      while (s.core.marks.length < s.core.maxMarks) {
+        let best = null, bv = -Infinity;
+        for (const e of s.enemies) { if (s.core.marks.indexOf(e.id) >= 0) continue; const v = (e.elite ? 1e6 : 0) - dist(e.x, e.y, s.core.x, s.core.y); if (v > bv) { bv = v; best = e; } }
+        if (!best) break; s.core.marks.push(best.id);
       }
-    } else if (s.core.fn === 'aura') {                       // pulsing close-range AoE shock
-      if (s.core.cd <= 0) { s.core.cd = 1.1; const R = 150 + lv * 22; for (const e of s.enemies) if (dist(e.x, e.y, s.core.x, s.core.y) < R) hitEnemy(s, e, 14 + lv * 6); s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.45, color: '#ffb000', ring: true }); }
-    } else if (s.core.fn === 'drones') {                     // passively keep a free brood topped up
-      let brood = s.flocks.find(f => f.owned === 'core'); if (!brood) { brood = makeBrood(s, 'core', 4 + lv * 2); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); } else brood.cap = 4 + lv * 2;
     }
-    // (the SLOW function is applied in updateEnemies) — move all live shots regardless of fn
+    s._markPos = s.core.marks.map(id => { const e = s.enemies.find(x => x.id === id); return e ? { x: e.x, y: e.y } : null; }).filter(Boolean);
+    // move all live shots
     for (const sh of s.shots) {
       const e = s.enemies.find(x => x.id === sh.tid); const tx = e ? e.x : sh.tx, ty = e ? e.y : sh.ty;
       const dx = tx - sh.x, dy = ty - sh.y, d = Math.hypot(dx, dy) || 1; sh.x += dx / d * sh.speed * dt; sh.y += dy / d * sh.speed * dt; sh.life -= dt;
@@ -344,13 +478,13 @@
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 22) u.hp -= ENEMIES[e.type].dotDmg * dt;
     if (u.cd > 0 || !tgt) return;
     if (s.ex.flame) { u.cd = 1 / 3.4; const ang = u.aim; for (const e of s.enemies) { const a2 = Math.atan2(e.y - u.y, e.x - u.x), dA = Math.abs(((a2 - ang + Math.PI) % TAU) - Math.PI); if (dist(e.x, e.y, u.x, u.y) < 300 && dA < 0.5) { hitEnemy(s, e, 17); e.poison = Math.min(60, e.poison + 10); } } s.beams.push({ x1: u.x, y1: u.y, x2: u.x + Math.cos(ang) * 300, y2: u.y + Math.sin(ang) * 300, life: 0.13, color: '#ff8a3a', cone: true, ang }); }
-    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, u.dmg); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
+    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, od(s, u.dmg)); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
   }
   function uAnchor(s, u, dt) {                             // BULWARK — a player-placed WALL: walk to where you put it, then plug + grind; self-repairs
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 95 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
     u.aim = Math.atan2(s.core.y - u.y, s.core.x - u.x);
     u.hp = Math.min(u.maxHp, u.hp + 16 * dt);                          // self-repair
-    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, u.dmg); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
+    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, od(s, u.dmg)); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
   }
   function uArtillery(s, u, dt) {                          // SIEGE — player-placed; lobs cluster rockets at distant clusters (poison bomblets on contagion ammo)
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 70 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
@@ -358,7 +492,7 @@
     if (tgt) u.aim = Math.atan2(tgt.y - u.y, tgt.x - u.x);
     if (u.cd > 0 || !tgt) return;
     u.cd = 1 / 0.5;
-    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: u.dmg, splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: 5 });
+    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: od(s, u.dmg), splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: s.saturation ? 8 : 5 });   // SATURATION FIRE signature
   }
   function uCryo(s, u, dt) {                               // GLACIER — roams in, then THUMPS the ground → an expanding FREEZING SHOCKWAVE (chill → freeze → shatter)
     const tgt = nearestEnemy(s, u.x, u.y);
@@ -389,8 +523,8 @@
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 26, 182, dt);
     if (u.cd > 0 || !tgt || dist(tgt.x, tgt.y, u.x, u.y) > 48) return;
     u.cd = 1 / 1.7; s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.1, color: '#9ef0c0' });
-    if (tgt.hp <= tgt.maxHp * 0.18) { tgt.hp = 0; s.compute += 9; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.4, color: '#9ef0c0', ring: true }); return; }   // EXECUTE (kill/bounty resolves in updateEnemies)
-    hitEnemy(s, tgt, u.dmg);
+    if (tgt.hp <= tgt.maxHp * (s.harvest ? 0.32 : 0.18)) { tgt.hp = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.4, color: '#9ef0c0', ring: true }); return; }   // EXECUTE the weak (HARVEST signature lifts the threshold)
+    hitEnemy(s, tgt, od(s, u.dmg));
     if (tgt.poison > 0) { const blast = tgt.poison * 1.6; for (const o of s.enemies) if (dist(o.x, o.y, tgt.x, tgt.y) < 92) damageEnemy(s, o, blast); tgt.poison = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.45, color: '#76e08a', ring: true }); }
   }
   function uFabricator(s, u, dt) {                         // FABRICATOR — slow; keeps a free BROOD flock of mini-drones topped up (doesn't count vs the flock cap)
@@ -402,7 +536,6 @@
   }
 
   function onKill(s, e) {
-    s.compute += ENEMIES[e.type].bounty;                         // KILL-SPIKE — harvest the enemy
     s.kills++;
     s.bursts.push({ x: e.x, y: e.y, life: 0.42, color: e.color, big: e.elite });
     for (const u of s.units) { u.xp += e.elite ? 14 : 4; checkUnitLevel(s, u); }
@@ -411,11 +544,11 @@
       for (let i = 0; i < ENEMIES[e.type].splits; i++) { const a = s.rng() * TAU; s.enemies.push({ id: uid(s), type: 'spawnling', x: e.x + Math.cos(a) * 18, y: e.y + Math.sin(a) * 18, hp: d2.hp, maxHp: d2.hp, r: d2.r, color: d2.color, elite: false, poison: 0, chill: 0, frozen: 0, shield: 0, shieldMax: 0, lastHit: 0, hitT: 0, fade: 1, laneIdx: e.laneIdx, dist: Math.max(0, e.dist - 12), blockedBy: null }); }
     }
     if (s.ex.bloom && e.poison > 0) {                            // EXOTIC: contagion bloom — death seeds the cluster
-      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < 96) o.poison = Math.min(60, o.poison + 30);
+      for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < (s.pandemic ? 150 : 96)) o.poison = Math.min(60, o.poison + 30);   // PANDEMIC signature widens the bloom
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
   }
-  function coreHit(s, e) { s.core.hp -= ENEMIES[e.type].coredmg; e.dead = true; if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
+  function coreHit(s, e) { e.dead = true; if (s.core.invuln) return; s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1); if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
@@ -427,8 +560,7 @@
       let block = null; for (const a of anchors) if (dist(e.x, e.y, a.x, a.y) < a.r + ENEMIES[e.type].r + 26) { block = a; break; }   // a bulwark plugging the path
       e.blockedBy = block ? block.id : null;
       const chillSlow = e.chill > 0 ? 1 - Math.min(0.6, e.chill / 100 * 0.6) : 1;
-      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1);
-      if (s.core.fn === 'slow' && dist(e.x, e.y, s.core.x, s.core.y) < 150 + s.core.lvl * 22) sp *= 0.5;   // CORE slow function
+      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1);   // CORE-GUN counter speeds them up
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;
       } else if (e.laneIdx != null && s.lanes[e.laneIdx]) {           // follow its lane in to the core
@@ -444,9 +576,15 @@
   }
 
   function tick(s, dt) {
-    if (s.won || s.lost) return;
+    if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
-    s.compute += s.computeRegen * dt;
+    ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
+    // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
+    if (!s.core.invuln) {
+      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
+      if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
+      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul == null ? 1 : s.regenMul) * dt);   // SELF-REPAIR doubles regen; 0 disables
+    }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
     updateFlocks(s, dt);
@@ -460,5 +598,15 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, SWARMS, ENEMIES, AMMO, UNITS };
+  // TRIAGE: the player taps an enemy → the whole army focus-fires it.
+  function setFocus(s, id) {
+    if (!s.enemies.some(e => e.id === id)) return false;
+    const i = s.core.marks.indexOf(id);
+    if (i >= 0) { s.core.marks.splice(i, 1); return true; }   // tap an already-focused enemy = un-focus it
+    s.core.marks.push(id);
+    while (s.core.marks.length > s.core.maxMarks) s.core.marks.shift();   // evict the oldest mark
+    s.core.cd = 2.5;   // hold the player's choice before the auto-painter tops up
+    return true;
+  }
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

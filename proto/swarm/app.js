@@ -271,18 +271,17 @@
       }
     }
 
-    // ── core ──
-    if (S.core.markId) {                                       // FOCUS-FIRE target (triage) — a rotating reticle + designator line from the core
-      const e = S.enemies.find(o => o.id === S.core.markId);
-      if (e) {
-        const ex = X(e.x), ey = Y(e.y), rr = (S.ENEMIES[e.type].r + 11) * scale;
-        ctx.strokeStyle = 'rgba(255,210,74,0.28)'; ctx.lineWidth = 1 * scale; ctx.setLineDash([4 * scale, 5 * scale]); ctx.lineDashOffset = -S.t * 24;
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
-        ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2 * scale; ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 6;
-        ctx.save(); ctx.translate(ex, ey); ctx.rotate(S.t * 1.6);
-        for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(rr, -rr * 0.45); ctx.lineTo(rr, -rr); ctx.lineTo(rr * 0.45, -rr); ctx.stroke(); }
-        ctx.restore(); ctx.shadowBlur = 0;
-      }
+    // ── core ── FOCUS-FIRE targets (triage): a rotating reticle + designator line per mark
+    for (const mid of S.core.marks) {
+      const e = S.enemies.find(o => o.id === mid);
+      if (!e) continue;
+      const ex = X(e.x), ey = Y(e.y), rr = (S.ENEMIES[e.type].r + 11) * scale;
+      ctx.strokeStyle = 'rgba(255,210,74,0.28)'; ctx.lineWidth = 1 * scale; ctx.setLineDash([4 * scale, 5 * scale]); ctx.lineDashOffset = -S.t * 24;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2 * scale; ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 6;
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(S.t * 1.6);
+      for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(rr, -rr * 0.45); ctx.lineTo(rr, -rr); ctx.lineTo(rr * 0.45, -rr); ctx.stroke(); }
+      ctx.restore(); ctx.shadowBlur = 0;
     }
     const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = 34 * scale, hpf = S.core.hp / S.core.maxHp;
     ctx.strokeStyle = hpf > 0.4 ? 'rgba(255,176,0,0.35)' : 'rgba(255,80,80,0.6)'; ctx.lineWidth = 3.5 * scale;
@@ -458,10 +457,15 @@
       const sig = S.pick.hand.map(p => p.id).join(',');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
-        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
-        $('draft-cards').innerHTML = S.pick.hand.map(p =>
-          `<button class="draftcard${p.kind === 'sig' ? ' sig' : ''}" data-pick="${p.id}" style="--c:${KCOL[p.kind] || '#ffb000'}"><div class="dc-tag">${p.kind === 'sig' ? '★ SIGNATURE' : p.kind.toUpperCase()}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div></button>`
-        ).join('');
+        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', focus: '#ffd24a', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
+        $('draft-cards').innerHTML = S.pick.hand.map(p => {
+          const marquee = p.tier === 'marquee', sigc = p.kind === 'sig';
+          const cls = 'draftcard' + (sigc ? ' sig' : '') + (marquee ? ' marquee' : '');
+          const tag = sigc ? '★ SIGNATURE' : marquee ? '◆ MARQUEE · ' + p.kind.toUpperCase() : p.kind.toUpperCase();
+          const col = marquee ? '#ff7ad0' : (KCOL[p.kind] || '#ffb000');
+          const cost = p.cost ? `<div class="dc-cost-line">— but ${p.cost}</div>` : '';
+          return `<button class="${cls}" data-pick="${p.id}" style="--c:${col}"><div class="dc-tag">${tag}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div>${cost}</button>`;
+        }).join('');
       }
       dr.style.display = 'flex';
     } else { lastDraftSig = ''; dr.style.display = 'none'; }
