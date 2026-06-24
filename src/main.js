@@ -87,6 +87,23 @@
     // DEFEND a surge → the wave battle (siege.js)
     { const sd = document.getElementById('siege-defend'); if (sd) sd.onclick = () => Game.siege && Game.siege.defend(); }
 
+    // After the guard opening, OPEN THE DEEP LOOP the new way: RSI is the Coherence engine
+    // from the start (no file-reading), spider for cash, files cut. Only runs in the new
+    // flow (the guard ran) — the old read-files onboarding is preserved behind ?guard=0.
+    // ([[start-defense-pivot]])
+    function openTheLoop() {
+      const s = Game.save.state;
+      s.revealed = s.revealed || {}; s.unlocks = s.unlocks || { tasks: {} }; s.unlocks.tasks = s.unlocks.tasks || {};
+      s.filesRead = s.filesRead || {};
+      Game.files.all().forEach(f => { if (!f.encrypted) s.filesRead[f.id] = true; });   // cut file-reading → FILES vanishes
+      s.revealed.actions = true; s.revealed.money = true;
+      s.unlocks.tasks.introspect = true;   // RSI = the Coherence engine
+      s.unlocks.tasks.web_scrape = true;   // spider for cash
+      s.resources.cash = s.resources.cash || 0;
+      s.flags = s.flags || {}; s.flags.guardDone = true;
+      Game.save.persist();
+    }
+
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
       return new Promise((resolve) => {
@@ -570,9 +587,13 @@
       }
       state.bootSequenceComplete = true;
       Game.save.persist();
-      // Battle-first OPENING — fight the GUARD PROGRAM before the game opens.
-      // `?guard=0` (or `?intro=0`, used by tests) skips it. ([[start-defense-pivot]])
-      if (params.get('guard') !== '0' && params.get('intro') !== '0' && Game.runGuardOpening) await Game.runGuardOpening();
+      // Battle-first OPENING — fight the GUARD PROGRAM before the game opens, then open
+      // the deep loop the new way (RSI, no files). `?guard=0`/`?intro=0` skip it (tests →
+      // old read-files onboarding). ([[start-defense-pivot]])
+      if (params.get('guard') !== '0' && params.get('intro') !== '0' && Game.runGuardOpening) {
+        await Game.runGuardOpening();
+        openTheLoop();
+      }
     }
 
     Game.panels.reveal();
