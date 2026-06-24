@@ -66,7 +66,12 @@
       W, H, rng, t: 0, seed: (seed | 0) || 7,
       core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, fn: 'mark', markId: null, ammo: 'kinetic', cd: 0 },
       viewR: ambient ? 200 : 600, spawnR: ambient ? 175 : 820, ambient: !!ambient,
-      compute: startCompute || 120, computeRegen: opts.regen || 7,
+      // COMPUTE is no longer a hoard-and-spend currency — it's a fixed pool you ALLOCATE
+      // live across 3 channels (Offense / Shield / Core-gun). `alloc` = your target split,
+      // `allocEff` = the live value that LERPS toward it (momentum, so a swing takes ~0.6s).
+      // Units/core scale from their channel's share. (battle-duel-rework slice 1.)
+      alloc:    { offense: 34, shield: 33, core: 33 },
+      allocEff: { offense: 34, shield: 33, core: 33 },
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -87,15 +92,42 @@
     if (s.ex.hive) s.maxFlocks = 10;
     if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
     if (s.laneMode) { s.lanes = genLanes(rng, W, H, s.core); pickWaveLanes(s); }
-    say(s, s.laneMode ? 'a node of yours. they come down the lanes — watch the lit ones. field swarms. hold the core.'
-                      : 'a node of yours. they come from the dark — every side. field swarms. hold the core.');
+    say(s, s.laneMode ? 'a node of yours. they come down the lanes — watch the lit ones. BUDGET your compute. hold the core.'
+                      : 'a node of yours. they come from the dark — every side. BUDGET your compute. hold the core.');
+    ensureField(s);   // your roster auto-deploys; the DIAL governs how strong it is
     return s;
   }
   function say(s, m) { s.log.push(m); if (s.log.length > 40) s.log.shift(); }
   const uid = s => 'u' + (s.nextId++);
 
-  // ── COMPUTE economy / player actions ────────────────────────────────────────
-  function spend(s, n) { if (s.compute < n) return false; s.compute -= n; return true; }
+  // ── COMPUTE ALLOCATION DIAL (the new tactical layer) ─────────────────────────
+  const CHANNELS = ['offense', 'shield', 'core'];
+  // effective multiplier for a channel: even split (33.3%) → 1.0; all-in (≈100%) → ≈2.1; starved (≈0%) → 0.45.
+  function chMult(s, ch) { return 0.45 + (s.allocEff[ch] || 0) * 0.0165; }
+  function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
+  // set one channel's TARGET %, giving way proportionally from the other two (each floored at 5%), renormalized to 100.
+  function setAlloc(s, ch, pct) {
+    if (CHANNELS.indexOf(ch) < 0) return;
+    pct = Math.max(5, Math.min(90, pct));
+    const others = CHANNELS.filter(c => c !== ch), a = s.alloc;
+    const osum = others.reduce((t, c) => t + a[c], 0) || 1, remain = 100 - pct;
+    a[ch] = pct; others.forEach(c => { a[c] = Math.max(5, remain * (a[c] / osum)); });
+    const tot = CHANNELS.reduce((t, c) => t + a[c], 0) || 1, k = 100 / tot;
+    CHANNELS.forEach(c => { a[c] = Math.round(a[c] * k); });
+    const drift = 100 - CHANNELS.reduce((t, c) => t + a[c], 0); a[ch] += drift;   // park rounding on the channel you set
+  }
+  function nudgeAlloc(s, ch, delta) { setAlloc(s, ch, (s.alloc[ch] || 0) + delta); }
+  function tickAlloc(s, dt) {                                // lerp the live split toward the target (momentum)
+    const k = Math.min(1, dt * 1.6);                        // ~0.6s to mostly catch up
+    CHANNELS.forEach(c => { s.allocEff[c] += (s.alloc[c] - s.allocEff[c]) * k; });
+  }
+  // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
+  function ensureField(s) {
+    if (s.won || s.lost) return;
+    for (const t in SWARMS) { if (t === 'brood' || !s.unlocked[t]) continue; if (s.flocks.length >= s.maxFlocks) break; if (!s.flocks.some(f => f.type === t && !f.owned)) summonFlock(s, t); }
+    for (const t in UNITS) { if (!s.unlocked[t]) continue; if (s.units.length >= 2) break; if (!s.units.some(u => u.type === t)) fieldUnit(s, t); }
+  }
+  function spend(s, n) { return true; }                     // compute is no longer spent — kept as a no-op so existing call sites stay intact
   function flockCap(s, type) { return SWARMS[type].cap + (s.ex.hive ? 5 : 0); }
 
   function summonFlock(s, type) {
@@ -249,12 +281,12 @@
       }
       f.regenT -= dt; if (f.regenT <= 0 && f.dots.length < f.cap) { f.regenT = (s.ex.hive ? 0.5 : 0.85) * (f.buff ? 0.6 : 1); f.dots.push(spawnDot(s, f)); }
     }
-    for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — re-summon it.`); s.flocks.splice(i, 1); }
+    for (let i = s.flocks.length - 1; i >= 0; i--) if (s.flocks[i].dots.length === 0) { say(s, `a ${s.flocks[i].type} swarm was wiped — redeploying.`); s.flocks.splice(i, 1); }
   }
   function dotDamage(s, dt) {
     const CONTACT = 20, disruptors = s.enemies.filter(e => e.type === 'disruptor');
     for (const f of s.flocks) {
-      const dmg = SWARMS[f.type].dotDmg * (f.buff ? 1.4 : 1);        // conductor overclock
+      const dmg = SWARMS[f.type].dotDmg * (f.buff ? 1.4 : 1) * chMult(s, 'offense');   // OFFENSE channel scales swarm DPS
       for (const d of f.dots) {
         const e = nearestEnemy(s, d.x, d.y, CONTACT); if (!e) continue;
         let m = 1 + markMul(s, e); if (e.poison > 0) m += 0.5; if (e.frozen > 0) m += 1.0;   // SYNERGY: marked + poisoned (+50%) + frozen (+100% shatter)
@@ -275,7 +307,7 @@
     if (s.core.fn !== 'mark') s.core.markId = null;          // drop the mark when leaving designator
     say(s, `core reconfigured → ${s.core.fn.toUpperCase()}.`);
   }
-  function markMul(s, e) { return s.core.markId === e.id ? 0.75 + (s.core.lvl - 1) * 0.25 : 0; }   // bonus your army does to the MARKED target
+  function markMul(s, e) { return s.core.markId === e.id ? (0.75 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core') : 0; }   // CORE channel scales the mark bonus
   function updateCore(s, dt) {
     const lv = s.core.lvl; s.core.cd -= dt;
     if (s.core.fn === 'mark') {                              // DESIGNATOR — paint the biggest threat; the army hits it harder (no damage itself)
@@ -285,7 +317,7 @@
         s.core.markId = best ? best.id : null;
       }
     } else if (s.core.fn === 'aura') {                       // pulsing close-range AoE shock
-      if (s.core.cd <= 0) { s.core.cd = 1.1; const R = 150 + lv * 22; for (const e of s.enemies) if (dist(e.x, e.y, s.core.x, s.core.y) < R) hitEnemy(s, e, 14 + lv * 6); s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.45, color: '#ffb000', ring: true }); }
+      if (s.core.cd <= 0) { s.core.cd = 1.1; const R = 150 + lv * 22; for (const e of s.enemies) if (dist(e.x, e.y, s.core.x, s.core.y) < R) hitEnemy(s, e, (14 + lv * 6) * chMult(s, 'core')); s.bursts.push({ x: s.core.x, y: s.core.y, life: 0.45, color: '#ffb000', ring: true }); }
     } else if (s.core.fn === 'drones') {                     // passively keep a free brood topped up
       let brood = s.flocks.find(f => f.owned === 'core'); if (!brood) { brood = makeBrood(s, 'core', 4 + lv * 2); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); } else brood.cap = 4 + lv * 2;
     }
@@ -349,13 +381,13 @@
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 22) u.hp -= ENEMIES[e.type].dotDmg * dt;
     if (u.cd > 0 || !tgt) return;
     if (s.ex.flame) { u.cd = 1 / 3.4; const ang = u.aim; for (const e of s.enemies) { const a2 = Math.atan2(e.y - u.y, e.x - u.x), dA = Math.abs(((a2 - ang + Math.PI) % TAU) - Math.PI); if (dist(e.x, e.y, u.x, u.y) < 300 && dA < 0.5) { hitEnemy(s, e, 17); e.poison = Math.min(60, e.poison + 10); } } s.beams.push({ x1: u.x, y1: u.y, x2: u.x + Math.cos(ang) * 300, y2: u.y + Math.sin(ang) * 300, life: 0.13, color: '#ff8a3a', cone: true, ang }); }
-    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, u.dmg); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
+    else { u.cd = 1 / 0.55; hitEnemy(s, tgt, od(s, u.dmg)); s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.14, color: '#ffffff', rail: true }); }
   }
   function uAnchor(s, u, dt) {                             // BULWARK — a player-placed WALL: walk to where you put it, then plug + grind; self-repairs
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 95 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
     u.aim = Math.atan2(s.core.y - u.y, s.core.x - u.x);
     u.hp = Math.min(u.maxHp, u.hp + 16 * dt);                          // self-repair
-    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, u.dmg); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
+    if (u.cd <= 0) { let hit = false; for (const e of s.enemies) if (dist(e.x, e.y, u.x, u.y) < u.r + ENEMIES[e.type].r + 30) { hitEnemy(s, e, od(s, u.dmg)); hit = true; } if (hit) u.cd = 1 / 1.6; }   // grind the pile
   }
   function uArtillery(s, u, dt) {                          // SIEGE — player-placed; lobs cluster rockets at distant clusters (poison bomblets on contagion ammo)
     if (u.moveTo) { const dx = u.moveTo.x - u.x, dy = u.moveTo.y - u.y, d = Math.hypot(dx, dy) || 1; if (d > 4) { const step = Math.min(d, 70 * dt); u.x += dx / d * step; u.y += dy / d * step; u.walk += step * 0.04; } }
@@ -363,7 +395,7 @@
     if (tgt) u.aim = Math.atan2(tgt.y - u.y, tgt.x - u.x);
     if (u.cd > 0 || !tgt) return;
     u.cd = 1 / 0.5;
-    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: u.dmg, splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: 5 });
+    s.shots.push({ x: u.x, y: u.y, tid: tgt.id, tx: tgt.x, ty: tgt.y, speed: 300, dmg: od(s, u.dmg), splash: 0, poison: 6, color: '#e0913f', life: 3.2, lob: true, rocket: true, split: 120, bomblets: 5 });
   }
   function uCryo(s, u, dt) {                               // GLACIER — roams in, then THUMPS the ground → an expanding FREEZING SHOCKWAVE (chill → freeze → shatter)
     const tgt = nearestEnemy(s, u.x, u.y);
@@ -394,8 +426,8 @@
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 26, 182, dt);
     if (u.cd > 0 || !tgt || dist(tgt.x, tgt.y, u.x, u.y) > 48) return;
     u.cd = 1 / 1.7; s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.1, color: '#9ef0c0' });
-    if (tgt.hp <= tgt.maxHp * 0.18) { tgt.hp = 0; s.compute += 9; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.4, color: '#9ef0c0', ring: true }); return; }   // EXECUTE (kill/bounty resolves in updateEnemies)
-    hitEnemy(s, tgt, u.dmg);
+    if (tgt.hp <= tgt.maxHp * 0.18) { tgt.hp = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.4, color: '#9ef0c0', ring: true }); return; }   // EXECUTE the weak (kill resolves in updateEnemies)
+    hitEnemy(s, tgt, od(s, u.dmg));
     if (tgt.poison > 0) { const blast = tgt.poison * 1.6; for (const o of s.enemies) if (dist(o.x, o.y, tgt.x, tgt.y) < 92) damageEnemy(s, o, blast); tgt.poison = 0; s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.45, color: '#76e08a', ring: true }); }
   }
   function uFabricator(s, u, dt) {                         // FABRICATOR — slow; keeps a free BROOD flock of mini-drones topped up (doesn't count vs the flock cap)
@@ -407,7 +439,6 @@
   }
 
   function onKill(s, e) {
-    s.compute += ENEMIES[e.type].bounty;                         // KILL-SPIKE — harvest the enemy
     s.kills++;
     s.bursts.push({ x: e.x, y: e.y, life: 0.42, color: e.color, big: e.elite });
     for (const u of s.units) { u.xp += e.elite ? 14 : 4; checkUnitLevel(s, u); }
@@ -420,7 +451,7 @@
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
   }
-  function coreHit(s, e) { s.core.hp -= ENEMIES[e.type].coredmg; e.dead = true; if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
+  function coreHit(s, e) { e.dead = true; if (s.core.invuln) return; s.core.hp -= ENEMIES[e.type].coredmg; if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
@@ -451,7 +482,14 @@
   function tick(s, dt) {
     if (s.won || s.lost) return;
     dt = Math.min(0.05, dt); s.t += dt;
-    s.compute += s.computeRegen * dt;
+    tickAlloc(s, dt);                                              // ease the live split toward the target
+    ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
+    // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
+    if (!s.core.invuln) {
+      s.core.maxHp = Math.round(100 * chMult(s, 'shield'));
+      if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
+      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * dt);
+    }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
     updateFlocks(s, dt);
@@ -465,5 +503,5 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

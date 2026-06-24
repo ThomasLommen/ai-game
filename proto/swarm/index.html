@@ -38,6 +38,17 @@
   .seg button{flex:1;background:#0b0e16;border:0;border-right:1px solid var(--faint);color:var(--mid);font-family:inherit;font-size:10px;letter-spacing:1px;padding:6px 0;cursor:pointer;}
   .seg button:last-child{border-right:0;}
   .seg button.on{background:rgba(255,176,0,.16);color:var(--amber);}
+  /* compute-allocation dial */
+  .dial{display:flex;align-items:stretch;gap:6px;background:#0b0e16ee;border:1px solid var(--faint);border-left:3px solid var(--c,#ffb000);padding:6px 7px;}
+  .dialbtn{width:30px;flex:none;background:#11151f;border:1px solid var(--faint);color:var(--c,var(--amber));font-family:inherit;font-size:17px;line-height:1;cursor:pointer;border-radius:2px;}
+  .dialbtn:active{background:rgba(255,176,0,.18);}
+  .dialmid{flex:1;display:flex;flex-direction:column;gap:3px;justify-content:center;min-width:0;}
+  .dialrow{display:flex;justify-content:space-between;align-items:baseline;}
+  .dialname{font-size:11px;letter-spacing:1px;color:var(--c,var(--amber));}
+  .dialpct{font-size:12px;color:var(--amber);font-variant-numeric:tabular-nums;}
+  .dialbar{height:5px;background:#141824;position:relative;overflow:hidden;}
+  .dialbar i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--c,var(--amber));transition:width .12s linear;}
+  .dialsub{font-size:8px;color:var(--mid);}
   /* exotic toggles */
   #exrail{position:fixed;right:11px;top:124px;width:182px;display:flex;flex-direction:column;gap:6px;z-index:5;max-height:calc(100vh - 188px);overflow-y:auto;}
   body.ui-hidden #rail, body.ui-hidden #exrail, body.ui-hidden #log, body.ui-hidden #hero, body.ui-hidden .legend{display:none;}
@@ -77,7 +88,7 @@
 
 <div id="topbar">
   <span class="brand">◉ THE CORE<span class="dim" style="letter-spacing:1px"> · swarm proof</span></span>
-  <div class="stat compute">COMPUTE <b id="compute">120</b></div>
+  <div class="stat compute">LEAN <b id="compute">—</b></div>
   <div class="stat">CORE <b id="corehp">100</b><div class="track"><i id="corebar"></i></div></div>
   <div class="stat">THREAT <b id="threat">0</b></div>
   <div class="stat">SURGE <b id="surge">0 / 6</b></div>
@@ -91,29 +102,18 @@
 
 <div id="rail">
   <div class="group">
-    <div class="glabel">SWARMS · auto-fight by stance</div>
-    <button class="act" id="s_hunter" style="--c:#49d2ff"><span class="n">HUNTER</span><span class="d">locks one · anti-elite</span><span class="c">⚡45</span></button>
-    <button class="act" id="s_locust" style="--c:#ffc23a"><span class="n">LOCUST</span><span class="d">swirls a cluster · anti-horde</span><span class="c">⚡45</span></button>
-    <button class="act" id="s_leech"  style="--c:#76e08a"><span class="n">LEECH</span><span class="d">peels off · spreads contagion</span><span class="c">⚡55</span></button>
+    <div class="glabel">COMPUTE ALLOCATION · budget the pool</div>
+    <div class="dial" id="dial_offense" style="--c:#49d2ff"><button class="dialbtn" id="dec_offense">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">OFFENSE</span><span class="dialpct" id="pct_offense">34</span></div><div class="dialbar"><i id="bar_offense"></i></div><span class="dialsub">swarm + pod damage</span></div><button class="dialbtn" id="inc_offense">+</button></div>
+    <div class="dial" id="dial_shield" style="--c:#76e08a"><button class="dialbtn" id="dec_shield">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">SHIELD</span><span class="dialpct" id="pct_shield">33</span></div><div class="dialbar"><i id="bar_shield"></i></div><span class="dialsub">core max-HP + regen</span></div><button class="dialbtn" id="inc_shield">+</button></div>
+    <div class="dial" id="dial_core" style="--c:#ffb000"><button class="dialbtn" id="dec_core">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">CORE-GUN</span><span class="dialpct" id="pct_core">33</span></div><div class="dialbar"><i id="bar_core"></i></div><span class="dialsub">core function potency</span></div><button class="dialbtn" id="inc_core">+</button></div>
   </div>
   <div class="group">
     <div class="glabel">STANCE</div>
     <div class="seg" id="stance"><button id="st_guard" class="on">GUARD</button><button id="st_hunt">HUNT</button><button id="st_press">PRESS</button></div>
   </div>
   <div class="group">
-    <div class="glabel">PODS · max 2 fielded · re-summon = upgrade</div>
-    <button class="act unit" id="u_strider" style="--c:#ff9e6b"><span class="n" id="strider_n">DEPLOY STRIDER</span><span class="d">roams + railguns the heavies</span><span class="c" id="strider_c">⚡80</span></button>
-    <button class="act unit" id="u_bulwark" style="--c:#c8b27a"><span class="n" id="bulwark_n">DEPLOY BULWARK</span><span class="d">walls a lane · blocks + grinds</span><span class="c" id="bulwark_c">⚡95</span></button>
-    <button class="act unit" id="u_siege" style="--c:#e0913f"><span class="n" id="siege_n">DEPLOY SIEGE</span><span class="d">stationary · lobs AoE shells</span><span class="c" id="siege_c">⚡115</span></button>
-    <button class="act unit" id="u_glacier" style="--c:#8fd4ff"><span class="n" id="glacier_n">DEPLOY GLACIER</span><span class="d">chills → freezes (shatter)</span><span class="c" id="glacier_c">⚡105</span></button>
-    <button class="act unit" id="u_conductor" style="--c:#caa6ff"><span class="n" id="conductor_n">DEPLOY CONDUCTOR</span><span class="d">overclocks nearby flocks</span><span class="c" id="conductor_c">⚡95</span></button>
-    <button class="act unit" id="u_reaper" style="--c:#9ef0c0"><span class="n" id="reaper_n">DEPLOY REAPER</span><span class="d">detonates poison · executes</span><span class="c" id="reaper_c">⚡105</span></button>
-    <button class="act unit" id="u_fabricator" style="--c:#ffd24a"><span class="n" id="fabricator_n">DEPLOY FABRICATOR</span><span class="d">prints a drone brood</span><span class="c" id="fabricator_c">⚡120</span></button>
-  </div>
-  <div class="group">
     <div class="glabel">THE CORE · one function at a time</div>
     <button class="act" id="u_corefn" style="--c:#ffb000"><span class="n" id="corefn_n">CORE: MARK</span><span class="d" id="corefn_d">paints the biggest threat — tap to cycle</span></button>
-    <button class="act" id="u_core" style="--c:#ffb000"><span class="n">UPGRADE CORE</span><span class="d" id="core_d">v1 · stronger</span><span class="c" id="core_c">⚡95</span></button>
     <button class="act" id="u_ammo" style="--c:#ffd9a0"><span class="n" id="ammo_n">AMMO: KINETIC</span><span class="d" id="ammo_d">fast direct rounds — tap to swap</span></button>
   </div>
 </div>

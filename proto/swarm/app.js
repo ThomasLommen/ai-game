@@ -61,21 +61,15 @@
   cvs.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 
   // ── input — static buttons wired by id (no rebuild = no eaten clicks) ──
-  $('s_hunter').onclick = () => SWARM.summonFlock(S, 'hunter');
-  $('s_locust').onclick = () => SWARM.summonFlock(S, 'locust');
-  $('s_leech').onclick  = () => SWARM.summonFlock(S, 'leech');
+  // COMPUTE-ALLOCATION DIAL: ±8% to a channel; the other two give way; momentum eases it in
+  SWARM.CHANNELS.forEach(ch => {
+    $('inc_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, +8);
+    $('dec_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, -8);
+  });
   $('st_guard').onclick = () => SWARM.setStance(S, 'guard');
   $('st_hunt').onclick  = () => SWARM.setStance(S, 'hunt');
   $('st_press').onclick = () => SWARM.setStance(S, 'press');
-  $('u_strider').onclick = () => SWARM.fieldUnit(S, 'strider');
-  $('u_bulwark').onclick = () => SWARM.fieldUnit(S, 'bulwark');
-  $('u_siege').onclick   = () => SWARM.fieldUnit(S, 'siege');
-  $('u_glacier').onclick = () => SWARM.fieldUnit(S, 'glacier');
-  $('u_conductor').onclick = () => SWARM.fieldUnit(S, 'conductor');
-  $('u_reaper').onclick = () => SWARM.fieldUnit(S, 'reaper');
-  $('u_fabricator').onclick = () => SWARM.fieldUnit(S, 'fabricator');
   $('u_corefn').onclick = () => SWARM.swapCoreFn(S);
-  $('u_core').onclick   = () => SWARM.upgradeCore(S);
   $('u_ammo').onclick   = () => SWARM.swapAmmo(S);
   $('ex_hive').onclick  = () => SWARM.toggleEx(S, 'hive');
   $('ex_flame').onclick = () => SWARM.toggleEx(S, 'flame');
@@ -427,19 +421,24 @@
 
   // ── UI (update text/classes only — never rebuild a button) ──
   function ui() {
-    $('compute').textContent = Math.floor(S.compute);
+    // compute-allocation dial: live bars + the dominant LEAN in the topbar
+    let lean = 'offense', lv = -1;
+    SWARM.CHANNELS.forEach(ch => {
+      const eff = S.allocEff[ch], tgt = Math.round(S.alloc[ch]);
+      $('bar_' + ch).style.width = eff + '%';
+      $('pct_' + ch).textContent = tgt;
+      if (eff > lv) { lv = eff; lean = ch; }
+    });
+    $('compute').textContent = (lean === 'core' ? 'CORE-GUN' : lean.toUpperCase()) + ' ' + Math.round(lv) + '%';
     $('corehp').textContent = Math.ceil(S.core.hp);
     const cb = $('corebar'); cb.style.width = Math.max(0, S.core.hp / S.core.maxHp * 100) + '%'; cb.style.background = S.core.hp / S.core.maxHp < 0.35 ? '#ff5050' : 'var(--amber)';
     $('threat').textContent = Math.round(S.threat);
     $('surge').textContent = S.surge + ' / ' + S.GOAL_SURGES;
     $('mode').textContent = 'MODE: ' + (laneMode ? 'LANES' : 'OPEN');
 
-    ['hunter', 'locust', 'leech'].forEach(t => { aff('s_' + t, S.SWARMS[t].cost); $('s_' + t).style.display = S.unlocked[t] ? '' : 'none'; });
-    ['strider', 'bulwark', 'siege', 'glacier', 'conductor', 'reaper', 'fabricator'].forEach(unitBtn);
     const FNDESC = { mark: 'paints the biggest threat — your army hits it harder', slow: 'slows enemies near the core', aura: 'pulses AoE damage around the core', drones: 'passively prints a free brood' };
     $('corefn_n').textContent = 'CORE: ' + S.core.fn.toUpperCase();
     $('corefn_d').textContent = FNDESC[S.core.fn] + ' — tap to cycle';
-    const cc = SWARM.coreCost(S); aff('u_core', cc); $('core_c').textContent = '⚡' + cc; $('core_d').textContent = `v${S.core.lvl} · stronger`;
     $('u_ammo').style.display = S.core.fn === 'turret' ? '' : 'none';
     $('ammo_n').textContent = 'AMMO: ' + S.core.ammo.toUpperCase(); $('ammo_d').textContent = S.AMMO[S.core.ammo].desc + ' — tap to swap';
 
@@ -473,14 +472,6 @@
         + `pods: ${S.units.map(u => u.type + ' mk' + u.lvl).join(', ') || '—'} &middot; ${S.flocks.length} swarms<br>`
         + `<span style="color:var(--mid)">${EMBED ? (S.won ? 'the intrusion is purged — return to the terminal' : 'they broke through — fall back to the terminal') : 'a fresh node every run — no carry-over'}</span>`;
     } else ov.style.display = 'none';
-  }
-  function aff(id, cost) { $(id).classList.toggle('noafford', S.compute < cost); }
-  function unitBtn(type) {
-    const d = S.UNITS[type], ex = S.units.find(u => u.type === type), cost = SWARM.unitCost(S, type);
-    $(type + '_n').textContent = ex ? `REFIT ${d.name.toUpperCase()} → mk${ex.lvl + 1}` : `DEPLOY ${d.name.toUpperCase()}`;
-    $(type + '_c').textContent = '⚡' + cost;
-    const btn = $('u_' + type); btn.classList.toggle('noafford', S.compute < cost); btn.classList.toggle('owned', !!ex);
-    btn.style.display = S.unlocked[type] ? '' : 'none';   // hidden until drafted
   }
 
   function frame(now) {
