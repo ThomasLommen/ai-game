@@ -75,15 +75,15 @@
   .legend{position:fixed;left:50%;bottom:7px;transform:translateX(-50%);font-size:8.5px;color:var(--faint);letter-spacing:1px;z-index:4;display:flex;gap:13px;}
   /* overlay */
   /* research draft */
-  #draft{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,6,10,0.9);z-index:12;}
-  .draft-h{font-size:22px;letter-spacing:6px;color:var(--amber);}
-  .draft-sub{font-size:11px;color:var(--dim);letter-spacing:1px;margin-top:-8px;}
-  #draft-cards{display:flex;gap:14px;margin:6px 0;}
-  .draftcard{width:184px;background:#0b0e16;border:1px solid var(--faint);border-top:3px solid var(--c,#ffb000);color:var(--dim);font-family:inherit;text-align:left;padding:13px 14px;cursor:pointer;display:flex;flex-direction:column;gap:7px;transition:transform .1s,box-shadow .1s;}
-  .draftcard:hover{border-color:var(--c);box-shadow:0 0 16px -3px var(--c);transform:translateY(-3px);}
+  #draft{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;background:rgba(5,6,10,0.93);z-index:12;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:5vh 14px calc(5vh + env(safe-area-inset-bottom));}
+  .draft-h{font-size:19px;letter-spacing:6px;color:var(--amber);margin-top:auto;}
+  .draft-sub{font-size:10.5px;color:var(--dim);letter-spacing:1px;text-align:center;line-height:1.4;}
+  #draft-cards{display:flex;flex-direction:column;gap:9px;margin:6px 0 auto;width:min(440px,94vw);}
+  .draftcard{width:100%;background:#0b0e16;border:1px solid var(--faint);border-left:3px solid var(--c,#ffb000);color:var(--dim);font-family:inherit;text-align:left;padding:11px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:border-color .1s,box-shadow .1s;}
+  .draftcard:active{border-color:var(--c);box-shadow:0 0 16px -3px var(--c);}
   .dc-tag{font-size:8px;letter-spacing:2px;color:var(--mid);}
   .dc-name{font-size:15px;letter-spacing:1px;color:var(--c);}
-  .dc-desc{font-size:10px;color:var(--dim);line-height:1.45;min-height:42px;}
+  .dc-desc{font-size:10.5px;color:var(--dim);line-height:1.4;}
   .dc-cost{font-size:12px;color:var(--cyan);}
   #overlay{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:11px;background:rgba(5,6,10,0.86);z-index:10;}
   #ov-title{font-size:30px;letter-spacing:8px;}
@@ -144,10 +144,9 @@
 </div>
 
 <div id="draft">
-  <div class="draft-h">RESEARCH DRAFT</div>
-  <div class="draft-sub">a breakthrough — bring ONE new unit online. the board is paused.</div>
+  <div class="draft-h" id="draft-h">CHOOSE ONE</div>
+  <div class="draft-sub" id="draft-sub">a make-or-break pick — reshape your build. the board is paused.</div>
   <div id="draft-cards"></div>
-  <button id="draft-skip" class="btn">skip this draft</button>
 </div>
 <div id="overlay"><div id="ov-title"></div><div id="ov-sub"></div><button id="reseed2" class="btn" onclick="document.getElementById('reseed').click()">⟳ new node</button></div>
 

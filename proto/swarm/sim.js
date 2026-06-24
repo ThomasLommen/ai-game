@@ -73,6 +73,9 @@
       alloc:    { offense: 34, shield: 33, core: 33 },
       allocEff: { offense: 34, shield: 33, core: 33 },
       counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel (slice 2)
+      pick: null, picksTaken: [], picksOff: !!opts.picksOff,   // one make-or-break PICK per round (slice 3); picksOff = headless sims
+
+      chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -104,7 +107,7 @@
   // ── COMPUTE ALLOCATION DIAL (the new tactical layer) ─────────────────────────
   const CHANNELS = ['offense', 'shield', 'core'];
   // effective multiplier for a channel: even split (33.3%) → 1.0; all-in (≈100%) → ≈2.1; starved (≈0%) → 0.45.
-  function chMult(s, ch) { return 0.45 + (s.allocEff[ch] || 0) * 0.0165; }
+  function chMult(s, ch) { return 0.45 + (s.allocEff[ch] || 0) * 0.0165 + (s.chBonus[ch] || 0); }   // picks add flat channel bonuses
   function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
   // set one channel's TARGET %, giving way proportionally from the other two (each floored at 5%), renormalized to 100.
   function setAlloc(s, ch, pct) {
@@ -126,7 +129,7 @@
   function ensureField(s) {
     if (s.won || s.lost) return;
     for (const t in SWARMS) { if (t === 'brood' || !s.unlocked[t]) continue; if (s.flocks.length >= s.maxFlocks) break; if (!s.flocks.some(f => f.type === t && !f.owned)) summonFlock(s, t); }
-    for (const t in UNITS) { if (!s.unlocked[t]) continue; if (s.units.length >= 2) break; if (!s.units.some(u => u.type === t)) fieldUnit(s, t); }
+    for (const t in UNITS) { if (!s.unlocked[t]) continue; if (s.units.length >= (s.podCap || 2)) break; if (!s.units.some(u => u.type === t)) fieldUnit(s, t); }
   }
   function spend(s, n) { return true; }                     // compute is no longer spent — kept as a no-op so existing call sites stay intact
   function flockCap(s, type) { return SWARMS[type].cap + (s.ex.hive ? 5 : 0); }
@@ -158,7 +161,7 @@
       ex.lvl++; ex.dmg = Math.round(ex.dmg * 1.4); ex.maxHp = Math.round(ex.maxHp * 1.25); ex.hp = ex.maxHp;
       say(s, `${d.name} refit to mk${ex.lvl}.`); return true;
     }
-    if (s.units.length >= 2) { say(s, 'pod cap reached — only 2 pods at a time. refit one, or retire it for a new node.'); return false; }
+    if (s.units.length >= (s.podCap || 2)) { say(s, `pod cap reached — only ${s.podCap || 2} pods at a time.`); return false; }
     if (!spend(s, d.cost)) return false;
     const ang = s.rng() * TAU, rr = 78, sx = s.core.x + Math.cos(ang) * rr, sy = s.core.y + Math.sin(ang) * rr;
     s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: d.hp, maxHp: d.hp, lvl: 1, xp: 0, dmg: d.dmg, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
@@ -207,7 +210,8 @@
   function readLean(s) { let ch = 'offense', v = -1; CHANNELS.forEach(c => { if (s.allocEff[c] > v) { v = s.allocEff[c]; ch = c; } }); return { ch, share: v }; }
   function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
     const { ch, share } = readLean(s);
-    const mag = Math.max(0, Math.min(1, (share - 40) / 45));  // ≤40% even-ish = no counter; ramps to full by ~85%
+    let mag = Math.max(0, Math.min(1, (share - 40 - (s.feint || 0)) / 45));  // ≤40% even-ish = no counter; FEINT softens the read
+    mag *= (1 - (s.counterResist || 0));                      // ADAPTIVE PLATING blunts the counter
     if (mag < 0.06) { s.counter = null; s.threatRead = null; return; }
     s.counter = { channel: ch, mag };
     s.threatRead = `the guard reads your ${COUNTER[ch].read} — ${COUNTER[ch].tell}.`;
@@ -218,6 +222,36 @@
     if (def.shield) { const add = def.shield * c.mag; e.shield += add; e.shieldMax += add; }
     if (def.coredmg) e.coredmgMul = 1 + def.coredmg * c.mag;
     if (def.speed) e.speedMul = 1 + def.speed * c.mag;
+  }
+
+  // ── THE PICKS: one make-or-break choice per round reshapes your build ─────────
+  // Baseline deck (slice 3). Some stack (channel overclocks), some cap out. Several
+  // answer the DUEL directly (pierce/adaptive/feint) so a hand can address the counter.
+  const PICKS = [
+    { id: 'od_offense', name: 'OVERCLOCK · OFFENSE', kind: 'offense', desc: '+0.3 to your offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
+    { id: 'od_shield',  name: 'REINFORCE · SHIELD',  kind: 'shield',  desc: '+0.3 to your shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
+    { id: 'od_core',    name: 'TUNE · CORE-GUN',     kind: 'core',    desc: '+0.3 to your core-gun multiplier (function potency)',   apply: s => { s.chBonus.core += 0.3; } },
+    { id: 'swarm_cap',  name: 'SWARM EXPANSION',     kind: 'cap',  max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
+    { id: 'extra_pod',  name: 'EXTRA POD BAY',       kind: 'cap',  max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
+    { id: 'pierce',     name: 'PIERCING ROUNDS',     kind: 'edge', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
+    { id: 'hardened',   name: 'HARDENED CORE',       kind: 'edge', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
+    { id: 'selfrepair', name: 'SELF-REPAIR',         kind: 'edge', max: 2, desc: 'core regen doubled', apply: s => { s.regenMul *= 2; } },
+    { id: 'adaptive',   name: 'ADAPTIVE PLATING',    kind: 'duel', max: 2, desc: "the guard's counter bites 35% less",               apply: s => { s.counterResist = Math.min(0.7, s.counterResist + 0.35); } },
+    { id: 'feint',      name: 'FEINT PROTOCOL',      kind: 'duel', max: 2, desc: 'the guard misreads your lean — softer counters',   apply: s => { s.feint += 12; } },
+  ];
+  function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
+  function offerPick(s) {
+    if (s.pick || s.won || s.lost || s.picksOff) return;
+    const avail = PICKS.filter(p => pickCount(s, p.id) < (p.max || 99));
+    for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
+    s.pick = { hand: avail.slice(0, Math.min(3, avail.length)) };
+    say(s, 'a make-or-break PICK opens — reshape your build.');
+  }
+  function takePick(s, id) {
+    if (!s.pick) return false;
+    const p = s.pick.hand.find(x => x.id === id);
+    if (p) { p.apply(s); s.picksTaken.push(id); say(s, `picked ${p.name}.`); }
+    s.pick = null; return true;
   }
 
   // ── enemies + surges ────────────────────────────────────────────────────────
@@ -268,13 +302,17 @@
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
     s.surgeT = 15 + s.rng() * 4;
     say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
+    offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
   }
 
   function nearestEnemy(s, x, y, maxR) { let b = null, bd = maxR || 1e9; for (const e of s.enemies) { const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; b = e; } } return b; }
   function densestEnemy(s) { let b = null, bn = -1; for (const e of s.enemies) { let n = 0; for (const o of s.enemies) if (dist(e.x, e.y, o.x, o.y) < 80) n++; if (n > bn) { bn = n; b = e; } } return b; }
   function damageEnemy(s, e, amt) {                          // all army damage routes here → shields soak first (WARD)
     if (amt <= 0) return; e.hitT = s.t; e.lastHit = s.t;
-    if (e.shield > 0) { const a = Math.min(e.shield, amt); e.shield -= a; amt -= a; }
+    if (e.shield > 0) {
+      if (s.pierce > 0) { const through = amt * s.pierce; e.hp -= through; amt -= through; }   // PIERCING ROUNDS bypass part of the shield
+      const a = Math.min(e.shield, amt); e.shield -= a; amt -= a;
+    }
     if (amt > 0) e.hp -= amt;
   }
   function jammedAt(disruptors, x, y) { for (const z of disruptors) if (dist(x, y, z.x, z.y) < ENEMIES[z.type].jam) return true; return false; }   // inside a DISRUPTOR's jam field?
@@ -511,15 +549,15 @@
   }
 
   function tick(s, dt) {
-    if (s.won || s.lost) return;
+    if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
     tickAlloc(s, dt);                                              // ease the live split toward the target
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
     // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
     if (!s.core.invuln) {
-      s.core.maxHp = Math.round(100 * chMult(s, 'shield'));
+      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
-      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * dt);
+      s.core.hp = Math.min(s.core.maxHp, s.core.hp + 6 * chMult(s, 'shield') * (s.regenMul || 1) * dt);   // SELF-REPAIR doubles regen
     }
     s.threat += dt * 0.18;
     tickSpawns(s, dt);
@@ -534,5 +572,5 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, offerPick, takePick, PICKS, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

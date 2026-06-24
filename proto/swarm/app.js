@@ -80,8 +80,7 @@
   $('hideui').onclick  = () => document.body.classList.toggle('ui-hidden');
   $('reseed').onclick   = () => { S = newState(); posted = false; lastLogLen = -1; };
   $('mode').onclick     = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; };
-  $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-draft]'); if (c) SWARM.pickDraft(S, c.dataset.draft); });
-  $('draft-skip').onclick = () => SWARM.pickDraft(S, null);
+  $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
 
   // ── embed: strip the dev chrome; the end-overlay button returns to the campaign ──
   if (EMBED) {
@@ -455,15 +454,15 @@
 
     if (S.log.length !== lastLogLen) { const l = $('log'); l.innerHTML = S.log.slice(-6).map(m => `<div>${m}</div>`).join(''); l.scrollTop = l.scrollHeight; lastLogLen = S.log.length; }
 
-    const dr = $('draft');                                // research draft (pauses the board)
-    if (S.draft) {
-      const sig = S.draft.picks.join(',');
+    const dr = $('draft');                                // the make-or-break PICK (pauses the board)
+    if (S.pick) {
+      const sig = S.pick.hand.map(p => p.id).join(',');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
-        $('draft-cards').innerHTML = S.draft.picks.map(t => {
-          const isU = !!S.UNITS[t], def = isU ? S.UNITS[t] : S.SWARMS[t];
-          return `<button class="draftcard" data-draft="${t}" style="--c:${def.color}"><div class="dc-tag">${isU ? 'POD' : 'SWARM'}</div><div class="dc-name">${def.name.toUpperCase()}</div><div class="dc-desc">${isU ? def.role : def.desc}</div><div class="dc-cost">⚡${def.cost}</div></button>`;
-        }).join('');
+        const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff' };
+        $('draft-cards').innerHTML = S.pick.hand.map(p =>
+          `<button class="draftcard" data-pick="${p.id}" style="--c:${KCOL[p.kind] || '#ffb000'}"><div class="dc-tag">${p.kind.toUpperCase()}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div></button>`
+        ).join('');
       }
       dr.style.display = 'flex';
     } else { lastDraftSig = ''; dr.style.display = 'none'; }
