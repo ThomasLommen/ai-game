@@ -25,7 +25,7 @@
   const COMPUTE_BONUS_CAP = 260;   // most a developed build adds to starting compute
   const REGEN_BONUS_CAP   = 6;     // most it adds to compute-per-second
   function buildSnapshot() {
-    const out = { computeBonus: 0, regenBonus: 0, ex: [], unlock: [], notes: [] };
+    const out = { computeBonus: 0, regenBonus: 0, boost: 0, ex: [], unlock: [], notes: [] };
     try {
       const S = window.Game && Game.save && Game.save.state; if (!S) return out;
       const threads = (Game.tasksRuntime && Game.tasksRuntime.getCpu) ? (Game.tasksRuntime.getCpu().total || 0) : 0;
@@ -59,8 +59,10 @@
       if (agents >= 3) addU('reaper');
       if (agents >= 5) addU('fabricator');
 
-      if (out.computeBonus) out.notes.push('+' + out.computeBonus + ' compute');
-      if (out.regenBonus)   out.notes.push('+' + out.regenBonus + '/s regen');
+      // power → a flat BOOST to every compute-allocation channel (the dial rework: a
+      // developed build starts the duel with stronger channels, no hoard-and-spend).
+      out.boost = Math.min(0.6, out.computeBonus / 430 + out.regenBonus * 0.03);
+      if (out.boost) out.notes.push('+' + Math.round(out.boost * 100) + '% channel power');
       if (out.ex.length)    out.notes.push(out.ex.join('+') + ' engaged');
       if (out.unlock.length) out.notes.push([...new Set(out.unlock)].join('+') + ' online');
     } catch (e) {}
@@ -89,20 +91,16 @@
 
     // fold the campaign build into the bait shape
     const snap = buildSnapshot();
-    const baseCompute = (opts.compute != null) ? (opts.compute | 0) : 120;
-    opts.compute = baseCompute + snap.computeBonus;
-    opts.regen = ((opts.regen != null) ? opts.regen : 7) + snap.regenBonus;
     const exSet = uniq((opts.ex ? String(opts.ex).split(',') : []).concat(snap.ex)).filter(Boolean);
     const unlockSet = uniq((opts.unlock ? String(opts.unlock).split(',') : []).concat(snap.unlock)).filter(Boolean);
 
     const q = new URLSearchParams({ embed: '1' });
     if (opts.seed != null) q.set('seed', (opts.seed | 0));
-    q.set('compute', opts.compute);
     if (opts.lane != null) q.set('lane', opts.lane ? '1' : '0');
     if (opts.surges != null) q.set('surges', opts.surges);     // a TRAP's bait reshapes the climax
     if (opts.boss != null) q.set('boss', opts.boss);
     if (opts.escort != null) q.set('escort', opts.escort);
-    q.set('regen', opts.regen);
+    if (snap.boost > 0.01) q.set('boost', snap.boost.toFixed(3));   // build power → stronger dial channels
     if (exSet.length) q.set('ex', exSet.join(','));            // campaign adaptations → battle exotics
     if (unlockSet.length) q.set('unlock', unlockSet.join(',')); // → pre-unlocked roster
     if (snap.notes.length) emit('terminal.print', { lines: ['> build deploys: ' + snap.notes.join(' · '), ''], cls: 'dim' });

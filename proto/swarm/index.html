@@ -49,6 +49,15 @@
   .dialbar{height:5px;background:#141824;position:relative;overflow:hidden;}
   .dialbar i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--c,var(--amber));transition:width .12s linear;}
   .dialsub{font-size:8px;color:var(--mid);}
+  .ocbtn{color:#ffd24a;}
+  .dial.ocburst{border-color:#ffd24a;box-shadow:0 0 14px rgba(255,210,74,.45);}
+  .dial.ocburst .dialname::after{content:' ⚡ OVERCLOCK';color:#ffe27a;font-size:8px;letter-spacing:1px;}
+  .dial.ocbrown{opacity:.55;}
+  .dial.ocbrown .dialname::after{content:' ▼ BROWNOUT';color:#ff9e6b;font-size:8px;letter-spacing:1px;}
+  .dial.ocbtn-hot .ocbtn{color:#ff5a6a;}
+  .ocheat{display:flex;align-items:center;gap:7px;font-size:8px;letter-spacing:2px;color:var(--mid);padding:0 2px;}
+  .ocheatbar{flex:1;height:4px;background:#141824;position:relative;overflow:hidden;}
+  .ocheatbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:#ffd24a;transition:width .15s linear;}
   .dial.countered{border-color:#ff5a6a;box-shadow:0 0 10px rgba(255,90,106,.25);}
   .dial.countered .dialname::after{content:' ⚠ COUNTERED';color:#ff7a86;font-size:8px;letter-spacing:1px;}
   /* threat-read telegraph banner */
@@ -114,9 +123,10 @@
 <div id="rail">
   <div class="group">
     <div class="glabel">COMPUTE ALLOCATION · budget the pool</div>
-    <div class="dial" id="dial_offense" style="--c:#49d2ff"><button class="dialbtn" id="dec_offense">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">OFFENSE</span><span class="dialpct" id="pct_offense">34</span></div><div class="dialbar"><i id="bar_offense"></i></div><span class="dialsub">swarm + pod damage</span></div><button class="dialbtn" id="inc_offense">+</button></div>
-    <div class="dial" id="dial_shield" style="--c:#76e08a"><button class="dialbtn" id="dec_shield">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">SHIELD</span><span class="dialpct" id="pct_shield">33</span></div><div class="dialbar"><i id="bar_shield"></i></div><span class="dialsub">core max-HP + regen</span></div><button class="dialbtn" id="inc_shield">+</button></div>
-    <div class="dial" id="dial_core" style="--c:#ffb000"><button class="dialbtn" id="dec_core">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">CORE-GUN</span><span class="dialpct" id="pct_core">33</span></div><div class="dialbar"><i id="bar_core"></i></div><span class="dialsub">core function potency</span></div><button class="dialbtn" id="inc_core">+</button></div>
+    <div class="dial" id="dial_offense" style="--c:#49d2ff"><button class="dialbtn" id="dec_offense">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">OFFENSE</span><span class="dialpct" id="pct_offense">34</span></div><div class="dialbar"><i id="bar_offense"></i></div><span class="dialsub">swarm + pod damage</span></div><button class="dialbtn" id="inc_offense">+</button><button class="dialbtn ocbtn" id="oc_offense" title="overclock">⚡</button></div>
+    <div class="dial" id="dial_shield" style="--c:#76e08a"><button class="dialbtn" id="dec_shield">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">SHIELD</span><span class="dialpct" id="pct_shield">33</span></div><div class="dialbar"><i id="bar_shield"></i></div><span class="dialsub">core max-HP + regen</span></div><button class="dialbtn" id="inc_shield">+</button><button class="dialbtn ocbtn" id="oc_shield" title="overclock">⚡</button></div>
+    <div class="dial" id="dial_core" style="--c:#ffb000"><button class="dialbtn" id="dec_core">−</button><div class="dialmid"><div class="dialrow"><span class="dialname">CORE-GUN</span><span class="dialpct" id="pct_core">33</span></div><div class="dialbar"><i id="bar_core"></i></div><span class="dialsub">core function potency</span></div><button class="dialbtn" id="inc_core">+</button><button class="dialbtn ocbtn" id="oc_core" title="overclock">⚡</button></div>
+    <div class="ocheat"><span>OC HEAT</span><div class="ocheatbar"><i id="ocheatbar"></i></div></div>
   </div>
   <div class="group">
     <div class="glabel">STANCE</div>

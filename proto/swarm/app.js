@@ -18,6 +18,7 @@
     if (Q.has('regen')) o.regen = qNum('regen');
     if (Q.has('ex')) o.ex = Q.get('ex').split(',').filter(Boolean);          // campaign adaptations → battle exotics
     if (Q.has('unlock')) o.unlock = Q.get('unlock').split(',').filter(Boolean); // → pre-unlocked roster
+    if (Q.has('boost')) o.boost = qNum('boost', 0);                          // campaign build power → stronger dial channels
     return o;
   };
   const newState = () => SWARM.create(makeSeed(), laneMode, Q.has('compute') ? qNum('compute', 120) : undefined, false, battleOpts());
@@ -65,6 +66,7 @@
   SWARM.CHANNELS.forEach(ch => {
     $('inc_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, +8);
     $('dec_' + ch).onclick = () => SWARM.nudgeAlloc(S, ch, -8);
+    $('oc_' + ch).onclick  = () => SWARM.overclock(S, ch);
   });
   $('st_guard').onclick = () => SWARM.setStance(S, 'guard');
   $('st_hunt').onclick  = () => SWARM.setStance(S, 'hunt');
@@ -430,7 +432,14 @@
     });
     $('compute').textContent = (lean === 'core' ? 'CORE-GUN' : lean.toUpperCase()) + ' ' + Math.round(lv) + '%';
     // THE DUEL: mark the channel the guard is countering + show the threat-read telegraph
-    SWARM.CHANNELS.forEach(ch => $('dial_' + ch).classList.toggle('countered', !!(S.counter && S.counter.channel === ch)));
+    SWARM.CHANNELS.forEach(ch => {
+      const d = $('dial_' + ch);
+      d.classList.toggle('countered', !!(S.counter && S.counter.channel === ch));
+      d.classList.toggle('ocburst', !!(S.oc && S.oc.ch === ch && S.oc.phase === 'burst'));
+      d.classList.toggle('ocbrown', !!(S.oc && S.oc.ch === ch && S.oc.phase === 'brown'));
+      d.classList.toggle('ocbtn-hot', S.ocHeat >= 6);
+    });
+    $('ocheatbar').style.width = Math.min(100, S.ocHeat / 6 * 100) + '%';
     const tr = $('threatread');
     if (S.threatRead) { tr.textContent = S.threatRead; tr.hidden = false; } else tr.hidden = true;
     $('corehp').textContent = Math.ceil(S.core.hp);

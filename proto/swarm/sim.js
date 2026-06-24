@@ -76,6 +76,7 @@
       pick: null, picksTaken: [], picksOff: !!opts.picksOff,   // one make-or-break PICK per round (slice 3); picksOff = headless sims
 
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, counterResist: 0, feint: 0, regenMul: 1,
+      oc: null, ocHeat: 0,                 // OVERCLOCK/RISK: burst a channel past 100%, then it browns out; heat gates spam (slice 5)
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -92,6 +93,7 @@
     };
     // campaign BUILD-MAPPING (battle.js folds these in): pre-engaged exotics + pre-unlocked
     // roster from your adaptations/agents, so a developed build starts armed, not bare.
+    if (opts.boost) { const bb = +opts.boost || 0; s.chBonus.offense += bb; s.chBonus.shield += bb; s.chBonus.core += bb; }   // campaign build power lifts every channel
     if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
     if (s.ex.hive) s.maxFlocks = 10;
     if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
@@ -107,7 +109,29 @@
   // ── COMPUTE ALLOCATION DIAL (the new tactical layer) ─────────────────────────
   const CHANNELS = ['offense', 'shield', 'core'];
   // effective multiplier for a channel: even split (33.3%) → 1.0; all-in (≈100%) → ≈2.1; starved (≈0%) → 0.45.
-  function chMult(s, ch) { return 0.45 + (s.allocEff[ch] || 0) * 0.0165 + (s.chBonus[ch] || 0); }   // picks add flat channel bonuses
+  function chMult(s, ch) {
+    let m = 0.45 + (s.allocEff[ch] || 0) * 0.0165 + (s.chBonus[ch] || 0);   // picks add flat channel bonuses
+    if (s.oc && s.oc.ch === ch) { if (s.oc.phase === 'burst') m += 0.9; else m *= 0.4; }   // OVERCLOCK burst spikes, then the channel browns out
+    return m;
+  }
+  // OVERCLOCK a channel: a ~3.5s burst (+0.9 mult), then a brownout (×0.4) that LENGTHENS
+  // with heat. Heat rises per overclock + decays; too hot = denied. The risk lever.
+  function overclock(s, ch) {
+    if (s.won || s.lost || s.pick || s.oc || CHANNELS.indexOf(ch) < 0) return false;
+    if (s.ocHeat >= 6) { say(s, 'overclock denied — the core is too hot.'); return false; }
+    s.oc = { ch, phase: 'burst', t: 3.5 }; s.ocHeat += 2;
+    say(s, `OVERCLOCK · ${ch === 'core' ? 'CORE-GUN' : ch.toUpperCase()} — surging.`);
+    return true;
+  }
+  function tickOc(s, dt) {
+    s.ocHeat = Math.max(0, s.ocHeat - dt * 0.5);
+    if (!s.oc) return;
+    s.oc.t -= dt;
+    if (s.oc.t <= 0) {
+      if (s.oc.phase === 'burst') { s.oc.phase = 'brown'; s.oc.t = 3 + s.ocHeat * 0.7; say(s, `${s.oc.ch === 'core' ? 'CORE-GUN' : s.oc.ch.toUpperCase()} brownout — recovering.`); }
+      else s.oc = null;
+    }
+  }
   function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage
   // set one channel's TARGET %, giving way proportionally from the other two (each floored at 5%), renormalized to 100.
   function setAlloc(s, ch, pct) {
@@ -567,6 +591,7 @@
     if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
     tickAlloc(s, dt);                                              // ease the live split toward the target
+    tickOc(s, dt);                                                 // advance overclock burst → brownout + bleed heat
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
     // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
     if (!s.core.invuln) {
@@ -587,5 +612,5 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, swapAmmo, swapCoreFn, setStance, toggleEx, pickDraft, coreCost, flockCap, setAlloc, nudgeAlloc, chMult, CHANNELS, overclock, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);
