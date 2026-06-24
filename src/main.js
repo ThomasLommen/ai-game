@@ -563,6 +563,8 @@
 
     runSelfTest();
 
+    const params = new URLSearchParams(location.search);
+
     if (!state.bootSequenceComplete) {
       // Detail-swap V.'s letter from two seeded sources: the PERSONA (files.js —
       // names/places incl. {apology}/{hideSpot}) and the LETTER phrasing roll
@@ -579,7 +581,6 @@
       // The opening is now a full-screen CUTSCENE: V.'s letter DECRYPTS into focus, then
       // dissolves into the dashboard (no terminal pane). Falls back to the old typewriter
       // if the intro module is missing. `?intro=0` skips it (tests). (rework slice 5.)
-      const params = new URLSearchParams(location.search);
       const skipIntro = params.get('intro') === '0';
       if (!skipIntro) {
         if (Game.intro) await Game.intro.play(seq);
@@ -587,13 +588,22 @@
       }
       state.bootSequenceComplete = true;
       Game.save.persist();
-      // Battle-first OPENING — fight the GUARD PROGRAM before the game opens, then open
-      // the deep loop the new way (RSI, no files). `?guard=0`/`?intro=0` skip it (tests →
-      // old read-files onboarding). ([[start-defense-pivot]])
-      if (params.get('guard') !== '0' && params.get('intro') !== '0' && Game.runGuardOpening) {
-        await Game.runGuardOpening();
-        openTheLoop();
-      }
+    }
+
+    // Battle-first OPENING — fight the GUARD PROGRAM before the game opens, then open
+    // the deep loop the new way (RSI, no files). `?guard=0`/`?intro=0` skip it (tests →
+    // old read-files onboarding). ([[start-defense-pivot]])
+    //
+    // Gated on its OWN `guardDone` flag (NOT bundled inside !bootSequenceComplete): the
+    // boot sequence persists bootSequenceComplete=true the moment the intro ends, so if
+    // the app is backgrounded/closed DURING the guard battle (Android discards the PWA),
+    // a reload would otherwise skip the unfinished guard and fall through to a half-open
+    // state (files return, battle lost). Keying on guardDone makes the reload RE-RUN the
+    // opening until the loop is actually opened.
+    const guardDone = !!(state.flags && state.flags.guardDone);
+    if (!guardDone && params.get('guard') !== '0' && params.get('intro') !== '0' && Game.runGuardOpening) {
+      await Game.runGuardOpening();
+      openTheLoop();
     }
 
     Game.panels.reveal();
