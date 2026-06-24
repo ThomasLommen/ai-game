@@ -49,6 +49,13 @@
   .dialbar{height:5px;background:#141824;position:relative;overflow:hidden;}
   .dialbar i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--c,var(--amber));transition:width .12s linear;}
   .dialsub{font-size:8px;color:var(--mid);}
+  .dial.countered{border-color:#ff5a6a;box-shadow:0 0 10px rgba(255,90,106,.25);}
+  .dial.countered .dialname::after{content:' ⚠ COUNTERED';color:#ff7a86;font-size:8px;letter-spacing:1px;}
+  /* threat-read telegraph banner */
+  #threatread{position:fixed;top:124px;left:50%;transform:translateX(-50%);max-width:min(420px,86vw);z-index:8;
+    background:rgba(40,10,12,.92);border:1px solid #ff5a6a;color:#ffb0b6;font-size:10.5px;letter-spacing:.5px;
+    padding:7px 13px;text-align:center;border-radius:3px;box-shadow:0 0 16px rgba(255,90,106,.3);animation:tr-pulse 1.3s ease-in-out infinite;}
+  @keyframes tr-pulse{0%,100%{opacity:.78;}50%{opacity:1;}}
   /* exotic toggles */
   #exrail{position:fixed;right:11px;top:124px;width:182px;display:flex;flex-direction:column;gap:6px;z-index:5;max-height:calc(100vh - 188px);overflow-y:auto;}
   body.ui-hidden #rail, body.ui-hidden #exrail, body.ui-hidden #log, body.ui-hidden #hero, body.ui-hidden .legend{display:none;}
@@ -99,6 +106,8 @@
   <button id="mode" class="btn">MODE: LANES</button>
   <button id="reseed" class="btn">⟳ new node</button>
 </div>
+
+<div id="threatread" hidden></div>
 
 <div id="rail">
   <div class="group">

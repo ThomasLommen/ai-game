@@ -72,6 +72,7 @@
       // Units/core scale from their channel's share. (battle-duel-rework slice 1.)
       alloc:    { offense: 34, shield: 33, core: 33 },
       allocEff: { offense: 34, shield: 33, core: 33 },
+      counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel (slice 2)
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
@@ -194,10 +195,36 @@
     s.draft = null; return true;
   }
 
+  // ── THE DUEL: the guard reads your dominant lean + counters that channel ───────
+  // You COMMIT by where you pour compute; each surge the guard reads your lean and
+  // floods the anti-build for it, scaled to how hard you've leaned. Counter = a soft
+  // TAX, not a wall (it LAGS your lean by a round → outrace / diversify / bait-pivot).
+  const COUNTER = {
+    offense: { read: 'OFFENSE',  tell: 'hardening its shells — shielded breakers inbound', add: ['ward', 'disruptor'], shield: 95 },   // anti-swarm: tanky + jam blunts your DPS
+    shield:  { read: 'SHIELD',   tell: 'massing breakers — they will hit the core harder',   add: ['enforcer', 'rusher'], coredmg: 1.1 },  // anti-turtle: raw core pressure
+    core:    { read: 'CORE-GUN', tell: 'flooding fast rushers — they outrun your core',       add: ['rusher'],              speed: 0.6 },   // anti-core: speed overwhelms the function
+  };
+  function readLean(s) { let ch = 'offense', v = -1; CHANNELS.forEach(c => { if (s.allocEff[c] > v) { v = s.allocEff[c]; ch = c; } }); return { ch, share: v }; }
+  function armCounter(s) {                                   // read the lean at telegraph time → lock the counter for the incoming surge
+    const { ch, share } = readLean(s);
+    const mag = Math.max(0, Math.min(1, (share - 40) / 45));  // ≤40% even-ish = no counter; ramps to full by ~85%
+    if (mag < 0.06) { s.counter = null; s.threatRead = null; return; }
+    s.counter = { channel: ch, mag };
+    s.threatRead = `the guard reads your ${COUNTER[ch].read} — ${COUNTER[ch].tell}.`;
+    say(s, '>> ' + s.threatRead + ' <<');
+  }
+  function applyCounter(s, e) {                              // bake the locked counter into a surge enemy's stats
+    const c = s.counter; if (!c) return; const def = COUNTER[c.channel];
+    if (def.shield) { const add = def.shield * c.mag; e.shield += add; e.shieldMax += add; }
+    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * c.mag;
+    if (def.speed) e.speedMul = 1 + def.speed * c.mag;
+  }
+
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
     const def = ENEMIES[type], hp = def.hp * (1 + s.threat * 0.012);
-    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
+    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
+    if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
       e.laneIdx = li; const p = posOnLane(s.lanes[li], 0); e.x = p.x; e.y = p.y;
@@ -218,25 +245,29 @@
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
-    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // units come from the between-battle ROSTER now, not an in-battle draft
+    else { s.surgeT -= dt; if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); } }   // the guard reads your lean at telegraph time (armCounter)
   }
   function surgePool(surge) { const p = []; if (surge >= 2) p.push('rusher', 'enforcer'); if (surge >= 3) p.push('ward'); if (surge >= 4) p.push('splitter', 'disruptor'); return p; }   // threats unlock as the run escalates
   function doSurge(s, ang) {
     s.surge++; s.threat += 6;
     const from = () => s.laneMode ? { lane: s.waveLanes[Math.floor(s.rng() * s.waveLanes.length)] } : { ang: ang + (s.rng() - 0.5) * 0.3 };
+    const surgeAt = (mk) => Object.assign({ surge: true }, mk());   // tag surge spawns so the counter bakes in
     if (s.surge >= s.GOAL_SURGES) {                          // CLIMAX — the boss wave ends the run
-      s.bossSpawned = true; spawnEnemy(s, s.boss, from());
-      for (let i = 0; i < s.bossEscort; i++) spawnEnemy(s, 'enforcer', from());
+      s.bossSpawned = true; spawnEnemy(s, s.boss, surgeAt(from));
+      for (let i = 0; i < s.bossEscort; i++) spawnEnemy(s, 'enforcer', surgeAt(from));
       say(s, s.boss === 'juggernaut'
         ? '>> THE JUGGERNAUT BREAKS FROM THE DARK. bring it down and the node is yours. <<'
         : '>> THE BAIT IS TAKEN — they close in for the kill. break them and the ground is yours. <<');
       return;
     }
-    const probes = 3 + s.surge * 2, specials = Math.min(12, Math.floor(s.surge * 1.3)), pool = surgePool(s.surge);   // smaller early surges
-    for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', from());
-    for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', from());
+    const c = s.counter;
+    let pool = surgePool(s.surge), specials = Math.min(12, Math.floor(s.surge * 1.3));   // smaller early surges
+    if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
+    const probes = 3 + s.surge * 2;
+    for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
+    for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
     s.surgeT = 15 + s.rng() * 4;
-    say(s, `SURGE ${s.surge}/${s.GOAL_SURGES} ${s.laneMode ? 'pours down the lit lanes' : 'breaks from the dark'} — ${probes + specials} hostiles.`);
+    say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
   }
 
   function nearestEnemy(s, x, y, maxR) { let b = null, bd = maxR || 1e9; for (const e of s.enemies) { const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; b = e; } } return b; }
@@ -451,7 +482,7 @@
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
   }
-  function coreHit(s, e) { e.dead = true; if (s.core.invuln) return; s.core.hp -= ENEMIES[e.type].coredmg; if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
+  function coreHit(s, e) { e.dead = true; if (s.core.invuln) return; s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1); if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); } }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
     for (const e of s.enemies) {
@@ -463,7 +494,7 @@
       let block = null; for (const a of anchors) if (dist(e.x, e.y, a.x, a.y) < a.r + ENEMIES[e.type].r + 26) { block = a; break; }   // a bulwark plugging the path
       e.blockedBy = block ? block.id : null;
       const chillSlow = e.chill > 0 ? 1 - Math.min(0.6, e.chill / 100 * 0.6) : 1;
-      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1);
+      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1);   // CORE-GUN counter speeds them up
       if (s.core.fn === 'slow' && dist(e.x, e.y, s.core.x, s.core.y) < 150 + s.core.lvl * 22) sp *= 0.5;   // CORE slow function
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;

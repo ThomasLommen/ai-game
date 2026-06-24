@@ -430,6 +430,10 @@
       if (eff > lv) { lv = eff; lean = ch; }
     });
     $('compute').textContent = (lean === 'core' ? 'CORE-GUN' : lean.toUpperCase()) + ' ' + Math.round(lv) + '%';
+    // THE DUEL: mark the channel the guard is countering + show the threat-read telegraph
+    SWARM.CHANNELS.forEach(ch => $('dial_' + ch).classList.toggle('countered', !!(S.counter && S.counter.channel === ch)));
+    const tr = $('threatread');
+    if (S.threatRead) { tr.textContent = S.threatRead; tr.hidden = false; } else tr.hidden = true;
     $('corehp').textContent = Math.ceil(S.core.hp);
     const cb = $('corebar'); cb.style.width = Math.max(0, S.core.hp / S.core.maxHp * 100) + '%'; cb.style.background = S.core.hp / S.core.maxHp < 0.35 ? '#ff5050' : 'var(--amber)';
     $('threat').textContent = Math.round(S.threat);
