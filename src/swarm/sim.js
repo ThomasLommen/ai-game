@@ -323,7 +323,7 @@
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
     const def = ENEMIES[type], hp = def.hp * ENEMY_HP_MUL * (1 + s.threat * 0.012);   // tankier so they don't pop instantly
-    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0, laneIdx: null, dist: 0, blockedBy: null };
+    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (opts && opts.surge && s.turncoat && s.counter) { e.hp *= 0.55; e.maxHp *= 0.55; }   // TURNCOAT: a countered surge spawns frail
     if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
@@ -342,7 +342,7 @@
       return;
     }
     if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — stop feeding so you can clear the field + finish it
-    const rate = (1.1 + s.threat * 0.035 + s.t * 0.004) * (s.intensity || 1);  // steady stream from the start, escalating
+    const rate = (0.5 + s.threat * 0.03 + s.t * 0.003) * (s.intensity || 1);  // gentle steady trickle (surges are the real pressure)
     s.spawnAccum += dt * rate;
     while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
@@ -366,7 +366,7 @@
     const c = s.counter;
     let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
     if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
-    const probes = Math.round((3 + s.surge * 2) * (s.intensity || 1));   // WAVE pressure piles on count
+    const probes = Math.round((2 + s.surge * 1.3) * (s.intensity || 1));   // WAVE pressure piles on count
     for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
     for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
     s.surgeT = 10 + s.rng() * 3;
