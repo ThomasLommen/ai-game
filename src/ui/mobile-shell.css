@@ -144,7 +144,7 @@
 .hs-run-name { color: var(--amber-dim); flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hs-gain { color: var(--green); flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
 .hs-bar { height: 6px; width: 100%; background: rgba(255,176,0,0.10); border-radius: 1px; overflow: hidden; }
-.hs-bar-fill { height: 100%; background: var(--amber); box-shadow: 0 0 6px rgba(255,176,0,0.6); }
+.hs-bar-fill { height: 100%; width: 0; background: var(--amber); box-shadow: 0 0 6px rgba(255,176,0,0.6); transition: width 0.28s linear; }
 .hs-idle { color: var(--amber-faint); }
 /* recent */
 #hs-recent { display: flex; align-items: center; gap: 8px; cursor: pointer; }

@@ -30,7 +30,7 @@
   let S = newState(), posted = false;
   let last = performance.now(), lastLogLen = -1, lastDraftSig = '';
   function postResult(kind) {                                  // report up to the campaign (kind: 'result' | 'return')
-    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, picksTaken: S.newPicks.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
+    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, picksTaken: S.newPicks.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
   }
 
   // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──
@@ -97,6 +97,7 @@
   $('zoomin').onclick   = () => setZoom(userZoom * 1.25);
   $('zoomout').onclick  = () => setZoom(userZoom / 1.25);
   $('recenter').onclick = () => recenter();
+  $('sendwave').onclick = () => SWARM.sendWave(S);
   const re = $('reseed'); if (re) re.onclick = () => { S = newState(); posted = false; lastLogLen = -1; recenter(); };
   const md = $('mode'); if (md) md.onclick = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; recenter(); };
   $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
@@ -447,6 +448,10 @@
     $('corehp').textContent = Math.ceil(S.core.hp);
     const cb = $('corebar'); cb.style.width = Math.max(0, S.core.hp / S.core.maxHp * 100) + '%'; cb.style.background = S.core.hp / S.core.maxHp < 0.35 ? '#ff5050' : 'var(--amber)';
     $('surge').textContent = S.surge + ' / ' + S.GOAL_SURGES;
+    // SEND WAVE — force the next wave early for better loot; hidden when a wave is already inbound / boss / over
+    const sw = $('sendwave'), canSend = !S.won && !S.lost && !S.bossSpawned && S.surge < S.GOAL_SURGES && !S.warn;
+    sw.hidden = !canSend;
+    $('lootbonus').textContent = S.rushed > 0 ? `· LOOT +${S.rushed * 15}%` : '';
     const md = $('mode'); if (md) md.textContent = 'MODE: ' + (laneMode ? 'LANES' : 'OPEN');
 
     // pod status (bottom strip)

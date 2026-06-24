@@ -95,6 +95,7 @@
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
       threat: 0, surge: 0, kills: 0, bossSpawned: false,
       spawnAccum: 0, surgeT: 1.5, warn: null,    // warn = { ang, t } surge telegraph — first wave comes quickly
+      rushed: 0,                                  // waves you FORCED early — each one improves end-of-battle loot
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
@@ -689,6 +690,15 @@
     if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
   }
 
+  // FORCE the next wave early (even before the field is clear → waves stack). Each forced
+  // wave bumps `rushed`, which the campaign turns into better end-of-battle loot. Risk/reward.
+  function sendWave(s) {
+    if (s.won || s.lost || s.bossSpawned || s.surge >= s.GOAL_SURGES || s.warn) return false;
+    s.rushed++;
+    s.warn = { ang: s.rng() * TAU, t: 0.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s);
+    say(s, `>> WAVE FORCED (${s.rushed}) — loot quality rising. <<`);
+    return true;
+  }
   // TRIAGE: the player taps an enemy → the whole army focus-fires it.
   function setFocus(s, id) {
     const e = s.enemies.find(x => x.id === id); if (!e) return false;
@@ -699,5 +709,5 @@
     s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ffd24a', ring: true });   // a confirm pulse on the new focus
     return true;
   }
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, difficulty, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, sendWave, difficulty, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

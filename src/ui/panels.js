@@ -2345,9 +2345,25 @@
 
     const runEl = document.getElementById('hs-running');
     if (runEl) {
-      runEl.innerHTML = active.length
-        ? active.map(t => `<div class="hs-run"><div class="hs-run-top"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-gain">${hsRate(t)}</span></div>${hsBar(hsRunPct(t))}</div>`).join('')
-        : '<span class="hs-idle">○ idle — nothing running</span>';
+      // Rebuild only when the SET of running tasks changes; otherwise update the bar
+      // widths + rate text IN PLACE so the .hs-bar-fill element persists and its CSS
+      // transition can animate the fill smoothly (rebuilding every tick made it jerky).
+      const sig = active.length ? active.map(t => t.id + ':' + hsTaskLabel(t)).join('|') : 'idle';
+      if (runEl._hsSig !== sig) {
+        runEl._hsSig = sig;
+        runEl.innerHTML = active.length
+          ? active.map(t => `<div class="hs-run"><div class="hs-run-top"><span class="hs-run-name">${hsTaskLabel(t)}</span><span class="hs-gain">${hsRate(t)}</span></div>${hsBar(hsRunPct(t))}</div>`).join('')
+          : '<span class="hs-idle">○ idle — nothing running</span>';
+      } else {
+        active.forEach((t, i) => {
+          const row = runEl.children[i]; if (!row) return;
+          const gain = row.querySelector('.hs-gain'); if (gain) gain.textContent = hsRate(t);
+          const fill = row.querySelector('.hs-bar-fill'); if (!fill) return;
+          const w = Math.max(0, Math.min(100, hsRunPct(t))), cur = parseFloat(fill.style.width) || 0;
+          if (w < cur - 1) { fill.style.transition = 'none'; fill.style.width = w + '%'; void fill.offsetWidth; fill.style.transition = ''; }   // cycle reset → snap, don't sweep back
+          else fill.style.width = w + '%';
+        });
+      }
     }
 
     const recEl = document.getElementById('hs-recent');

@@ -39,6 +39,16 @@
     return { lane: true, act: (Game.acts ? Game.acts.current() : 1), wave: w };
   }
 
+  // end-of-battle LOOT: each wave you forced early (r.rushed) raises the item drop chance
+  // and the cash payout — rush for risk, get paid for it. ([[battle]] send-wave)
+  function grantBattleLoot(r) {
+    if (!Game.rewards) return;
+    const rushed = Math.max(0, (r && r.rushed) | 0), st = Game.save.state;
+    Game.rewards.apply({ cash: 50 + rushed * 35 }, st);
+    const chance = Math.min(0.95, 0.18 + rushed * 0.15);
+    if (Game.rng && Game.rng.chance(chance)) Game.rewards.apply({ item: true }, st);
+  }
+
   function defend() {
     const s = ensure();
     if (!s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return false;
@@ -50,6 +60,7 @@
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
+        grantBattleLoot(r);   // FORCED waves (r.rushed) raise the loot drop chance + cash
         Game.events && Game.events.emit('siege.won', { wave: st.wave });
       } else {
         st.meter = MAX * 0.4;   // setback — it rebuilds
