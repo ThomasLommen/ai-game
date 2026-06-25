@@ -77,15 +77,10 @@
     S.beams.forEach(b => { ctx.globalAlpha = Math.min(1, b.life / 0.14); ctx.strokeStyle = b.color; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2)); ctx.stroke(); ctx.globalAlpha = 1; });
     S.bursts.forEach(b => { const f = 1 - b.life / 0.42; ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), (3 + f * 9) * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
     S.flocks.forEach(f => f.dots.forEach(d => { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(X(d.x), Y(d.y), Math.max(1, 2 * s2), 0, 7); ctx.fill(); }));
-    // GREATER UNITS (reaper/strider/bulwark/…) — drawn as a diamond + ring so the heroes you
-    // draft actually SHOW in the perimeter, distinct from the swarm dots.
-    S.units.forEach(u => {
-      const def = (S.UNITS && S.UNITS[u.type]) || {}, r = Math.max(3, (def.r || 13) * s2 * 0.7), x = X(u.x), y = Y(u.y);
-      ctx.fillStyle = def.color || '#ffd24a';
-      ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill();
-      ctx.globalAlpha = 0.5; ctx.strokeStyle = def.color || '#ffd24a'; ctx.lineWidth = Math.max(1, 1.1 * s2);
-      ctx.beginPath(); ctx.arc(x, y, r + 2.5 * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
-    });
+    // GREATER UNITS — drawn with their PROPER models (same rigs as the full battle), a touch
+    // smaller for the compact perimeter view. (drawUnitModel ports proto/swarm/app.js.)
+    const usc = s2 * 0.62;
+    S.units.forEach(u => drawUnitModel(u, X, Y, usc));
 
     // GYRO-CORE with the LIVING EYE — sized to the collision radius (S.core.r) so enemies
     // actually meet its edge before vanishing, and bigger than before.
@@ -135,6 +130,108 @@
       ctx.beginPath(); ctx.arc(ex - pupR * 0.32, ey - pupR * 0.32, Math.max(0.6, pupR * 0.24), 0, 7); ctx.fill();   // catchlight = life
       ctx.restore();
     }
+  }
+
+  // ── GREATER-UNIT MODELS (ported from proto/swarm/app.js) ────────────────────
+  // Same rigs as the full battle (walkers, bulwark carapace, fabricator brood, …), drawn at
+  // the widget's scale `sc`. No mk-label / hp-bar here (the perimeter is a clean ambient view).
+  function unitEye(X, Y, x, y, aim, R, eyeC, sc) {
+    void X; void Y;
+    ctx.fillStyle = '#100a04'; ctx.beginPath(); ctx.arc(x + Math.cos(aim) * 4 * sc, y + Math.sin(aim) * 4 * sc, R * 0.6, 0, 7); ctx.fill();
+    ctx.shadowColor = eyeC; ctx.shadowBlur = 8; ctx.fillStyle = eyeC;
+    ctx.beginPath(); ctx.arc(x + Math.cos(aim) * 5 * sc, y + Math.sin(aim) * 5 * sc, R * 0.3, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  function drawUnitModel(u, X, Y, sc) {
+    ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const b = u.behavior;
+    if (b === 'anchor') drawBulwark(u, X, Y, sc);
+    else if (b === 'artillery') drawSiege(u, X, Y, sc);
+    else if (b === 'support') drawConductor(u, X, Y, sc);
+    else if (b === 'reaper') drawReaper(u, X, Y, sc);
+    else if (b === 'fabricator') drawFabricator(u, X, Y, sc);
+    else drawWalker(u, X, Y, sc);   // striker (strider) + cryo (glacier)
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.setLineDash([]);
+  }
+  function drawConductor(u, X, Y, sc) {
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, tp = (S.t * 0.6) % 1, jy = y + 4 * sc;
+    ctx.strokeStyle = u.color; ctx.globalAlpha = (1 - tp) * 0.3; ctx.lineWidth = 2 * sc; ctx.beginPath(); ctx.arc(x, y, (40 + tp * 195) * sc, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = u.color; ctx.globalAlpha = 0.4; ctx.lineWidth = 1 * sc; ctx.setLineDash([3 * sc, 4 * sc]); ctx.lineDashOffset = -S.t * 20;
+    S.flocks.forEach(f => { if (f.buff) { ctx.beginPath(); ctx.moveTo(x, jy); ctx.lineTo(X(f.cx), Y(f.cy)); ctx.stroke(); } });
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#8a6ec0'; ctx.lineWidth = 4.5 * sc; ctx.beginPath(); ctx.moveTo(x, y + 18 * sc); ctx.lineTo(x, jy); ctx.stroke();
+    [[-13, -19], [0, -22], [13, -19]].forEach(([dx, dy]) => {
+      ctx.strokeStyle = '#d9ccff'; ctx.lineWidth = 3.4 * sc; ctx.beginPath(); ctx.moveTo(x, jy); ctx.lineTo(x + dx * sc, y + dy * sc); ctx.stroke();
+      ctx.fillStyle = u.color; ctx.shadowColor = u.color; ctx.shadowBlur = 7; ctx.beginPath(); ctx.arc(x + dx * sc, y + dy * sc, 3.6 * sc, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    });
+    ctx.fillStyle = '#140e28'; ctx.strokeStyle = u.color; ctx.lineWidth = 1.5 * sc; ctx.beginPath(); ctx.arc(x, jy, 8 * sc, 0, 7); ctx.fill(); ctx.stroke();
+    unitEye(X, Y, x, jy, aim, 9 * sc, '#efe2ff', sc);
+  }
+  function drawReaper(u, X, Y, sc) {
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = 12 * sc;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(aim);
+    ctx.shadowColor = u.color; ctx.shadowBlur = 9; ctx.fillStyle = u.color; ctx.strokeStyle = '#0a1a12'; ctx.lineWidth = 1.5 * sc;
+    ctx.beginPath(); ctx.moveTo(R * 1.4, 0); ctx.lineTo(-R * 0.7, -R * 0.9); ctx.lineTo(-R * 0.1, 0); ctx.lineTo(-R * 0.7, R * 0.9); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.strokeStyle = '#dffaf0'; ctx.lineWidth = 2 * sc; ctx.beginPath(); ctx.arc(-R * 0.1, -R * 0.2, R * 0.95, -1.4, 0.25); ctx.stroke();
+    ctx.fillStyle = '#0a1a12'; ctx.beginPath(); ctx.arc(R * 0.25, 0, R * 0.42, 0, 7); ctx.fill();
+    ctx.fillStyle = '#eafff5'; ctx.shadowColor = u.color; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(R * 0.3, 0, R * 0.18, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  function drawFabricator(u, X, Y, sc) {
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = u.r * sc, walk = u.walk || 0;
+    ctx.strokeStyle = '#8a6e1e'; ctx.lineWidth = 2.8 * sc;
+    for (let i = 0; i < 6; i++) {
+      const la = i / 6 * Math.PI * 2 + 0.3, step = Math.sin(walk * 2 + i * 1.0) * 2.5 * sc;
+      const hx = x + Math.cos(la) * R * 0.8, hy = y + Math.sin(la) * R * 0.8;
+      const fx = x + Math.cos(la) * (R + 20 * sc), fy = y + Math.sin(la) * (R + 20 * sc) + step;
+      const kx = (hx + fx) / 2 + Math.cos(la) * 3 * sc, ky = (hy + fy) / 2 - 6 * sc;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+    }
+    ctx.fillStyle = '#2a2208'; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 2 * sc;
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.shadowColor = u.color; ctx.shadowBlur = 5; ctx.fillStyle = u.color;
+    for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2 + walk * 0.25, rr = R * (0.62 + (i % 3) * 0.13); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(S.t * 3 + i); ctx.beginPath(); ctx.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr, 2.3 * sc, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    unitEye(X, Y, x, y, aim, R * 0.5, '#fff0b0', sc);
+  }
+  function drawWalker(u, X, Y, sc) {
+    const cryo = u.behavior === 'cryo';
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, walk = u.walk || 0, R = (cryo ? 14 : 13) * sc;
+    const slam = cryo && u.thumpT > 0 ? Math.sin((1 - u.thumpT / 0.32) * Math.PI) * 6 * sc : 0;
+    const bob = Math.sin(walk * 2) * 1.7 * sc - slam;
+    ctx.strokeStyle = cryo ? '#5fa8d6' : '#9a5e36'; ctx.lineWidth = 2.6 * sc;
+    for (let i = 0; i < 3; i++) {
+      const la = aim + Math.PI + (i - 1) * 1.05, step = Math.sin(walk * 2 + i * 2.094);
+      const lift = Math.max(0, step) * 6 * sc, reach = (25 + step * 7) * sc;
+      const hx = x + Math.cos(la) * R * 0.7, hy = y + Math.sin(la) * R * 0.7 - bob, fx = x + Math.cos(la) * reach, fy = y + Math.sin(la) * reach - lift;
+      const kx = (hx + fx) / 2 + Math.cos(la) * 2 * sc, ky = (hy + fy) / 2 - 5 * sc;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+    }
+    ctx.fillStyle = u.color; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 1.5 * sc;
+    ctx.beginPath(); ctx.arc(x, y - bob, R, 0, 7); ctx.fill(); ctx.stroke();
+    unitEye(X, Y, x, y - bob, aim, R, cryo ? '#dffaff' : (S.ex.flame ? '#ff8a3a' : '#ffd9a0'), sc);
+  }
+  function drawBulwark(u, X, Y, sc) {
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = u.r * sc, walk = u.walk || 0;
+    ctx.strokeStyle = 'rgba(200,178,122,0.22)'; ctx.lineWidth = 1.6 * sc; ctx.beginPath(); ctx.arc(x, y, R + 30 * sc, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#7a5a30'; ctx.lineWidth = 2.4 * sc;
+    for (let i = 0; i < 8; i++) {
+      const la = i / 8 * Math.PI * 2 + 0.2, step = Math.sin(walk * 2 + i * 0.9) * 2 * sc;
+      const hx = x + Math.cos(la) * R * 0.78, hy = y + Math.sin(la) * R * 0.78;
+      const fx = x + Math.cos(la) * (R + 17 * sc), fy = y + Math.sin(la) * (R + 17 * sc) + step;
+      const kx = (hx + fx) / 2 + Math.cos(la) * 3 * sc, ky = (hy + fy) / 2 - 5 * sc;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+    }
+    ctx.fillStyle = u.color; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 2 * sc;
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2, px = x + Math.cos(a) * R, py = y + Math.sin(a) * R; ctx[i ? 'lineTo' : 'moveTo'](px, py); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#1a1206'; ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2, px = x + Math.cos(a) * R * 0.64, py = y + Math.sin(a) * R * 0.64; ctx[i ? 'lineTo' : 'moveTo'](px, py); } ctx.closePath(); ctx.fill();
+    unitEye(X, Y, x, y, aim, R * 0.74, '#ffe3b0', sc);
+  }
+  function drawSiege(u, X, Y, sc) {
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = u.r * sc;
+    ctx.fillStyle = '#241509'; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 2 * sc;
+    ctx.beginPath(); ctx.moveTo(x - R * 1.2, y + R * 0.8); ctx.lineTo(x + R * 1.2, y + R * 0.8); ctx.lineTo(x + R * 0.7, y - R * 0.4); ctx.lineTo(x - R * 0.7, y - R * 0.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = u.color; ctx.beginPath(); ctx.arc(x, y - R * 0.2, R * 0.85, 0, 7); ctx.fill(); ctx.stroke();
+    unitEye(X, Y, x, y - R * 0.2, aim, R * 0.85, '#ffd0a0', sc);
   }
 
   requestAnimationFrame(frame);
