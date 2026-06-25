@@ -24,9 +24,10 @@
   function frac()  { return Math.max(0, Math.min(1, ensure().meter / MAX)); }
 
   // OVERRUN: how much stalling past a FULL siege escalates the next DEFEND. +1 wave of
-  // pressure per OVERRUN_SECS overdue, capped — no auto-launch (you still choose when).
-  const OVERRUN_SECS = 15, OVERRUN_CAP = 5;
-  function overrunWaves() { const HZ = (Game.tick && Game.tick.HZ) || 4; return Math.min(OVERRUN_CAP, Math.floor((ensure().overdue || 0) / (OVERRUN_SECS * HZ))); }
+  // pressure per OVERRUN_SECS overdue — UNCAPPED: a rising tide that just keeps growing, so
+  // stalling forever eventually guarantees you're overrun. No auto-launch (you still choose).
+  const OVERRUN_SECS = 15;
+  function overrunWaves() { const HZ = (Game.tick && Game.tick.HZ) || 4; return Math.floor((ensure().overdue || 0) / (OVERRUN_SECS * HZ)); }
 
   function tick() {
     if (!active()) return;
