@@ -698,11 +698,15 @@
       const installing = instId === jobId;
       const sv = Game.inventory.scrapValue ? Game.inventory.scrapValue(inst) : 0;
       const tagHtml = installing ? '<span class="installing-tag">the unit is installing this…</span>' : `slot: ${eff.slot.toUpperCase()} <span class="scrap-hint">· scrap $${sv}</span>`;
+      // A motherboard's SLOT LAYOUT shows here too (before install), not just its raw stats —
+      // it's the whole point of the board, so you can compare boards before committing.
+      const isBoard = inst.slot === 'motherboard';
+      const statsStr = isBoard ? [boardSlots(inst.slots), statBlock(eff)].filter(Boolean).join(' · ') : statBlock(eff);
       return `
         <div class="inv-card ${tierCls} ${installing ? 'installing' : ''}" ${installing ? '' : 'draggable="true"'} data-instance-id="${instId}" data-slot-key="${eff.slot}">
           <div class="inv-card-name composed-name">${composeName(inst)}</div>
           ${modsBlock(inst)}
-          <div class="inv-card-stats">${statBlock(eff)}</div>
+          <div class="inv-card-stats">${statsStr}</div>
           <div class="inv-card-tag">${tagHtml}</div>
         </div>
       `;

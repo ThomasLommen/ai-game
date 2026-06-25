@@ -390,8 +390,10 @@
   }
   function tickSpawns(s, dt) {
     if (s.ambient) {   // idle-defense window — a gentle endless trickle, no surges/draft/boss
-      s.powerFactor = powerFactor(fieldedPower(s));   // LIVE: a stronger roster faces a heavier trickle (+ tankier, via spawnEnemy) → NET stays meaningful
-      s.spawnAccum += dt * 0.7 * s.powerFactor;
+      // Trickle scales with s.powerFactor — which the perimeter widget sets from the SAME
+      // LAGGED power as battles (not live), so a fresh pick/level doesn't instantly flood the
+      // perimeter; it catches up in step with the next battle. (defense-widget.js sets it.)
+      s.spawnAccum += dt * 0.7 * (s.powerFactor || 1);
       while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
       return;
     }

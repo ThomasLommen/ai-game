@@ -54,6 +54,10 @@
     S.compute = 9999;                                  // ambient — never resource-starve
     S.core.hp = S.core.maxHp;                           // and never actually lose; it's holding the line
     applyRoster();                                      // field the player's roster (coherence w/ battles)
+    // DIFFICULTY: drive the perimeter trickle off the SAME LAGGED power as battles (siege),
+    // so a fresh pick/level doesn't instantly flood it — it catches up in step with the fights.
+    const lp = (window.Game && Game.save && Game.save.state && Game.save.state.siege && Game.save.state.siege.laggedPower) || 0;
+    S.powerFactor = (SWARM.powerFactor ? SWARM.powerFactor(lp) : 1);
     SWARM.tick(S, dt);
     // PERIMETER STAKES: accumulate NET = kills − leaks (since the last DEFEND) onto the
     // save. Net+ banks into the next battle's loot; net− accelerates the siege. (siege.js
