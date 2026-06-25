@@ -42,6 +42,7 @@
       if (p && p.net > -40) p.net = Math.max(-40, p.net - 0.05);
       return;
     }
+    if (s.overdue) s.overdue = 0;   // defensive: OVERRUN only exists while the siege is FULL — never let it linger once it's building again
     const HZ = (Game.tick && Game.tick.HZ) || 4;
     const exposure = Game.save.state.exposure || 0;
     const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
@@ -132,10 +133,12 @@
   function defend() {
     const s = ensure();
     if (!s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return false;
-    s.ready = false; s.overdue = 0;   // clear the OVERRUN stall once you commit
     const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
+    // BUILD the fight FIRST (waveOpts bakes in overrunWaves() while overdue is still high — so a
+    // stalled siege genuinely launches a harder wave), THEN clear the stall.
     const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks }, waveOpts(s.wave), Game.roster.toOpts());
     const periNet = (Game.save.state.perimeter && Game.save.state.perimeter.net) || 0;   // snapshot the calm BEFORE this fight → feeds the loot
+    s.ready = false; s.overdue = 0;   // clear the OVERRUN stall now that the fight's locked in
     Game.battle.launch(opts, (r) => {
       const st = ensure();
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
