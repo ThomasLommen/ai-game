@@ -772,8 +772,9 @@
   function sendWave(s) {
     if (s.won || s.lost || s.bossSpawned || s.surge >= s.GOAL_SURGES || s.warn) return false;
     s.rushed++;
-    s.warn = { ang: s.rng() * TAU, t: 0.6 }; if (s.laneMode) pickWaveLanes(s); armCounter(s);
+    armCounter(s);                  // the forced wave still carries the guard's counter
     say(s, `>> WAVE FORCED (${s.rushed}) — loot quality rising. <<`);
+    doSurge(s, s.rng() * TAU);      // spawn it NOW, ALONGSIDE the current wave — same lanes, no telegraph or lane re-roll
     return true;
   }
   // TRIAGE: the player taps an enemy → the whole army focus-fires it.
