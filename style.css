@@ -1271,6 +1271,14 @@ h2 {
 .draft-card-name { font-size: 15px; color: var(--amber); }
 .draft-card-desc { font-size: 11px; color: var(--amber-dim); }
 
+/* ── battle SPOILS result pop-up (Game.draft.info) ── */
+.draft-info { display: flex; flex-direction: column; gap: 9px; margin-bottom: 14px; padding: 4px 2px; }
+.draft-info-row { font-size: 13px; line-height: 1.4; }
+.spoil-k { color: var(--green); font-weight: 700; }
+.spoil-d { color: var(--amber-dim); }
+#draft-cards .draft-card.draft-continue { align-items: center; text-align: center; border-left-width: 1px; border-color: var(--amber); }
+#draft-cards .draft-card.draft-continue .draft-card-name { letter-spacing: 2px; }
+
 /* ── story sheet: a big narrative BEAT that takes over the screen (slice 4) ── */
 #story-overlay {
   position: fixed; inset: 0; z-index: 300;

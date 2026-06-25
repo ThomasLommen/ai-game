@@ -148,10 +148,27 @@
     };
   }
 
+  // SOFTWARE listing — a randomized program from the pool (gate-revealed + not yet owned).
+  // Programs now sell in the darknet shop (cash buys, instant install) instead of a fixed tab.
+  function generateProgramListing() {
+    if (!Game.programs) return null;
+    const s = Game.save.state, rv = s.revealed || {}, shop = ensureState();
+    const owned = (s.installed && s.installed.programs) || {};
+    const listed = new Set(shop.listings.filter(l => l.kind === 'program').map(l => l.programId));
+    const avail = Game.programs.all().filter(p => (!p.requires || rv[p.requires]) && !owned[p.id] && !listed.has(p.id));
+    if (!avail.length) return null;
+    const p = avail[Math.floor(Math.random() * avail.length)];
+    return { id: 'lp_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e5).toString(36),
+             gen: 'v7', kind: 'program', programId: p.id, name: p.name, desc: p.description, price: p.price };
+  }
+
   function refresh() {
     const shop = ensureState();
     shop.listings = [];
-    for (let i = 0; i < LISTINGS_COUNT; i++) { const l = generateListing(); if (l) shop.listings.push(l); }
+    // 1–2 SOFTWARE listings if any are available, then fill the rest with hardware.
+    const nProg = 1 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < nProg; i++) { const lp = generateProgramListing(); if (lp) shop.listings.push(lp); }
+    while (shop.listings.length < LISTINGS_COUNT) { const l = generateListing(); if (l) shop.listings.push(l); else break; }
     shop.lastRefreshTick = Game.save.state.tickCount || 0;
     Game.events.emit('shop.refreshed', {});
   }
@@ -205,6 +222,17 @@
     }
     s.resources.cash -= listing.price;
     shop.listings.splice(idx, 1);
+    // SOFTWARE — installs instantly (no porch delivery); routes through the programs install.
+    if (listing.kind === 'program') {
+      s.installed = s.installed || { programs: {}, subroutines: {} };
+      s.installed.programs = s.installed.programs || {};
+      s.installed.programs[listing.programId] = Date.now();
+      Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
+      Game.events.emit('program.installed', { id: listing.programId });
+      Game.events.emit('terminal.print', { lines: [`> installed: ${listing.name}.`], cls: 'dim' });
+      Game.save.persist();
+      return true;
+    }
     if (listing.supplierId && Game.suppliers) Game.suppliers.gainStanding(listing.supplierId, 5);   // every buy earns trust
     shop.deliveries.push({
       id: 'd_' + Date.now().toString(36),

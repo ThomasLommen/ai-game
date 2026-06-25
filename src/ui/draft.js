@@ -18,7 +18,7 @@
     const cards = document.getElementById('draft-cards');
     cards.innerHTML = (opts.items || []).map((it, i) => `
       <button class="draft-card ${it.kind === 'exotic' ? 'exotic' : 'unit'}" data-i="${i}">
-        <span class="draft-card-kind">${it.kind === 'exotic' ? 'EXOTIC' : 'UNIT'}</span>
+        <span class="draft-card-kind">${esc(it.tag || (it.kind === 'exotic' ? 'EXOTIC' : 'UNIT'))}</span>
         <span class="draft-card-name">${esc(it.name)}</span>
         <span class="draft-card-desc">${esc(it.desc || '')}</span>
       </button>`).join('');
@@ -28,7 +28,22 @@
     ov.hidden = false; requestAnimationFrame(() => ov.classList.add('up'));
   }
 
+  // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. battle spoils):
+  // same paused full-screen overlay, but a read-out + a single [continue] instead of a choice.
+  function info(opts) {
+    const ov = overlay(); if (!ov) { if (opts && opts.onClose) opts.onClose(); return; }
+    activeFlag = true; cb = null;
+    document.getElementById('draft-kicker').textContent = opts.kicker || '';
+    document.getElementById('draft-title').textContent = opts.title || '';
+    const cards = document.getElementById('draft-cards');
+    cards.innerHTML = `<div class="draft-info">${(opts.lines || []).map(l => `<div class="draft-info-row">${l}</div>`).join('')}</div>` +
+      `<button class="draft-card draft-continue" data-c="1"><span class="draft-card-name">continue</span></button>`;
+    let closed = false;
+    cards.querySelector('.draft-continue').onclick = () => { if (closed) return; closed = true; hide(); if (opts.onClose) { try { opts.onClose(); } catch (e) { console.error('[draft] onClose threw', e); } } };
+    ov.hidden = false; requestAnimationFrame(() => ov.classList.add('up'));
+  }
+
   function hide() { const ov = overlay(); activeFlag = false; if (ov) { ov.classList.remove('up'); setTimeout(() => { ov.hidden = true; }, 300); } }
 
-  Game.draft = { present, active: () => activeFlag };
+  Game.draft = { present, info, active: () => activeFlag };
 })();

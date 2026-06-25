@@ -404,6 +404,8 @@
     }
 
     const cash = s.resources.cash || 0;
+    const hw = listings.filter(l => l.kind !== 'program');     // hardware → supplier grouping
+    const progs = listings.filter(l => l.kind === 'program');  // software → its own section
     const roster = Game.suppliers ? Game.suppliers.roster() : [];
     const MR = Game.missionRuntime;
     const contractsOn = !!(s.revealed && s.revealed.missions) && MR;
@@ -426,7 +428,7 @@
     if (roster.length) {
       for (const sup of roster) {
         const burned = sup.burned, st = sup.standing, tier = burned ? 'burned' : Game.suppliers.tierName(st);
-        const mine = burned ? [] : listings.filter(l => l.supplierId === sup.id);
+        const mine = burned ? [] : hw.filter(l => l.supplierId === sup.id);
         const jobs = (burned || !contractsOn) ? [] : offers.filter(o => o.supplierId === sup.id);
         html += `<div class="supplier-block${burned ? ' burned' : ''}">
           <div class="supplier-head">
@@ -439,10 +441,16 @@
           ${jobs.length ? `<div class="net-label jobs">▸ jobs from ${sup.handle}</div>` + jobs.map(o => contractOfferRow(o, free, true)).join('') : ''}
         </div>`;
       }
-      const orphan = listings.filter(l => !l.supplierId || !roster.some(r => r.id === l.supplierId));
+      const orphan = hw.filter(l => !l.supplierId || !roster.some(r => r.id === l.supplierId));
       if (orphan.length) html += orphan.map(l => listingRow(l, cash)).join('');
     } else {
-      html += listings.map(l => listingRow(l, cash)).join('');
+      html += hw.map(l => listingRow(l, cash)).join('');
+    }
+
+    // SOFTWARE — randomized programs you can buy + install (was the old PROGRAMS tab).
+    if (progs.length) {
+      html += `<div class="net-section">⌬ SOFTWARE · tools + tuning, instant install</div>`;
+      html += progs.map(l => listingRow(l, cash)).join('');
     }
 
     // BLIND-BUY GAMBLE — a cash sink + a roll for parts the board never stocks.
@@ -507,6 +515,11 @@
   // One marketplace listing row (shared by the grouped + flat shop views).
   function listingRow(l, cash) {
     const affordable = cash >= l.price;
+    if (l.kind === 'program') {   // SOFTWARE listing — name + what it tunes + buy
+      const pcls = affordable ? 'buyable' : 'locked';
+      const ptag = affordable ? `[buy] $${l.price.toFixed(2)}` : `[$${l.price.toFixed(2)}]`;
+      return `<div class="shop-row ${pcls}" data-id="${l.id}"><div><div class="composed-name">⌬ ${l.name}</div><div class="stats">${l.desc || ''}</div></div><div class="tag">${ptag}</div></div>`;
+    }
     const cls = `${affordable ? 'buyable' : 'locked'} ${l.tier ? 'tier-' + l.tier : ''}`;
     const tag = affordable ? `[buy] $${l.price.toFixed(2)}` : `[$${l.price.toFixed(2)}]`;
     const base = l.base || {};
@@ -814,33 +827,26 @@
     const s = Game.save.state;
     const rv = s.revealed || {};
     const installed = (s.installed && s.installed.programs) || {};
-    const cash = s.resources.cash || 0;
-    // Only programs whose gate is revealed surface here (each with its system).
-    const visible = Game.programs.all().filter(p => !p.requires || rv[p.requires]);
-    if (visible.length === 0) {
-      list.innerHTML = '<div class="faint" style="font-size:12px">—</div>';
+    // Programs are now BOUGHT in the darknet SHOP (randomized listings). This tab is a
+    // READ-ONLY view of the software you've installed. ([[programs_tab_design]] → shop)
+    const ownedIds = Object.keys(installed);
+    if (ownedIds.length === 0) {
+      list.innerHTML = '<div class="faint" style="font-size:12px">no software installed yet — buy programs in the DARKNET shop.</div>';
       return;
     }
-    list.innerHTML = visible.map(p => {
-      const owned = !!installed[p.id];
-      const affordable = cash >= p.price;
-      let cls = 'locked';
-      let tag = `[$${p.price.toFixed(2)}]`;
-      if (owned) { cls = 'installed'; tag = '[installed]'; }
-      else if (affordable) { cls = 'buyable'; tag = `[buy] $${p.price.toFixed(2)}`; }
+    list.innerHTML = ownedIds.map(id => {
+      const p = Game.programs.get(id);
+      if (!p) return '';
       return `
-        <div class="market-row ${cls}" data-id="${p.id}">
+        <div class="market-row installed">
           <div>
             <div>${p.name}</div>
             <div class="desc">${p.description}</div>
           </div>
-          <div class="tag">${tag}</div>
+          <div class="tag">[installed]</div>
         </div>
       `;
     }).join('');
-    list.querySelectorAll('.market-row.buyable').forEach(el => {
-      el.onclick = () => Game.market.buy(el.dataset.id);
-    });
   }
 
   // The MISSIONS board: running contracts (progress + abort) + available offers

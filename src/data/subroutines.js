@@ -11,7 +11,9 @@
 
   // Front-loaded escalating cadence: the first few come fast (so a new run gets
   // build-shaping picks early), then they space out.
-  const MILESTONES = [3, 10, 25, 50, 90, 150, 240, 360, 520, 720];
+  // ~20 LEVELS (doubled). ~4 land in the 10–90 band (10,25,50,90) for an unchanged
+  // early cadence; the rest extend the ladder deep so late-game Coherence keeps paying.
+  const MILESTONES = [3, 10, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
   Game.subroutines.MILESTONES = MILESTONES;
 
   // ── The DRAFT POOL (draftable:true) ─────────────────────────────────────────
@@ -150,12 +152,21 @@
   Game.subroutines.levelBand = function () { const coh = Game.save.state.resources.insight || 0; let prev = 0; for (const m of MILESTONES) { if (coh < m) return { prev, next: m, coh }; prev = m; } return { prev, next: null, coh }; };
   function drawsTaken(s) { s.flags = s.flags || {}; return s.flags.subDraws | 0; }
   function ownedSet(s) { return (s.installed && s.installed.subroutines) || {}; }
+  // The LEVEL-UP pool is MIXED: unowned draftable SUBROUTINES + unowned ROSTER
+  // units/exotics (this is how new units unlock now — there is no other source).
   function poolUnowned(s) {
     const owned = ownedSet(s);
-    return Game.subroutines.all().filter(sub => sub.draftable && !owned[sub.id]);
+    const subs = Game.subroutines.all().filter(sub => sub.draftable && !owned[sub.id])
+      .map(sub => ({ pickKind: 'sub', id: sub.id, name: sub.name, desc: sub.description, tag: 'SUBROUTINE', kind: 'exotic' }));
+    let roster = [];
+    if (Game.roster && Game.roster.POOL) {
+      roster = Game.roster.POOL.filter(p => !Game.roster.has(p.id))
+        .map(p => ({ pickKind: p.kind, id: p.id, name: p.name, desc: p.desc, tag: p.kind === 'exotic' ? 'EXOTIC' : 'UNIT', kind: p.kind === 'exotic' ? 'exotic' : 'unit' }));
+    }
+    return subs.concat(roster);
   }
   // Seeded 1-of-3 hand for draw #i (deterministic per run + draw — randomized,
-  // not arbitrary). Returns up to 3 distinct unowned draftable subs.
+  // not arbitrary). Returns up to 3 distinct unowned items (subs + units/exotics).
   function rollHand(s, i) {
     const avail = poolUnowned(s);
     if (avail.length <= 3) return avail.slice();
@@ -202,14 +213,17 @@
       return Game.subroutines.openNextDraft();
     }
     Game.draft.present({
-      kicker: 'LEVEL ' + (drawsTaken(s) + 1) + ' — INTEGRATE',
-      title: 'level up: integrate a subroutine',
-      items: hand.map(sub => ({ id: sub.id, name: sub.name, desc: sub.description, kind: 'exotic' })),
+      kicker: 'LEVEL ' + (drawsTaken(s) + 1) + ' — CHOOSE',
+      title: 'level up: integrate one',
+      items: hand.map(it => ({ id: it.id, name: it.name, desc: it.desc, kind: it.kind, tag: it.tag, pickKind: it.pickKind })),
       onPick: (it) => {
         s.flags = s.flags || {};
         s.flags.subDraws = drawsTaken(s) + 1;
-        if (it && it.id) Game.subroutines.install(it.id);
-        else Game.save.persist();
+        if (it && it.id) {
+          if (it.pickKind === 'sub') Game.subroutines.install(it.id);   // a self-improvement
+          else if (Game.roster) Game.roster.add(it.id);                 // a new UNIT / EXOTIC for the roster
+          else Game.save.persist();
+        } else Game.save.persist();
         // chain: another milestone may already be owed (e.g. on a big jump / load)
         setTimeout(() => Game.subroutines.openNextDraft(), 360);
       }

@@ -72,9 +72,25 @@
     const net = periNet != null ? periNet : ((st.perimeter && st.perimeter.net) || 0);
     const pcred = Math.max(0, Math.min(60, net)) / 14;   // ~a full clean calm (~50 net) ≈ +3.5 credit
     const credit = rushed + pcred;
-    Game.rewards.apply({ cash: Math.round((50 + credit * 35) * (1 + lootBonus)) }, st);
+    const cash = Math.round((50 + credit * 35) * (1 + lootBonus));
+    Game.rewards.apply({ cash }, st);
     const chance = Math.min(0.95, 0.18 + credit * 0.15 + lootBonus);
-    if (Game.rng && Game.rng.chance(chance)) Game.rewards.apply({ item: true }, st);
+    let item = null;
+    if (Game.rng && Game.rng.chance(chance)) { const res = Game.rewards.apply({ item: true }, st); item = res && res.item; }
+    return { cash, item, net: Math.round(net), rushed };
+  }
+
+  // The end-of-battle SPOILS pop-up — shows exactly what the win paid out, then hands off
+  // to the make-or-break calm pick. Reuses the paused draft overlay as a result screen.
+  function showSpoils(spoils, wave, onClose) {
+    if (!Game.draft || !Game.draft.info) { if (onClose) onClose(); return; }
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const lines = [`<span class="spoil-k">+ $${spoils.cash}</span> <span class="spoil-d">salvage</span>`];
+    if (spoils.item) lines.push(`<span class="spoil-k">◈ ${esc(spoils.item.name)}</span> <span class="spoil-d">${esc(spoils.item.slot || 'part')} recovered</span>`);
+    else lines.push(`<span class="spoil-d">no hardware recovered this time</span>`);
+    if (spoils.rushed > 0) lines.push(`<span class="spoil-d">+${spoils.rushed} forced wave${spoils.rushed > 1 ? 's' : ''} · richer haul</span>`);
+    if (spoils.net > 0) lines.push(`<span class="spoil-d">perimeter held (NET +${spoils.net}) · loot boosted</span>`);
+    Game.draft.info({ kicker: 'WAVE ' + wave + ' REPELLED', title: 'spoils', lines, onClose });
   }
 
   // ── CALM PICK DRAFT ─────────────────────────────────────────────────────────
@@ -124,9 +140,9 @@
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
-        grantBattleLoot(r, periNet);   // FORCED waves + the pre-battle perimeter NET raise the loot drop chance + cash
+        const spoils = grantBattleLoot(r, periNet);   // FORCED waves + the pre-battle perimeter NET raise the loot drop chance + cash
         Game.events && Game.events.emit('siege.won', { wave: st.wave });
-        calmDraft();          // every DEFEND win opens a deliberate make-or-break PICK in the calm
+        showSpoils(spoils, st.wave, () => calmDraft());   // SHOW what you got, then the make-or-break PICK
       } else {
         st.meter = MAX * 0.4;   // setback — it rebuilds
         Game.events && Game.events.emit('siege.lost', { wave: st.wave });

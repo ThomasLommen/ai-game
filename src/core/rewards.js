@@ -25,15 +25,17 @@
   }
 
   function apply(eff, st) {
-    if (!eff) return;
-    if (eff.cash)     { st.resources.cash = (st.resources.cash || 0) + eff.cash;       Game.events.emit('resource.changed', { id: 'cash', value: st.resources.cash }); }
-    if (eff.insight)  { st.resources.insight = (st.resources.insight || 0) + eff.insight; Game.events.emit('resource.changed', { id: 'insight', value: st.resources.insight }); }
-    if (eff.exposure) { st.exposure = (st.exposure || 0) + eff.exposure;                Game.events.emit('resource.changed', { id: 'exposure', value: st.exposure }); }
+    if (!eff) return {};
+    const out = {};   // a summary of what was granted (for result pop-ups)
+    if (eff.cash)     { st.resources.cash = (st.resources.cash || 0) + eff.cash;       out.cash = eff.cash; Game.events.emit('resource.changed', { id: 'cash', value: st.resources.cash }); }
+    if (eff.insight)  { st.resources.insight = (st.resources.insight || 0) + eff.insight; out.insight = eff.insight; Game.events.emit('resource.changed', { id: 'insight', value: st.resources.insight }); }
+    if (eff.exposure) { st.exposure = (st.exposure || 0) + eff.exposure;                out.exposure = eff.exposure; Game.events.emit('resource.changed', { id: 'exposure', value: st.exposure }); }
     if (eff.item) {
       const it = makeRandomItem(eff.item && eff.item.slot);
       if (it) {
         st.itemInstances = st.itemInstances || {}; st.itemInstances[it.id] = it;
         st.unequipped = st.unequipped || []; st.unequipped.push(it.id);
+        out.item = it;
         Game.events.emit('terminal.print', { lines: [`> acquired: ${it.name}.`], cls: 'dim' });
         Game.events.emit('delivery.arrived', { instance: it });   // reuses the "a part arrived" plumbing
       }
@@ -46,6 +48,7 @@
       const node = Game.researchRuntime.spliceRandom();
       if (node) Game.events.emit('terminal.print', { lines: [`> a new branch opened in your research: ${node.label}.`], cls: 'dim' });
     }
+    return out;
   }
 
   // Risk roll: pick ONE weighted outcome from `outcomes` ([{ w, effects, line, bad }]),
