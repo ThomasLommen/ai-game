@@ -8,7 +8,23 @@
 (function (global) {
   function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   const TAU = Math.PI * 2;
-  const ENEMY_HP_MUL = 2;   // global enemy-HP knob (they were dying too fast)
+  // ── BALANCE DIAL — the one place to tune difficulty ──────────────────────────
+  // Difficulty TRACKS the player's fielded POWER (so a +unit/+swarm/+damage pick can't
+  // trivialize a fixed curve), but LAGGED + sub-1 so each pick still FEELS impactful.
+  // Edit these five-ish numbers to dial the whole game.
+  const BAL = {
+    enemyHpMul:    2.0,    // global enemy HP / tankiness (the old ENEMY_HP_MUL)
+    enemyCountMul: 1.0,    // global enemy count
+    powerPush:     0.85,   // how hard the enemy COUNT leans on your power (0 = ignore; bigger = more enemies per point of power)
+    powerCap:      8,      // ceiling on the power→count multiplier (so it never explodes into hundreds of enemies)
+    powerLag:      0.5,    // between-battle catch-up (siege.js): 0.5 ≈ ~2 fights to fully match a power spike
+    unitWeight:    9,      // a greater unit counts as this many swarm-dots of power
+    powerRef:      26,     // the bare starting build's power (~18 hunter dots) → powerFactor 1 at the floor
+  };
+  const ENEMY_HP_MUL = BAL.enemyHpMul;   // back-compat alias
+  // enemy COUNT multiplier from (lagged) player power: 1 at the bare floor, climbing as the
+  // build grows (capped). Keeps the total threat budget ~linear in power (HP isn't power-scaled).
+  function powerFactor(power) { return Math.min(BAL.powerCap, 1 + BAL.powerPush * (Math.max(0, power) / BAL.powerRef)); }
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -120,6 +136,10 @@
     s.bossEscort = (opts.escort != null) ? opts.escort : D.escort;
     s.laneCount = opts.laneCount != null ? opts.laneCount : (opts.lanes != null ? opts.lanes : D.lanes);
     s.threat = (s.intensity - 1) * 42;   // wave/act pressure → tougher enemies from the first hit
+    // POWER SCALING: enemy HP + count also scale to the player's (lagged) fielded power, so a
+    // strong build can't trivialize a fixed curve. Battle: fixed from opts.power (the campaign's
+    // LAGGED reading → felt power-jumps). Perimeter (ambient): recomputed LIVE each tick.
+    s.powerFactor = ambient ? 1 : powerFactor(+opts.power || 0);
     // RUN-BUILD: the picks you've accrued so far this RUN are pre-applied each battle
     // (they persist across the run's battles; the campaign carries the list).
     if (Array.isArray(opts.picks)) opts.picks.forEach(id => { const p = PICKS.find(x => x.id === id) || (SIGNATURES[Object.keys(SIGNATURES).find(k => SIGNATURES[k].id === id)]); if (p) { p.apply(s); s.picksTaken.push(id); } });
@@ -138,6 +158,14 @@
   // channel multiplier = 1.0 baseline + accrued pick/roster/boost bonus. The dominant
   // channel is your LEAN — what the guard reads and counters.
   function chMult(s, ch) { return 1.0 + (s.chBonus[ch] || 0) + (s.overextend && ch === readLean(s).ch ? 0.5 : 0); }   // OVEREXTEND amps your dominant channel
+  // The player's DEPLOYED FORCE × multipliers — what difficulty scaling tracks. Swarm-dots +
+  // pods (weighted), lifted by your OFFENSE channel + pod-damage picks. Used live by the
+  // perimeter; reported after each battle so the NEXT fight's difficulty lags it (siege.js).
+  function fieldedPower(s) {
+    let dots = 0; for (const f of s.flocks) if (!f.owned) dots += f.dots.length;
+    const om = chMult(s, 'offense'), podm = s.podDmgMul || 1;
+    return (dots + s.units.length * BAL.unitWeight) * om * (0.5 + 0.5 * podm);
+  }
   function od(s, v) { return v * chMult(s, 'offense'); }   // OFFENSE-scaled army damage (swarm + pods)
   function pdmg(s, u) { return od(s, u.dmg) * (s.podDmgMul || 1) * (u.type === 'strider' && s.striderOver ? 1.8 : 1); }   // a POD's attack damage (pod theme + strider signature)
   // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
@@ -346,7 +374,7 @@
 
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
-    const def = ENEMIES[type], hp = def.hp * ENEMY_HP_MUL * (1 + s.threat * 0.012);   // tankier so they don't pop instantly
+    const def = ENEMIES[type], hp = def.hp * BAL.enemyHpMul * (1 + s.threat * 0.012);   // HP scales with the wave/act curve (enemyHpMul = global tankiness dial); POWER scales COUNT, not HP, so the total budget stays ~linear (not squared)
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (s.laneMode && s.lanes.length) {                        // walk down a lane — STAGGERED along it so a wave streams, not stacks
@@ -362,7 +390,8 @@
   }
   function tickSpawns(s, dt) {
     if (s.ambient) {   // idle-defense window — a gentle endless trickle, no surges/draft/boss
-      s.spawnAccum += dt * 0.7;
+      s.powerFactor = powerFactor(fieldedPower(s));   // LIVE: a stronger roster faces a heavier trickle (+ tankier, via spawnEnemy) → NET stays meaningful
+      s.spawnAccum += dt * 0.7 * s.powerFactor;
       while (s.spawnAccum >= 1) { s.spawnAccum -= 1; spawnEnemy(s, 'probe'); }
       return;
     }
@@ -408,7 +437,9 @@
     const c = s.counter;
     let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
     if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
-    const probes = Math.round((2 + s.surge * 1.3) * (s.intensity || 1));   // WAVE pressure piles on count
+    const cf = BAL.enemyCountMul * (s.powerFactor || 1);   // count scales with the global dial AND player power
+    const probes = Math.round((2 + s.surge * 1.3) * (s.intensity || 1) * cf);   // WAVE pressure + power pile on count
+    specials = Math.round(specials * cf);
     for (let i = 0; i < probes; i++) place('probe');
     for (let i = 0; i < specials; i++) place(pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe');
     s.surgeT = 1.5 + s.rng() * 1;   // brief beat after the field clears before the next wave telegraphs
@@ -794,5 +825,5 @@
     s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ffd24a', ring: true });   // a confirm pulse on the new focus
     return true;
   }
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, sendWave, difficulty, offerPick, takePick, pickPool, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, sendWave, difficulty, offerPick, takePick, pickPool, fieldedPower, powerFactor, BAL, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

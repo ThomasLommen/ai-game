@@ -24,13 +24,14 @@
     if (Q.has('tier')) o.tier = qNum('tier', 2);                             // act/mission threat tier (enemy menagerie)
     if (Q.has('act')) o.act = qNum('act', 1);                                // ACT band → lanes / menagerie / boss
     if (Q.has('wave')) o.wave = qNum('wave', 0);                             // WAVE → count / HP / surge length
+    if (Q.has('power')) o.power = qNum('power', 0);                          // the campaign's LAGGED player-power → enemy HP/count scaling
     return o;
   };
   const newState = () => SWARM.create(makeSeed(), laneMode, Q.has('compute') ? qNum('compute', 120) : undefined, false, battleOpts());
   let S = newState(), posted = false;
   let last = performance.now(), lastLogLen = -1, lastDraftSig = '';
   function postResult(kind) {                                  // report up to the campaign (kind: 'result' | 'return')
-    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, picksTaken: S.newPolicies.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}   // ONLY POLICY persists to the run; HEURISTICS reset with the battle
+    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, power: SWARM.fieldedPower(S), picksTaken: S.newPolicies.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}   // power → next fight's difficulty (lagged); ONLY POLICY persists
   }
 
   // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──

@@ -14,6 +14,7 @@
     if (!s.siege || typeof s.siege !== 'object') s.siege = { meter: 0, wave: 0, ready: false };
     if (typeof s.siege.meter !== 'number') s.siege.meter = 0;
     if (typeof s.siege.wave !== 'number') s.siege.wave = 0;
+    if (typeof s.siege.laggedPower !== 'number') s.siege.laggedPower = 0;   // smoothed player power → next fight's difficulty (lags ~2 fights)
     return s.siege;
   }
   // online once the perimeter is (after the guard opening / first scan)
@@ -136,11 +137,16 @@
     const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
     // BUILD the fight FIRST (waveOpts bakes in overrunWaves() while overdue is still high — so a
     // stalled siege genuinely launches a harder wave), THEN clear the stall.
-    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks }, waveOpts(s.wave), Game.roster.toOpts());
+    // DIFFICULTY SCALES TO POWER, LAGGED: this fight is calibrated to the SMOOTHED power from
+    // your previous fights — so a fresh POLICY spike isn't matched until a battle or two later
+    // (you feel the jump). First fight has laggedPower 0 → the bare early floor.
+    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks, power: s.laggedPower || 0 }, waveOpts(s.wave), Game.roster.toOpts());
     const periNet = (Game.save.state.perimeter && Game.save.state.perimeter.net) || 0;   // snapshot the calm BEFORE this fight → feeds the loot
     s.ready = false; s.overdue = 0;   // clear the OVERRUN stall now that the fight's locked in
     Game.battle.launch(opts, (r) => {
       const st = ensure();
+      const lag = (window.SWARM && SWARM.BAL && SWARM.BAL.powerLag) || 0.5;
+      if (r && typeof r.power === 'number') st.laggedPower += (r.power - st.laggedPower) * lag;   // ease toward the power you just fielded (catch-up over ~2 fights)
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
