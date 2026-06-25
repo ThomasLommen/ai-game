@@ -333,12 +333,14 @@
     const def = ENEMIES[type], hp = def.hp * ENEMY_HP_MUL * (1 + s.threat * 0.012);   // tankier so they don't pop instantly
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
-    if (s.laneMode && s.lanes.length) {                        // spawn at a lane mouth, walk it in
+    if (s.laneMode && s.lanes.length) {                        // walk down a lane — STAGGERED along it so a wave streams, not stacks
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
-      e.laneIdx = li; const p = posOnLane(s.lanes[li], 0); e.x = p.x; e.y = p.y;
-    } else {                                                   // open: appear on the fog ring at an angle
-      const ang = opts && opts.ang != null ? opts.ang + (s.rng() - 0.5) * 0.5 : s.rng() * TAU;
-      e.x = s.core.x + Math.cos(ang) * s.spawnR; e.y = s.core.y + Math.sin(ang) * s.spawnR;
+      e.laneIdx = li; e.dist = (opts && opts.dist) || 0;
+      const p = posOnLane(s.lanes[li], e.dist); e.x = p.x; e.y = p.y;
+    } else {                                                   // open: a point on the ring (angle + radial rings spread the wave out)
+      const ang = opts && opts.ang != null ? opts.ang : (opts && opts.angBase != null ? opts.angBase + (s.rng() - 0.5) * 0.5 : s.rng() * TAU);
+      const rad = (opts && opts.rad) || s.spawnR;
+      e.x = s.core.x + Math.cos(ang) * rad; e.y = s.core.y + Math.sin(ang) * rad;
     }
     s.enemies.push(e);
   }
@@ -362,11 +364,26 @@
   function tierPool(tier) { const p = []; if (tier >= 1) p.push('rusher', 'enforcer'); if (tier >= 2) p.push('ward'); if (tier >= 3) p.push('splitter', 'disruptor'); return p; }
   function doSurge(s, ang) {
     s.surge++; s.threat += 6;
-    const from = () => s.laneMode ? { lane: s.waveLanes[Math.floor(s.rng() * s.waveLanes.length)] } : { ang: ang + (s.rng() - 0.5) * 0.3 };
-    const surgeAt = (mk) => Object.assign({ surge: true }, mk());   // tag surge spawns so the counter bakes in
+    // PLACE each spawn so a wave doesn't pile on one point: lane mode → round-robin the wave's
+    // lanes + stagger DIST down each (a streaming column); open mode → fan across the arc + radial rings.
+    const laneList = s.laneMode ? (s.waveLanes && s.waveLanes.length ? s.waveLanes : s.lanes.map((_, i) => i)) : null;
+    const fill = {}; let rr = 0, arc = 0;
+    function place(type) {
+      const o = { surge: true };
+      if (s.laneMode) {
+        const lane = laneList[rr++ % laneList.length];
+        const k = (fill[lane] = (fill[lane] || 0) + 1) - 1;     // this lane's slot → spacing down the path
+        o.lane = lane; o.dist = k * 30 + s.rng() * 10;
+      } else {
+        o.ang = ang + ((arc % 9) / 9 - 0.44) * 1.15 + (s.rng() - 0.5) * 0.12;   // fan across ~1.1 rad of the marked arc
+        o.rad = s.spawnR + (Math.floor(arc / 9) % 3) * 20;                       // stack in 3 radial rings
+        arc++;
+      }
+      spawnEnemy(s, type, o);
+    }
     if (s.surge >= s.GOAL_SURGES) {                          // CLIMAX — the boss wave ends the run
-      s.bossSpawned = true; spawnEnemy(s, s.boss, surgeAt(from));
-      for (let i = 0; i < s.bossEscort; i++) spawnEnemy(s, 'enforcer', surgeAt(from));
+      s.bossSpawned = true; place(s.boss);
+      for (let i = 0; i < s.bossEscort; i++) place('enforcer');
       say(s, s.boss === 'juggernaut'
         ? '>> THE JUGGERNAUT BREAKS FROM THE DARK. bring it down and the node is yours. <<'
         : '>> THE BAIT IS TAKEN — they close in for the kill. break them and the ground is yours. <<');
@@ -376,8 +393,8 @@
     let pool = tierPool(s.tier), specials = Math.min(12, Math.floor(s.surge * 1.3));   // tier gates the menu; surge sets the count
     if (c) { pool = pool.concat(COUNTER[c.channel].add).filter(t => ENEMIES[t]); specials += Math.round(c.mag * 4); }   // the counter FLOODS its anti-build types
     const probes = Math.round((2 + s.surge * 1.3) * (s.intensity || 1));   // WAVE pressure piles on count
-    for (let i = 0; i < probes; i++) spawnEnemy(s, 'probe', surgeAt(from));
-    for (let i = 0; i < specials; i++) spawnEnemy(s, pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe', surgeAt(from));
+    for (let i = 0; i < probes; i++) place('probe');
+    for (let i = 0; i < specials; i++) place(pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe');
     s.surgeT = 1.5 + s.rng() * 1;   // brief beat after the field clears before the next wave telegraphs
     say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
     offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
