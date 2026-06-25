@@ -80,7 +80,8 @@
     const mn = Math.min(W, H);
     const s = {
       W, H, rng, t: 0, seed: (seed | 0) || 7,
-      core: { x: W / 2, y: H / 2, hp: 100, maxHp: 100, lvl: 1, marks: [], maxMarks: 1, cd: 0 },   // marks = your FOCUS-FIRE targets (triage); maxMarks 2 via Twin Marks
+      core: { x: W / 2, y: H / 2, r: 42, hp: 100, maxHp: 100, lvl: 1, marks: [], maxMarks: 1, cd: 0,   // r = body radius (collision + render, both frames); marks = your FOCUS-FIRE targets
+              eye: { x: 0, y: 0, tx: 0, ty: 0, dil: 0, blink: 0, blinkT: 2 + Math.random() * 3, t: 0, staring: false } },   // the LIVING gaze (updateEye): wanders, locks on, blinks, sometimes stares at YOU
       viewR: ambient ? 200 : Math.round(mn * 0.469), spawnR: ambient ? 175 : Math.round(mn * 0.64), ambient: !!ambient,
       // BATTLE v2: no live compute economy. Channels (offense/shield/core) are BUILD-STATS
       // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
@@ -660,11 +661,58 @@
         if (e.dist >= lane.len) coreHit(s, e);
       } else {                                                        // open mode / manually-placed → straight at the core
         const dx = s.core.x - e.x, dy = s.core.y - e.y, d = Math.hypot(dx, dy) || 1; e.x += dx / d * sp * dt; e.y += dy / d * sp * dt;
-        if (d < 42) coreHit(s, e);
+        if (d < (s.core.r || 42)) coreHit(s, e);   // removed only once it reaches the VISIBLE core edge (no early vanish)
       }
     }
     for (const e of s.enemies) if (e.hp <= 0 && !e.dead) { e.dead = true; onKill(s, e); }
     s.enemies = s.enemies.filter(e => !e.dead);
+  }
+
+  // ── the LIVING EYE ──────────────────────────────────────────────────────────
+  // A pupil inside the core that WANDERS, briefly LOCKS onto the nearest/biggest threat
+  // (and your focus-marked target), glances at your own units now and then, BLINKS, and
+  // rarely stops to stare straight out at the player. Its temperament reacts to danger:
+  // calm + slow when safe, fast-darting + dilated + reddening when the core is pressed.
+  // Pure state (s.core.eye) — both renderers (app.js + defense-widget.js) draw it.
+  function updateEye(s, dt) {
+    const c = s.core, e = c.eye; if (!e) return;
+    const R = c.r || 42, range = R * 0.40;
+    // agitation: enemy count + how close the nearest is + how hurt the core is
+    let near = Infinity; for (const en of s.enemies) { const d = dist(en.x, en.y, c.x, c.y); if (d < near) near = d; }
+    const closeness = isFinite(near) ? Math.max(0, 1 - near / (s.viewR || 200)) : 0;
+    const agi = Math.min(1, s.enemies.length / 7 * 0.55 + closeness * 0.7 + (1 - c.hp / (c.maxHp || 1)) * 0.5);
+    e.dil += (agi - e.dil) * Math.min(1, dt * 3);
+    // blink — a quick close/open every few seconds
+    e.blinkT -= dt;
+    if (e.blinkT <= 0 && e.blink <= 0) { e.blink = 1; e.blinkT = 2.2 + s.rng() * 4.8; }
+    if (e.blink > 0) e.blink = Math.max(0, e.blink - dt / 0.17);
+    // gaze behaviour — pick a new focus when the hold timer runs out
+    e.t -= dt;
+    if (e.t <= 0) {
+      e.staring = false;
+      const n = s.enemies.length, roll = s.rng(), lockChance = 0.22 + agi * 0.58;
+      if (n > 0 && roll < lockChance) {
+        let tgt = null;
+        if (s._markPos && s._markPos.length && s.rng() < 0.45) tgt = s._markPos[Math.floor(s.rng() * s._markPos.length)];
+        else if (s.rng() < 0.2 && (s.units.length || s.flocks.length)) {                 // glance at our OWN
+          if (s.units.length && s.rng() < 0.5) { const u = s.units[Math.floor(s.rng() * s.units.length)]; tgt = { x: u.x, y: u.y }; }
+          else if (s.flocks.length) { const f = s.flocks[Math.floor(s.rng() * s.flocks.length)]; tgt = { x: f.cx, y: f.cy }; }
+        } else {                                                                          // nearest, elites pulled forward
+          let best = null, bv = Infinity; for (const en of s.enemies) { let v = dist(en.x, en.y, c.x, c.y); if (en.elite) v -= 80; if (v < bv) { bv = v; best = en; } }
+          if (best) tgt = { x: best.x, y: best.y };
+        }
+        if (tgt) { const dx = tgt.x - c.x, dy = tgt.y - c.y, d = Math.hypot(dx, dy) || 1; e.tx = dx / d * range; e.ty = dy / d * range; }
+        else { e.tx = (s.rng() * 2 - 1) * range * 0.7; e.ty = (s.rng() * 2 - 1) * range * 0.7; }
+        e.t = (0.4 + s.rng() * 0.5) * (1 - agi * 0.45);                                   // brief lock; darts faster when agitated
+      } else if (n === 0 && roll < 0.12) {
+        e.tx = 0; e.ty = 0; e.staring = true; e.t = 0.9 + s.rng() * 1.1;                   // STARE straight out at the player
+      } else {
+        const a = s.rng() * TAU, rr = s.rng() * range * 0.85; e.tx = Math.cos(a) * rr; e.ty = Math.sin(a) * rr;   // slow WANDER
+        e.t = (1.3 + s.rng() * 1.8) * (1 - agi * 0.4);
+      }
+    }
+    const ease = Math.min(1, dt * (3 + agi * 9));    // smooth drift when calm, snappy saccade when agitated
+    e.x += (e.tx - e.x) * ease; e.y += (e.ty - e.y) * ease;
   }
 
   function tick(s, dt) {
@@ -684,6 +732,7 @@
     updateFlocks(s, dt);
     dotDamage(s, dt);
     updateCore(s, dt);
+    updateEye(s, dt);            // the core's LIVING gaze (both frames render s.core.eye)
     updateUnits(s, dt);
     updateWaves(s, dt);
     updateEnemies(s, dt);

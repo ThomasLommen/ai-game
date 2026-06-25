@@ -288,7 +288,7 @@
       for (let i = 0; i < 4; i++) { const br = rr * 1.5; ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(br, -br * 0.4); ctx.lineTo(br, -br); ctx.lineTo(br * 0.4, -br); ctx.stroke(); }
       ctx.restore(); ctx.shadowBlur = 0;
     }
-    const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = 34 * scale, hpf = S.core.hp / S.core.maxHp;
+    const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = (S.core.r || 42) * scale, hpf = S.core.hp / S.core.maxHp;
     ctx.strokeStyle = hpf > 0.4 ? 'rgba(255,176,0,0.35)' : 'rgba(255,80,80,0.6)'; ctx.lineWidth = 3.5 * scale;
     ctx.beginPath(); ctx.arc(cx, cy, cr + 11 * scale, -Math.PI / 2, -Math.PI / 2 + hpf * 7); ctx.stroke();
     // GYRO-CORE — an optic in nested rotating gimbal rings (from the saved unit concepts).
@@ -303,11 +303,7 @@
       ctx.restore();
     }
     ctx.globalAlpha = 1;
-    ctx.fillStyle = '#140e06'; ctx.strokeStyle = cMain; ctx.lineWidth = 2 * scale;   // hub
-    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.42, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.shadowColor = cMain; ctx.shadowBlur = 14 + pulse * 12;                        // the optic / eye
-    ctx.fillStyle = cEye; ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26 * (0.85 + pulse * 0.2), 0, 7); ctx.fill();
-    ctx.shadowBlur = 0; ctx.fillStyle = '#140e06'; ctx.beginPath(); ctx.arc(cx, cy, cr * 0.12, 0, 7); ctx.fill();
+    drawCoreEye(ctx, S, cx, cy, cr, scale, pulse);   // the LIVING optic — wanders, locks on, blinks, stares
 
     // ── boss health bar (top) while the JUGGERNAUT lives ──
     const boss = S.enemies.find(e => e.type === 'juggernaut');
@@ -318,6 +314,31 @@
       if (boss.shield > 0) { ctx.fillStyle = '#bfe8ff'; ctx.fillRect(bx, by - 5 * dpr, bw * (boss.shield / boss.shieldMax), 4 * dpr); }
       ctx.strokeStyle = '#ff2884'; ctx.lineWidth = 1 * dpr; ctx.strokeRect(bx, by, bw, bh);
       ctx.fillStyle = '#fff'; ctx.font = `${Math.round(12 * dpr)}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('◈ JUGGERNAUT', cvs.width / 2, by + bh / 2); ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // The core's LIVING gaze (shared shape with the perimeter widget). Reads S.core.eye —
+  // pupil offset (wander / lock-on / stare), dilation (danger), and the blink lid sweep.
+  function drawCoreEye(ctx, S, cx, cy, cr, sc, pulse) {
+    const e = (S.core && S.core.eye) || { x: 0, y: 0, dil: 0, blink: 0, staring: false };
+    const dil = Math.max(0, Math.min(1, e.dil || 0));
+    const blink = e.blink > 0 ? Math.sin((1 - e.blink) * Math.PI) : 0;
+    const lidOpen = 1 - blink * 0.93;
+    const irisR = cr * 0.5, ex = cx + (e.x || 0) * sc, ey = cy + (e.y || 0) * sc;
+    ctx.globalAlpha = 1; ctx.fillStyle = '#0d0a06';
+    ctx.beginPath(); ctx.ellipse(cx, cy, irisR, Math.max(0.5, irisR * lidOpen), 0, 0, 7); ctx.fill();
+    ctx.lineWidth = 2 * sc; ctx.strokeStyle = dil > 0.55 ? '#ff5a3a' : '#ffb000';
+    ctx.globalAlpha = 0.55 + 0.4 * pulse; ctx.beginPath(); ctx.ellipse(cx, cy, irisR, Math.max(0.5, irisR * lidOpen), 0, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    if (lidOpen > 0.12) {
+      ctx.save();
+      ctx.beginPath(); ctx.ellipse(cx, cy, irisR, irisR * lidOpen, 0, 0, 7); ctx.clip();
+      const pupR = irisR * (0.4 + dil * 0.26);
+      ctx.shadowColor = dil > 0.55 ? '#ff5a3a' : '#ffb000'; ctx.shadowBlur = (10 + dil * 14 + (e.staring ? 10 : 0)) * sc;
+      ctx.fillStyle = dil > 0.6 ? '#ff8a66' : '#fff3d0';
+      ctx.beginPath(); ctx.arc(ex, ey, pupR, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(ex - pupR * 0.32, ey - pupR * 0.32, pupR * 0.24, 0, 7); ctx.fill();
+      ctx.restore();
     }
   }
 

@@ -74,8 +74,9 @@
     S.bursts.forEach(b => { const f = 1 - b.life / 0.42; ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), (3 + f * 9) * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
     S.flocks.forEach(f => f.dots.forEach(d => { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(X(d.x), Y(d.y), Math.max(1, 2 * s2), 0, 7); ctx.fill(); }));
 
-    // GYRO-CORE — matches the full-battle core (coherence)
-    const cx = X(S.core.x), cy = Y(S.core.y), cr = Math.max(8, 16 * s2), pulse = 0.5 + 0.5 * Math.sin(S.t * 3), lw = Math.max(1, 1.6 * s2);
+    // GYRO-CORE with the LIVING EYE — sized to the collision radius (S.core.r) so enemies
+    // actually meet its edge before vanishing, and bigger than before.
+    const cx = X(S.core.x), cy = Y(S.core.y), cr = Math.max(10, (S.core.r || 42) * s2), pulse = 0.5 + 0.5 * Math.sin(S.t * 3), lw = Math.max(1, 1.6 * s2);
     for (let k = 0; k < 3; k++) {
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(S.t * (0.5 + k * 0.4) + k * 2.1);
       ctx.strokeStyle = '#ffb000'; ctx.globalAlpha = 0.85 - k * 0.18; ctx.lineWidth = lw;
@@ -83,10 +84,7 @@
       ctx.globalAlpha = 1; ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(cr * 0.92, 0, Math.max(1, 2 * s2), 0, 7); ctx.fill();
       ctx.restore();
     }
-    ctx.globalAlpha = 1; ctx.fillStyle = '#140e06'; ctx.strokeStyle = '#ffb000'; ctx.lineWidth = Math.max(1, 1.3 * s2);
-    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.42, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.shadowColor = '#ffb000'; ctx.shadowBlur = 8 + pulse * 6; ctx.fillStyle = '#fff3d0';
-    ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    drawCoreEye(ctx, S, cx, cy, cr, s2, pulse);
 
     // NET readout — the perimeter scoreboard since the last DEFEND (kills − leaks).
     // Top-RIGHT, clear of the "◈ PERIMETER" HTML label (top-left).
@@ -99,6 +97,31 @@
     ctx.fillStyle = net >= 0 ? '#76e08a' : '#ff6b5a';
     const tw = ctx.measureText(label).width;
     ctx.fillText(label, cvs.width - tw - 7 * devicePixelRatio, 5 * devicePixelRatio);
+  }
+
+  // The core's LIVING gaze (shared shape with the full-battle core). Reads S.core.eye —
+  // pupil offset (wander / lock-on / stare), dilation (danger), and the blink lid sweep.
+  function drawCoreEye(ctx, S, cx, cy, cr, sc, pulse) {
+    const e = (S.core && S.core.eye) || { x: 0, y: 0, dil: 0, blink: 0, staring: false };
+    const dil = Math.max(0, Math.min(1, e.dil || 0));
+    const blink = e.blink > 0 ? Math.sin((1 - e.blink) * Math.PI) : 0;   // 0→1→0 lid sweep
+    const lidOpen = 1 - blink * 0.93;
+    const irisR = cr * 0.5, ex = cx + (e.x || 0) * sc, ey = cy + (e.y || 0) * sc;
+    ctx.globalAlpha = 1; ctx.fillStyle = '#0d0a06';
+    ctx.beginPath(); ctx.ellipse(cx, cy, irisR, Math.max(0.5, irisR * lidOpen), 0, 0, 7); ctx.fill();   // dark socket
+    ctx.lineWidth = Math.max(1, 1.3 * sc); ctx.strokeStyle = dil > 0.55 ? '#ff5a3a' : '#ffb000';
+    ctx.globalAlpha = 0.55 + 0.4 * pulse; ctx.beginPath(); ctx.ellipse(cx, cy, irisR, Math.max(0.5, irisR * lidOpen), 0, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    if (lidOpen > 0.12) {
+      ctx.save();
+      ctx.beginPath(); ctx.ellipse(cx, cy, irisR, irisR * lidOpen, 0, 0, 7); ctx.clip();   // pupil hides behind the lids mid-blink
+      const pupR = irisR * (0.4 + dil * 0.26);
+      ctx.shadowColor = dil > 0.55 ? '#ff5a3a' : '#ffb000'; ctx.shadowBlur = 6 + dil * 8 + (e.staring ? 7 : 0);
+      ctx.fillStyle = dil > 0.6 ? '#ff8a66' : '#fff3d0';
+      ctx.beginPath(); ctx.arc(ex, ey, pupR, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(ex - pupR * 0.32, ey - pupR * 0.32, Math.max(0.6, pupR * 0.24), 0, 7); ctx.fill();   // catchlight = life
+      ctx.restore();
+    }
   }
 
   requestAnimationFrame(frame);
