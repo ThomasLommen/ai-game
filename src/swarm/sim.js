@@ -143,7 +143,16 @@
   // your ROSTER auto-deploys — no summoning-by-spend. One flock per unlocked swarm, up to 2 pods.
   function ensureField(s) {
     if (s.won || s.lost) return;
-    for (const t in SWARMS) { if (t === 'brood' || !s.unlocked[t]) continue; if (s.flocks.length >= s.maxFlocks) break; if (!s.flocks.some(f => f.type === t && !f.owned)) summonFlock(s, t); }
+    // DESIRED player flock count = one per unlocked swarm type + bonus flocks (SWARM EXPANSION /
+    // RELENTLESS / ENDLESS TIDE) + HIVE — so raising the cap actually fields MORE swarms (duplicates
+    // of your types), instead of doing nothing because you only have a couple of types.
+    const types = []; for (const t in SWARMS) { if (t !== 'brood' && s.unlocked[t]) types.push(t); }
+    if (types.length) {
+      const want = Math.min(s.maxFlocks, types.length + (s.bonusFlocks || 0) + (s.ex.hive ? 4 : 0));
+      const mine = () => s.flocks.reduce((n, f) => n + (f.owned ? 0 : 1), 0);
+      for (const t of types) { if (mine() >= want || s.flocks.length >= s.maxFlocks) break; if (!s.flocks.some(f => f.type === t && !f.owned)) summonFlock(s, t); }
+      let i = 0; while (mine() < want && s.flocks.length < s.maxFlocks && i < 80) { summonFlock(s, types[i % types.length]); i++; }   // duplicates to fill the cap
+    }
     for (const t in UNITS) { if (!s.unlocked[t]) continue; if (s.units.length >= (s.podCap || 2)) break; if (!s.units.some(u => u.type === t)) fieldUnit(s, t); }
   }
   function spend(s, n) { return true; }                     // compute is no longer spent — kept as a no-op so existing call sites stay intact
@@ -257,7 +266,7 @@
     { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.3 shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
     { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.3 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.3; } },
     // ── solid rewrites / build tools ──
-    { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flock cap', apply: s => { s.maxFlocks += 2; } },
+    { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flocks on the field', apply: s => { s.maxFlocks += 2; s.bonusFlocks = (s.bonusFlocks || 0) + 2; } },
     { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
     { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
     { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
@@ -270,7 +279,7 @@
     { id: 'siege_cannon', name: 'SIEGE CANNON',   kind: 'core', tier: 'marquee', max: 1, cost: 'the core stops self-repairing', desc: 'the core fires a heavy beam down your focus line', apply: s => { s.siegeCannon = true; s.regenMul = 0; } },
     // ── SWARM theme (the flocks) ──
     { id: 'split_doctrine', name: 'SPLIT DOCTRINE', kind: 'swarm', tier: 'rewrite', max: 1, desc: 'kills split off a fresh mini-flock (brief cooldown)', apply: s => { s.splitDoctrine = true; } },
-    { id: 'endless_tide',   name: 'ENDLESS TIDE',   kind: 'swarm', tier: 'marquee', max: 1, cost: 'every swarm dot has half HP', desc: 'no flock cap and swarms regrow almost instantly', apply: s => { s.endlessTide = true; s.maxFlocks += 30; s.dotHpMul = (s.dotHpMul || 1) * 0.5; } },
+    { id: 'endless_tide',   name: 'ENDLESS TIDE',   kind: 'swarm', tier: 'marquee', max: 1, cost: 'every swarm dot has half HP', desc: 'many more swarms + regrow almost instantly', apply: s => { s.endlessTide = true; s.maxFlocks += 30; s.bonusFlocks = (s.bonusFlocks || 0) + 6; s.dotHpMul = (s.dotHpMul || 1) * 0.5; } },
     // ── DEATH theme (what kills trigger) ──
     { id: 'harvest_field',  name: 'HARVEST FIELD',  kind: 'death', tier: 'rewrite', max: 1, desc: 'enemy deaths heal your core a little', apply: s => { s.harvestField = true; } },
     { id: 'scorched_earth', name: 'SCORCHED EARTH', kind: 'death', tier: 'marquee', max: 1, cost: 'the blasts hurt your own swarms too', desc: 'every enemy death detonates an AoE', apply: s => { s.scorchedEarth = true; } },
@@ -278,7 +287,7 @@
     { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', max: 1, desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
     // ── EXPANSION: a 2nd solid rewrite per theme (deepens each axis) ──
     { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', max: 1, desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
-    { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 flock cap; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
+    { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 swarm flock; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.bonusFlocks = (s.bonusFlocks || 0) + 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
     { id: 'bulwark_arc', name: 'BULWARK ARC',       kind: 'core',  tier: 'rewrite', max: 1, desc: 'the core projects a barrier toward your focus target, slowing enemies on that side', apply: s => { s.bulwarkArc = true; } },
     { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', max: 1, desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
     { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', max: 1, desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },

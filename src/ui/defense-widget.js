@@ -77,6 +77,15 @@
     S.beams.forEach(b => { ctx.globalAlpha = Math.min(1, b.life / 0.14); ctx.strokeStyle = b.color; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2)); ctx.stroke(); ctx.globalAlpha = 1; });
     S.bursts.forEach(b => { const f = 1 - b.life / 0.42; ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), (3 + f * 9) * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
     S.flocks.forEach(f => f.dots.forEach(d => { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(X(d.x), Y(d.y), Math.max(1, 2 * s2), 0, 7); ctx.fill(); }));
+    // GREATER UNITS (reaper/strider/bulwark/…) — drawn as a diamond + ring so the heroes you
+    // draft actually SHOW in the perimeter, distinct from the swarm dots.
+    S.units.forEach(u => {
+      const def = (S.UNITS && S.UNITS[u.type]) || {}, r = Math.max(3, (def.r || 13) * s2 * 0.7), x = X(u.x), y = Y(u.y);
+      ctx.fillStyle = def.color || '#ffd24a';
+      ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = def.color || '#ffd24a'; ctx.lineWidth = Math.max(1, 1.1 * s2);
+      ctx.beginPath(); ctx.arc(x, y, r + 2.5 * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    });
 
     // GYRO-CORE with the LIVING EYE — sized to the collision radius (S.core.r) so enemies
     // actually meet its edge before vanishing, and bigger than before.
