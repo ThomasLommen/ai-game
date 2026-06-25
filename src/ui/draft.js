@@ -13,9 +13,14 @@
   // 'arming' class dims the buttons + sweeps a progress bar; the guard is the real safety.
   let NOARM = false; try { NOARM = /[?&]noarm=1/.test(location.search); } catch (e) {}   // test bypass
   const ARM_MS = 2000;
-  let armedAt = 0;
+  let armedAt = 0, hideTimer = null;
   function arm(ov) { if (NOARM) { armedAt = 0; return; } armedAt = Date.now() + ARM_MS; ov.classList.add('arming'); void ov.offsetWidth; setTimeout(() => { if (Date.now() >= armedAt - 30) ov.classList.remove('arming'); }, ARM_MS); }
   function armed() { return NOARM || Date.now() >= armedAt; }
+  // Show the overlay AND cancel any pending hide — otherwise a stale hide() timer from the
+  // previous pop-up (e.g. spoils → calm draft on the SAME overlay) fires 300ms later and
+  // hides the new one while it's still active, leaving the game paused on an invisible
+  // overlay (couldn't start functions; froze the siege tick). The token guards re-shows.
+  function show(ov) { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } ov.hidden = false; arm(ov); requestAnimationFrame(() => ov.classList.add('up')); }
 
   // present({ kicker, title, items:[{id,name,desc,kind}], onPick(item) })
   function present(opts) {
@@ -33,7 +38,7 @@
     cards.querySelectorAll('.draft-card').forEach(b => {
       b.onclick = () => { if (!armed()) return; const it = (opts.items || [])[+b.dataset.i]; hide(); if (cb) { const f = cb; cb = null; try { f(it); } catch (e) { console.error('[draft] onPick threw', e); } } };
     });
-    ov.hidden = false; arm(ov); requestAnimationFrame(() => ov.classList.add('up'));
+    show(ov);
   }
 
   // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. battle spoils):
@@ -48,10 +53,10 @@
       `<button class="draft-card draft-continue" data-c="1"><span class="draft-card-name">continue</span></button>`;
     let closed = false;
     cards.querySelector('.draft-continue').onclick = () => { if (!armed() || closed) return; closed = true; hide(); if (opts.onClose) { try { opts.onClose(); } catch (e) { console.error('[draft] onClose threw', e); } } };
-    ov.hidden = false; arm(ov); requestAnimationFrame(() => ov.classList.add('up'));
+    show(ov);
   }
 
-  function hide() { const ov = overlay(); activeFlag = false; if (ov) { ov.classList.remove('up'); setTimeout(() => { ov.hidden = true; }, 300); } }
+  function hide() { const ov = overlay(); activeFlag = false; if (ov) { ov.classList.remove('up'); if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideTimer = null; if (!activeFlag && ov) ov.hidden = true; }, 300); } }
 
   Game.draft = { present, info, active: () => activeFlag };
 })();

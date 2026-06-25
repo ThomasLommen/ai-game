@@ -304,8 +304,14 @@
     });
 
     // First part delivered with no hands → reveal SCAN (the wall that finds the
-    // unit). INVENTORY stays hidden until a unit is actually connected.
-    Game.events.on('delivery.arrived', () => maybeRevealScan());
+    // unit). Also reveal INVENTORY the moment ANYTHING enters it — battle loot + shop
+    // now hand you items in the defense-pivot flow (the bot-connect path no longer fires),
+    // so without this the inventory tab never appeared even though you had gear.
+    Game.events.on('delivery.arrived', () => {
+      maybeRevealScan();
+      const s = Game.save.state; s.revealed = s.revealed || {};
+      if (!s.revealed.inventory) { s.revealed.inventory = true; if (Game.mobileShell && Game.mobileShell.active()) Game.mobileShell.syncTabs(); }
+    });
 
     Game.events.on('bot.found', () => Game.panels.renderBotContact());
 
