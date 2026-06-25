@@ -263,25 +263,25 @@
     // ── duel-answers: clean, no cost ──
     { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
     // ── FOCUS-FIRE theme (the triage tap) ──
-    { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
+    { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', max: 1, desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
     { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
     // ── CORE theme (the thing you defend) ──
     { id: 'siege_cannon', name: 'SIEGE CANNON',   kind: 'core', tier: 'marquee', max: 1, cost: 'the core stops self-repairing', desc: 'the core fires a heavy beam down your focus line', apply: s => { s.siegeCannon = true; s.regenMul = 0; } },
     // ── SWARM theme (the flocks) ──
-    { id: 'split_doctrine', name: 'SPLIT DOCTRINE', kind: 'swarm', tier: 'rewrite', desc: 'kills split off a fresh mini-flock (brief cooldown)', apply: s => { s.splitDoctrine = true; } },
+    { id: 'split_doctrine', name: 'SPLIT DOCTRINE', kind: 'swarm', tier: 'rewrite', max: 1, desc: 'kills split off a fresh mini-flock (brief cooldown)', apply: s => { s.splitDoctrine = true; } },
     { id: 'endless_tide',   name: 'ENDLESS TIDE',   kind: 'swarm', tier: 'marquee', max: 1, cost: 'every swarm dot has half HP', desc: 'no flock cap and swarms regrow almost instantly', apply: s => { s.endlessTide = true; s.maxFlocks += 30; s.dotHpMul = (s.dotHpMul || 1) * 0.5; } },
     // ── DEATH theme (what kills trigger) ──
-    { id: 'harvest_field',  name: 'HARVEST FIELD',  kind: 'death', tier: 'rewrite', desc: 'enemy deaths heal your core a little', apply: s => { s.harvestField = true; } },
+    { id: 'harvest_field',  name: 'HARVEST FIELD',  kind: 'death', tier: 'rewrite', max: 1, desc: 'enemy deaths heal your core a little', apply: s => { s.harvestField = true; } },
     { id: 'scorched_earth', name: 'SCORCHED EARTH', kind: 'death', tier: 'marquee', max: 1, cost: 'the blasts hurt your own swarms too', desc: 'every enemy death detonates an AoE', apply: s => { s.scorchedEarth = true; } },
     // ── DUEL theme (the guard counter) ──
-    { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
+    { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', max: 1, desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
     // ── EXPANSION: a 2nd solid rewrite per theme (deepens each axis) ──
-    { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
+    { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', max: 1, desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
     { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 flock cap; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
-    { id: 'bulwark_arc', name: 'BULWARK ARC',       kind: 'core',  tier: 'rewrite', desc: 'the core projects a barrier toward your focus target, slowing enemies on that side', apply: s => { s.bulwarkArc = true; } },
-    { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
-    { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },
-    { id: 'viral_load',  name: 'VIRAL LOAD',        kind: 'death', tier: 'rewrite', desc: 'kills near a focus target spread a contagion to nearby enemies', apply: s => { s.viralLoad = true; } },
+    { id: 'bulwark_arc', name: 'BULWARK ARC',       kind: 'core',  tier: 'rewrite', max: 1, desc: 'the core projects a barrier toward your focus target, slowing enemies on that side', apply: s => { s.bulwarkArc = true; } },
+    { id: 'executioner', name: 'EXECUTIONER',       kind: 'focus', tier: 'rewrite', max: 1, desc: 'your army instantly executes a focus target below 18% HP', apply: s => { s.executioner = true; } },
+    { id: 'sunder',      name: 'SUNDER',            kind: 'focus', tier: 'rewrite', max: 1, desc: 'focus targets shed their shields fast and take extra damage', apply: s => { s.sunder = true; } },
+    { id: 'viral_load',  name: 'VIRAL LOAD',        kind: 'death', tier: 'rewrite', max: 1, desc: 'kills near a focus target spread a contagion to nearby enemies', apply: s => { s.viralLoad = true; } },
     // ── POD theme (the greater units — strider/bulwark/siege/glacier/conductor/reaper/fabricator) ──
     { id: 'heavy_ordnance',     name: 'HEAVY ORDNANCE',     kind: 'pod', tier: 'rewrite', desc: 'your pods hit 40% harder', apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.4; } },
     { id: 'reinforced_chassis', name: 'REINFORCED CHASSIS', kind: 'pod', tier: 'rewrite', desc: 'your pods have +60% HP', apply: s => { const k = 1.6; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
