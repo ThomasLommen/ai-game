@@ -25,6 +25,9 @@
     rare:     { cpu_threads: 1.20, ram_mb: 1.10, heat_output: 0.88, power_draw: 0.93, instability: 0.80, cooling: 1.20, power_capacity: 1.12 }
   };
   const TIER_PRICE_MULT = { junk: 0.6, common: 1.0, uncommon: 1.25, rare: 1.7 };
+  // Higher supplier ACCESS = pricier goods, so cash stays meaningful as you progress (else
+  // hardware is trivially cheap once your scaled-contract / loot income climbs). Dial here.
+  const ACCESS_PRICE_K = 0.6;   // tier1 ×1.0 · tier2 ×1.6 · tier3 ×2.2 · tier4 ×2.8 · tier5 ×3.4
 
   function pickWeighted(items) {
     const total = items.reduce((a, it) => a + (it.weight || 1), 0);
@@ -126,7 +129,8 @@
     }
 
     const discount = supId ? Game.suppliers.discount(supId) : 0;   // standing earns a better price
-    const price = Math.max(1, Math.round(basePrice * priceMult * (1 - discount) * 100) / 100);
+    const accessMult = 1 + ((supplierLevel() || 1) - 1) * ACCESS_PRICE_K;   // pricier the deeper your access
+    const price = Math.max(1, Math.round(basePrice * priceMult * accessMult * (1 - discount) * 100) / 100);
 
     // Roll each affix's stat values from its ranges — fixed for this listing's
     // (and resulting instance's) lifetime. Two same-affix parts now differ.
