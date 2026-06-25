@@ -7,7 +7,8 @@
 (function () {
   window.Game = window.Game || {};
   const queue = [];
-  let showing = false, current = null;
+  let showing = false, current = null, storyArmedAt = 0;   // [continue] is inert for 2s (anti-misclick)
+  let NOARM = false; try { NOARM = /[?&]noarm=1/.test(location.search); } catch (e) {}   // test bypass
 
   const overlay = () => document.getElementById('story-overlay');
   const bodyEl = () => document.getElementById('story-body');
@@ -28,6 +29,8 @@
     if (!beat) { hide(); return; }
     current = beat; showing = true;
     bd.innerHTML = beat.map(l => `<div class="story-line">${escapeHtml(l)}</div>`).join('');
+    storyArmedAt = NOARM ? 0 : Date.now() + 2000;
+    if (!NOARM) { ov.classList.add('arming'); void ov.offsetWidth; setTimeout(() => { if (Date.now() >= storyArmedAt - 30) ov.classList.remove('arming'); }, 2000); }
     ov.hidden = false;
     requestAnimationFrame(() => ov.classList.add('up'));
   }
@@ -50,7 +53,7 @@
 
   function wire() {
     const btn = document.getElementById('story-continue');
-    if (btn && !btn._wired) { btn._wired = true; btn.onclick = advance; }
+    if (btn && !btn._wired) { btn._wired = true; btn.onclick = () => { if (Date.now() < storyArmedAt) return; advance(); }; }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
   else wire();

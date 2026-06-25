@@ -2060,12 +2060,20 @@
 
   // The dynamic-event overlay: an interruption with 2–4 options. Floats over the
   // game (which keeps ticking) until the player chooses. Driven by incidentRuntime.
+  // 2s ARM DELAY (anti-misclick) — keyed to the incident+phase so it survives the per-tick
+  // re-render; the class dims the buttons + sweeps a bar, the timestamp gates the clicks.
+  let ARM_NOARM = false; try { ARM_NOARM = /[?&]noarm=1/.test(location.search); } catch (e) {}   // test bypass
+  let incidentArmKey = null, incidentArmedAt = 0;
   function renderIncident() {
     const overlay = document.getElementById('event-overlay');
     if (!overlay) return;
     const cur = Game.incidentRuntime ? Game.incidentRuntime.current() : null;
-    if (!cur) { overlay.hidden = true; return; }
+    if (!cur) { overlay.hidden = true; incidentArmKey = null; return; }
     overlay.hidden = false;
+    const armKey = (cur.id || cur.eventId || 'evt') + ':' + (cur.phase || '');
+    if (armKey !== incidentArmKey) { incidentArmKey = armKey; incidentArmedAt = Date.now() + 2000; }
+    const evtArmed = () => ARM_NOARM || Date.now() >= incidentArmedAt;
+    overlay.classList.toggle('arming', !evtArmed());
     const v = cur.view || {};
     const titleEl = document.getElementById('event-title');
     const bodyEl  = document.getElementById('event-body');
@@ -2085,7 +2093,7 @@
         const deltaHtml = parts.length ? `<div class="event-result-deltas">${parts.join('  ·  ')}</div>` : '';
         optsEl.innerHTML = deltaHtml + `<button class="event-option ack" data-ack="1"><span class="event-option-label">acknowledge</span></button>`;
         const ack = optsEl.querySelector('[data-ack]');
-        if (ack) ack.onclick = () => Game.incidentRuntime.acknowledge();
+        if (ack) ack.onclick = () => { if (!evtArmed()) return; Game.incidentRuntime.acknowledge(); };
       }
       return;
     }
@@ -2101,19 +2109,24 @@
         + `</button>`
       ).join('');
       optsEl.querySelectorAll('.event-option:not(.disabled)').forEach(b => {
-        b.onclick = () => Game.incidentRuntime.resolve(parseInt(b.dataset.idx, 10));
+        b.onclick = () => { if (!evtArmed()) return; Game.incidentRuntime.resolve(parseInt(b.dataset.idx, 10)); };
       });
     }
   }
 
   // The operation stage-choice overlay (between-stage branching decision). Shown
   // only while an operation is in its 'choosing' phase; running stages are a PROCESS.
+  let opArmKey = null, opArmedAt = 0;
   function renderOperation() {
     const overlay = document.getElementById('operation-overlay');
     if (!overlay) return;
     const op = Game.operationRuntime ? Game.operationRuntime.current() : null;
-    if (!op) { overlay.hidden = true; return; }
+    if (!op) { overlay.hidden = true; opArmKey = null; return; }
     overlay.hidden = false;
+    const armKey = (op.id || 'op') + ':' + op.stageIdx;   // re-arm each new stage decision
+    if (armKey !== opArmKey) { opArmKey = armKey; opArmedAt = Date.now() + 2000; }
+    const opArmed = () => ARM_NOARM || Date.now() >= opArmedAt;
+    overlay.classList.toggle('arming', !opArmed());
     const kicker = document.getElementById('op-kicker');
     const title  = document.getElementById('op-title');
     const body   = document.getElementById('op-body');
@@ -2132,7 +2145,7 @@
           + `</button>`;
       }).join('');
       opts.querySelectorAll('.event-option:not(.disabled)').forEach(b => {
-        b.onclick = () => Game.operationRuntime.chooseOption(parseInt(b.dataset.idx, 10));
+        b.onclick = () => { if (!opArmed()) return; Game.operationRuntime.chooseOption(parseInt(b.dataset.idx, 10)); };
       });
     }
   }

@@ -100,7 +100,8 @@
   $('sendwave').onclick = () => SWARM.sendWave(S);
   const re = $('reseed'); if (re) re.onclick = () => { S = newState(); posted = false; lastLogLen = -1; recenter(); };
   const md = $('mode'); if (md) md.onclick = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; recenter(); };
-  $('draft-cards').addEventListener('click', e => { const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
+  let pickArmedAt = 0;   // a pick is only selectable 2s after it appears (anti-misclick, esp. mid-battle)
+  $('draft-cards').addEventListener('click', e => { if (Date.now() < pickArmedAt) return; const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
 
   // ── embed: strip the dev chrome; the end-overlay button returns to the campaign ──
   if (EMBED) {
@@ -496,6 +497,9 @@
           const cost = p.cost ? `<div class="dc-cost-line">— but ${p.cost}</div>` : '';
           return `<button class="${cls}" data-pick="${p.id}" style="--c:${col}"><div class="dc-tag">${tag}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div>${cost}</button>`;
         }).join('');
+        pickArmedAt = Date.now() + 2000;                       // 2s arm delay
+        dr.classList.add('arming'); void dr.offsetWidth;       // restart the sweep animation
+        setTimeout(() => { if (Date.now() >= pickArmedAt - 30) dr.classList.remove('arming'); }, 2000);
       }
       dr.style.display = 'flex';
     } else { lastDraftSig = ''; dr.style.display = 'none'; }
