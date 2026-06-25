@@ -106,7 +106,7 @@
       pick: null, picksTaken: [], newPicks: [], newPolicies: [], picksOff: !!opts.picksOff,   // picksTaken=all incl pre-applied POLICY; newPolicies = POLICY taken THIS battle → persist to the run; HEURISTICS don't persist
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, regenMul: 1,
       podDmgMul: 1, podHpMul: 1, podXpMul: 1,   // POD theme: greater-unit damage / HP / level-speed
-      flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
+      flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [], spawnQueue: [],
       units: [],
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
@@ -399,9 +399,9 @@
     }
     if (s.bossSpawned || s.surge >= s.GOAL_SURGES) return;   // boss is out — clear the field to finish
     // WAVE DEFENSE: no trickle — each surge is a discrete wave, and the NEXT one only
-    // telegraphs once you've cleared every enemy from the last.
+    // telegraphs once you've cleared every enemy from the last (AND the stream has fully entered).
     if (s.warn) { s.warn.t -= dt; if (s.warn.t <= 0) { doSurge(s, s.warn.ang); s.warn = null; } }
-    else if (s.enemies.length === 0) {   // field clear → arm the next wave after a short beat
+    else if (s.enemies.length === 0 && (!s.spawnQueue || s.spawnQueue.length === 0)) {   // field clear → arm the next wave after a short beat
       s.surgeT -= dt;
       if (s.surgeT <= 0) { s.warn = { ang: s.rng() * TAU, t: 2.2 }; if (s.laneMode) pickWaveLanes(s); armCounter(s); say(s, s.laneMode ? '>> SURGE inbound — watch the lit lanes. <<' : '>> SURGE inbound — watch the marked arc. <<'); }
     }
@@ -411,25 +411,29 @@
   function tierPool(tier) { const p = []; if (tier >= 1) p.push('rusher', 'enforcer'); if (tier >= 2) p.push('ward'); if (tier >= 3) p.push('splitter', 'disruptor'); return p; }
   function doSurge(s, ang) {
     s.surge++; s.threat += 6;
-    // PLACE each spawn so a wave doesn't pile on one point: lane mode → round-robin the wave's
-    // lanes + stagger DIST down each (a streaming column); open mode → fan across the arc + radial rings.
+    s.spawnQueue = s.spawnQueue || [];
+    // STREAM the wave in over time instead of dumping it: each enemy is QUEUED with a release
+    // delay so they enter the lane mouth one at a time (per lane) and walk in — a flowing column,
+    // not a wall. tickSpawns releases them. (lane: round-robin + per-lane stagger; open: fan + ring.)
     const laneList = s.laneMode ? (s.waveLanes && s.waveLanes.length ? s.waveLanes : s.lanes.map((_, i) => i)) : null;
     const fill = {}; let rr = 0, arc = 0;
-    function place(type) {
-      const o = { surge: true };
+    const PER_LANE = 0.34, OPEN_INT = 0.13;   // seconds between successive spawns (per lane / globally)
+    function place(type, immediate) {
+      const o = { surge: true }; let t = 0;
       if (s.laneMode) {
         const lane = laneList[rr++ % laneList.length];
-        const k = (fill[lane] = (fill[lane] || 0) + 1) - 1;     // this lane's slot → spacing down the path
-        o.lane = lane; o.dist = k * 30 + s.rng() * 10;
+        const k = (fill[lane] = (fill[lane] || 0) + 1) - 1;     // this lane's slot → its release time
+        o.lane = lane;                                          // enter at the mouth (dist 0); the stagger is in TIME now
+        t = k * PER_LANE + s.rng() * 0.06;
       } else {
         o.ang = ang + ((arc % 9) / 9 - 0.44) * 1.15 + (s.rng() - 0.5) * 0.12;   // fan across ~1.1 rad of the marked arc
-        o.rad = s.spawnR + (Math.floor(arc / 9) % 3) * 20;                       // stack in 3 radial rings
-        arc++;
+        o.rad = s.spawnR + (Math.floor(arc / 9) % 3) * 20;                       // a few radial rings
+        t = arc * OPEN_INT; arc++;
       }
-      spawnEnemy(s, type, o);
+      if (immediate) spawnEnemy(s, type, o); else s.spawnQueue.push({ type, opts: o, t });
     }
     if (s.surge >= s.GOAL_SURGES) {                          // CLIMAX — the boss wave ends the run
-      s.bossSpawned = true; place(s.boss);
+      s.bossSpawned = true; place(s.boss, true);            // boss spawns NOW (so the win-check can't fire on an empty queued field)
       for (let i = 0; i < s.bossEscort; i++) place('enforcer');
       say(s, s.boss === 'juggernaut'
         ? '>> THE JUGGERNAUT BREAKS FROM THE DARK. bring it down and the node is yours. <<'
@@ -781,7 +785,14 @@
     e.x += (e.tx - e.x) * ease; e.y += (e.ty - e.y) * ease;
   }
 
+  // release the staggered spawn STREAM — runs even while a PICK is open (the wave pours in
+  // one-at-a-time while you choose) and during the boss wave (escorts trickle in).
+  function releaseQueue(s, dt) {
+    if (!s.spawnQueue || !s.spawnQueue.length) return;
+    for (let i = s.spawnQueue.length - 1; i >= 0; i--) { const q = s.spawnQueue[i]; q.t -= dt; if (q.t <= 0) { spawnEnemy(s, q.type, q.opts); s.spawnQueue.splice(i, 1); } }
+  }
   function tick(s, dt) {
+    if (!s.won && !s.lost) releaseQueue(s, Math.min(0.05, dt));   // the wave keeps streaming even while a PICK pauses the board
     if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
@@ -804,7 +815,7 @@
     updateEnemies(s, dt);
     s.beams = s.beams.filter(b => (b.life -= dt) > 0);
     s.bursts = s.bursts.filter(b => (b.life -= dt) > 0);
-    if (s.bossSpawned && s.enemies.length === 0) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }
+    if (s.bossSpawned && s.enemies.length === 0 && (!s.spawnQueue || !s.spawnQueue.length)) { s.won = true; say(s, '>> THE JUGGERNAUT FALLS. the node is SECURED. <<'); }   // don't win while escorts are still queued to stream in
   }
 
   // FORCE the next wave early (even before the field is clear → waves stack). Each forced

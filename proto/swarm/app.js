@@ -464,9 +464,10 @@
     const allEven = SWARM.CHANNELS.every(ch => (S.chBonus[ch] || 0) === (S.chBonus.offense || 0));
     $('lean').textContent = allEven ? 'BALANCED' : CH_LABEL[lean];
     $('lean').className = 'lean ' + (S.counter ? 'countered' : '');
-    // the guard's threat-read telegraph (transient banner)
+    // the guard's threat-read telegraph (transient banner) — sit it BELOW the topbar, which
+    // WRAPS on a narrow phone (so a fixed top:46px would hide under it).
     const tr = $('threatread');
-    if (S.threatRead) { tr.textContent = S.threatRead; tr.hidden = false; } else tr.hidden = true;
+    if (S.threatRead) { const tb = $('topbar'); tr.style.top = ((tb ? tb.offsetHeight : 46) + 6) + 'px'; tr.textContent = S.threatRead; tr.hidden = false; } else tr.hidden = true;
 
     $('corehp').textContent = Math.ceil(S.core.hp);
     const cb = $('corebar'); cb.style.width = Math.max(0, S.core.hp / S.core.maxHp * 100) + '%'; cb.style.background = S.core.hp / S.core.maxHp < 0.35 ? '#ff5050' : 'var(--amber)';
