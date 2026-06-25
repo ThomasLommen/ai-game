@@ -30,7 +30,7 @@
   let S = newState(), posted = false;
   let last = performance.now(), lastLogLen = -1, lastDraftSig = '';
   function postResult(kind) {                                  // report up to the campaign (kind: 'result' | 'return')
-    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, picksTaken: S.newPicks.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}
+    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, picksTaken: S.newPolicies.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })) }, '*'); } catch (e) {}   // ONLY POLICY persists to the run; HEURISTICS reset with the battle
   }
 
   // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──
@@ -485,9 +485,13 @@
 
     const dr = $('draft');                                // the make-or-break PICK (pauses the board)
     if (S.pick) {
-      const sig = S.pick.hand.map(p => p.id).join(',');
+      const sig = S.pick.hand.map(p => p.id).join(',') + ':' + (S.pick.kind || '');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
+        const isPolicy = S.pick.kind === 'policy';
+        const dh = $('draft-h'), dsub = $('draft-sub');
+        if (dh) dh.textContent = isPolicy ? 'POLICY · choose one' : 'HEURISTIC · choose one';
+        if (dsub) dsub.textContent = isPolicy ? 'a LASTING choice — carried the whole run. the board is paused.' : 'a tactical call for THIS fight only — resets when the battle ends. the board is paused.';
         const KCOL = { offense: '#49d2ff', shield: '#76e08a', core: '#ffb000', focus: '#ffd24a', swarm: '#76e08a', death: '#ff6a5a', pod: '#ff9e6b', cap: '#ffd24a', edge: '#ff9e6b', duel: '#caa6ff', sig: '#ffe27a' };
         $('draft-cards').innerHTML = S.pick.hand.map(p => {
           const marquee = p.tier === 'marquee', sigc = p.kind === 'sig';

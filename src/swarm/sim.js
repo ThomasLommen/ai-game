@@ -87,7 +87,7 @@
       // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your
       // dominant BUILD channel. (battle-duel-rework v2.)
       counter: null, threatRead: null,    // THE DUEL: the guard reads your lean + counters that channel
-      pick: null, picksTaken: [], newPicks: [], picksOff: !!opts.picksOff,   // picksTaken = all (incl pre-applied run-build); newPicks = taken THIS battle → persisted to the run
+      pick: null, picksTaken: [], newPicks: [], newPolicies: [], picksOff: !!opts.picksOff,   // picksTaken=all incl pre-applied POLICY; newPolicies = POLICY taken THIS battle → persist to the run; HEURISTICS don't persist
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, regenMul: 1,
       podDmgMul: 1, podHpMul: 1, podXpMul: 1,   // POD theme: greater-unit damage / HP / level-speed
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [],
@@ -127,7 +127,7 @@
     say(s, s.laneMode ? 'a node of yours. they come down the lit lanes — hold the core. TAP a threat to focus fire.'
                       : 'a node of yours. they come from the dark — hold the core. TAP a threat to focus fire.');
     ensureField(s);   // your roster auto-deploys; your BUILD governs how strong it is
-    if (opts.opener && !s.picksOff) offerPick(s);   // the FIRST battle opens on a make-or-break pick
+    if (opts.opener && !s.picksOff) offerPick(s, 'policy');   // the opener is a POLICY — a lasting build choice for the run
     return s;
   }
   function say(s, m) { s.log.push(m); if (s.log.length > 40) s.log.shift(); }
@@ -268,10 +268,10 @@
     // ── solid rewrites / build tools ──
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flocks on the field', apply: s => { s.maxFlocks += 2; s.bonusFlocks = (s.bonusFlocks || 0) + 2; } },
     { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
-    { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
-    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
+    { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
+    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
     // ── duel-answers: clean, no cost ──
-    { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
+    { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
     // ── FOCUS-FIRE theme (the triage tap) ──
     { id: 'chain_focus', name: 'CHAIN FOCUS',     kind: 'focus', tier: 'rewrite', max: 1, desc: 'your focus-fire bonus bleeds to enemies near the marked target', apply: s => { s.chainFocus = true; } },
     { id: 'twin_marks',  name: 'TWIN MARKS',      kind: 'focus', tier: 'marquee', max: 1, cost: 'per-target bonus is halved', desc: 'hold TWO focus-fire targets at once', apply: s => { s.core.maxMarks = 2; } },
@@ -284,7 +284,7 @@
     { id: 'harvest_field',  name: 'HARVEST FIELD',  kind: 'death', tier: 'rewrite', max: 1, desc: 'enemy deaths heal your core a little', apply: s => { s.harvestField = true; } },
     { id: 'scorched_earth', name: 'SCORCHED EARTH', kind: 'death', tier: 'marquee', max: 1, cost: 'the blasts hurt your own swarms too', desc: 'every enemy death detonates an AoE', apply: s => { s.scorchedEarth = true; } },
     // ── DUEL theme (the guard counter) ──
-    { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', max: 1, desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
+    { id: 'overextend',     name: 'OVEREXTEND',     kind: 'duel', tier: 'rewrite', max: 1, pool: 'heuristic', desc: 'your dominant channel hits much harder — but so does the counter against it', apply: s => { s.overextend = true; } },
     // ── EXPANSION: a 2nd solid rewrite per theme (deepens each axis) ──
     { id: 'kamikaze',    name: 'KAMIKAZE PROTOCOL', kind: 'swarm', tier: 'rewrite', max: 1, desc: 'swarm dots detonate a small blast when they die', apply: s => { s.kamikaze = true; } },
     { id: 'relentless',  name: 'RELENTLESS',        kind: 'swarm', tier: 'rewrite', desc: '+1 swarm flock; swarms regrow faster and their dots are tougher', apply: s => { s.maxFlocks += 1; s.bonusFlocks = (s.bonusFlocks || 0) + 1; s.relentlessRegen = true; s.dotHpMul = (s.dotHpMul || 1) * 1.3; } },
@@ -315,25 +315,32 @@
   };
   function eligibleSigs(s) { return Object.keys(SIGNATURES).map(k => SIGNATURES[k]).filter(g => g.req(s) && pickCount(s, g.id) < 1); }
   function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
-  function offerPick(s) {
+  // POLICY vs HEURISTIC pool: marquees/signatures/meaty rewrites = POLICY (persist run-long);
+  // tunes (commons) + duel-answers + quick buffs (tagged pool:'heuristic') = HEURISTIC (reset each fight).
+  function pickPool(p) { return p.pool || (p.tier === 'common' ? 'heuristic' : 'policy'); }
+  // offerPick(s, kind): kind 'policy' (opener / calm) draws the build-definers + a sig/marquee special
+  // slot; kind 'heuristic' (per-surge in-fight) draws the light tactical picks only.
+  function offerPick(s, kind) {
     if (s.pick || s.won || s.lost || s.picksOff) return;
-    // the everyday hand = commons + solid rewrites (marquees are rare + telegraphed, injected below)
-    const avail = PICKS.filter(p => p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
+    kind = kind === 'policy' ? 'policy' : 'heuristic';
+    const avail = PICKS.filter(p => pickPool(p) === kind && p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
     for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
     const hand = avail.slice(0, 3);
-    // ONE special slot: a roster SIGNATURE (more likely), else sometimes a rare MARQUEE
-    const sigs = eligibleSigs(s);
-    const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
-    const r = s.rng();
-    if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
-    else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
-    s.pick = { hand };
-    say(s, 'a make-or-break PICK opens — reshape your build.');
+    if (kind === 'policy') {   // ONE special slot — a roster SIGNATURE (more likely), else a rare MARQUEE
+      const sigs = eligibleSigs(s);
+      const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
+      const r = s.rng();
+      if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
+      else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
+    }
+    if (!hand.length) return;
+    s.pick = { hand, kind };
+    say(s, kind === 'policy' ? 'a POLICY opens — a lasting choice for the whole run.' : 'a HEURISTIC — a tactical call for THIS fight only.');
   }
   function takePick(s, id) {
     if (!s.pick) return false;
     const p = s.pick.hand.find(x => x.id === id);
-    if (p) { p.apply(s); s.picksTaken.push(id); s.newPicks.push(id); say(s, `picked ${p.name}.`); }
+    if (p) { p.apply(s); s.picksTaken.push(id); s.newPicks.push(id); if (s.pick.kind === 'policy') s.newPolicies.push(id); say(s, `picked ${p.name}.`); }   // only POLICY persists to the run
     s.pick = null; return true;
   }
 
@@ -406,7 +413,7 @@
     for (let i = 0; i < specials; i++) place(pool.length ? pool[Math.floor(s.rng() * pool.length)] : 'probe');
     s.surgeT = 1.5 + s.rng() * 1;   // brief beat after the field clears before the next wave telegraphs
     say(s, `SURGE ${s.surge}/${s.GOAL_SURGES}${c ? ' [COUNTER: ' + COUNTER[c.channel].read + ']' : ''} — ${probes + specials} hostiles.`);
-    offerPick(s);   // each round hands you a make-or-break PICK (one per surge) — answer the wave you provoked
+    offerPick(s, 'heuristic');   // each surge hands a HEURISTIC — a tactical pick for THIS fight (resets after)
   }
 
   function nearestEnemy(s, x, y, maxR) { let b = null, bd = maxR || 1e9; for (const e of s.enemies) { const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; b = e; } } return b; }
@@ -787,5 +794,5 @@
     s.bursts.push({ x: e.x, y: e.y, life: 0.45, color: '#ffd24a', ring: true });   // a confirm pulse on the new focus
     return true;
   }
-  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, sendWave, difficulty, offerPick, takePick, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
+  global.SWARM = { create, tick, summonFlock, fieldUnit, unitCost, moveUnit, upgradeCore, setStance, toggleEx, pickDraft, coreCost, flockCap, chMult, CHANNELS, setFocus, sendWave, difficulty, offerPick, takePick, pickPool, PICKS, SIGNATURES, eligibleSigs, _hit: damageEnemy, SWARMS, ENEMIES, AMMO, UNITS };
 })(typeof window !== 'undefined' ? window : globalThis);

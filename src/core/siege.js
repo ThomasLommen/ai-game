@@ -95,19 +95,19 @@
     Game.draft.info({ kicker: 'WAVE ' + wave + ' REPELLED', title: 'spoils', lines, onClose });
   }
 
-  // ── CALM PICK DRAFT ─────────────────────────────────────────────────────────
-  // Every DEFEND win opens a deliberate 1-of-3 make-or-break PICK in the calm (on top
-  // of loot), additive to the in-battle per-surge picks. Same rule-rewrite deck, drawn
-  // campaign-side from the sim's catalog (SWARM.PICKS/SIGNATURES — already loaded for the
-  // perimeter), excluding picks you already hold. Stacks into Game.runBuild (no meta).
+  // ── CALM POLICY DRAFT ───────────────────────────────────────────────────────
+  // Every DEFEND win opens a deliberate 1-of-3 POLICY pick in the calm (on top of loot).
+  // POLICY = the lasting build-definers (marquees/signatures/meaty rewrites); it PERSISTS
+  // the whole run (Game.runBuild) and applies in every battle — distinct from the in-fight
+  // HEURISTICS that reset each battle. Drawn campaign-side from the sim's POLICY pool.
   function calmDraft() {
     const SW = window.SWARM;
     if (!SW || !SW.PICKS || !Game.draft || !Game.runBuild) return;
     const rng = () => (Game.rng ? Game.rng.next() : Math.random());
     const held = Game.runBuild.picks();
     const count = id => held.filter(x => x === id).length;
-    // everyday pool: commons + solid rewrites still under their cap (marquees are the rare slot)
-    const pool = SW.PICKS.filter(p => p.tier !== 'marquee' && count(p.id) < (p.max || 99));
+    const policy = p => !SW.pickPool || SW.pickPool(p) === 'policy';   // calm picks are POLICY only
+    const pool = SW.PICKS.filter(p => policy(p) && p.tier !== 'marquee' && count(p.id) < (p.max || 99));
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
     const hand = pool.slice(0, 3);
     if (!hand.length) return;
@@ -120,7 +120,7 @@
     if (sigs.length && r < 0.5) hand[Math.floor(rng() * hand.length)] = sigs[Math.floor(rng() * sigs.length)];
     else if (marquees.length && r < 0.78) hand[Math.floor(rng() * hand.length)] = marquees[Math.floor(rng() * marquees.length)];
     Game.draft.present({
-      kicker: 'BETWEEN-BATTLE PICK',
+      kicker: 'POLICY · permanent this run',
       title: 'reshape your build',
       items: hand.map(p => ({ id: p.id, name: p.name, desc: p.cost ? (p.desc + ' — cost: ' + p.cost) : p.desc, kind: (p.tier === 'marquee' || p.kind === 'sig') ? 'exotic' : 'unit' })),
       onPick: (it) => {
