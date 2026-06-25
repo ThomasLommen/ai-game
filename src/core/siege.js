@@ -47,14 +47,15 @@
 
   // end-of-battle LOOT: each wave you forced early (r.rushed) raises the item drop chance
   // and the cash payout — rush for risk, get paid for it. ([[battle]] send-wave)
-  function grantBattleLoot(r) {
+  function grantBattleLoot(r, periNet) {
     if (!Game.rewards) return;
     const rushed = Math.max(0, (r && r.rushed) | 0), st = Game.save.state;
     const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
     const lootBonus = feed ? (feed.loot || 0) : 0;   // salvage-routines subroutine sweetens every drop
     // PERIMETER STAKES: a POSITIVE net (kills beat leaks — a roster that held the line)
-    // banks into the loot, riding the same credit as forced waves (r.rushed).
-    const net = (st.perimeter && st.perimeter.net) || 0;
+    // banks into the loot, riding the same credit as forced waves (r.rushed). Uses the
+    // net SNAPSHOT taken at battle launch (the calm BEFORE this fight), not the live value.
+    const net = periNet != null ? periNet : ((st.perimeter && st.perimeter.net) || 0);
     const pcred = Math.max(0, Math.min(60, net)) / 14;   // ~a full clean calm (~50 net) ≈ +3.5 credit
     const credit = rushed + pcred;
     Game.rewards.apply({ cash: Math.round((50 + credit * 35) * (1 + lootBonus)) }, st);
@@ -103,19 +104,19 @@
     s.ready = false;
     const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
     const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks }, waveOpts(s.wave), Game.roster.toOpts());
+    const periNet = (Game.save.state.perimeter && Game.save.state.perimeter.net) || 0;   // snapshot the calm BEFORE this fight → feeds the loot
     Game.battle.launch(opts, (r) => {
       const st = ensure();
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
-        grantBattleLoot(r);   // FORCED waves + a positive perimeter NET raise the loot drop chance + cash
+        grantBattleLoot(r, periNet);   // FORCED waves + the pre-battle perimeter NET raise the loot drop chance + cash
         Game.events && Game.events.emit('siege.won', { wave: st.wave });
         calmDraft();          // every DEFEND win opens a deliberate make-or-break PICK in the calm
       } else {
         st.meter = MAX * 0.4;   // setback — it rebuilds
         Game.events && Game.events.emit('siege.lost', { wave: st.wave });
       }
-      if (st.perimeter) st.perimeter.net = 0;   // the scoreboard resets each DEFEND (win or loss)
       Game.save.persist && Game.save.persist();
     });
     Game.save.persist && Game.save.persist();
@@ -123,4 +124,9 @@
   }
 
   Game.siege = { ensure, active, tick, defend, meter, wave, ready, frac, MAX, grantBattleLoot, _calmDraft: calmDraft };
+
+  // The perimeter NET scoreboard resets after EVERY battle (siege loot already snapshotted
+  // the pre-battle value at launch). Global so it covers trap/event battles too, not just
+  // the siege DEFEND. battle.ended fires once the player returns from the fight.
+  if (Game.events) Game.events.on('battle.ended', () => { const p = Game.save.state && Game.save.state.perimeter; if (p) p.net = 0; });
 })();

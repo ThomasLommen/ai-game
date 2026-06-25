@@ -89,16 +89,16 @@
     ctx.beginPath(); ctx.arc(cx, cy, cr * 0.26, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
 
     // NET readout — the perimeter scoreboard since the last DEFEND (kills − leaks).
+    // Top-RIGHT, clear of the "◈ PERIMETER" HTML label (top-left).
     const st = window.Game && Game.save && Game.save.state;
     const net = st && st.perimeter ? Math.round(st.perimeter.net || 0) : 0;
-    const fs = Math.max(9, Math.round(11 * devicePixelRatio));
+    const fs = Math.max(9, Math.round(10 * devicePixelRatio));
     ctx.font = '700 ' + fs + 'px ui-monospace, Menlo, monospace';
     ctx.textBaseline = 'top';
-    ctx.fillStyle = 'rgba(255,255,255,0.32)'; ctx.fillText('HOLDING', 6 * devicePixelRatio, 5 * devicePixelRatio);
     const label = (net >= 0 ? 'NET +' : 'NET ') + net;
     ctx.fillStyle = net >= 0 ? '#76e08a' : '#ff6b5a';
     const tw = ctx.measureText(label).width;
-    ctx.fillText(label, cvs.width - tw - 6 * devicePixelRatio, 5 * devicePixelRatio);
+    ctx.fillText(label, cvs.width - tw - 7 * devicePixelRatio, 5 * devicePixelRatio);
   }
 
   requestAnimationFrame(frame);
