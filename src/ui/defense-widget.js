@@ -16,6 +16,10 @@
   function applyRoster() {
     if (!S || !window.Game || !Game.roster) return;
     Game.roster.exotics().forEach(k => { if (S.ex && (k in S.ex) && !S.ex[k]) SWARM.toggleEx(S, k); });
+    // The perimeter shows your WHOLE roster — lift the battle caps (it's a cosmetic display,
+    // not a balance constraint), so every drafted swarm + greater unit is visible. (Set AFTER
+    // the exotics toggle, since engaging `hive` rewrites maxFlocks.)
+    S.podCap = 30; S.maxFlocks = Math.max(S.maxFlocks, 30);
     Game.roster.units().forEach(id => {
       if (SWARM.SWARMS[id]) { if (!S.flocks.some(f => f.type === id)) SWARM.summonFlock(S, id); }
       else if (SWARM.UNITS[id]) { if (!S.units.some(u => u.type === id)) SWARM.fieldUnit(S, id); }

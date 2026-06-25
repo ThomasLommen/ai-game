@@ -2419,7 +2419,7 @@
         if (pending > 0) inner += `<span class="hs-lv-up">● LEVEL UP — claim upgrade</span>`;
         else if (band.next != null) {
           const span = Math.max(1, band.next - band.prev), p = Math.max(0, Math.min(1, (band.coh - band.prev) / span));
-          inner += `<span class="hs-lv-txt">${Math.max(0, Math.ceil(band.next - band.coh))} Coherence → next upgrade</span><span class="hs-lv-bar"><span style="width:${(p * 100).toFixed(1)}%"></span></span>`;
+          inner += `<span class="hs-lv-txt">next upgrade at ${band.next} Coherence</span><span class="hs-lv-bar"><span style="width:${(p * 100).toFixed(1)}%"></span></span>`;
         } else inner += `<span class="hs-lv-txt">max level</span>`;
         lvlEl.innerHTML = inner;
       }
