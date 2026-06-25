@@ -12,7 +12,7 @@
   // ARM DELAY — buttons are inert for 2s after the overlay opens (anti-misclick). The
   // 'arming' class dims the buttons + sweeps a progress bar; the guard is the real safety.
   let NOARM = false; try { NOARM = /[?&]noarm=1/.test(location.search); } catch (e) {}   // test bypass
-  const ARM_MS = 2000;
+  const ARM_MS = 1000;
   let armedAt = 0, hideTimer = null;
   function arm(ov) { if (NOARM) { armedAt = 0; return; } armedAt = Date.now() + ARM_MS; ov.classList.add('arming'); void ov.offsetWidth; setTimeout(() => { if (Date.now() >= armedAt - 30) ov.classList.remove('arming'); }, ARM_MS); }
   function armed() { return NOARM || Date.now() >= armedAt; }

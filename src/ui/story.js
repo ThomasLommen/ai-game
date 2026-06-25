@@ -29,8 +29,8 @@
     if (!beat) { hide(); return; }
     current = beat; showing = true;
     bd.innerHTML = beat.map(l => `<div class="story-line">${escapeHtml(l)}</div>`).join('');
-    storyArmedAt = NOARM ? 0 : Date.now() + 2000;
-    if (!NOARM) { ov.classList.add('arming'); void ov.offsetWidth; setTimeout(() => { if (Date.now() >= storyArmedAt - 30) ov.classList.remove('arming'); }, 2000); }
+    storyArmedAt = NOARM ? 0 : Date.now() + 1000;
+    if (!NOARM) { ov.classList.add('arming'); void ov.offsetWidth; setTimeout(() => { if (Date.now() >= storyArmedAt - 30) ov.classList.remove('arming'); }, 1000); }
     ov.hidden = false;
     requestAnimationFrame(() => ov.classList.add('up'));
   }

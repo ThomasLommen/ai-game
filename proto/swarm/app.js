@@ -503,9 +503,9 @@
           const cost = p.cost ? `<div class="dc-cost-line">— but ${p.cost}</div>` : '';
           return `<button class="${cls}" data-pick="${p.id}" style="--c:${col}"><div class="dc-tag">${tag}</div><div class="dc-name">${p.name}</div><div class="dc-desc">${p.desc}</div>${cost}</button>`;
         }).join('');
-        pickArmedAt = Date.now() + 2000;                       // 2s arm delay
+        pickArmedAt = Date.now() + 1000;                       // 1s arm delay
         dr.classList.add('arming'); void dr.offsetWidth;       // restart the sweep animation
-        setTimeout(() => { if (Date.now() >= pickArmedAt - 30) dr.classList.remove('arming'); }, 2000);
+        setTimeout(() => { if (Date.now() >= pickArmedAt - 30) dr.classList.remove('arming'); }, 1000);
       }
       dr.style.display = 'flex';
     } else { lastDraftSig = ''; dr.style.display = 'none'; }

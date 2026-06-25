@@ -109,7 +109,7 @@
   .dc-cost{font-size:12px;color:var(--cyan);}
   /* ARM DELAY — 2s before a pick is selectable (anti-misclick); a bar sweeps across the top */
   #draft.arming .draftcard{opacity:.38;pointer-events:none;}
-  #draft.arming::before{content:'';position:absolute;left:0;top:0;height:3px;width:100%;transform-origin:left;transform:scaleX(0);background:#ffb000;box-shadow:0 0 8px #ffb000;animation:arm-fill 2s linear forwards;}
+  #draft.arming::before{content:'';position:absolute;left:0;top:0;height:3px;width:100%;transform-origin:left;transform:scaleX(0);background:#ffb000;box-shadow:0 0 8px #ffb000;animation:arm-fill 1s linear forwards;}
   @keyframes arm-fill{to{transform:scaleX(1);}}
   #overlay{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:11px;background:rgba(5,6,10,0.86);z-index:10;}
   #ov-title{font-size:30px;letter-spacing:8px;}

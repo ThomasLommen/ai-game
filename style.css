@@ -1251,9 +1251,9 @@ h2 {
 }
 #draft-overlay[hidden] { display: none; }
 #draft-overlay.up { opacity: 1; }
-/* ARM DELAY — 2s before buttons are live (anti-misclick); dim them + sweep a top bar */
-#draft-overlay.arming .draft-card { pointer-events: none; filter: brightness(0.45) saturate(0.6); }
-#draft-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 2s linear forwards; z-index: 321; }
+/* ARM DELAY — 1s before buttons are live (anti-misclick); dim them + sweep a top bar */
+#draft-overlay.arming .draft-card { filter: brightness(0.45) saturate(0.6); }
+#draft-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 1s linear forwards; z-index: 321; }
 @keyframes draft-arm-fill { to { transform: scaleX(1); } }
 #draft-frame { width: min(560px, 92vw); padding: 3vh 18px calc(3vh + env(safe-area-inset-bottom)); margin: auto; }
 #draft-kicker { font-size: 9px; letter-spacing: 4px; color: var(--amber-mid); text-align: center; }
@@ -1291,9 +1291,9 @@ h2 {
 }
 #story-overlay[hidden] { display: none; }
 #story-overlay.up { opacity: 1; }
-/* ARM DELAY — 2s before [continue] is live (anti-misclick) */
-#story-overlay.arming #story-continue { pointer-events: none; filter: brightness(0.45); }
-#story-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: draft-arm-fill 2s linear forwards; }
+/* ARM DELAY — 1s before [continue] is live (anti-misclick) */
+#story-overlay.arming #story-continue { filter: brightness(0.45); }
+#story-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: draft-arm-fill 1s linear forwards; }
 #story-frame {
   width: min(620px, 90vw); padding: 8vh 28px; text-align: left;
   display: flex; flex-direction: column; gap: 26px;
@@ -1320,9 +1320,9 @@ h2 {
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.55);
 }
-/* ARM DELAY — 2s before the option buttons go live (anti-misclick) */
-#event-overlay.arming .event-option, #operation-overlay.arming .event-option { pointer-events: none; filter: brightness(0.45) saturate(0.6); }
-#event-overlay.arming::before, #operation-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 2s linear forwards; }
+/* ARM DELAY — 1s before the option buttons go live (anti-misclick) */
+#event-overlay.arming .event-option, #operation-overlay.arming .event-option { filter: brightness(0.45) saturate(0.6); }
+#event-overlay.arming::before, #operation-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 1s linear forwards; }
 #event-overlay[hidden], #operation-overlay[hidden] { display: none; }
 #event-frame, #op-frame {
   width: min(560px, 86vw);

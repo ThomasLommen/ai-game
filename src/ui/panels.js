@@ -2065,8 +2065,12 @@
   // The dynamic-event overlay: an interruption with 2–4 options. Floats over the
   // game (which keeps ticking) until the player chooses. Driven by incidentRuntime.
   // 2s ARM DELAY (anti-misclick) — keyed to the incident+phase so it survives the per-tick
-  // re-render; the class dims the buttons + sweeps a bar, the timestamp gates the clicks.
+  // re-render; the class only DIMS now (no pointer-events:none — the timestamp gate is the
+  // real block, so a stuck class can't dead-lock the buttons). A setTimeout clears the class
+  // even though the event PAUSES the game (no tick re-render to toggle it off otherwise).
+  const ARM_MS = 1000;
   let ARM_NOARM = false; try { ARM_NOARM = /[?&]noarm=1/.test(location.search); } catch (e) {}   // test bypass
+  function disarmAfter(overlayId, atRef) { setTimeout(() => { const ov = document.getElementById(overlayId); if (ov && Date.now() >= atRef() - 30) ov.classList.remove('arming'); }, ARM_MS + 40); }
   let incidentArmKey = null, incidentArmedAt = 0;
   function renderIncident() {
     const overlay = document.getElementById('event-overlay');
@@ -2075,7 +2079,7 @@
     if (!cur) { overlay.hidden = true; incidentArmKey = null; return; }
     overlay.hidden = false;
     const armKey = (cur.id || cur.eventId || 'evt') + ':' + (cur.phase || '');
-    if (armKey !== incidentArmKey) { incidentArmKey = armKey; incidentArmedAt = Date.now() + 2000; }
+    if (armKey !== incidentArmKey) { incidentArmKey = armKey; incidentArmedAt = Date.now() + ARM_MS; disarmAfter('event-overlay', () => incidentArmedAt); }
     const evtArmed = () => ARM_NOARM || Date.now() >= incidentArmedAt;
     overlay.classList.toggle('arming', !evtArmed());
     const v = cur.view || {};
@@ -2128,7 +2132,7 @@
     if (!op) { overlay.hidden = true; opArmKey = null; return; }
     overlay.hidden = false;
     const armKey = (op.id || 'op') + ':' + op.stageIdx;   // re-arm each new stage decision
-    if (armKey !== opArmKey) { opArmKey = armKey; opArmedAt = Date.now() + 2000; }
+    if (armKey !== opArmKey) { opArmKey = armKey; opArmedAt = Date.now() + ARM_MS; disarmAfter('operation-overlay', () => opArmedAt); }
     const opArmed = () => ARM_NOARM || Date.now() >= opArmedAt;
     overlay.classList.toggle('arming', !opArmed());
     const kicker = document.getElementById('op-kicker');
