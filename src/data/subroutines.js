@@ -11,9 +11,9 @@
 
   // Front-loaded escalating cadence: the first few come fast (so a new run gets
   // build-shaping picks early), then they space out.
-  // ~20 LEVELS (doubled). ~4 land in the 10–90 band (10,25,50,90) for an unchanged
-  // early cadence; the rest extend the ladder deep so late-game Coherence keeps paying.
-  const MILESTONES = [3, 10, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
+  // 22 LEVELS. Denser early game (3,6,10,17,25 — extra steps before 10 and between 10–25),
+  // then the ladder extends deep so late-game Coherence keeps paying.
+  const MILESTONES = [3, 6, 10, 17, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
   Game.subroutines.MILESTONES = MILESTONES;
 
   // ── The DRAFT POOL (draftable:true) ─────────────────────────────────────────
