@@ -140,6 +140,14 @@
   // ── MILESTONE DRAFT ─────────────────────────────────────────────────────────
   // How many milestones the current Coherence has crossed.
   function crossed(coh) { let n = 0; for (const m of MILESTONES) if (coh >= m) n++; return n; }
+
+  // ── LEVEL (the player-facing name for Coherence-milestone progression) ───────
+  // Your LEVEL = how many Coherence milestones you've crossed; each level-up grants a
+  // make-or-break subroutine draft. Surfaced on the HOME header so you always see how
+  // much Coherence is left to the next upgrade.
+  Game.subroutines.level = function () { return crossed(Game.save.state.resources.insight || 0); };
+  Game.subroutines.nextLevelAt = function () { const coh = Game.save.state.resources.insight || 0; for (const m of MILESTONES) if (coh < m) return m; return null; };
+  Game.subroutines.levelBand = function () { const coh = Game.save.state.resources.insight || 0; let prev = 0; for (const m of MILESTONES) { if (coh < m) return { prev, next: m, coh }; prev = m; } return { prev, next: null, coh }; };
   function drawsTaken(s) { s.flags = s.flags || {}; return s.flags.subDraws | 0; }
   function ownedSet(s) { return (s.installed && s.installed.subroutines) || {}; }
   function poolUnowned(s) {
@@ -194,8 +202,8 @@
       return Game.subroutines.openNextDraft();
     }
     Game.draft.present({
-      kicker: 'COHERENCE MILESTONE',
-      title: 'integrate a subroutine',
+      kicker: 'LEVEL ' + (drawsTaken(s) + 1) + ' — INTEGRATE',
+      title: 'level up: integrate a subroutine',
       items: hand.map(sub => ({ id: sub.id, name: sub.name, desc: sub.description, kind: 'exotic' })),
       onPick: (it) => {
         s.flags = s.flags || {};

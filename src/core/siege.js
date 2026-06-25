@@ -23,10 +23,24 @@
   function ready() { return ensure().ready; }
   function frac()  { return Math.max(0, Math.min(1, ensure().meter / MAX)); }
 
+  // OVERRUN: how much stalling past a FULL siege escalates the next DEFEND. +1 wave of
+  // pressure per OVERRUN_SECS overdue, capped — no auto-launch (you still choose when).
+  const OVERRUN_SECS = 15, OVERRUN_CAP = 5;
+  function overrunWaves() { const HZ = (Game.tick && Game.tick.HZ) || 4; return Math.min(OVERRUN_CAP, Math.floor((ensure().overdue || 0) / (OVERRUN_SECS * HZ))); }
+
   function tick() {
     if (!active()) return;
     const s = ensure();
-    if (s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return;   // hold while inbound / mid-battle
+    if (Game.battle && Game.battle.active && Game.battle.active()) return;   // hold mid-battle
+    if (s.ready) {
+      // STALLING past a full siege has teeth now: the longer you wait, the harder the next
+      // DEFEND (overrunWaves), and the massing force PRESSES the line — the perimeter NET
+      // bleeds, so you can't farm it forever. No auto-launch; the choice stays yours.
+      s.overdue = (s.overdue || 0) + 1;
+      const p = Game.save.state.perimeter;
+      if (p && p.net > -40) p.net = Math.max(-40, p.net - 0.05);
+      return;
+    }
     const HZ = (Game.tick && Game.tick.HZ) || 4;
     const exposure = Game.save.state.exposure || 0;
     const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
@@ -42,7 +56,7 @@
 
   // difficulty derives from ACT (structure) + WAVE (pressure) inside the sim's difficulty() curve.
   function waveOpts(w) {
-    return { lane: true, act: (Game.acts ? Game.acts.current() : 1), wave: w };
+    return { lane: true, act: (Game.acts ? Game.acts.current() : 1), wave: w + overrunWaves() };   // stalling stacks OVERRUN pressure onto the fight
   }
 
   // end-of-battle LOOT: each wave you forced early (r.rushed) raises the item drop chance
@@ -101,7 +115,7 @@
   function defend() {
     const s = ensure();
     if (!s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return false;
-    s.ready = false;
+    s.ready = false; s.overdue = 0;   // clear the OVERRUN stall once you commit
     const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
     const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks }, waveOpts(s.wave), Game.roster.toOpts());
     const periNet = (Game.save.state.perimeter && Game.save.state.perimeter.net) || 0;   // snapshot the calm BEFORE this fight → feeds the loot
@@ -123,7 +137,7 @@
     return true;
   }
 
-  Game.siege = { ensure, active, tick, defend, meter, wave, ready, frac, MAX, grantBattleLoot, _calmDraft: calmDraft };
+  Game.siege = { ensure, active, tick, defend, meter, wave, ready, frac, MAX, grantBattleLoot, overrunWaves, _calmDraft: calmDraft };
 
   // The perimeter NET scoreboard resets after EVERY battle (siege loot already snapshotted
   // the pre-battle value at launch). Global so it covers trap/event battles too, not just

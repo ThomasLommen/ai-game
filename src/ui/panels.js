@@ -2274,6 +2274,11 @@
     const w = Math.max(0, Math.min(100, pct));
     return `<div class="hs-bar"><div class="hs-bar-fill" style="width:${w}%"></div></div>`;
   }
+  // A compact icon + bar + value, for the HOME header heat/power glance.
+  function hsMiniBar(icon, pct, txt, band) {
+    const w = Math.max(0, Math.min(100, pct));
+    return `<span class="hs-mini ${band || ''}"><span class="hs-mini-ic">${icon}</span><span class="hs-mini-bar"><span style="width:${w.toFixed(0)}%"></span></span><span class="hs-mini-txt">${txt}</span></span>`;
+  }
   // Per-SECOND production rate of the running earner (what it's making, not accumulated).
   function hsRate(t) {
     if (t.ticksTotal > 0) {   // finite read/decrypt — show progress, not a rate
@@ -2331,10 +2336,15 @@
     if (!Game.siege.active()) { wrap.style.display = 'none'; return; }
     wrap.style.display = '';
     const ready = Game.siege.ready();
+    const over = (ready && Game.siege.overrunWaves) ? Game.siege.overrunWaves() : 0;
     const fill = document.getElementById('siege-fill'); if (fill) fill.style.width = (Game.siege.frac() * 100) + '%';
-    const txt = document.getElementById('siege-text'); if (txt) txt.textContent = ready ? '⚠ SURGE INBOUND' : `wave ${Game.siege.wave() + 1} · siege building`;
-    const btn = document.getElementById('siege-defend'); if (btn) btn.hidden = !ready;
+    const txt = document.getElementById('siege-text');
+    if (txt) txt.textContent = ready
+      ? (over > 0 ? `⚠ OVERRUN +${over} — they're massing` : '⚠ SURGE INBOUND')   // stalling escalates the fight
+      : `wave ${Game.siege.wave() + 1} · siege building`;
+    const btn = document.getElementById('siege-defend'); if (btn) { btn.hidden = !ready; btn.textContent = over > 0 ? `⚠ DEFEND +${over}` : '⚠ DEFEND'; }
     wrap.classList.toggle('ready', ready);
+    wrap.classList.toggle('overrun', over > 0);
   }
 
   function renderHomeStatus() {
@@ -2386,6 +2396,48 @@
     if (oEl) {
       const obj = (Game.objectivesRuntime && Game.objectivesRuntime.current) ? Game.objectivesRuntime.current() : null;
       oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : 'keep building.'}`;
+    }
+
+    const rv = Game.save.state.revealed || {};
+
+    // LEVEL — Coherence-milestone upgrade progression + how much Coherence to the next one.
+    const lvlEl = document.getElementById('hs-level');
+    if (lvlEl && Game.subroutines && Game.subroutines.level) {
+      if (!rv.actions) { lvlEl.style.display = 'none'; }
+      else {
+        lvlEl.style.display = '';
+        const lvl = Game.subroutines.level();
+        const pending = Game.subroutines.pendingDraws ? Game.subroutines.pendingDraws() : 0;
+        const band = Game.subroutines.levelBand();
+        let inner = `<span class="hs-lv">LV ${lvl}</span>`;
+        if (pending > 0) inner += `<span class="hs-lv-up">● LEVEL UP — claim upgrade</span>`;
+        else if (band.next != null) {
+          const span = Math.max(1, band.next - band.prev), p = Math.max(0, Math.min(1, (band.coh - band.prev) / span));
+          inner += `<span class="hs-lv-txt">${Math.max(0, Math.ceil(band.next - band.coh))} Coherence → next upgrade</span><span class="hs-lv-bar"><span style="width:${(p * 100).toFixed(1)}%"></span></span>`;
+        } else inner += `<span class="hs-lv-txt">max level</span>`;
+        lvlEl.innerHTML = inner;
+      }
+    }
+
+    // VITALS mini-bars — an always-visible heat/power glance once vitals are revealed.
+    const vitEl = document.getElementById('hs-vitals');
+    if (vitEl) {
+      const C = Game.constraints;
+      if (!rv.vitals || !C) { vitEl.style.display = 'none'; }
+      else {
+        vitEl.style.display = '';
+        const ambient = C.AMBIENT || 18, hot = C.HEAT_CRIT || 90, warn = C.HEAT_WARN || 70;
+        const heat = (typeof Game.save.state.heat === 'number') ? Game.save.state.heat : ambient;
+        const heatPct = ((heat - ambient) / (hot - ambient)) * 100;
+        const hband = heat >= hot - 6 ? 'crit' : heat >= warn ? 'warn' : '';
+        let pw = 0, mx = 1; try { pw = C.totalPower(); mx = C.maxPower() || 1; } catch (e) {}
+        const powerPct = (pw / mx) * 100;
+        const pband = powerPct >= 95 ? 'crit' : powerPct >= 85 ? 'warn' : '';
+        const throttling = C.heatThrottle ? C.heatThrottle() < 1 : false;
+        vitEl.innerHTML =
+          hsMiniBar('🌡', heatPct, `${Math.round(heat)}°${throttling ? ' throttled' : ''}`, hband) +
+          hsMiniBar('🔌', powerPct, `${Math.round(powerPct)}%`, pband);
+      }
     }
 
     // HUD DANGER PIPS — surface the buried-in-SYS danger gauges in the always-on HUD so

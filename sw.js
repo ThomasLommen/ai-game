@@ -3,7 +3,7 @@
 // browser's HTTP cache (GitHub Pages sends max-age=600) is BYPASSED and an online
 // session always gets the freshest build — otherwise edits don't reach the phone for
 // ~10 min. Falls back to the runtime cache when offline. Bump CACHE to force a re-cache.
-const CACHE = 'aigame-v7';
+const CACHE = 'aigame-v8';
 const CORE = [
   './index.html', './style.css', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png'

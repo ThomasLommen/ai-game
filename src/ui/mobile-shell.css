@@ -146,6 +146,30 @@
 .hs-bar { height: 6px; width: 100%; background: rgba(255,176,0,0.10); border-radius: 1px; overflow: hidden; }
 .hs-bar-fill { height: 100%; width: 0; background: var(--amber); box-shadow: 0 0 6px rgba(255,176,0,0.6); transition: width 0.28s linear; }
 .hs-idle { color: var(--amber-faint); }
+
+/* LEVEL line — Coherence-milestone upgrade progression + distance to the next one */
+#hs-level { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.hs-lv { color: var(--amber); font-weight: 700; letter-spacing: 1px; flex: 0 0 auto; }
+.hs-lv-txt { color: var(--amber-mid); flex: 0 0 auto; white-space: nowrap; }
+.hs-lv-bar { flex: 1 1 auto; height: 4px; min-width: 28px; background: rgba(255,176,0,0.12); border-radius: 1px; overflow: hidden; }
+.hs-lv-bar > span { display: block; height: 100%; background: var(--amber-mid); transition: width .4s linear; }
+.hs-lv-up { color: var(--green); font-weight: 700; letter-spacing: .5px; animation: pip-throb .9s ease-in-out infinite; }
+
+/* VITALS mini-bars — an always-visible heat/power danger glance */
+#hs-vitals { display: flex; gap: 16px; }
+.hs-mini { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--amber-mid); flex: 1 1 0; min-width: 0; }
+.hs-mini-ic { flex: 0 0 auto; }
+.hs-mini-bar { flex: 1 1 auto; height: 4px; min-width: 22px; background: rgba(255,176,0,0.12); border-radius: 1px; overflow: hidden; }
+.hs-mini-bar > span { display: block; height: 100%; background: var(--amber-dim); transition: width .3s linear; }
+.hs-mini-txt { flex: 0 0 auto; white-space: nowrap; color: var(--amber-dim); }
+.hs-mini.warn { color: var(--amber); }
+.hs-mini.warn .hs-mini-bar > span { background: var(--amber); }
+.hs-mini.crit { color: var(--err); text-shadow: 0 0 6px rgba(255,80,80,.5); }
+.hs-mini.crit .hs-mini-bar > span { background: var(--err); }
+
+/* siege OVERRUN — stalling a full siege is escalating: throb the warning */
+#siege.overrun #siege-text { color: var(--err); animation: pip-throb .7s ease-in-out infinite; }
+#siege.overrun #siege-defend { background: rgba(60,12,12,0.95); }
 /* recent */
 #hs-recent { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .hs-rec-txt { color: var(--amber-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }

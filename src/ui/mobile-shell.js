@@ -106,6 +106,8 @@
     const h = el('div'); h.id = 'home-status';
     h.innerHTML =
       '<div id="hs-running" class="hs-line"></div>' +
+      '<div id="hs-level" class="hs-line" role="button"></div>' +     // LEVEL + Coherence-to-next-upgrade
+      '<div id="hs-vitals" class="hs-line"></div>' +                  // heat/power mini-bars (once vitals revealed)
       '<div id="hs-recent" class="hs-line" role="button"></div>' +
       '<div id="hs-voice" class="hs-line"></div>' +
       '<div id="hs-objective" class="hs-line"></div>' +
@@ -113,6 +115,10 @@
     crt.appendChild(h);   // parked here; the MOUNT loop relocates it into HOME
     // tap the recent line → open the full activity feed
     h.querySelector('#hs-recent').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('activity'); };
+    // tap LEVEL → the SUBROUTINES list (what leveling up grants)
+    h.querySelector('#hs-level').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('subroutines'); };
+    // tap the vitals bars → the DIAGNOSTICS/VITALS panel
+    h.querySelector('#hs-vitals').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('vitals'); };
   }
 
   // SETTINGS slide-up sheet (save transfer + reset), opened by the HUD gear.
