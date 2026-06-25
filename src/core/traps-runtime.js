@@ -45,8 +45,15 @@
     if (!bait) return false;
 
     // Build the battle; the OVER-DRAW risk can hook bigger than baited (escort swells,
-    // and a lighter lure can pull in a true predator).
-    const opts = Object.assign({ seed: (Game.rng.next() * 1e9) | 0, lane: true }, bait.battle);
+    // and a lighter lure can pull in a true predator). FIELD THE FULL BUILD — your drafted
+    // roster (units + exotics), your run-long POLICY picks, and the lagged power-scaling — so a
+    // trap ambush plays with everything you've got, exactly like a siege DEFEND.
+    const st0 = Game.save.state;
+    const build = Object.assign({
+      picks: (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [],
+      power: (st0.siege && st0.siege.laggedPower) || 0
+    }, (Game.roster && Game.roster.toOpts) ? Game.roster.toOpts() : {});
+    const opts = Object.assign({ seed: (Game.rng.next() * 1e9) | 0, lane: true }, bait.battle, build);
     let overdrew = false;
     if (Game.rng.chance(OVERDRAW_CHANCE)) {
       overdrew = true;
@@ -63,6 +70,9 @@
   function onResolve(bait, result, overdrew) {
     const st = Game.save.state, t = ensureState();
     t.cooldownUntil = now() + COOLDOWN_TICKS;
+    // feed the power-scaling curve + persist any POLICY picks — same as a siege DEFEND.
+    if (result && typeof result.power === 'number' && st.siege) { const lag = (window.SWARM && SWARM.BAL && SWARM.BAL.powerLag) || 0.5; st.siege.laggedPower = (st.siege.laggedPower || 0) + (result.power - (st.siege.laggedPower || 0)) * lag; }
+    if (result && result.picksTaken && Game.runBuild) Game.runBuild.add(result.picksTaken);
     const won = result && result.result === 'won';
     const kills = (result && result.kills) || 0;
     const rt = Game.missionRuntime ? Game.missionRuntime.rewardText : null;
