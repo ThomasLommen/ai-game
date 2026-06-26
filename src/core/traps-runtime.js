@@ -78,10 +78,13 @@
     const kills = (result && result.kills) || 0;
     const rt = Game.missionRuntime ? Game.missionRuntime.rewardText : null;
     if (won) {
+      // salvage-routines subroutine (feed.loot) sweetens the haul — more cash + a better drop roll.
+      const feed = (Game.subroutines && Game.subroutines.feed) ? Game.subroutines.feed() : null;
+      const lootB = feed ? (feed.loot || 0) : 0;
       const bounty = Math.round(kills * (bait.perKill || 0));
-      const eff = { cash: (bait.cash || 0) + bounty, insight: bait.insight || 0, exposure: bait.exposure || 0 };
+      const eff = { cash: Math.round(((bait.cash || 0) + bounty) * (1 + lootB)), insight: bait.insight || 0, exposure: bait.exposure || 0 };
       Game.rewards.apply(eff, st);
-      if (bait.itemChance && Game.rng.chance(bait.itemChance)) Game.rewards.apply({ item: true }, st);
+      if (bait.itemChance && Game.rng.chance(Math.min(0.95, bait.itemChance + lootB))) Game.rewards.apply({ item: true }, st);
       const od = overdrew ? ' it came bigger than baited — you barely held.' : '';
       const line = `Ambush sprung — ${kills} culled. harvest ${rt ? rt(eff) : ('+$' + eff.cash)}.${od}`;
       Game.events.emit('terminal.print', { lines: ['> ' + line, ''], cls: 'dim' });

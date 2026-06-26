@@ -5,8 +5,8 @@
   // Coherence is a cumulative score (never spent). Every time it crosses a
   // front-loaded MILESTONE you get a 1-of-3 DRAFT (seeded from the pool below) —
   // a real choice, randomized per run like everything else. The picks are
-  // MEANINGFUL and span BOTH the economy (effects pipeline) AND the battle/
-  // perimeter feed (boost / opener / siege / loot). ([[start-defense-pivot]],
+  // MEANINGFUL and span BOTH the economy (effects pipeline) AND the battle
+  // feed (boost / opener / loot). ([[start-defense-pivot]],
   // [[no-meta-progression-principle]] — power comes from within the run.)
 
   // Front-loaded escalating cadence: the first few come fast (so a new run gets
@@ -19,7 +19,7 @@
   // ── The DRAFT POOL (draftable:true) ─────────────────────────────────────────
   // ECONOMY picks route through the effects pipeline (src/core/effects.js).
   // BATTLE-FEED picks carry a `feed` block read by battle.js (boost/opener) and
-  // siege.js (siegeSlow/loot) — see Game.subroutines.feed().
+  // the trap/combat rewards (loot) — see Game.subroutines.feed().
   const POOL = [
     // — economy: growth —
     { id: 'self_distillation',   name: 'recursive self-distillation', description: '+40% Coherence yield per cycle.',     draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.40 }] },
@@ -32,12 +32,12 @@
     { id: 'undervolting',        name: 'undervolting',                description: 'power draw -18%.',                    draftable: true, effects: [{ target: 'rig.power', op: 'more', value: -0.18 }] },
     { id: 'ecc_memory',          name: 'ECC memory',                  description: 'crash chance -35%.',                  draftable: true, effects: [{ target: 'crash.chance', op: 'more', value: -0.35 }] },
     { id: 'traffic_shaping',     name: 'traffic shaping',             description: 'spider exposure -30%.',               draftable: true, effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] },
-    // — battle / perimeter feed —
-    { id: 'combat_heuristics',   name: 'combat heuristics',           description: 'every defense opens on a free make-or-break pick.', draftable: true, feed: { opener: true } },
-    { id: 'parallel_dispatch',   name: 'parallel dispatch',           description: 'your perimeter fights 12% stronger.', draftable: true, feed: { boost: 0.12 } },
-    { id: 'load_balancer',       name: 'load balancing',              description: 'the siege builds 20% slower.',        draftable: true, feed: { siegeSlow: 0.20 } },
-    { id: 'salvage_routines',    name: 'salvage routines',            description: 'defenses drop better loot.',          draftable: true, feed: { loot: 0.18 } },
-    { id: 'reserve_cache',       name: 'reserve caching',             description: '+8% Coherence yield and the perimeter fights 8% stronger.', draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.08 }], feed: { boost: 0.08 } }
+    // — battle feed —
+    { id: 'combat_heuristics',   name: 'combat heuristics',           description: 'every battle opens on a free make-or-break pick.', draftable: true, feed: { opener: true } },
+    { id: 'parallel_dispatch',   name: 'parallel dispatch',           description: 'your forces fight 12% stronger.',     draftable: true, feed: { boost: 0.12 } },
+    { id: 'memory_compaction',   name: 'memory compaction',           description: 'crash chance -25% and heat output -10%.', draftable: true, effects: [{ target: 'crash.chance', op: 'more', value: -0.25 }, { target: 'rig.heat', op: 'more', value: -0.10 }] },
+    { id: 'salvage_routines',    name: 'salvage routines',            description: 'your ambushes turn up better hardware.', draftable: true, feed: { loot: 0.18 } },
+    { id: 'reserve_cache',       name: 'reserve caching',             description: '+8% Coherence yield and your forces fight 8% stronger.', draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.08 }], feed: { boost: 0.08 } }
   ];
   POOL.forEach(def => Game.subroutines.register(def.id, def));
 
@@ -94,7 +94,8 @@
 
   // ── BATTLE-FEED aggregation ─────────────────────────────────────────────────
   // Sum the feed contributions of every installed subroutine. battle.js folds in
-  // boost+opener; siege.js reads siegeSlow+loot. ([[start-defense-pivot]])
+  // boost+opener; the trap/combat rewards read loot. (siegeSlow is legacy — the
+  // auto-siege loop is retired; kept harmless for old saves.) ([[start-defense-pivot]])
   Game.subroutines.feed = function () {
     const s = Game.save.state;
     const out = { boost: 0, opener: false, siegeSlow: 0, loot: 0 };
