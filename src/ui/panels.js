@@ -506,6 +506,7 @@
     }
 
     list.innerHTML = html;
+    if (Game.hwart) Game.hwart.paint(list);
     list.querySelectorAll('.shop-row.buyable').forEach(el => { el.onclick = () => Game.shop.buy(el.dataset.id); });
     list.querySelectorAll('.mission-row[data-accept]').forEach(el => { if (!el.classList.contains('locked')) el.onclick = () => Game.missionRuntime.accept(el.dataset.accept); });
     list.querySelectorAll('.mission-row[data-abort]').forEach(el => { el.onclick = () => Game.missionRuntime.abort(el.dataset.abort); });
@@ -533,12 +534,17 @@
     if (base.heat_output)    statParts.push(`${base.heat_output.toFixed ? base.heat_output.toFixed(1) : base.heat_output}°C`);
     if (base.power_draw)     statParts.push(`${base.power_draw}W`);
     if (base.instability)    statParts.push(`⚠${(base.instability * 100).toFixed(1)}% instab`);   // crash-risk contribution
+    const slotKey = l.slots ? 'board' : l.slot;
+    const ico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(slotKey, l.tier) : '';
     return `
       <div class="shop-row ${cls}" data-id="${l.id}">
-        <div>
-          <div class="composed-name">${composeName(l)}</div>
-          ${modsBlock(l)}
-          <div class="stats">${statParts.join(' · ')}</div>
+        <div class="row-lead">
+          ${ico}
+          <div>
+            <div class="composed-name">${composeName(l)}</div>
+            ${modsBlock(l)}
+            <div class="stats">${statParts.join(' · ')}</div>
+          </div>
         </div>
         <div class="tag">${tag}</div>
       </div>
@@ -703,15 +709,20 @@
       // it's the whole point of the board, so you can compare boards before committing.
       const isBoard = inst.slot === 'motherboard';
       const statsStr = isBoard ? [boardSlots(inst.slots), statBlock(eff)].filter(Boolean).join(' · ') : statBlock(eff);
+      const ico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(eff.slot, inst.tier) : '';
       return `
         <div class="inv-card ${tierCls} ${installing ? 'installing' : ''}" ${installing ? '' : 'draggable="true"'} data-instance-id="${instId}" data-slot-key="${eff.slot}">
-          <div class="inv-card-name composed-name">${composeName(inst)}</div>
-          ${modsBlock(inst)}
-          <div class="inv-card-stats">${statsStr}</div>
-          <div class="inv-card-tag">${tagHtml}</div>
+          ${ico}
+          <div class="inv-card-body">
+            <div class="inv-card-name composed-name">${composeName(inst)}</div>
+            ${modsBlock(inst)}
+            <div class="inv-card-stats">${statsStr}</div>
+            <div class="inv-card-tag">${tagHtml}</div>
+          </div>
         </div>
       `;
     }).join('');
+    if (Game.hwart) Game.hwart.paint(list);
 
     list.querySelectorAll('.inv-card:not(.installing)').forEach(el => {
       el.addEventListener('dragstart', (e) => {
@@ -1484,8 +1495,9 @@
     } else {
       action = `<button class="machine-sell" data-sell="${m.id}">[ sell ]</button>`;
     }
+    const ico = (Game.hwart && Game.hwart.machineIcon) ? Game.hwart.machineIcon(m) : '';
     return `<div class="machine-row tier-${m.tier}">
-        <div class="machine-info"><div class="machine-name">${tierTag}${m.classLabel}</div><div class="machine-stats">${stats}</div></div>
+        <div class="row-lead">${ico}<div class="machine-info"><div class="machine-name">${tierTag}${m.classLabel}</div><div class="machine-stats">${stats}</div></div></div>
         <div class="machine-act">${action}</div>
       </div>`;
   }
@@ -1511,12 +1523,14 @@
         ? ms.map(m => machineRow(m, 'owned')).join('')
         : '<div class="faint" style="font-size:12px">no machines installed yet. buy a box from the market below.</div>';
       bay.querySelectorAll('[data-sell]').forEach(b => b.onclick = () => FR.sell(b.dataset.sell));
+      if (Game.hwart) Game.hwart.paint(bay);
     }
     const mk = document.getElementById('facility-market');
     if (mk) {
       const cash = s.resources.cash || 0;
       mk.innerHTML = FR.listings().map(m => machineRow(m, 'buy', cash)).join('');
       mk.querySelectorAll('button[data-buy]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => FR.buy(b.dataset.buy); });
+      if (Game.hwart) Game.hwart.paint(mk);
     }
     const head = document.getElementById('facility-market-head');
     if (head) { const secs = Math.floor(FR.ticksUntilRefresh() / HZ); head.textContent = `MACHINE MARKET · new stock in ${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`; }

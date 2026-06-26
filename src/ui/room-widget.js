@@ -210,24 +210,24 @@
   function drawFacility(st) {
     const hz = BH * 0.46;
     floorAndWalls(['#0a0f12', '#05080a'], '#070a0c', hz);
-    const n = Math.max(1, Math.min(18, st.racks || 1));
-    // rows recede toward the back; nearer rows are bigger + brighter
+    // each INSTALLED machine drawn as its own class/tier silhouette (Game.hwart) so the room
+    // reads as a varied hall of distinct hardware, not identical boxes. Rows recede → depth.
+    const list = (window.Game && Game.facilityRuntime && Game.facilityRuntime.machines) ? Game.facilityRuntime.machines() : [];
+    const n = Math.max(list.length ? list.length : 1, 1);
     const perRow = 6;
     for (let i = n - 1; i >= 0; i--) {
+      const m = list[i] || { cls: 'rack', tier: 'common', caps: [] };
       const row = (i / perRow) | 0, col = i % perRow;
       const depth = 1 - row * 0.26;                         // 1 (front) → smaller back
-      const rw = 16 * depth, rh = 30 * depth;
+      const rw = 17 * depth, rh = 32 * depth;
       const spread = 26 * depth;
       const rx = BW * 0.5 + (col - (perRow - 1) / 2) * spread - rw / 2;
       const ry = hz + 18 + row * 6 - rh + 30;
-      bx.fillStyle = '#0c1114'; bx.fillRect(rx, ry, rw, rh);
-      bx.strokeStyle = '#1b262b'; bx.lineWidth = 1; bx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
-      // blinking rack LEDs
-      for (let k = 0; k < 4; k++) {
-        const on = Math.sin(t * (2 + k) + i) > 0.1;
-        bx.fillStyle = on ? '#49d6ff' : '#10343f'; bx.globalAlpha = depth;
-        bx.fillRect(rx + 2, ry + 3 + k * (rh / 5), Math.max(1, rw - 4), Math.max(1, rh / 9));
-      }
+      bx.globalAlpha = 0.55 + 0.45 * depth;
+      if (window.Game && Game.hwart) Game.hwart.machine(bx, m, rx, ry - 4, rw, rh + 4, { depth });
+      // a couple of live blinking LEDs over the silhouette (the room breathes)
+      const acc = (window.Game && Game.hwart) ? Game.hwart.tierColor(m.tier) : '#49d6ff';
+      for (let k = 0; k < 2; k++) { const on = Math.sin(t * (2 + k) + i) > 0.1; if (on) { bx.fillStyle = acc; bx.fillRect(rx + rw * 0.2 + k * rw * 0.3, ry + rh * 0.2, Math.max(1, rw * 0.12), Math.max(1, rh * 0.05)); } }
       bx.globalAlpha = 1;
     }
     // the core console at front-center carries the EYE now
