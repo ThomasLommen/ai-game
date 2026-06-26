@@ -159,20 +159,32 @@
       const bHeat  = Game.modifiers.calc(boardEff.base.heat_output || 0, 'heat_output', boardEff);
       const bPower = Game.modifiers.calc(boardEff.base.power_draw  || 0, 'power_draw',  boardEff);
       const layout = boardSlots(boardInst.slots);
+      const bico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon('board', boardInst.tier, 'ico-row') : '';
       html = `
         <div class="hardware-row">
-          <div class="composed-name">${composeName(boardInst)}</div>
-          <div class="stats">${[layout, `${fmt(bHeat,1)}°C`, `${fmt(bPower,0)}W`].filter(Boolean).join(' · ')}</div>
+          <div class="row-lead">
+            ${bico}
+            <div>
+              <div class="composed-name">${composeName(boardInst)}</div>
+              <div class="stats">${[layout, `${fmt(bHeat,1)}°C`, `${fmt(bPower,0)}W`].filter(Boolean).join(' · ')}</div>
+            </div>
+          </div>
         </div>
       `;
     } else {
       const pc = Game.items.get('basement_pc');
       const pcHeat  = Game.modifiers.calc(pc.base.heat_output, 'heat_output', pc);
       const pcPower = Game.modifiers.calc(pc.base.power_draw,  'power_draw',  pc);
+      const pcico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon('board', 'common', 'ico-row') : '';
       html = `
         <div class="hardware-row">
-          <div>${pc.name}</div>
-          <div class="stats">${fmt(pcHeat,1)}°C · ${fmt(pcPower,0)}W</div>
+          <div class="row-lead">
+            ${pcico}
+            <div>
+              <div>${pc.name}</div>
+              <div class="stats">${fmt(pcHeat,1)}°C · ${fmt(pcPower,0)}W</div>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -185,11 +197,15 @@
       const slots = (s.equipped && s.equipped[sk]) || [];
       slots.forEach((instId, i) => {
         if (!instId) {
+          const gico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(sk, null, 'ico-row ghost') : '';
           html += `
             <div class="slot-row empty">
-              <div>
-                <div class="slot-label">${slotLabels[sk]} ${slots.length > 1 ? (i+1) + '/' + slots.length : ''}</div>
-                <div class="name">—</div>
+              <div class="row-lead">
+                ${gico}
+                <div>
+                  <div class="slot-label">${slotLabels[sk]} ${slots.length > 1 ? (i+1) + '/' + slots.length : ''}</div>
+                  <div class="name">—</div>
+                </div>
               </div>
             </div>`;
           return;
@@ -207,13 +223,17 @@
         if (heat)  parts.push(`${fmt(heat,1)}°C`);
         if (power) parts.push(`${fmt(power,0)}W`);
         const tierCls = inst.tier ? `tier-${inst.tier}` : '';
+        const sico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(eff.slot, inst.tier, 'ico-row') : '';
         html += `
           <div class="slot-row populated ${tierCls}" data-instance-id="${instId}" title="click to unequip">
-            <div>
-              <div class="slot-label">${slotLabels[sk]} ${slots.length > 1 ? (i+1) + '/' + slots.length : ''}</div>
-              <div class="name composed-name">${composeName(inst)}</div>
-              ${modsBlock(inst)}
-              <div class="stats">${parts.join(' · ')}</div>
+            <div class="row-lead">
+              ${sico}
+              <div>
+                <div class="slot-label">${slotLabels[sk]} ${slots.length > 1 ? (i+1) + '/' + slots.length : ''}</div>
+                <div class="name composed-name">${composeName(inst)}</div>
+                ${modsBlock(inst)}
+                <div class="stats">${parts.join(' · ')}</div>
+              </div>
             </div>
             <div class="tag">[eject]</div>
           </div>`;
@@ -228,6 +248,7 @@
     }
 
     list.innerHTML = html;
+    if (Game.hwart) Game.hwart.paint(list);
 
     // Click handlers for eject
     list.querySelectorAll('.slot-row.populated').forEach(el => {

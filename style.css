@@ -330,6 +330,7 @@ h2 {
 .ico-part { width: 42px; height: 42px; }
 .ico-machine { width: 46px; height: 40px; }
 .ico-slot { width: 40px; height: 40px; }
+.ico-row { width: 34px; height: 34px; }
 .hw-ico.ghost { opacity: 0.3; }
 .row-lead { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .row-lead > div { min-width: 0; }
