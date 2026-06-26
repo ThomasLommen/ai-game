@@ -394,6 +394,7 @@
   function spawnEnemy(s, type, opts) {
     const def = ENEMIES[type], hp = def.hp * BAL.enemyHpMul * (1 + s.threat * 0.012);   // HP scales with the wave/act curve (enemyHpMul = global tankiness dial); POWER scales COUNT, not HP, so the total budget stays ~linear (not squared)
     const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
+    e.surge = (opts && opts.surgeId != null) ? opts.surgeId : s.surge;   // which surge this unit belongs to (same-surge units must not stack; different surges may overlap)
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (s.laneMode && s.lanes.length) {                        // walk down a lane — STAGGERED along it so a wave streams, not stacks
       const li = opts && opts.lane != null ? opts.lane : Math.floor(s.rng() * s.lanes.length);
@@ -437,7 +438,7 @@
     const fill = {}; let rr = 0, arc = 0;
     const PER_LANE = 0.34, OPEN_INT = 0.13;   // seconds between successive spawns (per lane / globally)
     function place(type, immediate) {
-      const o = { surge: true }; let t = 0;
+      const o = { surge: true, surgeId: s.surge }; let t = 0;   // surgeId tags the wave → the spawn watchdog only spaces units against their OWN surge
       if (s.laneMode) {
         const lane = laneList[rr++ % laneList.length];
         const k = (fill[lane] = (fill[lane] || 0) + 1) - 1;     // this lane's slot → its release time
@@ -719,12 +720,33 @@
       s.flocks.push(f); s.splitTime = s.t;
     }
   }
+  const ENTRY_GAP = 26;   // min spacing the spawn/bounce watchdog keeps between SAME-surge units
+  function sameSurgeNear(s, x, y, surgeId, exclude) {   // is a same-surge unit crowding this entry point?
+    for (const o of s.enemies) { if (o === exclude || o.dead || o.surge !== surgeId) continue; if (dist(o.x, o.y, x, y) < ENTRY_GAP + (o.r || 9)) return true; }
+    return false;
+  }
+  // SENT BACK: an intruder that reaches the core loops to the START of its path (keeping its
+  // current HP) instead of vanishing — nothing gets a free pass; you must KILL it. The entry is
+  // nudged clear of its own surge so a returning column doesn't pile at the mouth.
+  function sendToStart(s, e) {
+    e.lastHit = s.t; e.hitT = 0;
+    if (e.laneIdx != null && s.lanes[e.laneIdx]) {
+      e.dist = 0; const p = posOnLane(s.lanes[e.laneIdx], 0); e.x = p.x; e.y = p.y;
+    } else {
+      const ang = Math.atan2(e.y - s.core.y, e.x - s.core.x) || (s.rng() * TAU);
+      let rad = s.spawnR, tries = 0;
+      while (tries < 6 && sameSurgeNear(s, s.core.x + Math.cos(ang) * rad, s.core.y + Math.sin(ang) * rad, e.surge, e)) { rad += 18; tries++; }
+      e.x = s.core.x + Math.cos(ang) * rad; e.y = s.core.y + Math.sin(ang) * rad;
+    }
+  }
   function coreHit(s, e) {
-    e.dead = true;
-    s.leaks++;                          // a leak — counts even in the perimeter (where hp is pinned): drives the NET gauge
-    if (s.core.invuln) return;
-    s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1);
-    if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); }
+    s.leaks++;                          // a leak — counts the breach (drives difficulty flavor)
+    if (s.ambient) { e.dead = true; return; }   // idle/ambient view keeps the old leak-and-vanish (no win loop, no pile-up)
+    if (!s.core.invuln) {
+      s.core.hp -= ENEMIES[e.type].coredmg * (e.coredmgMul || 1);
+      if (s.core.hp <= 0) { s.core.hp = 0; s.lost = true; say(s, '>> CORE BREACHED. they are inside you. the node is lost. <<'); return; }
+    }
+    sendToStart(s, e);                  // it dealt its damage — now it's flung back to do it all again unless you kill it
   }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
@@ -808,7 +830,20 @@
   // one-at-a-time while you choose) and during the boss wave (escorts trickle in).
   function releaseQueue(s, dt) {
     if (!s.spawnQueue || !s.spawnQueue.length) return;
-    for (let i = s.spawnQueue.length - 1; i >= 0; i--) { const q = s.spawnQueue[i]; q.t -= dt; if (q.t <= 0) { spawnEnemy(s, q.type, q.opts); s.spawnQueue.splice(i, 1); } }
+    for (let i = s.spawnQueue.length - 1; i >= 0; i--) {
+      const q = s.spawnQueue[i]; q.t -= dt; if (q.t > 0) continue;
+      // WATCHDOG: never drop a unit on top of one from its OWN surge (different surges may overlap).
+      const o = q.opts, sid = o.surgeId;
+      if (s.laneMode && o.lane != null && s.lanes[o.lane]) {
+        const p = posOnLane(s.lanes[o.lane], 0);                       // the lane mouth
+        if (sameSurgeNear(s, p.x, p.y, sid) && (q.tries || 0) < 18) { q.tries = (q.tries || 0) + 1; q.t = 0.1; continue; }   // mouth busy → hold this one back a beat
+      } else if (!s.laneMode) {
+        const ang = o.ang != null ? o.ang : 0; let rad = o.rad || s.spawnR, tr = 0;
+        while (tr < 6 && sameSurgeNear(s, s.core.x + Math.cos(ang) * rad, s.core.y + Math.sin(ang) * rad, sid)) { rad += 18; tr++; }   // push the entry outward until clear
+        o.rad = rad;
+      }
+      spawnEnemy(s, q.type, o); s.spawnQueue.splice(i, 1);
+    }
   }
   function tick(s, dt) {
     if (!s.won && !s.lost) releaseQueue(s, Math.min(0.05, dt));   // the wave keeps streaming even while a PICK pauses the board
