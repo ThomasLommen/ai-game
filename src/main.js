@@ -795,10 +795,9 @@
     const s = Game.save.state;
     if (s.revealed && s.revealed.shop) return;
     if (!(s.revealed && s.revealed.money)) return;
-    // EITHER a little cash OR a little Coherence opens it (dual unlock). Both kept EARLY +
-    // time-comparable: $15 ≈ 37s of spider, 15 Coherence ≈ a couple min of RSI (the main early
-    // engine) — so a coherence-first player isn't left waiting minutes for the shop.
-    if ((s.resources.cash || 0) >= 15 || (s.resources.insight || 0) >= 15) revealShop();
+    // EITHER path opens it in the SAME time: $15 ≈ 8 spider cycles (~40s); RSI pays 0.5
+    // Coherence/cycle, so 8 cycles ≈ 4 Coherence. (resources.insight = internal id for Coherence.)
+    if ((s.resources.cash || 0) >= 15 || (s.resources.insight || 0) >= 4) revealShop();
   }
 
   function revealShop() {
