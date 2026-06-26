@@ -10,12 +10,14 @@
   // where better parts are). Each level raises the tier ceiling and improves the
   // condition pool; the worst conditions phase out near the top. Cash still buys
   // the part. (`faulty` is excluded everywhere — instability has no teeth yet.)
+  // Access tiers open by EITHER enough Coherence (insight) OR enough cash — two roads to the
+  // same gate (the unlock is monotonic, so a momentary cash high keeps the tier even if spent).
   const SUPPLIER = [
-    { lvl: 1, insight: 0,   tiers: { common: 1 },                          conditions: [], maxCond: 0 },
-    { lvl: 2, insight: 30,  tiers: { junk: 55, common: 35 },               conditions: ['dusty', 'corroded'], maxCond: 1 },
-    { lvl: 3, insight: 70,  tiers: { junk: 45, common: 40, uncommon: 15 }, conditions: ['dusty', 'corroded', 'stripped', 'jury_rigged'], maxCond: 1 },
-    { lvl: 4, insight: 140, tiers: { common: 48, uncommon: 37, rare: 15 }, conditions: ['corroded', 'stripped', 'jury_rigged', 'refurbished', 'overclocked', 'pristine'], maxCond: 2 },
-    { lvl: 5, insight: 250, tiers: { uncommon: 58, rare: 32 },             conditions: ['refurbished', 'overclocked', 'pristine', 'silicon_lottery_winner', 'jury_rigged'], maxCond: 2 }
+    { lvl: 1, insight: 0,   cash: 0,    tiers: { common: 1 },                          conditions: [], maxCond: 0 },
+    { lvl: 2, insight: 30,  cash: 350,  tiers: { junk: 55, common: 35 },               conditions: ['dusty', 'corroded'], maxCond: 1 },
+    { lvl: 3, insight: 70,  cash: 1000, tiers: { junk: 45, common: 40, uncommon: 15 }, conditions: ['dusty', 'corroded', 'stripped', 'jury_rigged'], maxCond: 1 },
+    { lvl: 4, insight: 140, cash: 3000, tiers: { common: 48, uncommon: 37, rare: 15 }, conditions: ['corroded', 'stripped', 'jury_rigged', 'refurbished', 'overclocked', 'pristine'], maxCond: 2 },
+    { lvl: 5, insight: 250, cash: 8000, tiers: { uncommon: 58, rare: 32 },             conditions: ['refurbished', 'overclocked', 'pristine', 'silicon_lottery_winner', 'jury_rigged'], maxCond: 2 }
   ];
 
   const TIER_STAT_MULT = {
@@ -194,9 +196,10 @@
   function maybeUpgrade(silent) {
     const s = Game.save.state;
     const shop = ensureState();
-    const insight = s.resources.insight || 0;
+    const insight = s.resources.insight || 0, cash = s.resources.cash || 0;
     let upgraded = false, reached = 0;
-    while (shop.supplierLevel < SUPPLIER.length && insight >= SUPPLIER[shop.supplierLevel].insight) {
+    while (shop.supplierLevel < SUPPLIER.length &&
+           (insight >= SUPPLIER[shop.supplierLevel].insight || cash >= (SUPPLIER[shop.supplierLevel].cash != null ? SUPPLIER[shop.supplierLevel].cash : Infinity))) {
       shop.supplierLevel++; upgraded = true; reached = shop.supplierLevel;
     }
     if (upgraded) {

@@ -421,7 +421,8 @@
     if (status) {
       const lvl = Game.shop.supplierLevel ? Game.shop.supplierLevel() : 1;
       const next = Game.shop.nextThreshold ? Game.shop.nextThreshold() : null;
-      status.textContent = `darknet · access tier ${lvl}${next ? ` (next at ${next.insight} COH)` : ' (top access)'} · stock refreshes in ${mm}:${ss.toString().padStart(2, '0')}`;
+      const nextStr = next ? ` (next at ${next.insight} COH${next.cash != null ? ` or $${next.cash.toLocaleString()}` : ''})` : ' (top access)';
+      status.textContent = `darknet · access tier ${lvl}${nextStr} · stock refreshes in ${mm}:${ss.toString().padStart(2, '0')}`;
     }
 
     const cash = s.resources.cash || 0;

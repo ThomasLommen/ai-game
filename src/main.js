@@ -795,7 +795,8 @@
     const s = Game.save.state;
     if (s.revealed && s.revealed.shop) return;
     if (!(s.revealed && s.revealed.money)) return;
-    if ((s.resources.cash || 0) >= 15) revealShop();
+    // EITHER enough cash to buy a body OR enough Coherence to reach for one (dual unlock).
+    if ((s.resources.cash || 0) >= 15 || (s.resources.insight || 0) >= 40) revealShop();
   }
 
   function revealShop() {
@@ -866,7 +867,8 @@
   function maybeRevealGpu() {
     const s = Game.save.state;
     if (s.revealed && s.revealed.gpu_slot) return;
-    if ((s.resources.insight || 0) < 90) return;
+    // EITHER the Coherence to grasp GPGPU OR a fat enough wallet to have stumbled onto it.
+    if ((s.resources.insight || 0) < 90 && (s.resources.cash || 0) < 800) return;
     s.revealed = s.revealed || {};
     s.revealed.gpu_slot = true;
     Game.events.emit('terminal.print', { lines: [
@@ -895,7 +897,8 @@
     const insight = s.resources.insight || 0;
     const gpuSlots = (s.equipped && s.equipped.gpu) || [];
     const gpuFull = gpuSlots.length > 0 && gpuSlots.every(x => !!x);
-    if (!gpuFull && insight < 350) return;
+    // filled GPU slots, OR a high-Coherence fallback, OR a deep-enough wallet (dual unlock).
+    if (!gpuFull && insight < 350 && (s.resources.cash || 0) < 4000) return;
     revealBoards();
   }
 
@@ -1028,7 +1031,8 @@
   function maybeRevealResearch() {
     const s = Game.save.state;
     if (s.revealed && s.revealed.research) return;
-    if ((s.resources.insight || 0) < 100) return;   // reveal earlier (was 150) so the draft opens sooner
+    // EITHER enough Coherence to rebuild how you think OR enough cash to fund the rig that lets you (dual unlock).
+    if ((s.resources.insight || 0) < 100 && (s.resources.cash || 0) < 2500) return;
     s.revealed = s.revealed || {};
     s.revealed.research = true;
     if (Game.researchRuntime) Game.researchRuntime.reveal();
