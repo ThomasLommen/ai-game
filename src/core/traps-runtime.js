@@ -68,6 +68,26 @@
     return true;
   }
 
+  // The end-of-fight SPOILS pop-up — shows exactly what the ambush paid out (or cost), the same
+  // paused result overlay full battles used. Reuses Game.draft.info. ([[risk-roll-design]])
+  function showResult(won, info) {
+    if (!Game.draft || !Game.draft.info) return;
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const lines = [];
+    if (won) {
+      lines.push(`<span class="spoil-d">${info.kills} culled${info.overdrew ? ' — it came bigger than baited' : ''}</span>`);
+      if (info.cash)    lines.push(`<span class="spoil-k">+ $${info.cash.toLocaleString()}</span> <span class="spoil-d">harvest</span>`);
+      if (info.insight) lines.push(`<span class="spoil-k">+ ${info.insight} COH</span>`);
+      if (info.item)    lines.push(`<span class="spoil-k">◈ ${esc(info.item.name)}</span> <span class="spoil-d">${esc(info.item.slot || 'part')} recovered</span>`);
+      else              lines.push(`<span class="spoil-d">no hardware recovered this time</span>`);
+      if (info.exposure) lines.push(`<span class="spoil-d">+${info.exposure} exposure · the spring was LOUD</span>`);
+    } else {
+      lines.push(`<span class="spoil-d">they broke the core and scattered — the ground is yours, but you're lit up.</span>`);
+      lines.push(`<span class="spoil-k" style="color:var(--err)">+${info.exposure} exposure</span>`);
+    }
+    Game.draft.info({ kicker: won ? 'AMBUSH SPRUNG' : 'AMBUSH COLLAPSED', title: won ? 'spoils' : 'blown', lines });
+  }
+
   function onResolve(bait, result, overdrew) {
     const st = Game.save.state, t = ensureState();
     t.cooldownUntil = now() + COOLDOWN_TICKS;
@@ -84,17 +104,20 @@
       const bounty = Math.round(kills * (bait.perKill || 0));
       const eff = { cash: Math.round(((bait.cash || 0) + bounty) * (1 + lootB)), insight: bait.insight || 0, exposure: bait.exposure || 0 };
       Game.rewards.apply(eff, st);
-      if (bait.itemChance && Game.rng.chance(Math.min(0.95, bait.itemChance + lootB))) Game.rewards.apply({ item: true }, st);
+      let item = null;
+      if (bait.itemChance && Game.rng.chance(Math.min(0.95, bait.itemChance + lootB))) { const res = Game.rewards.apply({ item: true }, st); item = res && res.item; }
       const od = overdrew ? ' it came bigger than baited — you barely held.' : '';
       const line = `Ambush sprung — ${kills} culled. harvest ${rt ? rt(eff) : ('+$' + eff.cash)}.${od}`;
       Game.events.emit('terminal.print', { lines: ['> ' + line, ''], cls: 'dim' });
       if (Game.activity) Game.activity.log(line, { cls: 'dim', kind: 'trap' });
+      showResult(true, { kills, cash: eff.cash, insight: eff.insight, exposure: eff.exposure, item, overdrew });
     } else {
       const sting = Math.round((bait.exposure || 4) * 1.6) + Game.rewards.bustExposure(st, bait.tier);
       Game.rewards.apply({ exposure: sting }, st);
       const line = `The ambush collapsed — they broke the core and scattered. you're lit up (+${sting} exposure).`;
       Game.events.emit('terminal.print', { lines: ['> ' + line, ''], cls: 'err' });
       if (Game.activity) Game.activity.log(line, { cls: 'err', kind: 'trap' });
+      showResult(false, { exposure: sting });
     }
     Game.events.emit('trap.resolved', { won, bait, overdrew });
     refresh();   // fresh baits after a spring
