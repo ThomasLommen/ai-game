@@ -278,9 +278,10 @@
   }
   function applyCounter(s, e) {                              // bake the locked counter into a surge enemy's stats
     const c = s.counter; if (!c) return; const def = COUNTER[c.channel];
-    if (def.shield) { const add = def.shield * c.mag; e.shield += add; e.shieldMax += add; }
-    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * c.mag;
-    if (def.speed) e.speedMul = 1 + def.speed * c.mag;
+    const mag = c.mag * (s.counterDamp ? (1 - s.counterDamp) : 1);   // COUNTERMEASURES picks soften the guard's read
+    if (def.shield) { const add = def.shield * mag; e.shield += add; e.shieldMax += add; }
+    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * mag;
+    if (def.speed) e.speedMul = 1 + def.speed * mag;
   }
 
   // ── THE PICKS: one make-or-break choice per round reshapes your build ─────────
@@ -291,8 +292,8 @@
   const PICKS = [
     // ── commons: a thin layer of stat tunes ──
     { id: 'od_offense', name: 'TUNE · OFFENSE',   kind: 'offense', tier: 'common', desc: '+0.3 offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
-    { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.3 shield multiplier (core HP + regen)',     apply: s => { s.chBonus.shield += 0.3; } },
-    { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.3 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.3; } },
+    { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.45 shield multiplier (core HP + regen)',   apply: s => { s.chBonus.shield += 0.45; } },
+    { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.45 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.45; } },
     // ── solid rewrites / build tools ──
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flocks on the field', apply: s => { s.maxFlocks += 2; s.bonusFlocks = (s.bonusFlocks || 0) + 2; } },
     { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
@@ -325,6 +326,26 @@
     { id: 'reinforced_chassis', name: 'REINFORCED CHASSIS', kind: 'pod', tier: 'rewrite', desc: 'your pods have +60% HP', apply: s => { const k = 1.6; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
     { id: 'field_promotion',    name: 'FIELD PROMOTION',    kind: 'pod', tier: 'rewrite', desc: 'your pods gain rank from field XP much faster', apply: s => { s.podXpMul = (s.podXpMul || 1) * 2.2; } },
     { id: 'overlord',           name: 'OVERLORD PROTOCOL',  kind: 'pod', tier: 'marquee', max: 1, cost: 'you can field only ONE pod', desc: 'your single pod is vastly stronger (×2.2 damage + HP)', apply: s => { s.podCap = 1; const k = 2.2; s.podDmgMul = (s.podDmgMul || 1) * k; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); if (s.units.length > 1) s.units.length = 1; } },
+
+    // ── MORE HEURISTICS (per-fight tactical, clean no-cost) — varied win conditions so
+    //    OFFENSE/SWARM-SIZE aren't the only good calls (swarm-DPS / pods / sustain / control / anti-duel / focus). ──
+    { id: 'swift_swarm',    name: 'SWIFT SWARM',     kind: 'swarm', tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'your swarms deal +30% damage this fight',           apply: s => { s.dotDmgMul = (s.dotDmgMul || 1) * 1.3; } },
+    { id: 'vanguard',       name: 'VANGUARD',        kind: 'pod',   tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'your pods hit +30% harder this fight',              apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.3; } },
+    { id: 'vampiric',       name: 'VAMPIRIC EDGE',   kind: 'death', tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'every kill mends the core (+1.5 HP)',               apply: s => { s.killHeal = (s.killHeal || 0) + 1.5; } },
+    { id: 'tar_field',      name: 'TAR FIELD',       kind: 'duel',  tier: 'rewrite', max: 1, pool: 'heuristic', desc: 'the whole assault is dragged to a crawl this fight', apply: s => { s.slowField = true; } },
+    { id: 'countermeasures',name: 'COUNTERMEASURES', kind: 'duel',  tier: 'rewrite', max: 1, pool: 'heuristic', desc: "the guard's counter against you lands 45% softer",   apply: s => { s.counterDamp = Math.max(s.counterDamp || 0, 0.45); } },
+    { id: 'apex_aim',       name: 'APEX AIM',        kind: 'core',  tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'your focus-fire bites +60% deeper this fight',      apply: s => { s.focusAmp = (s.focusAmp || 1) * 1.6; } },
+    { id: 'bulwark_surge',  name: 'BULWARK SURGE',   kind: 'edge',  tier: 'rewrite', max: 2, pool: 'heuristic', desc: '+35 core HP and the core mends +3 HP/s this fight',  apply: s => { s.coreBase += 35; s.selfRepairFlat = (s.selfRepairFlat || 0) + 3; } },
+
+    // ── MORE POLICIES (run-long build-definers) — a deeper pool across every theme. ──
+    { id: 'venom_glands',   name: 'VENOM GLANDS',    kind: 'swarm', tier: 'rewrite', max: 1, desc: 'your swarms corrode for +40% damage, permanently',         apply: s => { s.dotDmgMul = (s.dotDmgMul || 1) * 1.4; } },
+    { id: 'swarm_lord',     name: 'SWARM LORD',      kind: 'swarm', tier: 'rewrite', max: 1, desc: '+3 swarm flocks on the field',                              apply: s => { s.maxFlocks += 3; s.bonusFlocks = (s.bonusFlocks || 0) + 3; } },
+    { id: 'apex_predator',  name: 'APEX PREDATOR',   kind: 'focus', tier: 'rewrite', max: 1, desc: 'your focus-fire tears marked targets apart (×1.8)',         apply: s => { s.focusAmp = (s.focusAmp || 1) * 1.8; } },
+    { id: 'gravity_well',   name: 'GRAVITY WELL',    kind: 'core',  tier: 'rewrite', max: 1, desc: 'a gravity well drags every assault to a permanent crawl',    apply: s => { s.slowField = true; } },
+    { id: 'soul_engine',    name: 'SOUL ENGINE',     kind: 'death', tier: 'rewrite', max: 1, desc: 'every kill mends the core (+2.5 HP)',                       apply: s => { s.killHeal = (s.killHeal || 0) + 2.5; } },
+    { id: 'ghost_protocol', name: 'GHOST PROTOCOL',  kind: 'duel',  tier: 'rewrite', max: 1, desc: 'the guard can barely read you — counters land at half',     apply: s => { s.counterDamp = Math.max(s.counterDamp || 0, 0.5); } },
+    { id: 'aegis_core',     name: 'AEGIS CORE',      kind: 'core',  tier: 'rewrite', max: 1, desc: '+80 base core HP and the core mends 50% faster',            apply: s => { s.coreBase += 80; s.regenMul = (s.regenMul == null ? 1 : s.regenMul) * 1.5; } },
+    { id: 'siege_train',    name: 'SIEGE TRAIN',     kind: 'pod',   tier: 'rewrite', max: 1, desc: 'your pods hit +45% harder and have +30% HP',                apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.45; const k = 1.3; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
   // roster injects its own marquee card, so the hand is YOUR build talking (slice 4).
@@ -354,12 +375,13 @@
     const avail = PICKS.filter(p => pickPool(p) === kind && p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
     for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
     const hand = avail.slice(0, 3);
-    if (kind === 'policy') {   // ONE special slot — a roster SIGNATURE (more likely), else a rare MARQUEE
+    if (kind === 'policy') {   // ONE special slot is RARE — a roster SIGNATURE (~15%), else a MARQUEE (~7%);
+      // most policy hands are three solid rewrites. Exotics/marquees are a treat, not the norm.
       const sigs = eligibleSigs(s);
       const marquees = PICKS.filter(p => p.tier === 'marquee' && pickCount(s, p.id) < (p.max || 1));
       const r = s.rng();
-      if (sigs.length && r < 0.5) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
-      else if (marquees.length && r < 0.78) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
+      if (sigs.length && r < 0.15) hand[Math.floor(s.rng() * hand.length)] = sigs[Math.floor(s.rng() * sigs.length)];
+      else if (marquees.length && r < 0.22) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
     }
     if (!hand.length) return;
     s.pick = { hand, kind };
@@ -509,7 +531,7 @@
   function dotDamage(s, dt) {
     const CONTACT = 20, disruptors = s.enemies.filter(e => e.type === 'disruptor');
     for (const f of s.flocks) {
-      const dmg = SWARMS[f.type].dotDmg * (f.buff ? (s.powerGrid ? 1.8 : 1.4) : 1) * chMult(s, 'offense');   // OFFENSE channel scales swarm DPS (POWER GRID stronger overclock)
+      const dmg = SWARMS[f.type].dotDmg * (f.buff ? (s.powerGrid ? 1.8 : 1.4) : 1) * chMult(s, 'offense') * (s.dotDmgMul || 1);   // OFFENSE channel scales swarm DPS (POWER GRID stronger overclock); dotDmgMul = swarm-DPS picks
       for (const d of f.dots) {
         const e = nearestEnemy(s, d.x, d.y, CONTACT); if (!e) continue;
         let m = 1 + markMul(s, e); if (e.poison > 0) m += 0.5; if (e.frozen > 0) m += 1.0;   // SYNERGY: marked + poisoned (+50%) + frozen (+100% shatter)
@@ -529,7 +551,7 @@
   // CORE channel = FOCUS-FIRE potency: how much extra your army does to the marked target.
   // CHAIN FOCUS rewrite bleeds a fraction to enemies near a mark; TWIN MARKS halves the per-target bonus.
   function markMul(s, e) {
-    const base = (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core');
+    const base = (0.9 + (s.core.lvl - 1) * 0.25) * chMult(s, 'core') * (s.focusAmp || 1);   // focusAmp = APEX PREDATOR etc.
     const twinPen = s.core.maxMarks > 1 ? 0.55 : 1;
     if (s.core.marks.indexOf(e.id) >= 0) return base * twinPen + (s.sunder ? 0.45 * chMult(s, 'core') : 0);   // SUNDER: extra vuln on focus targets
     if (s.chainFocus && s._markPos) { for (const mp of s._markPos) if (dist(e.x, e.y, mp.x, mp.y) < 95) return base * 0.5 * twinPen; }
@@ -685,6 +707,7 @@
       s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#76e08a', ring: true });
     }
     if (s.harvestField && !s.core.invuln) s.core.hp = Math.min(s.core.maxHp, s.core.hp + 1.5);   // HARVEST FIELD: kills heal the core
+    if (s.killHeal && !s.core.invuln) s.core.hp = Math.min(s.core.maxHp, s.core.hp + s.killHeal);   // lifesteal picks: every kill mends the core
     if (s.viralLoad && s._markPos && s._markPos.some(mp => dist(mp.x, mp.y, e.x, e.y) < 120)) {   // VIRAL LOAD: a kill near a focus target seeds contagion
       for (const o of s.enemies) if (o !== e && o.hp > 0 && dist(o.x, o.y, e.x, e.y) < 90) o.poison = Math.min(60, o.poison + 25);
       s.bursts.push({ x: e.x, y: e.y, life: 0.4, color: '#76e08a', ring: true });
@@ -718,7 +741,7 @@
       let block = null; for (const a of anchors) if (dist(e.x, e.y, a.x, a.y) < a.r + ENEMIES[e.type].r + 26) { block = a; break; }   // a bulwark plugging the path
       e.blockedBy = block ? block.id : null;
       const chillSlow = e.chill > 0 ? 1 - Math.min(0.6, e.chill / 100 * 0.6) : 1;
-      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1);   // CORE-GUN counter speeds them up
+      let sp = ENEMIES[e.type].speed * chillSlow * (e.poison > 0 ? 0.92 : 1) * (e.speedMul || 1) * (s.slowField ? 0.68 : 1);   // CORE-GUN counter speeds them up; slowField = control picks drag the whole assault
       if (s.bulwarkArc && s._markPos && s._markPos.length) {   // BULWARK ARC: a barrier toward your focus target slows enemies on that side
         const mp = s._markPos[0], aMark = Math.atan2(mp.y - s.core.y, mp.x - s.core.x), aEne = Math.atan2(e.y - s.core.y, e.x - s.core.x);
         const dA = Math.abs(((aEne - aMark + Math.PI) % TAU) - Math.PI);
