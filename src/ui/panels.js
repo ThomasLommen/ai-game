@@ -2188,17 +2188,28 @@
     if (title)  title.textContent = (op.stage && op.stage.prompt) || 'choose your move';
     if (body)   body.textContent = `${op.threads} threads committed per stage · base odds ${Math.round(op.baseSuccess * 100)}%. fail a stage and the whole operation collapses — and any stage can leave prints.`;
     if (opts) {
+      const freeThr = Game.operationRuntime.freeThreads ? Game.operationRuntime.freeThreads() : 99;
       opts.innerHTML = ((op.stage && op.stage.options) || []).map((o, i) => {
-        const cant = o.cashCost && (Game.save.state.resources.cash || 0) < o.cashCost;
+        const need = Math.max(1, op.threads + (o.threadsDelta || 0));
+        const noCash = o.cashCost && (Game.save.state.resources.cash || 0) < o.cashCost;
+        const noThreads = !o.bail && freeThr < need;   // a move you can't field right now
+        const cant = noCash || noThreads;
+        const why = noCash ? `need $${o.cashCost}` : (noThreads ? `needs ${need} free threads (${freeThr} free)` : '');
         return `<button class="event-option${cant ? ' disabled' : ''}" data-idx="${i}"${cant ? ' disabled' : ''}>`
           + `<span class="event-option-label">${o.label}</span>`
           + (o.hint ? `<span class="event-option-hint">${o.hint}</span>` : '')
+          + (why ? `<span class="event-option-risk">✗ ${why}</span>` : '')
           + (o.exposure ? `<span class="event-option-risk">⚠ risk: exposure</span>` : '')
           + (o.bail ? `<span class="event-option-safe">✓ bail out</span>` : '')
           + `</button>`;
-      }).join('');
+      }).join('')
+        + `<button class="event-option op-abandon" data-abandon="1"><span class="event-option-label">abandon the operation</span><span class="event-option-hint">pull out now — bank the pot ($${op.pot}), no further risk</span></button>`;
       opts.querySelectorAll('.event-option:not(.disabled)').forEach(b => {
-        b.onclick = () => { if (!opArmed()) return; Game.operationRuntime.chooseOption(parseInt(b.dataset.idx, 10)); };
+        b.onclick = () => {
+          if (!opArmed()) return;
+          if (b.dataset.abandon) { Game.operationRuntime.abort(); return; }
+          Game.operationRuntime.chooseOption(parseInt(b.dataset.idx, 10));
+        };
       });
     }
   }

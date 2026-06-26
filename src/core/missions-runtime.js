@@ -116,10 +116,18 @@
       Game.events.emit('terminal.print', { lines: ['> locked out — cannot start a contract right now.'], cls: 'err' });
       return false;
     }
-    // Operation offers route to the multi-stage runtime (threads commit per stage,
-    // not up front). One operation at a time.
+    // Operation offers route to the multi-stage runtime. Threads commit PER STAGE, so the
+    // op must be able to field a stage RIGHT NOW — gate accept on free threads (otherwise you
+    // start an op whose every stage-choice silently rejects, and it jams the op slot). One at a time.
     if (offer.kind === 'operation') {
       if (Game.save.state.operation) { Game.events.emit('mission.rejected', { reason: 'op_active' }); return false; }
+      const tmpl = Game.operations && Game.operations.get ? Game.operations.get(offer.opId) : null;
+      const need = (tmpl && tmpl.threads) || offer.threads || 1;
+      if (freeThreads() < need) {
+        Game.events.emit('terminal.print', { lines: [`> not enough free threads for this operation — needs ${need}, ${freeThreads()} free. install more CPU or free up running tasks.`], cls: 'err' });
+        Game.events.emit('mission.rejected', { reason: 'threads', need });
+        return false;
+      }
       b.offers.splice(idx, 1);
       Game.operationRuntime.begin(offer);
       Game.save.persist();

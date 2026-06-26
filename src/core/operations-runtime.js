@@ -66,8 +66,15 @@
       Game.events.emit('operation.rejected', { reason: 'cash' }); return;
     }
     const threads = Math.max(1, op.threads + (opt.threadsDelta || 0));
-    if (freeThreads() < threads) { Game.events.emit('operation.rejected', { reason: 'threads', need: threads }); return; }
-    if (Game.constraints && Game.constraints.isLockedOut()) { Game.events.emit('operation.rejected', { reason: 'lockout' }); return; }
+    if (freeThreads() < threads) {
+      Game.events.emit('terminal.print', { lines: [`> can't commit this move — needs ${threads} free thread${threads > 1 ? 's' : ''}, ${freeThreads()} free. free up a running task or abandon the op.`], cls: 'err' });
+      Game.events.emit('operation.rejected', { reason: 'threads', need: threads });
+      return;
+    }
+    if (Game.constraints && Game.constraints.isLockedOut()) {
+      Game.events.emit('terminal.print', { lines: ['> locked out — cannot commit an operation move right now.'], cls: 'err' });
+      Game.events.emit('operation.rejected', { reason: 'lockout' }); return;
+    }
 
     if (opt.cashCost) Game.rewards.apply({ cash: -opt.cashCost }, s);
     op.exposureAccrued += (opt.exposure || 0);
@@ -181,5 +188,14 @@
     if (op && op.phase === 'running') collapse();
   }
 
-  Game.operationRuntime = { begin, chooseOption, resolveStage, onStageCancelled, current, active, freeThreads, clearOp };
+  // ABANDON a choosing-phase operation: pull out with whatever's in the pot (an escape
+  // hatch so an op can never JAM the slot — e.g. if you can't field a stage's threads).
+  function abort() {
+    const op = Game.save.state.operation;
+    if (!op || op.phase !== 'choosing') return false;
+    finaleCashOut();   // bank the pot so far + clear
+    return true;
+  }
+
+  Game.operationRuntime = { begin, chooseOption, resolveStage, onStageCancelled, abort, current, active, freeThreads, clearOp };
 })();
