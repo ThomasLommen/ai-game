@@ -218,11 +218,11 @@
     for (let i = n - 1; i >= 0; i--) {
       const m = list[i] || { cls: 'rack', tier: 'common', caps: [] };
       const row = (i / perRow) | 0, col = i % perRow;
-      const depth = 1 - row * 0.26;                         // 1 (front) → smaller back
-      const rw = 17 * depth, rh = 32 * depth;
-      const spread = 26 * depth;
+      const depth = 1 - row * 0.24;                         // 1 (front) → smaller back
+      const rw = 24 * depth, rh = 42 * depth;
+      const spread = 30 * depth;
       const rx = BW * 0.5 + (col - (perRow - 1) / 2) * spread - rw / 2;
-      const ry = hz + 18 + row * 6 - rh + 30;
+      const ry = hz + 14 + row * 7 - rh + 34;
       bx.globalAlpha = 0.55 + 0.45 * depth;
       if (window.Game && Game.hwart) Game.hwart.machine(bx, m, rx, ry - 4, rw, rh + 4, { depth });
       // a couple of live blinking LEDs over the silhouette (the room breathes)

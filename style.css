@@ -327,9 +327,11 @@ h2 {
 .shop-row { border-left: 2px solid var(--amber-faint); padding-left: 10px; }   /* stock = amber-edged buyable rows */
 /* procedural hardware icons (Game.hwart) */
 .hw-ico { display: block; flex: none; image-rendering: auto; }
-.ico-part { width: 30px; height: 30px; }
-.ico-machine { width: 44px; height: 38px; }
-.row-lead { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ico-part { width: 42px; height: 42px; }
+.ico-machine { width: 46px; height: 40px; }
+.ico-slot { width: 40px; height: 40px; }
+.hw-ico.ghost { opacity: 0.3; }
+.row-lead { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .row-lead > div { min-width: 0; }
 .shop-row.buyable { border-left-color: var(--amber-mid); }
 .shop-row.buyable, .inv-row.equippable, .slot-row.populated { cursor: pointer; }
@@ -634,7 +636,11 @@ h2 {
   border: 1px solid var(--amber-faint);
   background: var(--bg);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
 }
+.slot-card-body { flex: 1; min-width: 0; }
 .slot-card-label {
   font-size: 10px;
   letter-spacing: 2px;

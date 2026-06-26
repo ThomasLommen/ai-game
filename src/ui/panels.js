@@ -602,10 +602,14 @@
       slots.forEach((instId, i) => {
         const label = slots.length > 1 ? `${SLOT_LABEL[sk]} ${i+1}/${slots.length}` : SLOT_LABEL[sk];
         if (!instId) {
+          const gico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(sk, null, 'ico-slot ghost') : '';
           html += `
             <div class="slot-card empty" data-slot-key="${sk}" data-slot-idx="${i}">
-              <div class="slot-card-label">${label}</div>
-              <div class="slot-card-name">— empty —</div>
+              ${gico}
+              <div class="slot-card-body">
+                <div class="slot-card-label">${label}</div>
+                <div class="slot-card-name">— empty —</div>
+              </div>
             </div>`;
           return;
         }
@@ -619,17 +623,22 @@
           : statBlock(eff);
         const ejectStr = isBoard ? 'drag a board here to swap' : 'drag out to remove';
         const titleStr = isBoard ? 'drop a board to swap — parts that no longer fit eject to inventory' : 'drag this to another slot, or to UNEQUIPPED, to remove it';
+        const sico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(eff.slot, inst.tier, 'ico-slot') : '';
         html += `
           <div class="slot-card populated ${tierCls} ${isBoard ? 'board-slot' : ''}" ${isBoard ? '' : 'draggable="true"'} data-slot-key="${sk}" data-slot-idx="${i}" data-instance-id="${instId}" title="${titleStr}">
-            <div class="slot-card-label">${label}</div>
-            <div class="slot-card-name composed-name">${composeName(inst)}</div>
-            ${modsBlock(inst)}
-            <div class="slot-card-stats">${statsStr}</div>
-            <div class="slot-card-eject">${ejectStr}</div>
+            ${sico}
+            <div class="slot-card-body">
+              <div class="slot-card-label">${label}</div>
+              <div class="slot-card-name composed-name">${composeName(inst)}</div>
+              ${modsBlock(inst)}
+              <div class="slot-card-stats">${statsStr}</div>
+              <div class="slot-card-eject">${ejectStr}</div>
+            </div>
           </div>`;
       });
     }
     container.innerHTML = html;
+    if (Game.hwart) Game.hwart.paint(container);
 
     container.querySelectorAll('.slot-card').forEach(el => {
       el.addEventListener('dragover', (e) => {
