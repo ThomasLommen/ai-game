@@ -277,11 +277,10 @@
     say(s, '>> ' + s.threatRead + ' <<');
   }
   function applyCounter(s, e) {                              // bake the locked counter into a surge enemy's stats
-    const c = s.counter; if (!c) return; const def = COUNTER[c.channel];
-    const mag = c.mag * (s.counterDamp ? (1 - s.counterDamp) : 1);   // COUNTERMEASURES picks soften the guard's read
-    if (def.shield) { const add = def.shield * mag; e.shield += add; e.shieldMax += add; }
-    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * mag;
-    if (def.speed) e.speedMul = 1 + def.speed * mag;
+    const c = s.counter; if (!c) return; const def = COUNTER[c.channel];   // the counter is NEVER dampened — it's meant to be outplayed, not negated
+    if (def.shield) { const add = def.shield * c.mag; e.shield += add; e.shieldMax += add; }
+    if (def.coredmg) e.coredmgMul = 1 + def.coredmg * c.mag;
+    if (def.speed) e.speedMul = 1 + def.speed * c.mag;
   }
 
   // ── THE PICKS: one make-or-break choice per round reshapes your build ─────────
@@ -327,15 +326,13 @@
     { id: 'field_promotion',    name: 'FIELD PROMOTION',    kind: 'pod', tier: 'rewrite', desc: 'your pods gain rank from field XP much faster', apply: s => { s.podXpMul = (s.podXpMul || 1) * 2.2; } },
     { id: 'overlord',           name: 'OVERLORD PROTOCOL',  kind: 'pod', tier: 'marquee', max: 1, cost: 'you can field only ONE pod', desc: 'your single pod is vastly stronger (×2.2 damage + HP)', apply: s => { s.podCap = 1; const k = 2.2; s.podDmgMul = (s.podDmgMul || 1) * k; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); if (s.units.length > 1) s.units.length = 1; } },
 
-    // ── MORE HEURISTICS (per-fight tactical, clean no-cost) — varied win conditions so
-    //    OFFENSE/SWARM-SIZE aren't the only good calls (swarm-DPS / pods / sustain / control / anti-duel / focus). ──
+    // ── MORE HEURISTICS (per-fight tactical, clean no-cost) — OFFENSE-leaning variety so
+    //    offense/swarm-size aren't the only good calls (swarm-DPS / pods / focus / control).
+    //    NOTE: NO anti-counter picks — the duel COUNTER must always be outplayed, never negated. ──
     { id: 'swift_swarm',    name: 'SWIFT SWARM',     kind: 'swarm', tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'your swarms deal +30% damage this fight',           apply: s => { s.dotDmgMul = (s.dotDmgMul || 1) * 1.3; } },
     { id: 'vanguard',       name: 'VANGUARD',        kind: 'pod',   tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'your pods hit +30% harder this fight',              apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.3; } },
-    { id: 'vampiric',       name: 'VAMPIRIC EDGE',   kind: 'death', tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'every kill mends the core (+1.5 HP)',               apply: s => { s.killHeal = (s.killHeal || 0) + 1.5; } },
     { id: 'tar_field',      name: 'TAR FIELD',       kind: 'duel',  tier: 'rewrite', max: 1, pool: 'heuristic', desc: 'the whole assault is dragged to a crawl this fight', apply: s => { s.slowField = true; } },
-    { id: 'countermeasures',name: 'COUNTERMEASURES', kind: 'duel',  tier: 'rewrite', max: 1, pool: 'heuristic', desc: "the guard's counter against you lands 45% softer",   apply: s => { s.counterDamp = Math.max(s.counterDamp || 0, 0.45); } },
     { id: 'apex_aim',       name: 'APEX AIM',        kind: 'core',  tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'your focus-fire bites +60% deeper this fight',      apply: s => { s.focusAmp = (s.focusAmp || 1) * 1.6; } },
-    { id: 'bulwark_surge',  name: 'BULWARK SURGE',   kind: 'edge',  tier: 'rewrite', max: 2, pool: 'heuristic', desc: '+35 core HP and the core mends +3 HP/s this fight',  apply: s => { s.coreBase += 35; s.selfRepairFlat = (s.selfRepairFlat || 0) + 3; } },
 
     // ── MORE POLICIES (run-long build-definers) — a deeper pool across every theme. ──
     { id: 'venom_glands',   name: 'VENOM GLANDS',    kind: 'swarm', tier: 'rewrite', max: 1, desc: 'your swarms corrode for +40% damage, permanently',         apply: s => { s.dotDmgMul = (s.dotDmgMul || 1) * 1.4; } },
@@ -343,7 +340,6 @@
     { id: 'apex_predator',  name: 'APEX PREDATOR',   kind: 'focus', tier: 'rewrite', max: 1, desc: 'your focus-fire tears marked targets apart (×1.8)',         apply: s => { s.focusAmp = (s.focusAmp || 1) * 1.8; } },
     { id: 'gravity_well',   name: 'GRAVITY WELL',    kind: 'core',  tier: 'rewrite', max: 1, desc: 'a gravity well drags every assault to a permanent crawl',    apply: s => { s.slowField = true; } },
     { id: 'soul_engine',    name: 'SOUL ENGINE',     kind: 'death', tier: 'rewrite', max: 1, desc: 'every kill mends the core (+2.5 HP)',                       apply: s => { s.killHeal = (s.killHeal || 0) + 2.5; } },
-    { id: 'ghost_protocol', name: 'GHOST PROTOCOL',  kind: 'duel',  tier: 'rewrite', max: 1, desc: 'the guard can barely read you — counters land at half',     apply: s => { s.counterDamp = Math.max(s.counterDamp || 0, 0.5); } },
     { id: 'aegis_core',     name: 'AEGIS CORE',      kind: 'core',  tier: 'rewrite', max: 1, desc: '+80 base core HP and the core mends 50% faster',            apply: s => { s.coreBase += 80; s.regenMul = (s.regenMul == null ? 1 : s.regenMul) * 1.5; } },
     { id: 'siege_train',    name: 'SIEGE TRAIN',     kind: 'pod',   tier: 'rewrite', max: 1, desc: 'your pods hit +45% harder and have +30% HP',                apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.45; const k = 1.3; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
   ];
