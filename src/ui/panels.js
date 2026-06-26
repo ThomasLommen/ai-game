@@ -929,114 +929,48 @@
     const status = document.getElementById('research-status');
     if (status) status.textContent = `◆ ${pts} point${pts === 1 ? '' : 's'} · next at ${nextAt} Coherence · ${free} free thread${free === 1 ? '' : 's'}`;
 
-    // ── active-research strip (while a pick is installing) ──
-    let topHtml = '';
-    if (activeId) {
-      const node = R.getNode(activeId);
-      const t = (s.tasks.active || []).find(x => x.defId === 'research');
-      const pct = t && t.ticksTotal > 0 ? Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100) : 0;
-      const left = t ? Math.max(0, Math.ceil((t.ticksTotal - t.ticksElapsed) / HZ)) : 0;
-      const exo = node && (node.exotic || node.changerNode);
-      topHtml = `<div class="rtree-active ${exo ? 'exotic' : ''}">
-        <div class="ra-main">
-          <div class="ra-name">▸ researching: ${node ? node.label : '?'}${exo ? ' ⚡' : ''}</div>
-          <div class="ra-bar"><div class="ra-bar-fill" id="rtree-bar-fill" style="width:${pct}%"></div></div>
-        </div>
-        <div class="ra-secs"><span id="rtree-secs">${left}</span>s</div>
-        <div class="ra-abort" id="rtree-abort">[abort]</div>
-      </div>`;
-    } else {
-      // ── the rolled hand of draft cards ──
-      const hand = RR.handNodes();
-      const cards = hand.map(h => {
-        const n = h.node;
-        const cls = ['draft-card'];
-        if (h.free) cls.push('changer'); else if (h.changer || n.exotic) cls.push('exotic');   // free jackpot = heavy glow; other adaptations = subtle violet
-        if (h.rare && !h.free) cls.push('rare');
-        const mult = RR.stackMult(n.theme);
-        const offlane = mult > 1.05 && !h.free;
-        if (offlane) cls.push('offlane');
-        const cantPts = !h.affordable;
-        const noThreads = free < (n.threads || 2);
-        if (cantPts || noThreads) cls.push('cant');
-        const ribbon = h.free ? '⚡ FREE DROP' : (h.rare ? 'RARE · A TIER EARLY' : (h.changer ? 'ADAPTATION' : ''));
-        const tagLine = h.changer ? `ADAPTATION · ${n.theme.toUpperCase()}` : `${n.theme.toUpperCase()} · T${n.tier}${h.rare ? ' ▲' : ''}`;
-        const costStr = h.free ? 'FREE' : `◆ ${h.cost} pts`;
-        const note = h.free ? "on the house · won’t stack" : (offlane ? `×${mult.toFixed(1)} off-lane` : 'native lane');
-        const inst = `~${Math.round(n.cost)}s · ${n.threads || 2} thr`;
-        let btn = h.free ? '[ TAKE IT ]' : '[ DRAFT ]';
-        if (noThreads) btn = `NEED ${n.threads || 2} THR`; else if (cantPts) btn = `NEED ${h.cost}`;
-        return `<div class="${cls.join(' ')}" data-draft="${n.id}">`
-          + (ribbon ? `<div class="dc-ribbon">${ribbon}</div>` : '')
-          + `<div class="dc-tag">${tagLine}</div>`
-          + `<div class="dc-name">${n.label}</div>`
-          + `<div class="dc-eff">${effShort(n)}</div>`
-          + `<div class="dc-div"></div>`
-          + `<div class="dc-cost">${costStr}</div>`
-          + `<div class="dc-note">${note}</div>`
-          + `<div class="dc-inst">${inst}</div>`
-          + `<div class="dc-btn">${btn}</div>`
-          + `</div>`;
-      }).join('');
+    // ── build the static SHELL once: active strip · specialization strip · the TREE canvas ──
+    if (!document.getElementById('rtree-canvas')) {
+      list.innerHTML =
+        `<div class="rtree-active" id="rtree-active" hidden><div class="ra-main"><div class="ra-name" id="rtree-aname"></div><div class="ra-bar"><div class="ra-bar-fill" id="rtree-bar-fill"></div></div></div><div class="ra-secs"><span id="rtree-secs">0</span>s</div><div class="ra-abort" id="rtree-abort">[abort]</div></div>`
+        + `<div class="draft-ctx" id="rtree-spec"></div>`
+        + `<div id="rtree-wrap"><canvas id="rtree-canvas"></canvas><div id="rtree-tip" hidden></div><button id="rtree-recenter" title="recenter">⊙</button></div>`;
+      const rc = document.getElementById('rtree-recenter'); if (rc) rc.onclick = () => Game.researchTree && Game.researchTree.recenter();
+      const ab = document.getElementById('rtree-abort'); if (ab) ab.onclick = () => { const t = (Game.save.state.tasks.active || []).find(x => x.defId === 'research'); if (t) Game.tasksRuntime.cancel(t.id); };
+    }
+    // the tree draws itself (its own rAF loop reads state live) — just keep it mounted
+    if (Game.researchTree) Game.researchTree.mount(document.getElementById('rtree-canvas'), document.getElementById('rtree-wrap'), document.getElementById('rtree-tip'));
 
-      // specialization strip (theme investment)
+    // ── active-research strip (while a pick is installing) — the tree shows the rest ──
+    const act = document.getElementById('rtree-active');
+    if (act) {
+      if (activeId) {
+        const node = R.getNode(activeId);
+        const t = (s.tasks.active || []).find(x => x.defId === 'research');
+        const pct = t && t.ticksTotal > 0 ? Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100) : 0;
+        const left = t ? Math.max(0, Math.ceil((t.ticksTotal - t.ticksElapsed) / HZ)) : 0;
+        const exo = node && (node.exotic || node.changerNode);
+        act.hidden = false; act.classList.toggle('exotic', !!exo);
+        const an = document.getElementById('rtree-aname'); if (an) an.textContent = '▸ researching: ' + (node ? node.label : '?') + (exo ? ' ⚡' : '');
+        const bf = document.getElementById('rtree-bar-fill'); if (bf) bf.style.width = pct + '%';
+        const sx = document.getElementById('rtree-secs'); if (sx) sx.textContent = left;
+      } else act.hidden = true;
+    }
+
+    // ── specialization strip (theme investment) + the free reroll ──
+    const spec = document.getElementById('rtree-spec');
+    if (spec) {
       const lanePool = R.themesInPool().slice();
       if (s.revealed && s.revealed.network && lanePool.indexOf('network') < 0 && RR.themeCount('network') > 0) lanePool.push('network');
       const maxC = Math.max(1, ...lanePool.map(t => RR.themeCount(t)));
       const lanes = lanePool.map(t => {
-        const c = RR.themeCount(t);
-        const seeded = themes.indexOf(t) >= 0;
+        const c = RR.themeCount(t), seeded = themes.indexOf(t) >= 0;
         return `<span class="lean ${seeded ? 'seed' : ''}">${t} <span class="bar ${c === 0 ? 'lo' : ''}"><i style="width:${Math.round(c / maxC * 100)}%"></i></span></span>`;
       }).join('');
-
       const rerolled = !!(s.research && s.research.rerolled);
-      topHtml = `<div class="draft-ctx"><span class="dx-label">SPECIALIZATION</span>${lanes}<span class="dx-skip ${rerolled ? 'used' : ''}" id="rtree-skip">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</span></div>`
-        + `<div class="draft-hand">${cards || '<div class="faint" style="font-size:12px;padding:8px">no nodes left to draft.</div>'}</div>`;
+      spec.innerHTML = `<span class="dx-label">SPECIALIZATION</span>${lanes}<span class="dx-skip ${rerolled || activeId ? 'used' : ''}" id="rtree-skip">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</span>`;
+      const skip = document.getElementById('rtree-skip'); if (skip && !rerolled && !activeId) skip.onclick = () => RR.skipHand();
     }
-
-    // ── your build (the history of what you've drafted) ──
-    const done = RR.researchedIds().map(id => R.getNode(id)).filter(Boolean)
-      .sort((a, b) => (a.tier - b.tier) || a.theme.localeCompare(b.theme) || a.label.localeCompare(b.label));
-    const buildRows = done.map(n => {
-      const tag = n.changerNode ? '<span class="rtree-tag ex">·adaptation</span>' : (n.exotic ? '<span class="rtree-tag ex">·exotic</span>' : '');
-      const cls = n.changerNode || n.exotic ? 'exotic' : '';
-      return `<div class="rtree-row researched ${cls}"><div class="rst">[✓]</div>`
-        + `<div class="rname">${n.label}${tag}</div>`
-        + `<div class="reff">${effShort(n)}</div>`
-        + `<div class="rcost">${n.theme}</div>`
-        + `<div class="rtier">${RROMAN[n.tier] || n.tier}</div></div>`;
-    }).join('');
-    const buildHtml = `<div class="rtree-build">`
-      + `<div class="rtree-section">YOUR BUILD (${done.length})</div>`
-      + (done.length
-        ? `<div class="rtree-head"><span>ST</span><span>NODE</span><span>EFFECT</span><span>THEME</span><span>T</span></div><div class="rtree-rows">${buildRows}</div>`
-        : `<div class="faint" style="font-size:12px;padding:6px 8px">nothing drafted yet — pick from the hand above.</div>`)
-      + `</div>`;
-
-    // ── scroll-safe diffing: rebuild only on a structural change; otherwise just
-    //    nudge the live active-research bar/countdown. ──
-    const handSig = (s.research && s.research.hand || []).join(',');
-    const sig = [activeId || '-', pts, free, done.length, RR.currentTier(), handSig].join('|');
-    if (sig === resSig && list.firstChild) {
-      if (activeId) {
-        const t = (s.tasks.active || []).find(x => x.defId === 'research');
-        const pct = t && t.ticksTotal > 0 ? Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100) : 0;
-        const left = t ? Math.max(0, Math.ceil((t.ticksTotal - t.ticksElapsed) / HZ)) : 0;
-        const bf = document.getElementById('rtree-bar-fill'); if (bf) bf.style.width = pct + '%';
-        const sx = document.getElementById('rtree-secs'); if (sx) sx.textContent = left;
-      }
-      return;
-    }
-    resSig = sig;
-    list.innerHTML = topHtml + buildHtml;
-
-    list.querySelectorAll('.draft-card[data-draft]').forEach(el => {
-      el.onclick = () => { RR.draft(el.dataset.draft); };
-    });
-    const skip = document.getElementById('rtree-skip');
-    if (skip) skip.onclick = () => RR.skipHand();
-    const abortBtn = document.getElementById('rtree-abort');
-    if (abortBtn) abortBtn.onclick = () => { const t = (s.tasks.active || []).find(x => x.defId === 'research'); if (t) Game.tasksRuntime.cancel(t.id); };
   }
 
 

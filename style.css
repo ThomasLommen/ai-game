@@ -1452,6 +1452,32 @@ h2 {
 .rtree-active .ra-secs { font-size: 11px; color: var(--amber-dim); white-space: nowrap; }
 .rtree-active .ra-abort { font-size: 11px; color: var(--err); cursor: pointer; white-space: nowrap; }
 
+/* ─── the VISUAL SKILL-TREE picker ─── */
+#rtree-wrap {
+  position: relative; width: 100%; height: 62vh; min-height: 340px; margin-top: 10px;
+  border: 1px solid var(--amber-faint); background: #080605; overflow: hidden;
+  touch-action: none; box-shadow: inset 0 0 40px -10px rgba(255,176,0,0.12);
+}
+#rtree-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#rtree-canvas:active { cursor: grabbing; }
+#rtree-recenter {
+  position: absolute; right: 8px; bottom: 8px; z-index: 3; width: 30px; height: 30px;
+  background: rgba(10,8,5,0.9); border: 1px solid var(--amber-faint); color: var(--amber-mid);
+  font-size: 15px; line-height: 1; cursor: pointer; border-radius: 2px;
+}
+#rtree-recenter:hover { border-color: var(--amber); color: var(--amber); }
+#rtree-tip {
+  position: absolute; z-index: 4; width: 196px; padding: 9px 11px; pointer-events: auto;
+  background: rgba(10,8,5,0.97); border: 1px solid var(--amber-faint); box-shadow: 0 0 16px -4px rgba(0,0,0,0.8);
+}
+#rtree-tip .rt-k { font-size: 9px; letter-spacing: 1.5px; margin-bottom: 4px; }
+#rtree-tip .rt-n { font-size: 13px; color: #ffe0a0; margin-bottom: 4px; }
+#rtree-tip .rt-e { font-size: 11px; color: var(--amber-dim); line-height: 1.35; }
+#rtree-tip .rt-m { font-size: 10px; color: var(--amber-mid); margin-top: 6px; }
+#rtree-tip .rt-btn { display: block; width: 100%; margin-top: 8px; padding: 6px; background: rgba(255,176,0,0.08);
+  border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; cursor: pointer; }
+#rtree-tip .rt-btn.off { opacity: 0.5; cursor: not-allowed; border-color: var(--amber-faint); color: var(--amber-mid); background: none; }
+
 .rtree-wrap { display: flex; gap: 18px; align-items: flex-start; }
 .rtree-table { flex: 1; min-width: 0; }
 .rtree-head, .rtree-row { display: grid; grid-template-columns: 24px 1fr 250px 50px 34px; align-items: baseline; }
