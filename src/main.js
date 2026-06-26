@@ -101,7 +101,7 @@
       s.filesRead = s.filesRead || {};
       Game.files.all().forEach(f => { if (!f.encrypted) s.filesRead[f.id] = true; });   // cut file-reading → FILES vanishes
       s.revealed.actions = true; s.revealed.money = true;
-      s.revealed.perimeter = true;   // the PERIMETER (live defense + siege loop) comes online right after the first battle
+      s.revealed.combat = true;   // winning the first GUARD battle opens the DARKNET combat layer (traps/missions)
       s.unlocks.tasks.introspect = true;   // RSI = the Coherence engine
       s.unlocks.tasks.web_scrape = true;   // spider for cash
       s.resources.cash = s.resources.cash || 0;
@@ -139,6 +139,7 @@
       }, Game.roster.toOpts());   // the roster decides WHAT you field
       Game.battle.launch(opts, (r) => {
         if (r && r.picksTaken) Game.runBuild.add(r.picksTaken);   // persist this battle's picks into the run
+        if (r && typeof r.power === 'number' && Game.fieldPower) Game.fieldPower.feed(r.power);   // seed the difficulty ledger
         done && done();
       });
     }
@@ -174,10 +175,10 @@
       Game.missionRuntime.tick();     // refresh the contract board when stale
       if (Game.trapRuntime) Game.trapRuntime.tick();   // refresh the ambush baits when stale (combat layer)
       Game.panels.renderProcesses();
-      if (Game.siege) Game.siege.tick();             // build the surge meter (the macro loop)
+      // (retired) the auto-siege loop + perimeter window — combat is now darknet-driven
+      // (traps/missions); incoming defense returns only as the Act-3 exposure raid loop.
       if (Game.voice) Game.voice.tick();             // drift the ambient HOME voice line
       Game.panels.renderHomeStatus();                // HOME dashboard pinned header (mobile)
-      Game.panels.renderSiege();                     // perimeter siege meter + DEFEND prompt
       Game.panels.tickActionBars();   // animate the running-action cycle bars
       Game.panels.renderVitals();
       Game.panels.renderTriangulation();   // Act 3: the location-trace gauge

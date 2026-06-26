@@ -6,7 +6,7 @@
   // outcome harvests rewards (win) or bites back (loss) into the campaign — and a hidden
   // OVER-DRAW roll can hook a bigger fight than baited (the telegraphed risk). A short
   // cooldown settles the ground between springs; the real throttle is the exposure each
-  // trap spends (loud → feeds the raids). Gated on the perimeter (combat) coming online.
+  // trap spends (loud → feeds the raids). Gated on the COMBAT layer (won the guard battle).
   const REFRESH_TICKS  = 2400;   // ~10 min @4Hz — fresh baits roll in
   const COOLDOWN_TICKS = 360;    // ~90s settle after springing one
   const OVERDRAW_CHANCE = 0.22;  // the bait hooks bigger than planned
@@ -17,7 +17,9 @@
     if (!Array.isArray(s.traps.baits)) s.traps.baits = [];
     return s.traps;
   }
-  function revealed() { const s = Game.save.state; return !!(s.revealed && s.revealed.perimeter); }
+  // COMBAT comes online when you win the first GUARD battle (s.revealed.combat). Legacy saves
+  // that predate the perimeter-retire used s.revealed.perimeter for the same gate — honor it.
+  function revealed() { const s = Game.save.state; return !!(s.revealed && (s.revealed.combat || s.revealed.perimeter)); }
   const now = () => (Game.save.state.tickCount || 0);
 
   function refresh() {
@@ -48,10 +50,9 @@
     // and a lighter lure can pull in a true predator). FIELD THE FULL BUILD — your drafted
     // roster (units + exotics), your run-long POLICY picks, and the lagged power-scaling — so a
     // trap ambush plays with everything you've got, exactly like a siege DEFEND.
-    const st0 = Game.save.state;
     const build = Object.assign({
       picks: (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [],
-      power: (st0.siege && st0.siege.laggedPower) || 0
+      power: (Game.fieldPower && Game.fieldPower.get) ? Game.fieldPower.get() : 0
     }, (Game.roster && Game.roster.toOpts) ? Game.roster.toOpts() : {});
     const opts = Object.assign({ seed: (Game.rng.next() * 1e9) | 0, lane: true }, bait.battle, build);
     let overdrew = false;
@@ -70,8 +71,8 @@
   function onResolve(bait, result, overdrew) {
     const st = Game.save.state, t = ensureState();
     t.cooldownUntil = now() + COOLDOWN_TICKS;
-    // feed the power-scaling curve + persist any POLICY picks — same as a siege DEFEND.
-    if (result && typeof result.power === 'number' && st.siege) { const lag = (window.SWARM && SWARM.BAL && SWARM.BAL.powerLag) || 0.5; st.siege.laggedPower = (st.siege.laggedPower || 0) + (result.power - (st.siege.laggedPower || 0)) * lag; }
+    // feed the shared difficulty ledger + persist any POLICY picks — every battle source does this.
+    if (result && typeof result.power === 'number' && Game.fieldPower) Game.fieldPower.feed(result.power);
     if (result && result.picksTaken && Game.runBuild) Game.runBuild.add(result.picksTaken);
     const won = result && result.result === 'won';
     const kills = (result && result.kills) || 0;

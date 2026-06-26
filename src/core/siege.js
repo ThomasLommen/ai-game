@@ -17,8 +17,12 @@
     if (typeof s.siege.laggedPower !== 'number') s.siege.laggedPower = 0;   // smoothed player power → next fight's difficulty (lags ~2 fights)
     return s.siege;
   }
-  // online once the perimeter is (after the guard opening / first scan)
-  function active() { const s = Game.save.state; return !!(s.revealed && s.revealed.perimeter); }   // the defense loop is the spine across ALL acts
+  // RETIRED: the auto-building siege loop + always-on perimeter window were deactivated —
+  // they pulled all attention and starved the darknet of purpose. Combat is now darknet-driven
+  // (traps/missions, player-initiated); incoming defense returns only as the Act-3 exposure raid
+  // loop. This module stays loaded (API surface intact) but DORMANT — active() is always false,
+  // so tick()/defend() no-op. The difficulty ledger moved to Game.fieldPower. ([[start-defense-pivot]])
+  function active() { return false; }
   function meter() { return ensure().meter; }
   function wave()  { return ensure().wave; }
   function ready() { return ensure().ready; }

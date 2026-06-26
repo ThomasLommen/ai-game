@@ -471,7 +471,8 @@
     }
 
     // AMBUSH — opt-in DEFENSE: pick a BAIT to lure a hunter onto prepared ground → a full battle.
-    if (Game.trapRuntime && s.revealed && s.revealed.perimeter) {
+    // Gated on the darknet COMBAT layer (won the first guard battle); legacy saves used perimeter.
+    if (Game.trapRuntime && s.revealed && (s.revealed.combat || s.revealed.perimeter)) {
       const baits = Game.trapRuntime.currentBaits();
       const cd = Game.trapRuntime.cooldownLeft(), cdSec = Math.ceil(cd / (Game.tick.HZ || 4));
       const TIERN = { 1: 'low', 2: 'mid', 3: 'high' };

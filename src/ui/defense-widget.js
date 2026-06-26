@@ -7,6 +7,11 @@
 (function () {
   const wrap = document.getElementById('defense-widget');
   if (!wrap || typeof SWARM === 'undefined') return;
+  // RETIRED (perimeter-retire): the always-on perimeter window pulled all attention and
+  // gave the darknet no purpose. It's deactivated — kept hidden, never revealed. The HOME
+  // slot is being replaced by the diegetic ROOM window (Phase B). Bail before any of the
+  // sim/NET/reveal wiring runs. ([[start-defense-pivot]])
+  if (!(window.Game && Game.save && Game.save.state && Game.save.state.revealed && Game.save.state.revealed.perimeterLegacy)) { wrap.hidden = true; return; }
   const cvs = wrap.querySelector('canvas'), ctx = cvs.getContext('2d');
   let S = null, last = performance.now(), shown = false;
   let pKills = 0, pLeaks = 0;   // last-sampled sim counters → feed the persisted perimeter NET (kills − leaks since the last DEFEND)
