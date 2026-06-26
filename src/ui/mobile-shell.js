@@ -27,8 +27,8 @@
     // they're dropped from the scrolling body. ([[home-dashboard-rework]])
     // #terminal-pane stays in HOME as the file-READING surface (decode regions render
     // into it) — it's no longer a prose log, and collapses to nothing when empty.
-    // PERIMETER (defense-widget) sits at the BOTTOM of HOME now.
-    home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#defense-widget'],
+    // ROOM (room-widget) — the diegetic cam-feed of the AI's space — sits at the BOTTOM of HOME.
+    home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#room-widget'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
     gear:  ['#hardware-panel', '.modal-panel[data-modal="inventory"]'],   // INVENTORY is its own tab now
