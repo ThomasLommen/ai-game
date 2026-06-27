@@ -18,28 +18,34 @@
   function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; }
   function networkOn() { const s = Game.save.state; return !!(s.revealed && s.revealed.network); }
 
-  // ── layout: theme LANES (x) × TIER (y), CORE at the top. Stable per run. ──
+  // ── layout: only the VISIBLE nodes (researched + hand) are placed — one ROW per TIER (y),
+  //    ordered by THEME, spaced a guaranteed GAP apart (never overlap), labels stagger above/
+  //    below. Laying out ONLY the visible cluster keeps it COMPACT so the camera frames it
+  //    tightly (a wide full-tree layout left scattered hand nodes far apart). CORE at the top. ──
   function buildLayout() {
-    const R = Game.research;
-    const nodes = R.all().filter(n => !n.act2 || networkOn());
+    const R = Game.research, vis = visSet();
+    const nodes = R.all().filter(n => vis.has(n.id));
     const present = ORDER.filter(t => nodes.some(n => n.theme === t));
-    const LANE_W = 158, TIER_H = 126, SPREAD = 64, TOP = 156, MARGIN = 90;
-    const laneX = t => MARGIN + present.indexOf(t) * LANE_W + LANE_W / 2;
-    const groups = {};
-    nodes.forEach(n => { const k = n.theme + '|' + n.tier; (groups[k] = groups[k] || []).push(n); });
-    const pos = {};
-    Object.keys(groups).forEach(k => {
-      const arr = groups[k].slice().sort((a, b) => a.id.localeCompare(b.id));
-      const lx = laneX(arr[0].theme), y = TOP + (arr[0].tier - 1) * TIER_H;
-      arr.forEach((n, i) => { pos[n.id] = { x: lx + (i - (arr.length - 1) / 2) * SPREAD, y, node: n }; });
+    const themeIdx = t => { const i = present.indexOf(t); return i < 0 ? 99 : i; };
+    const TIER_H = 132, GAP = 92, TOP = 150, MARGIN = 100;
+    const byTier = {};
+    nodes.forEach(n => { (byTier[n.tier] = byTier[n.tier] || []).push(n); });
+    const pos = {}; let minX = 1e9, maxX = -1e9, maxTier = 1;
+    Object.keys(byTier).forEach(tier => {
+      const row = byTier[tier].slice().sort((a, b) => (themeIdx(a.theme) - themeIdx(b.theme)) || a.id.localeCompare(b.id));
+      const total = (row.length - 1) * GAP, y = TOP + (tier - 1) * TIER_H;
+      row.forEach((n, i) => { const x = -total / 2 + i * GAP; pos[n.id] = { x, y, node: n, lab: i % 2 === 1 }; minX = Math.min(minX, x); maxX = Math.max(maxX, x); });
+      maxTier = Math.max(maxTier, +tier);
     });
-    const worldW = MARGIN * 2 + present.length * LANE_W;
-    const worldH = TOP + 4 * TIER_H + 30;
-    const core = { x: worldW / 2, y: TOP - TIER_H * 0.72 };
+    const dx = MARGIN - (isFinite(minX) ? minX : 0);
+    Object.values(pos).forEach(p => p.x += dx);
+    const core = { x: isFinite(minX) ? dx : MARGIN, y: TOP - TIER_H * 0.72 };
+    const worldW = (isFinite(minX) ? (maxX - minX) : 0) + MARGIN * 2;
+    const worldH = TOP + maxTier * TIER_H;
     return { pos, present, worldW, worldH, core };
   }
   function ensureLayout() {
-    const sig = Game.research.all().filter(n => !n.act2 || networkOn()).length + '|' + networkOn();
+    const sig = [...visSet()].sort().join(',') + '|' + networkOn();   // relayout when the visible cluster changes
     if (!layout || sig !== layoutSig) { layout = buildLayout(); layoutSig = sig; fitted = false; }
     return layout;
   }
@@ -130,6 +136,7 @@
     const n = p.node, col = TH[n.theme] || '#ffb000', exo = !!(n.exotic || n.changerNode);
     const r = st === 'core' ? 19 : (exo ? 14 : 11);
     const t = Date.now();
+    const ly = p.lab ? p.y - r - 7 : p.y + r + 13;   // stagger labels above/below so neighbours don't collide
     if (st === 'core') {
       ctx.fillStyle = '#1a1308'; ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.stroke();
       label(p.x, p.y + r + 13, 'CORE', '#ffd24a', 11, true); return;
@@ -146,11 +153,11 @@
       ctx.fillStyle = rgba(col, 0.92); ctx.fill(); ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = '#0a0805'; ctx.font = '700 11px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.fillText('✓', p.x, p.y + 4);
       if (active) { ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, r + 6 + Math.sin(t / 200) * 2, 0, 7); ctx.stroke(); }
-      label(p.x, p.y + r + 13, n.label, rgba(col, 0.92), 10, exo);
+      label(p.x, ly, n.label, rgba(col, 0.92), 10, exo);
     } else if (st === 'hand') {
       ctx.fillStyle = '#1c1408'; ctx.fill(); ctx.strokeStyle = h && (h.free || h.changer) ? '#b78cff' : col; ctx.lineWidth = 2.4; ctx.stroke();
       if (exo) { ctx.fillStyle = '#d9c2ff'; ctx.font = '700 12px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.fillText('⚡', p.x, p.y + 4); }
-      label(p.x, p.y + r + 13, n.label, h && (h.free || h.changer) ? '#d9c2ff' : rgba(col, 0.95), 10, true);
+      label(p.x, ly, n.label, h && (h.free || h.changer) ? '#d9c2ff' : rgba(col, 0.95), 10, true);
     } else {   // SILHOUETTE — shape + theme + tier + exotic mark only, no name
       ctx.fillStyle = '#141009'; ctx.fill(); ctx.strokeStyle = rgba(col, exo ? 0.5 : 0.32); ctx.lineWidth = 1.5; ctx.stroke();
       if (exo) { ctx.save(); ctx.globalAlpha = 0.45 + 0.25 * Math.sin(t / 500 + p.y); ctx.fillStyle = '#b78cff'; ctx.font = '700 10px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.fillText('⚡', p.x, p.y + 4); ctx.restore(); }
@@ -195,9 +202,10 @@
       html = `<div class="rt-k" style="color:${rgba(col, 0.7)}">● LOCKED · ${n.theme.toUpperCase()} · TIER ${n.tier}${exo ? ' · ⚡ EXOTIC' : ''}</div><div class="rt-e" style="opacity:.7">not offered yet — it can surface in a future hand.</div>`;
     }
     tip.innerHTML = html; tip.hidden = false;
-    // position near the node, clamped to the wrap
-    const sx = p.x * cam.scale + cam.x, sy = p.y * cam.scale + cam.y;
+    // position near the node, clamped to the wrap (a non-visible node — e.g. a debug tap — has no
+    // layout pos: park the card at the wrap centre).
     const ww = wrap.clientWidth, wh = wrap.clientHeight;
+    const sx = p ? p.x * cam.scale + cam.x : ww / 2, sy = p ? p.y * cam.scale + cam.y : wh / 2 - 40;
     tip.style.left = Math.max(6, Math.min(ww - tip.offsetWidth - 6, sx - tip.offsetWidth / 2)) + 'px';
     tip.style.top = (sy + 22 + 96 > wh ? Math.max(6, sy - 22 - tip.offsetHeight) : sy + 22) + 'px';
     const btn = tip.querySelector('.rt-btn[data-draft]');
