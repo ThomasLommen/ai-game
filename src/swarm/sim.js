@@ -302,13 +302,13 @@
   const PICKS = [
     // ── commons: a thin layer of stat tunes ──
     { id: 'od_offense', name: 'TUNE · OFFENSE',   kind: 'offense', tier: 'common', desc: '+0.3 offense multiplier (swarm + pod damage)', apply: s => { s.chBonus.offense += 0.3; } },
-    { id: 'od_shield',  name: 'TUNE · SHIELD',    kind: 'shield',  tier: 'common', desc: '+0.45 shield multiplier (core HP + regen)',   apply: s => { s.chBonus.shield += 0.45; } },
     { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.45 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.45; } },
     // ── solid rewrites / build tools ──
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flocks on the field', apply: s => { s.maxFlocks += 2; s.bonusFlocks = (s.bonusFlocks || 0) + 2; } },
     { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'marquee', max: 1, desc: '+1 POD slot — PERMANENT (banks to your roster; takes effect next defense)', apply: s => { /* permanent: the campaign banks +1 pod cap on resolve — no in-sim mutation, so it never double-counts the persisted opts.podCap */ } },
-    { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
-    { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
+    // (flat-defensive picks — HARDENED CORE / SELF-REPAIR / TUNE·SHIELD / AEGIS CORE / SOUL ENGINE —
+    //  were removed 2026-06-27: players never took them. Defensive play lives in the kept conditional
+    //  options: HARVEST FIELD, pod-HP, slows/control. See [[remove-defensive-heuristics]].)
     // ── duel-answers: clean, no cost ──
     { id: 'pierce',     name: 'PIERCING ROUNDS',  kind: 'duel', tier: 'rewrite', max: 2, pool: 'heuristic', desc: 'your army punches through 40% of enemy shields',   apply: s => { s.pierce = Math.min(0.8, s.pierce + 0.4); } },
     // ── FOCUS-FIRE theme (the triage tap) ──
@@ -350,8 +350,6 @@
     { id: 'swarm_lord',     name: 'SWARM LORD',      kind: 'swarm', tier: 'rewrite', max: 1, desc: '+3 swarm flocks on the field',                              apply: s => { s.maxFlocks += 3; s.bonusFlocks = (s.bonusFlocks || 0) + 3; } },
     { id: 'apex_predator',  name: 'APEX PREDATOR',   kind: 'focus', tier: 'rewrite', max: 1, desc: 'your focus-fire tears marked targets apart (×1.8)',         apply: s => { s.focusAmp = (s.focusAmp || 1) * 1.8; } },
     { id: 'gravity_well',   name: 'GRAVITY WELL',    kind: 'core',  tier: 'rewrite', max: 1, desc: 'a gravity well drags every assault to a permanent crawl',    apply: s => { s.slowField = true; } },
-    { id: 'soul_engine',    name: 'SOUL ENGINE',     kind: 'death', tier: 'rewrite', max: 1, desc: 'every kill mends the core (+2.5 HP)',                       apply: s => { s.killHeal = (s.killHeal || 0) + 2.5; } },
-    { id: 'aegis_core',     name: 'AEGIS CORE',      kind: 'core',  tier: 'rewrite', max: 1, desc: '+80 base core HP and the core mends 50% faster',            apply: s => { s.coreBase += 80; s.regenMul = (s.regenMul == null ? 1 : s.regenMul) * 1.5; } },
     { id: 'siege_train',    name: 'SIEGE TRAIN',     kind: 'pod',   tier: 'rewrite', max: 1, desc: 'your pods hit +45% harder and have +30% HP',                apply: s => { s.podDmgMul = (s.podDmgMul || 1) * 1.45; const k = 1.3; s.podHpMul = (s.podHpMul || 1) * k; s.units.forEach(u => { u.maxHp = Math.round(u.maxHp * k); u.hp = Math.round(u.hp * k); }); } },
   ];
   // SIGNATURE picks — the HYBRID source: each exotic/unit you brought in from the
@@ -963,9 +961,10 @@
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
     // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
     if (!s.core.invuln) {
-      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // HARDENED CORE lifts the base
+      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // SHIELD channel (build power) lifts the base
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
-      // NO baseline self-repair — regen comes ONLY from the SHIELD channel + the SELF-REPAIR pick.
+      // NO baseline self-repair — regen comes from the SHIELD channel (campaign build power). The flat
+      // self-repair / aegis picks were retired ([[remove-defensive-heuristics]]); selfRepairFlat stays read for save-compat.
       const regen = ((s.chBonus.shield || 0) * 6 + (s.selfRepairFlat || 0)) * (s.regenMul == null ? 1 : s.regenMul);
       if (regen > 0) s.core.hp = Math.min(s.core.maxHp, s.core.hp + regen * dt);
     }
