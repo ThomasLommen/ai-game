@@ -45,11 +45,11 @@
       const doms = new Set(defs.map(d => d && d.domain).filter(Boolean));
       const addU = t => { if (out.unlock.indexOf(t) < 0) out.unlock.push(t); };
       const addE = e => { if (out.ex.indexOf(e) < 0) out.ex.push(e); };
-      if (doms.has('hive'))    { addE('hive');  addU('leech'); addU('fabricator'); }
-      if (doms.has('engine'))  { addE('flame'); addU('siege'); }
-      if (doms.has('ghost'))   { addE('bloom'); addU('conductor'); }
-      if (doms.has('economy')) { out.regenBonus += 3; addU('glacier'); }
-      if (doms.has('synergy') || doms.has('apex')) addU('reaper');
+      if (doms.has('hive'))    { addE('hive');  addU('leech'); addU('fabricator'); addU('corrosion'); }
+      if (doms.has('engine'))  { addE('flame'); addU('siege'); addU('warden'); }
+      if (doms.has('ghost'))   { addE('bloom'); addU('conductor'); addU('tesla'); }
+      if (doms.has('economy')) { out.regenBonus += 3; addU('glacier'); addU('singularity'); }
+      if (doms.has('synergy') || doms.has('apex')) { addU('reaper'); addU('railwarden'); }
       const pillars = (Game.changers && Game.changers.pillarCount) ? Game.changers.pillarCount() : 0;
       out.regenBonus += Math.min(4, pillars);
       out.regenBonus = Math.min(REGEN_BONUS_CAP, out.regenBonus);

@@ -139,6 +139,7 @@
         if (e.frozen > 0) col = '#bfe8ff';                                         // frozen solid
         else if (e.chill > 0) col = blend(e.color, '#8fd4ff', Math.min(0.65, e.chill / 100));  // chilled
         else if (e.poison > 0) col = blend(e.color, '#76e08a', Math.min(0.6, e.poison / 60));  // poisoned
+        else if (e.corrode > 0) col = blend(e.color, '#b6e84a', Math.min(0.5, e.corrode / 4 * 0.5));  // acid-marked (CORROSION)
       }
       ctx.fillStyle = col; ctx.strokeStyle = '#05060a'; ctx.lineWidth = 1.5;
       const r = Math.max(def.r * scale, 12) * (flash ? 1.3 : 1), T = e.type;   // min on-screen size so enemies READ the instant they appear, even zoomed out
@@ -173,6 +174,9 @@
       if ((T === 'probe' || T === 'spawnling') && !flash) { ctx.fillStyle = '#ffe0d6'; ctx.beginPath(); ctx.arc(x, y, r * 0.34, 0, 7); ctx.fill(); }   // shard core glint
       if (e.poison > 0 && !flash) { ctx.fillStyle = '#9affb0'; for (let i = 0; i < 2; i++) { const pa = S.t * 4 + i * 3 + e.x; ctx.globalAlpha = a * 0.5; ctx.fillRect(x + Math.cos(pa) * r, y + Math.sin(pa) * r, 1.6 * scale, 1.6 * scale); } }
       if (e.frozen > 0 && !flash) { ctx.strokeStyle = '#e6f7ff'; ctx.globalAlpha = a * 0.85; ctx.lineWidth = 1.5; ctx.beginPath(); for (let i = 0; i < 6; i++) { const fa = i / 6 * Math.PI * 2 + 0.4, px = x + Math.cos(fa) * (r + 3 * scale), py = y + Math.sin(fa) * (r + 3 * scale); ctx[i ? 'lineTo' : 'moveTo'](px, py); } ctx.closePath(); ctx.stroke(); ctx.globalAlpha = 1; }
+      if (e.shock > 0 && !flash) { ctx.strokeStyle = '#dff4ff'; ctx.globalAlpha = a * (0.45 + 0.5 * Math.abs(Math.sin(S.t * 30))); ctx.lineWidth = 1.4 * scale; ctx.lineCap = 'round'; for (let i = 0; i < 3; i++) { const sa = S.t * 17 + i * 2.1 + e.x; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(sa) * (r + 5 * scale), y + Math.sin(sa) * (r + 5 * scale)); ctx.stroke(); } ctx.globalAlpha = 1; }   // TESLA stun crackle
+      if (e.corrode > 0 && !flash) { ctx.fillStyle = '#cdf06a'; for (let i = 0; i < 2; i++) { const ca = S.t * 3 + i * 3.3 + e.y; ctx.globalAlpha = a * 0.6; ctx.fillRect(x + Math.cos(ca) * r * 0.7, y + Math.sin(ca) * r * 0.7, 1.8 * scale, 2.6 * scale); } ctx.globalAlpha = 1; }   // CORROSION drip
+      if (e.disabled > 0 && !flash) { ctx.strokeStyle = '#79ffe0'; ctx.globalAlpha = a * (0.3 + 0.4 * Math.abs(Math.sin(S.t * 12))); ctx.setLineDash([3 * scale, 3 * scale]); ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(x, y, (def.r + 5) * scale, 0, 7); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }   // WARDEN disabled ring
       const hpf = e.hp / e.maxHp;
       if (hpf < 0.999) { const w = (def.r * 2.4) * scale; ctx.globalAlpha = a; ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x - w / 2, y - r - 6 * scale, w, 3 * scale); ctx.fillStyle = hpf > 0.5 ? '#76e08a' : hpf > 0.25 ? '#e0913f' : '#ff5050'; ctx.fillRect(x - w / 2, y - r - 6 * scale, w * hpf, 3 * scale); }
       ctx.globalAlpha = 1;
@@ -223,33 +227,53 @@
       ctx.fillText(`${f.type}·${f.dots.length}`, fx, fy - 44 * scale); ctx.globalAlpha = 1;
     });
 
-    // ── beams (hero rail / flame cone) ──
+    // ── beams (hero rail / flame cone / tesla bolt / rail lance) ──
     S.beams.forEach(b => {
       const al = Math.min(1, b.life / 0.14);
       if (b.cone) {
         ctx.fillStyle = b.color; ctx.globalAlpha = al * 0.32;
         ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1));
         ctx.arc(X(b.x1), Y(b.y1), 232 * scale, b.ang - 0.5, b.ang + 0.5); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+      } else if (b.bolt) {                                       // TESLA — a jagged forked lightning arc (recomputed each frame)
+        const x1 = X(b.x1), y1 = Y(b.y1), x2 = X(b.x2), y2 = Y(b.y2), segs = 6;
+        ctx.globalAlpha = al; ctx.strokeStyle = b.color; ctx.shadowColor = '#9fe6ff'; ctx.shadowBlur = 12; ctx.lineCap = 'round';
+        for (let pass = 0; pass < 2; pass++) {
+          ctx.lineWidth = (pass ? 1 : 2.6) * scale; if (pass) ctx.strokeStyle = '#ffffff';
+          ctx.beginPath(); ctx.moveTo(x1, y1);
+          for (let i = 1; i < segs; i++) { const t = i / segs, mx = x1 + (x2 - x1) * t, my = y1 + (y2 - y1) * t, j = (Math.random() - 0.5) * 16 * scale; ctx.lineTo(mx - (y2 - y1) / Math.hypot(x2 - x1, y2 - y1) * j, my + (x2 - x1) / Math.hypot(x2 - x1, y2 - y1) * j); }
+          ctx.lineTo(x2, y2); ctx.stroke();
+        }
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
       } else {
-        ctx.globalAlpha = al; ctx.strokeStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 10; ctx.lineCap = 'round';
-        ctx.lineWidth = (b.rail ? 3 : 2) * scale; ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2)); ctx.stroke();
+        const lance = b.lance;
+        ctx.globalAlpha = al; ctx.strokeStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = lance ? 18 : 10; ctx.lineCap = 'round';
+        ctx.lineWidth = (lance ? 6 : b.rail ? 3 : 2) * scale; ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2)); ctx.stroke();
+        if (lance) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2 * scale; ctx.globalAlpha = al * 0.9; ctx.stroke(); }   // bright core of the piercing lance
         ctx.shadowBlur = 0; ctx.globalAlpha = 1;
       }
     });
 
     // ── impact / death bursts ──
     S.bursts.forEach(b => {
-      const f = 1 - b.life / (b.ring ? 0.5 : 0.42), x = X(b.x), y = Y(b.y);
-      ctx.globalAlpha = Math.max(0, b.life / 0.5); ctx.strokeStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 8;
+      const x = X(b.x), y = Y(b.y), life0 = b.ring ? 0.5 : 0.42, f = 1 - b.life / life0;
+      ctx.globalAlpha = Math.max(0, b.life / life0);
+      if (b.shatter) {                                           // GLACIER freeze — ice shards burst outward
+        ctx.strokeStyle = '#eaffff'; ctx.shadowColor = '#bfe8ff'; ctx.shadowBlur = 8; ctx.lineWidth = 1.6 * scale; ctx.lineCap = 'round';
+        for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2 + b.x, rr = (6 + f * 26) * scale; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 3 * scale, y + Math.sin(a) * 3 * scale); ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); ctx.stroke(); }
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1; return;
+      }
+      ctx.strokeStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = b.acid ? 10 : 8;
       ctx.lineWidth = 2 * scale; ctx.beginPath(); ctx.arc(x, y, ((b.big ? 8 : 4) + f * (b.ring ? 60 : 18)) * scale, 0, 7); ctx.stroke();
+      if (b.acid) { ctx.globalAlpha = Math.max(0, b.life / life0) * 0.5; ctx.fillStyle = b.color; ctx.beginPath(); ctx.arc(x, y, (4 + f * 50) * scale, 0, 7); ctx.fill(); }   // acid splat fill
       ctx.shadowBlur = 0; ctx.globalAlpha = 1;
     });
 
-    // ── freezing shockwaves (glacier thump) ──
+    // ── shockwaves: glacier FREEZE ring (ice) vs WARDEN EMP ring (teal pulse) ──
     (S.waves || []).forEach(w => {
       const x = X(w.x), y = Y(w.y), f = w.r / w.maxR, al = Math.max(0, 1 - f);
-      ctx.strokeStyle = '#bfe8ff'; ctx.shadowColor = '#bfe8ff'; ctx.shadowBlur = 10;
-      ctx.globalAlpha = al * 0.8; ctx.lineWidth = 4 * scale; ctx.beginPath(); ctx.arc(x, y, w.r * scale, 0, 7); ctx.stroke();
+      const c = w.emp ? '#79ffe0' : '#bfe8ff';
+      ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 10;
+      ctx.globalAlpha = al * 0.8; ctx.lineWidth = (w.emp ? 3 : 4) * scale; ctx.beginPath(); ctx.arc(x, y, w.r * scale, 0, 7); ctx.stroke();
       ctx.globalAlpha = al * 0.35; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(x, y, Math.max(0, w.r - 11) * scale, 0, 7); ctx.stroke();
       ctx.shadowBlur = 0; ctx.globalAlpha = 1;
     });
@@ -350,7 +374,13 @@
     else if (u.behavior === 'support') drawConductor(u);
     else if (u.behavior === 'reaper') drawReaper(u);
     else if (u.behavior === 'fabricator') drawFabricator(u);
-    else { drawWalker(u); }                                     // striker (strider) + cryo (glacier) both walk
+    else if (u.behavior === 'cryo') drawGlacier(u);
+    else if (u.behavior === 'tesla') drawTesla(u);
+    else if (u.behavior === 'warden') drawWarden(u);
+    else if (u.behavior === 'rail') drawRailwarden(u);
+    else if (u.behavior === 'corrosion') drawCorrosion(u);
+    else if (u.behavior === 'singularity') drawSingularity(u);
+    else { drawWalker(u); }                                     // striker (strider) walks
   }
   function drawConductor(u) {                                   // CONDUCTOR — a RESONATOR FORK emitter + pulsing overclock aura + links to buffed flocks
     const x = X(u.x), y = Y(u.y), aim = u.aim || 0, tp = (S.t * 0.6) % 1, jy = y + 4 * scale;
@@ -397,6 +427,84 @@
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     unitEye(x, y, aim, R * 0.5, '#fff0b0');
     unitTag(u, x, y, R + 4 * scale, 0);
+  }
+  const TAU = Math.PI * 2;
+  function drawGlacier(u) {                                     // GLACIER — a faceted CRYSTAL golem; flares + rimes the ground on its freezing thump
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = 16 * scale;
+    const slam = u.thumpT > 0 ? Math.sin((1 - u.thumpT / 0.32) * Math.PI) : 0;
+    ctx.globalAlpha = 0.16 + slam * 0.28; ctx.fillStyle = '#bfe8ff';            // rime-frost decal on the ground
+    ctx.beginPath(); ctx.ellipse(x, y + R * 0.5, R * (1.4 + slam * 0.7), R * (0.7 + slam * 0.35), 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#6fb4e0'; ctx.lineWidth = 3 * scale; ctx.lineCap = 'round';   // 3 stubby crystal legs
+    for (let i = 0; i < 3; i++) { const la = aim + Math.PI + (i - 1) * 1.15; ctx.beginPath(); ctx.moveTo(x + Math.cos(la) * R * 0.5, y + Math.sin(la) * R * 0.5); ctx.lineTo(x + Math.cos(la) * (R + 11 * scale), y + Math.sin(la) * (R + 11 * scale)); ctx.stroke(); }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(S.t * 0.3);                      // faceted crystal body (a spiky diamond cluster)
+    ctx.fillStyle = u.color; ctx.strokeStyle = '#eafaff'; ctx.lineWidth = 1.5 * scale; ctx.shadowColor = '#cdeeff'; ctx.shadowBlur = (8 + slam * 18) * scale;
+    ctx.beginPath(); for (let i = 0; i < 12; i++) { const a = i / 12 * TAU, ro = (i % 2 ? R : R * 0.58); ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * ro, Math.sin(a) * ro); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#f0fbff'; ctx.globalAlpha = 0.7 + slam * 0.3; ctx.beginPath(); ctx.arc(0, 0, R * 0.4, 0, 7); ctx.fill(); ctx.globalAlpha = 1;   // inner glow
+    ctx.restore();
+    unitEye(x, y, aim, R * 0.5, '#eaffff');
+    unitTag(u, x, y, R + 4 * scale, 0);
+  }
+  function drawTesla(u) {                                       // TESLA — a coil tower with a discharge terminal that crackles
+    const x = X(u.x), y = Y(u.y), R = 13 * scale, fire = u.fireT > 0 ? u.fireT / 0.18 : 0;
+    ctx.fillStyle = '#243845'; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 1.5 * scale;   // base
+    ctx.beginPath(); ctx.ellipse(x, y + R * 0.7, R * 0.95, R * 0.42, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#7aa0b8'; ctx.lineWidth = 3 * scale; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x, y + R * 0.6); ctx.lineTo(x, y - R * 0.9); ctx.stroke();   // rod
+    for (let i = 0; i < 3; i++) { const yy = y + R * 0.45 - i * R * 0.5; ctx.strokeStyle = '#9fd0e8'; ctx.lineWidth = 2 * scale; ctx.beginPath(); ctx.ellipse(x, yy, R * (0.72 - i * 0.16), R * 0.18, 0, 0, 7); ctx.stroke(); }   // coil rings
+    ctx.shadowColor = u.color; ctx.shadowBlur = (6 + fire * 18) * scale; ctx.fillStyle = fire > 0.2 ? '#ffffff' : u.color;   // discharge terminal
+    ctx.beginPath(); ctx.arc(x, y - R * 1.05, R * 0.44, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#dff4ff'; ctx.globalAlpha = 0.35 + 0.45 * Math.abs(Math.sin(S.t * 20)); ctx.lineWidth = 1.2 * scale;   // idle crackle
+    for (let i = 0; i < 3; i++) { const a = S.t * 7 + i * 2.1; ctx.beginPath(); ctx.moveTo(x, y - R * 1.05); ctx.lineTo(x + Math.cos(a) * R * 0.8, y - R * 1.05 + Math.sin(a) * R * 0.8); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    unitTag(u, x, y, R + 9 * scale, 0);
+  }
+  function drawWarden(u) {                                      // WARDEN — an EMP emitter: pulsing dish + antenna prongs
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = 14 * scale, fire = u.fireT > 0 ? u.fireT / 0.2 : 0, tp = (S.t * 0.8) % 1;
+    ctx.strokeStyle = u.color; ctx.globalAlpha = (1 - tp) * 0.32; ctx.lineWidth = 2 * scale; ctx.beginPath(); ctx.arc(x, y, R + tp * 56 * scale, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;   // pulse ring
+    ctx.strokeStyle = '#4fd0b0'; ctx.lineWidth = 2.4 * scale; ctx.lineCap = 'round';   // 3 antenna prongs
+    for (let i = 0; i < 3; i++) { const a = S.t * 0.6 + i / 3 * TAU, tx = x + Math.cos(a) * (R + 9 * scale), ty = y + Math.sin(a) * (R + 9 * scale); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(tx, ty); ctx.stroke(); ctx.fillStyle = u.color; ctx.shadowColor = u.color; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(tx, ty, 2.6 * scale, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+    ctx.fillStyle = '#0c2620'; ctx.strokeStyle = u.color; ctx.lineWidth = 2 * scale; ctx.beginPath(); ctx.arc(x, y, R * 0.72, 0, 7); ctx.fill(); ctx.stroke();   // hub
+    ctx.shadowColor = u.color; ctx.shadowBlur = (6 + fire * 18) * scale; ctx.fillStyle = fire > 0.2 ? '#eafff8' : u.color; ctx.beginPath(); ctx.arc(x, y, R * 0.32, 0, 7); ctx.fill(); ctx.shadowBlur = 0;   // core
+    unitTag(u, x, y, R + 4 * scale, 0);
+  }
+  function drawRailwarden(u) {                                  // RAILWARDEN — a sniper turret; muzzle orb + aim line charge up before the lance
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = 13 * scale, cf = u.chargeMax ? Math.min(1, (u.charge || 0) / u.chargeMax) : 0;
+    if (cf > 0.05) { ctx.strokeStyle = '#ffb0d4'; ctx.globalAlpha = cf * 0.5; ctx.lineWidth = (1 + cf * 3) * scale; ctx.setLineDash([6 * scale, 6 * scale]); ctx.lineDashOffset = -S.t * 40; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(aim) * 900, y + Math.sin(aim) * 900); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }   // charge telegraph
+    ctx.save(); ctx.translate(x, y); ctx.rotate(aim);
+    ctx.fillStyle = '#3a2230'; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.ellipse(0, 0, R * 0.95, R * 0.7, 0, 0, 7); ctx.fill(); ctx.stroke();   // chassis
+    ctx.strokeStyle = '#c87a9a'; ctx.lineWidth = 3.4 * scale; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(R * 2.3, 0); ctx.stroke();   // rail barrel
+    ctx.strokeStyle = '#ffd0e6'; ctx.lineWidth = 1.3 * scale; ctx.beginPath(); ctx.moveTo(R * 0.6, -R * 0.26); ctx.lineTo(R * 2.1, -R * 0.26); ctx.moveTo(R * 0.6, R * 0.26); ctx.lineTo(R * 2.1, R * 0.26); ctx.stroke();
+    ctx.shadowColor = '#ff9ec0'; ctx.shadowBlur = (4 + cf * 22) * scale; ctx.fillStyle = cf > 0.85 ? '#ffffff' : u.color; ctx.globalAlpha = 0.4 + cf * 0.6; ctx.beginPath(); ctx.arc(R * 2.3, 0, (2 + cf * 5) * scale, 0, 7); ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0;   // muzzle charge orb
+    ctx.restore();
+    unitEye(x, y, aim, R * 0.5, '#ffe2ee');
+    unitTag(u, x, y, R + 4 * scale, 0);
+  }
+  function drawCorrosion(u) {                                   // CORROSION — a bubbling acid tank with a spray nozzle
+    const x = X(u.x), y = Y(u.y), aim = u.aim || 0, R = 14 * scale, fire = u.fireT > 0 ? u.fireT / 0.2 : 0;
+    ctx.strokeStyle = '#6a8a1e'; ctx.lineWidth = 2.4 * scale; ctx.lineCap = 'round';   // 4 stubby legs
+    for (let i = 0; i < 4; i++) { const la = i / 4 * TAU + 0.6 + Math.sin(S.t * 2 + i) * 0.05; ctx.beginPath(); ctx.moveTo(x + Math.cos(la) * R * 0.6, y + Math.sin(la) * R * 0.6); ctx.lineTo(x + Math.cos(la) * (R + 10 * scale), y + Math.sin(la) * (R + 10 * scale) + 3 * scale); ctx.stroke(); }
+    ctx.fillStyle = '#2a3a08'; ctx.strokeStyle = '#0a0805'; ctx.lineWidth = 2 * scale; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill(); ctx.stroke();   // tank
+    ctx.save(); ctx.beginPath(); ctx.arc(x, y, R * 0.88, 0, 7); ctx.clip(); ctx.fillStyle = u.color; ctx.globalAlpha = 0.8;   // bubbling acid
+    for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + S.t * 1.5, rr = R * (0.3 + (i % 3) * 0.2), bb = 2 + Math.sin(S.t * 4 + i) * 1.5; ctx.beginPath(); ctx.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.6 + R * 0.2, bb * scale, 0, 7); ctx.fill(); }
+    ctx.restore(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#9acd32'; ctx.lineWidth = 3 * scale; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(aim) * (R + 7 * scale), y + Math.sin(aim) * (R + 7 * scale)); ctx.stroke();   // nozzle
+    ctx.shadowColor = u.color; ctx.shadowBlur = (4 + fire * 14) * scale; ctx.fillStyle = fire > 0.2 ? '#eaffc0' : u.color; ctx.beginPath(); ctx.arc(x + Math.cos(aim) * (R + 7 * scale), y + Math.sin(aim) * (R + 7 * scale), 3 * scale, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    unitEye(x, y, aim, R * 0.5, '#eaffc0');
+    unitTag(u, x, y, R + 4 * scale, 0);
+  }
+  function drawSingularity(u) {                                 // SINGULARITY — a void well: accretion disk + dark core + inward swirl
+    const x = X(u.x), y = Y(u.y), R = 16 * scale, spin = u.spin || 0, pullR = (S.eventHorizon ? 250 : 175) * scale;
+    ctx.strokeStyle = u.color; ctx.globalAlpha = 0.12; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(x, y, pullR, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;   // pull-field edge
+    for (let i = 0; i < 3; i++) {                                                                  // inward swirl arcs
+      ctx.strokeStyle = u.color; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 2 * scale; ctx.beginPath();
+      for (let t = 0; t <= 1.001; t += 0.1) { const ang = spin + i / 3 * TAU + t * 2.4, rr = R * 1.7 * (1 - t) + R * 0.5, px = x + Math.cos(ang) * rr, py = y + Math.sin(ang) * rr; t ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(spin * 0.6);   // accretion disk
+    ctx.strokeStyle = '#c9b0ff'; ctx.lineWidth = 2.5 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 10; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.1, R * 0.45, 0, 0, 7); ctx.stroke(); ctx.shadowBlur = 0; ctx.restore();
+    ctx.fillStyle = '#070410'; ctx.beginPath(); ctx.arc(x, y, R * 0.7, 0, 7); ctx.fill();   // event horizon (dark core)
+    ctx.strokeStyle = '#d8c8ff'; ctx.lineWidth = 2 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, R * 0.7, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
+    unitTag(u, x, y, R + 6 * scale, 0);
   }
   // shared bits: a single big glowing EYE, an mk label, an hp bar
   function unitEye(x, y, aim, R, eyeC) {

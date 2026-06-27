@@ -57,6 +57,11 @@
     conductor:  { name: 'conductor',  color: '#caa6ff', cost: 95,  hp: 260, dmg: 0,  r: 14, behavior: 'support',    role: 'plants in the swarm — OVERCLOCKS nearby flocks' },
     reaper:     { name: 'reaper',     color: '#9ef0c0', cost: 105, hp: 230, dmg: 28, r: 13, behavior: 'reaper',     role: 'fast — DETONATES poison + EXECUTES the weak' },
     fabricator: { name: 'fabricator', color: '#ffd24a', cost: 120, hp: 380, dmg: 0,  r: 23, behavior: 'fabricator', role: 'slow — PRINTS mini-drones that swarm' },
+    tesla:      { name: 'tesla',      color: '#aef0ff', cost: 100, hp: 240, dmg: 20, r: 13, behavior: 'tesla',       role: 'a coil — ARCS chain lightning between clustered enemies (stuns)' },
+    warden:     { name: 'warden',     color: '#79ffe0', cost: 95,  hp: 280, dmg: 0,  r: 14, behavior: 'warden',      role: 'EMP pulses — DISABLE elite abilities (shields/jam/regen)' },
+    railwarden: { name: 'railwarden', color: '#ffb0d4', cost: 120, hp: 210, dmg: 80, r: 13, behavior: 'rail', movable: true, role: 'place it — CHARGES a map-long PIERCING lance at the biggest threat' },
+    corrosion:  { name: 'corrosion',  color: '#b6e84a', cost: 100, hp: 250, dmg: 6,  r: 14, behavior: 'corrosion',   role: 'sprays ACID — marked enemies take +30% damage from everything' },
+    singularity:{ name: 'singularity',color: '#9a7aff', cost: 110, hp: 300, dmg: 0,  r: 16, behavior: 'singularity', movable: true, role: 'place a WELL — DRAGS the swarm into a slow clump (sets up AoE)' },
   };
 
   // ── LANES (ported from the TD proof) — procedural snaking paths from the fog edge to the core ──
@@ -235,7 +240,7 @@
   }
 
   // ── per-run DRAFT GATE: start with a STARTER set, draft the rest in as surges hit ──
-  const DRAFTABLE = ['hunter', 'locust', 'leech', 'strider', 'bulwark', 'siege', 'glacier', 'conductor', 'reaper', 'fabricator'];
+  const DRAFTABLE = ['hunter', 'locust', 'leech', 'strider', 'bulwark', 'siege', 'glacier', 'conductor', 'reaper', 'fabricator', 'tesla', 'warden', 'railwarden', 'corrosion', 'singularity'];
   function offerDraft(s) {
     if (s.draft || s.won || s.lost) return;
     const locked = DRAFTABLE.filter(t => !s.unlocked[t]); if (!locked.length) return;
@@ -357,6 +362,11 @@
     glacier:    { id: 'sig_glacier',    name: 'DEEP FREEZE',         kind: 'sig', req: s => s.unlocked.glacier,    desc: 'your glacier thumps faster, freezing a much wider ring',  apply: s => { s.deepFreeze = true; } },
     conductor:  { id: 'sig_conductor',  name: 'POWER GRID',          kind: 'sig', req: s => s.unlocked.conductor,  desc: 'your conductor overclocks a wider swarm, much harder',    apply: s => { s.powerGrid = true; } },
     fabricator: { id: 'sig_fabricator', name: 'MASS PRODUCTION',     kind: 'sig', req: s => s.unlocked.fabricator, desc: 'your fabricator prints a much bigger drone brood',        apply: s => { s.massProduction = true; } },
+    tesla:      { id: 'sig_tesla',      name: 'ARC STORM',           kind: 'sig', req: s => s.unlocked.tesla,      desc: 'your tesla arcs far faster, forking through many more enemies', apply: s => { s.arcStorm = true; } },
+    warden:     { id: 'sig_warden',     name: 'EMP GRID',            kind: 'sig', req: s => s.unlocked.warden,     desc: 'your warden\'s pulse is wider and disables elites for longer',  apply: s => { s.empGrid = true; } },
+    railwarden: { id: 'sig_railwarden', name: 'RAIL OVERDRIVE',      kind: 'sig', req: s => s.unlocked.railwarden, desc: 'your railwarden charges its piercing lance far faster',         apply: s => { s.railOver = true; } },
+    corrosion:  { id: 'sig_corrosion',  name: 'ACID BATH',           kind: 'sig', req: s => s.unlocked.corrosion,  desc: 'your corrosion marks a wider area, longer and stickier',        apply: s => { s.acidBath = true; } },
+    singularity:{ id: 'sig_singularity',name: 'EVENT HORIZON',       kind: 'sig', req: s => s.unlocked.singularity,desc: 'your singularity\'s pull reaches much farther',                 apply: s => { s.eventHorizon = true; } },
   };
   function eligibleSigs(s) { return Object.keys(SIGNATURES).map(k => SIGNATURES[k]).filter(g => g.req(s) && pickCount(s, g.id) < 1); }
   function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
@@ -393,7 +403,7 @@
   // ── enemies + surges ────────────────────────────────────────────────────────
   function spawnEnemy(s, type, opts) {
     const def = ENEMIES[type], hp = def.hp * BAL.enemyHpMul * (1 + s.threat * 0.012);   // HP scales with the wave/act curve (enemyHpMul = global tankiness dial); POWER scales COUNT, not HP, so the total budget stays ~linear (not squared)
-    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
+    const e = { id: uid(s), type, hp, maxHp: hp, r: def.r, color: def.color, elite: def.elite, poison: 0, chill: 0, frozen: 0, shock: 0, disabled: 0, corrode: 0, shield: def.shield || 0, shieldMax: def.shield || 0, coredmgMul: 1, speedMul: 1, lastHit: 0, hitT: 0, fade: 0.65, laneIdx: null, dist: 0, blockedBy: null };   // spawn already mostly visible — no slow materialize
     e.surge = (opts && opts.surgeId != null) ? opts.surgeId : s.surge;   // which surge this unit belongs to (same-surge units must not stack; different surges may overlap)
     if (opts && opts.surge) applyCounter(s, e);              // surge spawns carry the guard's counter
     if (s.laneMode && s.lanes.length) {                        // walk down a lane — STAGGERED along it so a wave streams, not stacks
@@ -476,13 +486,15 @@
   function densestEnemy(s) { let b = null, bn = -1; for (const e of s.enemies) { let n = 0; for (const o of s.enemies) if (dist(e.x, e.y, o.x, o.y) < 80) n++; if (n > bn) { bn = n; b = e; } } return b; }
   function damageEnemy(s, e, amt) {                          // all army damage routes here → shields soak first (WARD)
     if (amt <= 0) return; e.hitT = s.t; e.lastHit = s.t;
+    if (e.corrode > 0) amt *= 1.3;                           // CORROSION mark — +30% damage from everything you field
+
     if (e.shield > 0) {
       if (s.pierce > 0) { const through = amt * s.pierce; e.hp -= through; amt -= through; }   // PIERCING ROUNDS bypass part of the shield
       const a = Math.min(e.shield, amt); e.shield -= a; amt -= a;
     }
     if (amt > 0) e.hp -= amt;
   }
-  function jammedAt(disruptors, x, y) { for (const z of disruptors) if (dist(x, y, z.x, z.y) < ENEMIES[z.type].jam) return true; return false; }   // inside a DISRUPTOR's jam field?
+  function jammedAt(disruptors, x, y) { for (const z of disruptors) if (!(z.disabled > 0) && dist(x, y, z.x, z.y) < ENEMIES[z.type].jam) return true; return false; }   // inside a DISRUPTOR's jam field? (WARDEN EMP disables it)
 
   // ── flocks: boids + per-archetype targeting ─────────────────────────────────
   function pickFlockTarget(s, f) {
@@ -620,6 +632,11 @@
       else if (u.behavior === 'support') uSupport(s, u, dt);
       else if (u.behavior === 'reaper') uReaper(s, u, dt);
       else if (u.behavior === 'fabricator') uFabricator(s, u, dt);
+      else if (u.behavior === 'tesla') uTesla(s, u, dt);
+      else if (u.behavior === 'warden') uWarden(s, u, dt);
+      else if (u.behavior === 'rail') uRail(s, u, dt);
+      else if (u.behavior === 'corrosion') uCorrosion(s, u, dt);
+      else if (u.behavior === 'singularity') uSingularity(s, u, dt);
     }
     for (let i = s.units.length - 1; i >= 0; i--) if (s.units[i].hp <= 0) {
       const dead = s.units[i];
@@ -655,14 +672,15 @@
     if (u.thumpT > 0) u.thumpT -= dt;
     if (u.cd <= 0 && tgt && dist(tgt.x, tgt.y, u.x, u.y) < 300) {
       u.cd = s.deepFreeze ? 1.4 : 2.2; u.thumpT = 0.32;     // recover + play the slam (DEEP FREEZE thumps faster + wider)
-      s.waves.push({ x: u.x, y: u.y, r: 0, maxR: s.deepFreeze ? 360 : 245, speed: 300, hit: {} });
+      s.waves.push({ x: u.x, y: u.y, r: 0, maxR: s.deepFreeze ? 360 : 245, speed: 300, hit: {}, freeze: true });
     }
     for (const e of s.enemies) if (e.elite && dist(e.x, e.y, u.x, u.y) < e.r + 22) u.hp -= ENEMIES[e.type].dotDmg * dt;
   }
-  function updateWaves(s, dt) {                            // freezing shockwaves: the expanding ring chills (then freezes) whatever its front sweeps over
+  function updateWaves(s, dt) {                            // expanding shockwaves: glacier (freeze) chills→freezes the front; EMP rings are visual only (their disable is applied on cast)
     for (const w of s.waves) {
       const prev = w.r; w.r += w.speed * dt;
-      for (const e of s.enemies) { if (w.hit[e.id]) continue; const d = dist(e.x, e.y, w.x, w.y); if (d <= w.r && d >= prev - 18) { w.hit[e.id] = 1; e.chill = Math.min(100, e.chill + 80); if (e.chill >= 100 && e.frozen <= 0) e.frozen = 2.6; } }
+      if (!w.freeze) continue;
+      for (const e of s.enemies) { if (w.hit[e.id]) continue; const d = dist(e.x, e.y, w.x, w.y); if (d <= w.r && d >= prev - 18) { w.hit[e.id] = 1; e.chill = Math.min(100, e.chill + 80); if (e.chill >= 100 && e.frozen <= 0) { e.frozen = 2.6; s.bursts.push({ x: e.x, y: e.y, life: 0.5, color: '#dffaff', shatter: true }); } } }
     }
     s.waves = s.waves.filter(w => w.r < w.maxR);
   }
@@ -689,6 +707,73 @@
     const bcap = (s.massProduction ? 16 : 8) + u.lvl * (s.massProduction ? 3 : 2);   // MASS PRODUCTION → bigger brood
     if (!brood) { brood = makeBrood(s, u.id, bcap); for (let i = 0; i < 3; i++) brood.dots.push(spawnDot(s, brood)); s.flocks.push(brood); say(s, 'fabricator spins up a drone brood.'); }
     else brood.cap = bcap;
+  }
+  function uTesla(s, u, dt) {                              // TESLA — a coil that ARCS a forking bolt across clustered enemies, decaying per jump + STUNS
+    const tgt = nearestEnemy(s, u.x, u.y, 330);
+    roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 130, 96, dt);
+    if (u.cd > 0 || !tgt) return;
+    u.cd = s.arcStorm ? 0.55 : 1.0;
+    const maxJumps = s.arcStorm ? 7 : 4, jumpR = s.arcStorm ? 150 : 120;
+    const hit = {}; let from = u, cur = tgt, dmg = pdmg(s, u);
+    for (let j = 0; j < maxJumps && cur; j++) {
+      hit[cur.id] = 1; hitEnemy(s, cur, dmg); cur.shock = Math.max(cur.shock || 0, 0.7);
+      s.beams.push({ x1: from.x, y1: from.y, x2: cur.x, y2: cur.y, life: 0.16, color: '#dff4ff', bolt: true });
+      dmg *= 0.8; from = cur;
+      let nx = null, nd = jumpR; for (const e of s.enemies) { if (hit[e.id]) continue; const d = dist(e.x, e.y, from.x, from.y); if (d < nd) { nd = d; nx = e; } }
+      cur = nx;
+    }
+    u.fireT = 0.18;   // coil glow on discharge (renderer)
+  }
+  function uWarden(s, u, dt) {                             // WARDEN — EMP pulses that DISABLE elite abilities (shield regen / disruptor jam / boss regen) + knock current shields down
+    let tgt = null, bd = 1e9; for (const e of s.enemies) { if (!e.elite) continue; const d = dist(e.x, e.y, u.x, u.y); if (d < bd) { bd = d; tgt = e; } }
+    if (!tgt) tgt = nearestEnemy(s, u.x, u.y);
+    roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 90, 92, dt);
+    if (u.cd > 0) return;
+    u.cd = 2.6;
+    const R = s.empGrid ? 305 : 215;
+    for (const e of s.enemies) {
+      if (dist(e.x, e.y, u.x, u.y) > R) continue;
+      e.shock = Math.max(e.shock || 0, 0.3);
+      if (e.elite) { e.disabled = Math.max(e.disabled || 0, s.empGrid ? 5 : 3.5); if (e.shield > 0) e.shield = Math.max(0, e.shield - e.shieldMax * 0.5); }
+    }
+    s.waves.push({ x: u.x, y: u.y, r: 0, maxR: R, speed: 540, hit: {}, emp: true });
+    u.fireT = 0.2;
+  }
+  function uRail(s, u, dt) {                               // RAILWARDEN — CHARGES, then fires a map-long PIERCING lance at the biggest threat anywhere on the field
+    let tgt = null, bv = -1; for (const e of s.enemies) { const v = e.maxHp + e.hp * 0.2 + (e.elite ? 200 : 0); if (v > bv) { bv = v; tgt = e; } }
+    if (!tgt) { u.charge = 0; roam(s, u, null, null, 0, 60, dt); return; }
+    u.aim = Math.atan2(tgt.y - u.y, tgt.x - u.x);
+    if (!u.moveTo) roam(s, u, tgt.x, tgt.y, 280, 56, dt);   // stand off unless manually placed
+    const chargeTime = s.railOver ? 1.4 : 2.3;
+    u.charge = (u.charge || 0) + dt; u.chargeMax = chargeTime;
+    if (u.charge < chargeTime) return;
+    u.charge = 0; u.cd = 0.25;
+    const ang = u.aim, ex = u.x + Math.cos(ang) * 1700, ey = u.y + Math.sin(ang) * 1700;
+    const dmg = pdmg(s, u) * 2.6, A = { x: u.x, y: u.y }, B = { x: ex, y: ey };
+    for (const e of s.enemies) {
+      if (distToSeg(e.x, e.y, A, B) > e.r + 17) continue;
+      let amt = dmg * (1 + markMul(s, e));
+      if (e.shield > 0) { const thru = amt * 0.6; e.hp -= thru; amt -= thru; const a = Math.min(e.shield, amt); e.shield -= a; amt -= a; }   // the lance PIERCES 60% of shields (anti-boss)
+      if (amt > 0) e.hp -= amt; e.hitT = s.t; e.lastHit = s.t;
+    }
+    s.beams.push({ x1: u.x, y1: u.y, x2: ex, y2: ey, life: 0.24, color: '#ffd0e6', rail: true, lance: true });
+    s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.5, color: '#ffd0e6', ring: true, big: true });
+  }
+  function uCorrosion(s, u, dt) {                          // CORROSION — sprays acid on a cluster → marked enemies take +30% damage from EVERYTHING you field
+    const tgt = densestEnemy(s) || nearestEnemy(s, u.x, u.y);
+    roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 160, 90, dt);
+    if (u.cd > 0 || !tgt || dist(tgt.x, tgt.y, u.x, u.y) > 340) return;
+    u.cd = 1.5;
+    const R = s.acidBath ? 132 : 94, dur = s.acidBath ? 6 : 4;
+    for (const e of s.enemies) { if (dist(e.x, e.y, tgt.x, tgt.y) > R) continue; e.corrode = Math.max(e.corrode || 0, dur); hitEnemy(s, e, pdmg(s, u)); }
+    s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.55, color: '#b6e84a', ring: true, acid: true });
+    s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.18, color: '#cdf06a', acid: true });
+    u.fireT = 0.2;
+  }
+  function uSingularity(s, u, dt) {                        // SINGULARITY — a placed WELL; the pull itself lives in updateEnemies (drags + slows the swarm into a clump)
+    const tgt = densestEnemy(s);
+    if (!u.moveTo) roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 40, 66, dt);
+    u.spin = (u.spin || 0) + dt * 2.6;
   }
 
   function onKill(s, e) {
@@ -750,11 +835,15 @@
   }
   function updateEnemies(s, dt) {
     const anchors = s.units.filter(u => u.behavior === 'anchor');     // bulwarks taunt + soak
+    const wells = s.units.filter(u => u.behavior === 'singularity');  // singularities drag + slow the swarm
     for (const e of s.enemies) {
       if (e.fade < 1) e.fade = Math.min(1, e.fade + dt * 14);   // near-instant fade-in right where they appear
+      if (e.disabled > 0) e.disabled -= dt;                    // WARDEN EMP wears off
+      if (e.corrode > 0) e.corrode -= dt;                      // CORROSION mark wears off
       if (e.poison > 0) { e.hp -= e.poison * 0.25 * dt; e.poison = Math.max(0, e.poison - dt * 4); }   // poison BYPASSES shields (the WARD counter)
-      if (e.shieldMax && e.shield < e.shieldMax && s.t - e.lastHit > 2) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * 0.5 * dt);   // WARD shield regen when not pressured
+      if (e.shieldMax && e.shield < e.shieldMax && !(e.disabled > 0) && s.t - e.lastHit > 2) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * 0.5 * dt);   // WARD shield regen when not pressured (WARDEN disables it)
       if (e.frozen > 0) { e.frozen -= dt; e.chill = 100; e.blockedBy = null; continue; }   // frozen solid — it doesn't move
+      if (e.shock > 0) { e.shock -= dt; e.blockedBy = null; continue; }   // TESLA stun — briefly can't advance
       e.chill = Math.max(0, e.chill - dt * 18);
       let block = null; for (const a of anchors) if (dist(e.x, e.y, a.x, a.y) < a.r + ENEMIES[e.type].r + 26) { block = a; break; }   // a bulwark plugging the path
       e.blockedBy = block ? block.id : null;
@@ -765,6 +854,12 @@
         const dA = Math.abs(((aEne - aMark + Math.PI) % TAU) - Math.PI);
         if (dA < 0.8 && dist(e.x, e.y, s.core.x, s.core.y) < 180) sp *= 0.4;
       }
+      // SINGULARITY: a placed well drags + slows whatever enters its pull radius → the swarm clumps
+      let pulled = null;
+      if (wells.length) {
+        const pullR = s.eventHorizon ? 250 : 175;
+        for (const w of wells) { const dw = dist(e.x, e.y, w.x, w.y); if (dw < pullR) { const k = 1 - dw / pullR; sp *= 1 - 0.72 * k; if (!pulled || k > pulled.k) pulled = { w, dw, k }; } }
+      }
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;
       } else if (e.laneIdx != null && s.lanes[e.laneIdx]) {           // follow its lane in to the core
@@ -774,6 +869,8 @@
         const dx = s.core.x - e.x, dy = s.core.y - e.y, d = Math.hypot(dx, dy) || 1; e.x += dx / d * sp * dt; e.y += dy / d * sp * dt;
         if (d < (s.core.r || 42)) coreHit(s, e);   // removed only once it reaches the VISIBLE core edge (no early vanish)
       }
+      // the well's inward TUG (open + lane): a gentle drag toward the well centre (lane snap-back gives the clump its shape)
+      if (pulled && pulled.dw > 6) { const tug = 64 * pulled.k * dt; e.x += (pulled.w.x - e.x) / pulled.dw * tug; e.y += (pulled.w.y - e.y) / pulled.dw * tug; }
     }
     for (const e of s.enemies) if (e.hp <= 0 && !e.dead) { e.dead = true; onKill(s, e); }
     s.enemies = s.enemies.filter(e => !e.dead);
