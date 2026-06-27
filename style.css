@@ -957,7 +957,10 @@ h2 {
   overflow: hidden;
 }
 .bot-eye.small { width: 26px; height: 26px; flex: none; }
-.bot-eye::after { content: ''; position: absolute; top: 6%; left: 56%; width: 1px; height: 88%; background: rgba(0,0,0,0.85); transform: rotate(13deg); }
+/* CRACKED GLASS over the lens (not a single line) — fracture lines radiating from an
+   off-centre impact + branches, clipped to the circle by the eye's overflow:hidden. */
+.bot-eye::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Cg%20fill='none'%20stroke='rgba(0,0,0,0.82)'%20stroke-width='1.7'%20stroke-linecap='round'%3E%3Cpath%20d='M44%2040%20L10%2012'/%3E%3Cpath%20d='M44%2040%20L82%208'/%3E%3Cpath%20d='M44%2040%20L96%2050'/%3E%3Cpath%20d='M44%2040%20L72%2096'/%3E%3Cpath%20d='M44%2040%20L18%2092'/%3E%3Cpath%20d='M44%2040%20L4%2060'/%3E%3Cpath%20d='M26%2025%20L33%2035'%20stroke-width='1.1'/%3E%3Cpath%20d='M63%2022%20L55%2033'%20stroke-width='1.1'/%3E%3Cpath%20d='M70%2045%20L58%2043'%20stroke-width='1.1'/%3E%3Cpath%20d='M58%2068%20L50%2055'%20stroke-width='1.1'/%3E%3Ccircle%20cx='44'%20cy='40'%20r='5.5'%20stroke-width='1'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat; }
 .bot-eye-iris {
   position: absolute; top: 50%; left: 50%; width: 42%; height: 42%; border-radius: 50%;
   transform: translate(-50%, -50%);
