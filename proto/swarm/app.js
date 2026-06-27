@@ -143,6 +143,7 @@
         else if (e.chill > 0) col = blend(e.color, '#8fd4ff', Math.min(0.65, e.chill / 100));  // chilled
         else if (e.poison > 0) col = blend(e.color, '#76e08a', Math.min(0.6, e.poison / 60));  // poisoned
         else if (e.corrode > 0) col = blend(e.color, '#b6e84a', Math.min(0.5, e.corrode / 4 * 0.5));  // acid-marked (CORROSION)
+        else if (e.warp > 0) col = blend(e.color, '#9a7aff', 0.5);   // caught in a SINGULARITY well
       }
       ctx.fillStyle = col; ctx.strokeStyle = '#05060a'; ctx.lineWidth = 1.5;
       const r = Math.max(def.r * scale, 12) * (flash ? 1.3 : 1), T = e.type;   // min on-screen size so enemies READ the instant they appear, even zoomed out
@@ -494,19 +495,36 @@
     unitEye(x, y, aim, R * 0.5, '#eaffc0');
     unitTag(u, x, y, R + 4 * scale, 0);
   }
-  function drawSingularity(u) {                                 // SINGULARITY — a void well: accretion disk + dark core + inward swirl
-    const x = X(u.x), y = Y(u.y), R = 16 * scale, spin = u.spin || 0, pullR = (S.eventHorizon ? 250 : 175) * scale;
-    ctx.strokeStyle = u.color; ctx.globalAlpha = 0.12; ctx.lineWidth = 1.5 * scale; ctx.beginPath(); ctx.arc(x, y, pullR, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;   // pull-field edge
-    for (let i = 0; i < 3; i++) {                                                                  // inward swirl arcs
-      ctx.strokeStyle = u.color; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 2 * scale; ctx.beginPath();
+  function drawSingularity(u) {                                 // SINGULARITY — a void well: pull-field + TENDRILS grabbing nearby enemies + glowing core
+    const x = X(u.x), y = Y(u.y), R = 16 * scale, spin = u.spin || 0, pullRW = (S.eventHorizon ? 250 : 175), pullR = pullRW * scale;
+    // the pull field (filled, so it's obvious where the well's reach is)
+    const fg = ctx.createRadialGradient(x, y, R * 0.5, x, y, pullR);
+    fg.addColorStop(0, 'rgba(154,122,255,0.22)'); fg.addColorStop(0.6, 'rgba(154,122,255,0.07)'); fg.addColorStop(1, 'rgba(154,122,255,0)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(x, y, pullR, 0, 7); ctx.fill();
+    ctx.strokeStyle = u.color; ctx.globalAlpha = 0.3; ctx.lineWidth = 1.5 * scale; ctx.setLineDash([6 * scale, 6 * scale]); ctx.lineDashOffset = spin * 12; ctx.beginPath(); ctx.arc(x, y, pullR, 0, 7); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    // TENDRILS — a curved violet thread yanking each in-range enemy toward the core (the "it's working" signal)
+    ctx.lineCap = 'round';
+    for (const e of S.enemies) {
+      const dwx = e.x - u.x, dwy = e.y - u.y, dw = Math.hypot(dwx, dwy); if (dw >= pullRW || dw < 1) continue;
+      const k = 1 - dw / pullRW, ex = X(e.x), ey = Y(e.y);
+      const mx = (x + ex) / 2 + (ey - y) * 0.18 * Math.sin(spin * 2 + e.x), my = (y + ey) / 2 - (ex - x) * 0.18 * Math.sin(spin * 2 + e.x);   // bowed thread
+      ctx.strokeStyle = u.color; ctx.globalAlpha = 0.25 + k * 0.5; ctx.lineWidth = (0.8 + k * 1.6) * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 5;
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.quadraticCurveTo(mx, my, x, y); ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    // inward swirl arcs
+    for (let i = 0; i < 3; i++) {
+      ctx.strokeStyle = u.color; ctx.globalAlpha = 0.55 - i * 0.12; ctx.lineWidth = 2 * scale; ctx.beginPath();
       for (let t = 0; t <= 1.001; t += 0.1) { const ang = spin + i / 3 * TAU + t * 2.4, rr = R * 1.7 * (1 - t) + R * 0.5, px = x + Math.cos(ang) * rr, py = y + Math.sin(ang) * rr; t ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
     ctx.save(); ctx.translate(x, y); ctx.rotate(spin * 0.6);   // accretion disk
-    ctx.strokeStyle = '#c9b0ff'; ctx.lineWidth = 2.5 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 10; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.1, R * 0.45, 0, 0, 7); ctx.stroke(); ctx.shadowBlur = 0; ctx.restore();
-    ctx.fillStyle = '#070410'; ctx.beginPath(); ctx.arc(x, y, R * 0.7, 0, 7); ctx.fill();   // event horizon (dark core)
-    ctx.strokeStyle = '#d8c8ff'; ctx.lineWidth = 2 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, R * 0.7, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#c9b0ff'; ctx.lineWidth = 2.5 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.15, R * 0.45, 0, 0, 7); ctx.stroke(); ctx.shadowBlur = 0; ctx.restore();
+    // event horizon — dark core ringed by a bright pulsing rim (so it READS, not just a dark blob)
+    ctx.fillStyle = '#070410'; ctx.beginPath(); ctx.arc(x, y, R * 0.72, 0, 7); ctx.fill();
+    const pz = 0.6 + 0.4 * Math.sin(S.t * 4);
+    ctx.strokeStyle = '#e8dcff'; ctx.lineWidth = 2.4 * scale; ctx.shadowColor = u.color; ctx.shadowBlur = (12 + pz * 10) * scale; ctx.beginPath(); ctx.arc(x, y, R * 0.72, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
     unitTag(u, x, y, R + 6 * scale, 0);
   }
   // shared bits: a single big glowing EYE, an mk label, an hp bar

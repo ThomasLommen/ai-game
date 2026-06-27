@@ -61,7 +61,7 @@
     warden:     { name: 'warden',     color: '#79ffe0', cost: 95,  hp: 280, dmg: 0,  r: 14, behavior: 'warden',      role: 'EMP pulses — DISABLE elite abilities (shields/jam/regen)' },
     railwarden: { name: 'railwarden', color: '#ffb0d4', cost: 120, hp: 210, dmg: 80, r: 13, behavior: 'rail', movable: true, role: 'place it — CHARGES a map-long PIERCING lance at the biggest threat' },
     corrosion:  { name: 'corrosion',  color: '#b6e84a', cost: 100, hp: 250, dmg: 6,  r: 14, behavior: 'corrosion',   role: 'sprays ACID — marked enemies take +30% damage from everything' },
-    singularity:{ name: 'singularity',color: '#9a7aff', cost: 110, hp: 300, dmg: 0,  r: 16, behavior: 'singularity', movable: true, role: 'place a WELL — DRAGS the swarm into a slow clump (sets up AoE)' },
+    singularity:{ name: 'singularity',color: '#9a7aff', cost: 110, hp: 300, dmg: 4,  r: 16, behavior: 'singularity', role: 'a roaming WELL — hauls the densest clump together + crushes it (slows + light damage)' },
   };
 
   // ── LANES (ported from the TD proof) — procedural snaking paths from the fog edge to the core ──
@@ -782,9 +782,9 @@
     s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.18, color: '#cdf06a', acid: true });
     u.fireT = 0.2;
   }
-  function uSingularity(s, u, dt) {                        // SINGULARITY — a placed WELL; the pull itself lives in updateEnemies (drags + slows the swarm into a clump)
-    const tgt = densestEnemy(s);
-    if (!u.moveTo) roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 40, 66, dt);
+  function uSingularity(s, u, dt) {                        // SINGULARITY — a roaming WELL; HUNTS the densest clump, then drags + slows + lightly crushes it (the pull lives in updateEnemies)
+    const tgt = densestEnemy(s) || nearestEnemy(s, u.x, u.y);
+    roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 20, 80, dt);   // sit right in the thick of the clump
     u.spin = (u.spin || 0) + dt * 2.6;
   }
 
@@ -866,11 +866,20 @@
         const dA = Math.abs(((aEne - aMark + Math.PI) % TAU) - Math.PI);
         if (dA < 0.8 && dist(e.x, e.y, s.core.x, s.core.y) < 180) sp *= 0.4;
       }
-      // SINGULARITY: a placed well drags + slows whatever enters its pull radius → the swarm clumps
+      // SINGULARITY: a roaming well drags + slows + crushes whatever enters its pull radius → the swarm clumps and grinds
       let pulled = null;
+      if (e.warp > 0) e.warp -= dt;
       if (wells.length) {
         const pullR = s.eventHorizon ? 250 : 175;
-        for (const w of wells) { const dw = dist(e.x, e.y, w.x, w.y); if (dw < pullR) { const k = 1 - dw / pullR; sp *= 1 - 0.72 * k; if (s.denseWell) damageEnemy(s, e, 10 * k * dt * chMult(s, 'offense')); if (!pulled || k > pulled.k) pulled = { w, dw, k }; } }   // DENSE CORE: the well crushes
+        for (const w of wells) {
+          const dw = dist(e.x, e.y, w.x, w.y); if (dw >= pullR) continue;
+          const k = 1 - dw / pullR;
+          sp *= 1 - 0.78 * k;                                  // heavy slow toward the centre (near-halt at the core)
+          const crush = (w.dmg || 0) * (s.podDmgMul || 1) * chMult(s, 'offense') * (s.denseWell ? 2.5 : 1);
+          if (crush > 0) damageEnemy(s, e, crush * k * dt * 5);   // light grind, stronger near the centre (DENSE CORE amps)
+          e.warp = 0.2;                                         // tag for the renderer's violet tint
+          if (!pulled || k > pulled.k) pulled = { w, dw, k };
+        }
       }
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;

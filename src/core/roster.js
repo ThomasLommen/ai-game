@@ -46,7 +46,7 @@
     warden:     { kind: 'pod', hp: 280, dmg: 0,  support: 'EMP', role: 'EMP pulses DISABLE elite abilities — drops ward shields, kills disruptor jam, stops boss shield-regen.' },
     railwarden: { kind: 'pod', hp: 210, dmg: 80, placeable: true, role: 'Place it, then it CHARGES and fires a map-long PIERCING lance at the biggest threat — anti-boss.' },
     corrosion:  { kind: 'pod', hp: 250, dmg: 6,  support: 'ACID MARK', role: 'Sprays acid: marked enemies take +30% damage from EVERYTHING you field — a force-multiplier.' },
-    singularity:{ kind: 'pod', hp: 300, dmg: 0,  support: 'GRAVITY WELL', placeable: true, role: 'Place a well that DRAGS the swarm into a slow clump — sets up your AoE and chain damage.' },
+    singularity:{ kind: 'pod', hp: 300, dmg: 4,  support: 'GRAVITY WELL', role: 'A roaming well that hunts the densest clump, hauls enemies together, slows them to a crawl and grinds them down — sets up your AoE.' },
   };
   function info(id) { return INFO[id] || { kind: 'unit', role: '' }; }
   // base stats scaled by the persistent run-level (mirrors the sim: ×1.25 dmg, +25 HP per level)
