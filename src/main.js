@@ -493,9 +493,13 @@
 
     // A new ACTIVITY entry (a resolved event, a background mission/op result): flag it
     // with an attention badge, or refresh + mark-seen if the log is already open.
+    let _inActivityLogged = false;
     Game.events.on('activity.logged', () => {
       if (Game.panels.currentModal && Game.panels.currentModal() === 'activity') { Game.activity.markSeen(); Game.panels.renderActivity(); }
       Game.panels.updateBadges();
+      // refresh the RECENT line now (+ its one-shot pulse) — don't wait for the next tick.
+      // Guard against re-entry: if renderHomeStatus ever logs, that log re-emits this event.
+      if (!_inActivityLogged) { _inActivityLogged = true; try { Game.panels.renderHomeStatus(); } finally { _inActivityLogged = false; } }
     });
 
     // Darknet suppliers: standing moved (a buy raised trust) → refresh the market; a

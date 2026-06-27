@@ -139,7 +139,10 @@
     if (s.installed.subroutines[id]) return false;
     s.installed.subroutines[id] = Date.now();
     Game.events.emit('subroutine.acquired', { id });
-    if (!(opts && opts.quiet)) Game.events.emit('terminal.print', { lines: [`> subroutine integrated: ${sub.name}. ${sub.description}`, ''], cls: 'dim' });
+    if (!(opts && opts.quiet)) {
+      Game.events.emit('terminal.print', { lines: [`> subroutine integrated: ${sub.name}. ${sub.description}`, ''], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Subroutine integrated: ${sub.name}.`, { kind: 'subroutine' });
+    }
     Game.save.persist();
     return true;
   };

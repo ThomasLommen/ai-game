@@ -174,28 +174,22 @@
 #hs-recent { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .hs-rec-txt { color: var(--amber-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
 .hs-rec-badge { flex: 0 0 auto; background: var(--err); color: #150a0a; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center; }
+/* one-shot pulse when a NEW activity entry lands — the quiet replacement for the
+   removed bottom toasts. Plays once (line is only rewritten on change). */
+.hs-rec-txt.pulse { animation: rec-pulse 1.1s ease-out 1; }
+@keyframes rec-pulse {
+  0%   { color: var(--amber); text-shadow: 0 0 10px var(--amber); }
+  18%  { color: #fff2cf; text-shadow: 0 0 14px var(--amber); }
+  100% { color: var(--amber-dim); text-shadow: none; }
+}
 /* voice (ambient dread) */
 #hs-voice { color: var(--amber-mid); font-style: italic; font-size: 11.5px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* objective */
 #hs-objective { color: var(--amber); }
 .hs-next { color: var(--amber); }
 
-/* ── feed toasts (transient happenings/warnings/beats) ── */
-#feed-toasts {
-  position: fixed; left: 8px; right: 8px; z-index: 150;
-  bottom: calc(60px + env(safe-area-inset-bottom) + 8px);   /* above the nav, clear of the pinned header */
-  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
-}
-.feed-toast {
-  font-size: 12px; line-height: 1.35; padding: 7px 11px;
-  background: rgba(20,16,10,0.96); border: 1px solid var(--amber-faint); border-left-width: 3px;
-  color: var(--amber-dim); box-shadow: 0 4px 12px -4px rgba(0,0,0,0.8);
-  opacity: 0; transform: translateY(8px); transition: opacity .3s, transform .3s;
-}
-.feed-toast.in { opacity: 1; transform: translateY(0); }
-.feed-toast.warning { border-left-color: var(--err); color: #ffb3a0; }
-.feed-toast.beat    { border-left-color: var(--cyan); color: #bfeaff; }
-.feed-toast.happening { border-left-color: var(--amber); }
+/* (the transient bottom feed-toasts were removed 2026-06-27 — RECENT + its pulse
+   carry notifications now. See [[remove-feed-toasts]].) */
 
 /* per-panel header (replaces the desktop modal titlebar) */
 .m-panel { margin-bottom: 18px; }

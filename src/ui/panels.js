@@ -2328,6 +2328,7 @@
   const _vc = () => _vRand[(Math.random() * _vRand.length) | 0];
   function _vth(s, j) { let h = 0; const k = s + ':' + j; for (let i = 0; i < k.length; i++) h = ((h << 5) - h + k.charCodeAt(i)) | 0; return Math.abs(h % 1000) / 1000; }
   let _voiceTarget = null, _voiceAnim = 0, _heatBand = 0;
+  let _recentKey = null, _recentCount;   // RECENT-line change tracking → one-shot pulse on a NEW entry
   function scrambleVoice(el, raw) {
     if (raw === _voiceTarget) return;            // same line — let any running anim finish
     _voiceTarget = raw;
@@ -2401,9 +2402,18 @@
       const list = (Game.activity && Game.activity.all) ? Game.activity.all() : [];
       const last = list.length ? list[list.length - 1] : null;
       const unseen = (Game.activity && Game.activity.unseen) ? Game.activity.unseen() : 0;
-      recEl.innerHTML = last
-        ? `<span class="hs-rec-txt ${last.cls || ''}">◔ ${last.text}</span>${unseen > 0 ? `<span class="hs-rec-badge">${unseen}</span>` : ''}`
-        : '<span class="hs-idle">◔ no activity yet</span>';
+      const count = (Game.save.state.activityCount || list.length);
+      const recKey = last ? `${count}|${unseen}` : 'idle';
+      // Only rewrite the line when it actually changes (it'd otherwise re-render at 4Hz,
+      // canceling the pulse). A NEW log entry (count climbed) gets a one-shot pulse so the
+      // eye catches it — the quiet replacement for the removed toasts. ([[remove-feed-toasts]])
+      if (recKey !== _recentKey) {
+        const isNew = _recentCount != null && count > _recentCount;
+        recEl.innerHTML = last
+          ? `<span class="hs-rec-txt ${last.cls || ''}${isNew ? ' pulse' : ''}">◔ ${last.text}</span>${unseen > 0 ? `<span class="hs-rec-badge">${unseen}</span>` : ''}`
+          : '<span class="hs-idle">◔ no activity yet</span>';
+        _recentKey = recKey; _recentCount = count;
+      }
     }
 
     const vEl = document.getElementById('hs-voice');
@@ -2492,12 +2502,18 @@
         }
       }
       pips.innerHTML = out.join('');
-      // heat warning toasts: once per UPWARD band crossing (don't spam, don't warn while cooling)
-      if (hband > _heatBand && Game.feed) {
-        if (hband === 1) Game.feed.toast('⚠ overheating — the rig is throttling. ease off the load or add cooling.', 'warning');
-        else if (hband === 2) Game.feed.toast('⚠ CRITICAL HEAT — thermal shutdown imminent. stop tasks now.', 'warning');
+      // heat warnings: once per UPWARD band crossing (don't spam, don't warn while
+      // cooling). No popup anymore — record to RECENT, which pulses to catch the eye.
+      // Update _heatBand BEFORE logging: activity.log → activity.logged → renderHomeStatus
+      // re-enters here, so a stale band would re-log forever (stack overflow).
+      if (hband !== _heatBand) {
+        const rising = hband > _heatBand;
+        _heatBand = hband;
+        if (rising && Game.activity) {
+          if (hband === 1) Game.activity.log('⚠ Overheating — the rig is throttling. Ease off the load or add cooling.', { cls: 'err', kind: 'warn' });
+          else if (hband === 2) Game.activity.log('⚠ CRITICAL HEAT — thermal shutdown imminent. Stop tasks now.', { cls: 'err', kind: 'warn' });
+        }
       }
-      _heatBand = hband;
     }
   }
 })();

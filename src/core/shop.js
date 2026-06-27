@@ -267,6 +267,7 @@
       Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
       Game.events.emit('program.installed', { id: listing.programId });
       Game.events.emit('terminal.print', { lines: [`> installed: ${listing.name}.`], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Installed: ${listing.name}.`, { kind: 'install' });
       Game.save.persist();
       return true;
     }
@@ -280,6 +281,7 @@
     Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
     Game.events.emit('shop.purchased', { listingId });
     Game.events.emit('terminal.print', { lines: [`> ordered: ${listing.name}. dispatching to basement window.`], cls: 'dim' });
+    if (Game.activity) Game.activity.log(`Ordered: ${listing.name} — dispatching.`, { kind: 'shop' });
     Game.save.persist();
     return true;
   }
@@ -304,6 +306,7 @@
       s.unequipped = s.unequipped || [];
       s.unequipped.push(inst.id);
       Game.events.emit('terminal.print', { lines: [`> arrived: ${d.name}. left by the meter.`, ''], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Delivery arrived: ${d.name} — left by the meter.`, { kind: 'delivery' });
       Game.events.emit('delivery.arrived', { instance: inst });
     }
   }
@@ -341,9 +344,11 @@
         s.itemInstances = s.itemInstances || {}; s.itemInstances[inst.id] = inst;
         s.unequipped = s.unequipped || []; s.unequipped.push(inst.id);
         Game.events.emit('terminal.print', { lines: ['', `> luck of the draw ($${cost}): the crate had something. ${inst.name} — it's in your inventory.`, ''], cls: 'dim' });
+        if (Game.activity) Game.activity.log(`Luck of the draw ($${cost}): hit — ${inst.name} in your inventory.`, { kind: 'shop' });
       }
     } else {
       Game.events.emit('terminal.print', { lines: ['', `> luck of the draw ($${cost}): junk. the stake's gone — the odds were always against you.`, ''], cls: 'dim' });
+      if (Game.activity) Game.activity.log(`Luck of the draw ($${cost}): junk — the stake's gone.`, { kind: 'shop' });
     }
     Game.events.emit('resource.changed', { id: 'cash' });
     Game.events.emit('gamble.result', { ok: true, win, cost });
