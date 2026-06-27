@@ -72,9 +72,9 @@
     // Cash scales strongly (the part that goes worthless); the Coherence reward scales gently
     // (it's the progression score — over-scaling it would warp leveling). Supplier mult on top.
     const coh = Math.max(0, (Game.save.state.resources.insight) || 0);
-    const cmult = 1 + Math.pow(coh, 0.62) / 14;   // ~1.3× @10, ~2.2× @90, ~4× @500, ~9× @2000
+    const cmult = 1 + Math.pow(coh, 0.62) / 8;   // bumped (~/14→/8): ~1.6× @10, ~3.1× @90, ~6× @500, ~14× @2000 — missions stay worth doing
     if (offer.reward.cash)    offer.reward.cash = Math.round(offer.reward.cash * cmult);
-    if (offer.reward.insight) offer.reward.insight = Math.round(offer.reward.insight * Math.min(cmult, 2.5));
+    if (offer.reward.insight) offer.reward.insight = Math.round(offer.reward.insight * Math.min(cmult, 3.2));
     tagSupplierJob(offer);   // some contracts come from a darknet contact (standing-scaled reward)
     // A generic (non-vendor) contract still has a SOURCE — where you found it — so nothing
     // ever appears out of nothing (shown on the darknet job board). See [[events_state_accuracy]].

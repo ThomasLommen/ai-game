@@ -25,7 +25,7 @@
     weight: 5,
     price_mult: 1.25,
     modifiers: [
-      { target: 'cpu_threads', op: 'more', value: 0.05,  range: [0.03, 0.08],   source: 'pristine' },
+      { target: 'cpu_threads', op: 'flat', value: 2,     source: 'pristine' },
       { target: 'heat_output', op: 'more', value: -0.05, range: [-0.08, -0.03], source: 'pristine' }
     ]
   });
@@ -46,7 +46,7 @@
     weight: 3,
     price_mult: 1.5,
     modifiers: [
-      { target: 'cpu_threads', op: 'more', value: 0.15,  range: [0.10, 0.20],   source: 'silicon lottery' },
+      { target: 'cpu_threads', op: 'flat', value: 4,     source: 'silicon lottery' },
       { target: 'power_draw',  op: 'more', value: -0.10, range: [-0.15, -0.06], source: 'silicon lottery' }
     ]
   });
@@ -59,8 +59,8 @@
     weight: 35,
     price_mult: 0.95,
     modifiers: [
-      { target: 'heat_output', op: 'more', value: 0.15, range: [0.10, 0.22], source: 'dusty' },
-      { target: 'instability', op: 'flat', value: 0.05, range: [0.03, 0.08], source: 'dusty' }
+      { target: 'heat_output', op: 'more', value: 0.10, range: [0.06, 0.14], source: 'dusty' },
+      { target: 'instability', op: 'flat', value: 0.03, range: [0.02, 0.05], source: 'dusty' }
     ]
   });
 
@@ -71,8 +71,8 @@
     weight: 20,
     price_mult: 0.5,
     modifiers: [
-      { target: 'cpu_threads', op: 'more', value: -0.15, range: [-0.22, -0.10], source: 'corroded' },
-      { target: 'instability', op: 'flat', value: 0.20,  range: [0.12, 0.28],   source: 'corroded' }
+      { target: 'heat_output', op: 'more', value: 0.22, range: [0.15, 0.30], source: 'corroded' },
+      { target: 'instability', op: 'flat', value: 0.12, range: [0.08, 0.16], source: 'corroded' }
     ]
   });
 
@@ -106,7 +106,7 @@
     weight: 12,
     price_mult: 1.15,
     modifiers: [
-      { target: 'cpu_threads', op: 'more', value: 0.30, range: [0.20, 0.42], source: 'overclocked' },
+      { target: 'cpu_threads', op: 'flat', value: 2,    source: 'overclocked' },
       { target: 'heat_output', op: 'more', value: 0.35, range: [0.25, 0.48], source: 'overclocked' },
       { target: 'power_draw',  op: 'more', value: 0.20, range: [0.12, 0.30], source: 'overclocked' }
     ]
@@ -119,7 +119,7 @@
     weight: 10,
     price_mult: 0.85,
     modifiers: [
-      { target: 'cpu_threads', op: 'more', value: 0.40, range: [0.25, 0.55], source: 'jury-rigged' },
+      { target: 'cpu_threads', op: 'flat', value: 2,    source: 'jury-rigged' },
       { target: 'power_draw',  op: 'more', value: 0.25, range: [0.15, 0.38], source: 'jury-rigged' },
       { target: 'instability', op: 'flat', value: 0.15, range: [0.08, 0.24], source: 'jury-rigged' }
     ]

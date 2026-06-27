@@ -9,8 +9,8 @@
   // regular cadence to anticipate. (Replaces the old fixed-cooldown + per-tick-chance,
   // which felt like a metronome.)
   const HZ = 4;
-  const GAP_MIN_TICKS = 5  * 60 * HZ;   // 1200
-  const GAP_MAX_TICKS = 15 * 60 * HZ;   // 3600
+  const GAP_MIN_TICKS = 3 * 60 * HZ;   // 720  — events land more often now (dialed down from 5–15 min)
+  const GAP_MAX_TICKS = 8 * 60 * HZ;   // 1920
   const THREAT_MIN_TICKS = 2 * 60 * HZ; // 480  — an ignored threat escalates 2–6 min later (unpredictable)
   const THREAT_MAX_TICKS = 6 * 60 * HZ; // 1440
   const FLAVOR_MIN_TICKS = 2 * 60 * HZ; // ambient atmosphere cadence (non-modal flavor between the rare event modals)

@@ -104,7 +104,7 @@
   // scale the board's base heat/power/instability, not its slot counts.
   Game.archetypes.register('motherboard', {
     slot: 'motherboard',
-    weight: 12,
+    weight: 22,   // a rare score, but reliably SEEN once boards unlock (was 12 → too rare to ever appear)
     name_template: '{brand}{model}',
     stat_variance: 0.05,
     models: [

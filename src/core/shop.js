@@ -12,20 +12,43 @@
   // the part. (`faulty` is excluded everywhere — instability has no teeth yet.)
   // Access tiers open by EITHER enough Coherence (insight) OR enough cash — two roads to the
   // same gate (the unlock is monotonic, so a momentary cash high keeps the tier even if spent).
+  // CONDITION PROGRESSION: early = JUNK with MILD NEGATIVE conditions (minCond forces ≥1, so
+  // 'buy clean' isn't an early exploit); the climb shifts conditions to MIXED (kiss/curse) then
+  // POSITIVE-only — a high-tier positive-affix part is the prize, not the clean one. Tiers 6–8
+  // extend past the old cap (and the GRADE keeps creeping power up on top), so the shop never stalls.
   const SUPPLIER = [
-    { lvl: 1, insight: 0,   cash: 0,    tiers: { common: 1 },                          conditions: [], maxCond: 0 },
-    { lvl: 2, insight: 30,  cash: 350,  tiers: { junk: 55, common: 35 },               conditions: ['dusty', 'corroded'], maxCond: 1 },
-    { lvl: 3, insight: 70,  cash: 1000, tiers: { junk: 45, common: 40, uncommon: 15 }, conditions: ['dusty', 'corroded', 'stripped', 'jury_rigged'], maxCond: 1 },
-    { lvl: 4, insight: 140, cash: 3000, tiers: { common: 48, uncommon: 37, rare: 15 }, conditions: ['corroded', 'stripped', 'jury_rigged', 'refurbished', 'overclocked', 'pristine'], maxCond: 2 },
-    { lvl: 5, insight: 250, cash: 8000, tiers: { uncommon: 58, rare: 32 },             conditions: ['refurbished', 'overclocked', 'pristine', 'silicon_lottery_winner', 'jury_rigged'], maxCond: 2 }
+    { lvl: 1, insight: 0,    cash: 0,      tiers: { junk: 70, common: 30 },               conditions: ['dusty'],                                             minCond: 1, maxCond: 1 },
+    { lvl: 2, insight: 30,   cash: 350,    tiers: { junk: 55, common: 38, uncommon: 7 },  conditions: ['dusty', 'corroded'],                                 minCond: 1, maxCond: 1 },
+    { lvl: 3, insight: 70,   cash: 1000,   tiers: { junk: 32, common: 44, uncommon: 24 }, conditions: ['dusty', 'corroded', 'jury_rigged'],                  minCond: 0, maxCond: 1 },
+    { lvl: 4, insight: 140,  cash: 3000,   tiers: { common: 40, uncommon: 42, rare: 18 }, conditions: ['jury_rigged', 'refurbished', 'overclocked'],          minCond: 0, maxCond: 2 },
+    { lvl: 5, insight: 250,  cash: 8000,   tiers: { common: 10, uncommon: 52, rare: 38 }, conditions: ['refurbished', 'overclocked', 'pristine', 'silicon_lottery_winner'], minCond: 0, maxCond: 2 },
+    { lvl: 6, insight: 500,  cash: 20000,  tiers: { uncommon: 38, rare: 62 },             conditions: ['refurbished', 'overclocked', 'pristine', 'silicon_lottery_winner'], minCond: 1, maxCond: 2 },
+    { lvl: 7, insight: 1000, cash: 50000,  tiers: { uncommon: 22, rare: 78 },             conditions: ['overclocked', 'pristine', 'silicon_lottery_winner'], minCond: 1, maxCond: 2 },
+    { lvl: 8, insight: 2000, cash: 120000, tiers: { uncommon: 8,  rare: 92 },             conditions: ['overclocked', 'pristine', 'silicon_lottery_winner'], minCond: 1, maxCond: 2 }
   ];
 
+  // Tier multipliers shape the COST stats (heat/power/instability DOWN with tier) + a little
+  // capacity. Threads are NOT here — they come from the grade formula (always even). Junk softened.
   const TIER_STAT_MULT = {
-    junk:     { cpu_threads: 1.0,  ram_mb: 0.90, heat_output: 1.20, power_draw: 1.10, instability: 1.40, cooling: 0.85, power_capacity: 0.90 },
-    common:   { cpu_threads: 1.0,  ram_mb: 1.0,  heat_output: 1.0,  power_draw: 1.0,  instability: 1.0,  cooling: 1.0,  power_capacity: 1.0 },
-    uncommon: { cpu_threads: 1.10, ram_mb: 1.05, heat_output: 0.95, power_draw: 0.97, instability: 0.90, cooling: 1.10, power_capacity: 1.06 },
-    rare:     { cpu_threads: 1.20, ram_mb: 1.10, heat_output: 0.88, power_draw: 0.93, instability: 0.80, cooling: 1.20, power_capacity: 1.12 }
+    junk:     { ram_mb: 0.95, heat_output: 1.10, power_draw: 1.05, instability: 1.20, cooling: 0.92, power_capacity: 0.95 },
+    common:   { ram_mb: 1.0,  heat_output: 1.0,  power_draw: 1.0,  instability: 1.0,  cooling: 1.0,  power_capacity: 1.0 },
+    uncommon: { ram_mb: 1.05, heat_output: 0.93, power_draw: 0.96, instability: 0.85, cooling: 1.10, power_capacity: 1.06 },
+    rare:     { ram_mb: 1.12, heat_output: 0.84, power_draw: 0.90, instability: 0.70, cooling: 1.22, power_capacity: 1.14 }
   };
+  // a tier bumps the EFFECTIVE grade (a rare part has more threads/capacity than a common one).
+  const TIER_GRADE = { junk: -0.5, common: 0, uncommon: 0.7, rare: 1.5 };
+  // MARKET GRADE: a continuous progression (Coherence-driven, supplier-tier floor) that creeps item
+  // power up forever — always a slightly-better part to chase, no hard cap.
+  function marketGrade() {
+    const coh = Game.save.state.resources.insight || 0;
+    return Math.max(Math.pow(Math.max(0, coh) / 90, 0.5), (supplierLevel() - 1) * 0.7);
+  }
+  function effGrade(tier) { return Math.max(0, marketGrade() + (TIER_GRADE[tier] || 0)); }
+  // Thread count is grade-driven and ALWAYS EVEN (min 2) — CPUs and GPU compute.
+  function gradeThreads(base, tier) {
+    const v = (base || 1) * (1 + effGrade(tier) * 0.5);
+    return Math.max(2, Math.round(v / 2) * 2);
+  }
   const TIER_PRICE_MULT = { junk: 0.6, common: 1.0, uncommon: 1.25, rare: 1.7 };
   // Higher supplier ACCESS = pricier goods, so cash stays meaningful as you progress (else
   // hardware is trivially cheap once your scaled-contract / loot income climbs). Dial here.
@@ -51,13 +74,13 @@
     for (const e of entries) { r -= e.weight; if (r <= 0) return e.t; }
     return entries[0].t;
   }
-  function rollCondCount(maxCond) {
-    if (maxCond <= 0) return 0;
-    if (maxCond === 1) return Math.random() < 0.80 ? 1 : 0;
-    const r = Math.random();                 // maxCond 2
-    if (r < 0.30) return 2;
-    if (r < 0.85) return 1;
-    return 0;
+  function rollCondCount(minC, maxC) {
+    minC = minC || 0;
+    if (maxC <= 0) return 0;
+    let n;
+    if (maxC === 1) n = Math.random() < 0.80 ? 1 : 0;
+    else { const r = Math.random(); n = r < 0.30 ? 2 : (r < 0.85 ? 1 : 0); }   // maxCond 2
+    return Math.max(minC, n);
   }
 
   function ensureState() {
@@ -99,11 +122,18 @@
     const tier = pickTierWeighted(tiers);
     const tierMult = TIER_STAT_MULT[tier] || TIER_STAT_MULT.common;
 
+    // GRADE-DRIVEN scaling: CAPACITY stats (threads/ram/cooling/psu) climb UP with the market grade
+    // so the catalog never stalls. COST stats (heat/power/instability) are tier-only (higher tier =
+    // cooler/efficient), NOT grade-scaled — so the climb doesn't quietly inflate heat. Threads stay EVEN.
+    const capMult = 1 + effGrade(tier) * 0.35;
     const base = {};
     for (const key of ['cpu_threads', 'ram_mb', 'heat_output', 'power_draw', 'instability', 'cooling', 'power_capacity']) {
       if (model[key] === undefined) continue;
-      let v = model[key] * (tierMult[key] || 1);
-      if (key !== 'cpu_threads' && key !== 'ram_mb') v = applyJitter(v, variance);
+      let v;
+      if (key === 'cpu_threads')           v = gradeThreads(model[key], tier);                              // even, grade-driven
+      else if (key === 'ram_mb')           v = Math.round(model[key] * (tierMult[key] || 1) * capMult / 256) * 256;   // capacity climbs, snapped to 256MB
+      else if (key === 'cooling' || key === 'power_capacity') v = model[key] * (tierMult[key] || 1) * capMult;
+      else                                 v = applyJitter(model[key] * (tierMult[key] || 1), variance);    // heat/power/instability — tier only
       base[key] = roundStat(key, v);
     }
 
@@ -119,7 +149,7 @@
     let priceMult = 1;
     const pool = (cfg.conditions || []).slice();
     // Cooling/PSU are graded by tier only — no CPU/GPU-flavoured conditions.
-    const nCond = (arch.slot === 'cooling' || arch.slot === 'psu') ? 0 : rollCondCount(cfg.maxCond);
+    const nCond = (arch.slot === 'cooling' || arch.slot === 'psu') ? 0 : rollCondCount(cfg.minCond, cfg.maxCond);
     for (let i = 0; i < nCond && pool.length > 0; i++) {
       const defs = pool.map(id => Game.affixes.get(id)).filter(Boolean);
       const a = pickWeighted(defs);

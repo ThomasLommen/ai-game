@@ -67,11 +67,12 @@
   // payout feels proportional, never an early windfall that trivialises the curve).
   // A jackpot ≈ Coherence × mult, ±spread, floored. Computed at build() time and
   // stored in the event view so render + resolve agree.
-  function coherenceScaled(st, mult, spread) {
+  function coherenceScaled(st, mult, spread, steep) {
     const coh = (st && st.resources && st.resources.insight) || 0;
     const sp = (spread == null) ? 0.3 : spread;
     const f = 1 + (Game.rng.next() * 2 - 1) * sp;          // 1 ± spread
-    return Math.max(5, Math.round(coh * (mult || 1) * f));
+    const s = steep ? (1 + coh / steep) : 1;               // opt-in: payouts grow STEEPER at scale (combat passes this; event COSTS don't, so they don't balloon)
+    return Math.max(5, Math.round(coh * (mult || 1) * f * s));
   }
   // The bust penalty (exposure) for a failed grab — scales with progression and the
   // greed of the take (bigger potential → bigger sting), capped so it can't one-shot.
