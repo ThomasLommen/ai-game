@@ -12,8 +12,8 @@
 
   const TABS = [
     { id: 'home',  glyph: '⌂', label: 'HOME' },
-    { id: 'work',  glyph: '$', label: 'WORK' },
-    { id: 'build', glyph: '⊞', label: 'BUILD' },
+    { id: 'work',  glyph: '$', label: 'DARKNET' },
+    { id: 'build', glyph: '⊞', label: 'RESEARCH' },
     { id: 'gear',  glyph: '▦', label: 'GEAR' },
     { id: 'sys',   glyph: '◎', label: 'SYS' },
     { id: 'more',  glyph: '≡', label: 'MORE' },
@@ -31,8 +31,8 @@
     home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#room-widget'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
-    gear:  ['#hardware-panel', '.modal-panel[data-modal="inventory"]'],   // INVENTORY is its own tab now
-    sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#vitals-panel', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
+    gear:  ['#hardware-panel', '#vitals-panel', '.modal-panel[data-modal="inventory"]'],   // GEAR carries the rig hardware + DIAGNOSTICS (vitals) + inventory
+    sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
     more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]'],   // SETTINGS lives behind the HUD gear, not here
   };
   const HUD = ['#insight-panel'];   // the resource readouts ride in the sticky header
@@ -117,8 +117,8 @@
     h.querySelector('#hs-recent').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('activity'); };
     // tap LEVEL → the SUBROUTINES list (what leveling up grants)
     h.querySelector('#hs-level').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('subroutines'); };
-    // tap the vitals bars → the DIAGNOSTICS/VITALS panel
-    h.querySelector('#hs-vitals').onclick = () => { if (Game.panels && Game.panels.openModal) Game.panels.openModal('vitals'); };
+    // tap the vitals bars → the DIAGNOSTICS panel (now in GEAR)
+    h.querySelector('#hs-vitals').onclick = () => { const el = document.getElementById('vitals-panel'); const sec = el && el.closest('.m-tab'); if (sec) show(sec.dataset.tab); else if (Game.panels && Game.panels.openModal) Game.panels.openModal('vitals'); requestAnimationFrame(() => { if (el && el.offsetParent !== null) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }); };
   }
 
   // SETTINGS slide-up sheet (save transfer + reset), opened by the HUD gear.
@@ -181,13 +181,14 @@
   // heat stays live; nudge a refresh on resource changes too.
   function syncHud() { if (Game.panels && Game.panels.renderHomeStatus) Game.panels.renderHomeStatus(); }
 
-  // tapping a HUD danger pip jumps to its gauge in the SYS tab
+  // tapping a HUD danger pip jumps to its gauge — in whichever tab now holds it (vitals → GEAR)
   function onPipTap(e) {
     const pip = e.target.closest('.m-pip[data-jump]');
     if (!pip) return;
-    const id = pip.dataset.jump;
-    show('sys');
-    requestAnimationFrame(() => { const el = document.getElementById(id); if (el && el.offsetParent !== null) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+    const el = document.getElementById(pip.dataset.jump);
+    const sec = el && el.closest('.m-tab');
+    show(sec ? sec.dataset.tab : 'sys');
+    requestAnimationFrame(() => { if (el && el.offsetParent !== null) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
   }
 
   // ── INVENTORY: drag-drop is off the table. Tap a part → a small ACTION MENU
