@@ -2272,8 +2272,52 @@
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
+    renderRoster,
     renderDebug, toggleDebug
   };
+
+  // ── ROSTER tab (mobile): pods with persistent run-level + stats, swarms, exotics,
+  //    and the campaign pod cap. ([[roster-tab-podcap-levels]]) ──
+  function titleCase(s) { return String(s || '').replace(/(^|\s)\w/g, c => c.toUpperCase()); }
+  function renderRoster() {
+    const body = document.getElementById('roster-body'), panel = document.getElementById('roster-panel');
+    if (!body) return;
+    const st = Game.save.state, R = Game.roster;
+    const revealed = !!(st.revealed && st.revealed.combat) && R;
+    if (panel) panel.hidden = !revealed;
+    if (!revealed) return;
+
+    const cap = R.podCap(), ids = R.units();
+    const pods = ids.filter(id => R.info(id).kind === 'pod');
+    const swarms = ids.filter(id => R.info(id).kind === 'swarm');
+    const exotics = R.exotics();
+    let html = '';
+    html += `<div class="ros-cap">PODS — field up to <b>${cap}</b> at once` +
+      (cap < R.POD_CAP_MAX ? ` <span class="ros-dim">· raise +1 via rare research or the EXTRA POD BAY policy (ceiling ${R.POD_CAP_MAX})</span>` : ` <span class="ros-dim">· at the ceiling</span>`) + `</div>`;
+
+    html += `<div class="ros-sec">GREATER UNITS · PODS <span class="ros-dim">(${pods.length})</span></div>`;
+    if (!pods.length) html += `<div class="ros-empty">none yet — pods are drafted as battle prizes.</div>`;
+    pods.forEach(id => {
+      const def = R.byId(id) || {}, nfo = R.info(id), s2 = R.leveledStats(id), lvl = s2.lvl;
+      const need = 20 + lvl * 16, xp = R.levelOf(id).xp, pct = Math.max(0, Math.min(100, xp / need * 100));
+      html += `<div class="ros-row">
+        <div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span><span class="ros-mk">mk${lvl}</span></div>
+        <div class="ros-role">${nfo.role}</div>
+        <div class="ros-stats">HP <b>${s2.hp}</b> · DMG <b>${s2.dmg}</b></div>
+        <div class="ros-xpbar"><div class="ros-xpfill" style="width:${pct}%"></div></div>
+        <div class="ros-xptext">${Math.round(xp)} / ${need} XP → mk${lvl + 1} <span class="ros-dim">(earned in battle, banked here)</span></div>
+      </div>`;
+    });
+
+    html += `<div class="ros-sec">SWARMS <span class="ros-dim">(${swarms.length})</span></div>`;
+    swarms.forEach(id => { const def = R.byId(id) || {}; html += `<div class="ros-row ros-mini"><div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span></div><div class="ros-role">${R.info(id).role}</div></div>`; });
+
+    if (exotics.length) {
+      html += `<div class="ros-sec">EXOTICS <span class="ros-dim">(${exotics.length})</span></div>`;
+      exotics.forEach(id => { const def = R.byId(id) || {}; html += `<div class="ros-row ros-mini ros-exotic"><div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span></div><div class="ros-role">${def.desc || ''}</div></div>`; });
+    }
+    body.innerHTML = html;
+  }
 
   // ── HOME dashboard pinned header (mobile slice 1) — fills the 4 glance lines.
   //    No-ops on desktop (the #home-status element only exists in the mobile shell).

@@ -70,9 +70,8 @@
   overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 12px 28px;   /* top padding lives on the tab, so HOME's sticky header can sit flush under the HUD */
 }
 #m-view::-webkit-scrollbar { width: 0; }
-.m-tab { display: none; padding-top: 10px; }      /* breathing room for normal tabs */
+.m-tab { display: none; padding-top: 0; }          /* the GLOBAL sticky #home-status header (above all tabs) provides the top gap */
 .m-tab.on { display: block; }
-.m-tab[data-tab="home"] { padding-top: 0; }        /* HOME header is sticky + flush; no top gap */
 /* relocated panels/sections flow as full-width blocks (desktop sizing constraints off) */
 .mobile-shell .m-tab > *:not([hidden]) { display: block; width: 100%; margin: 0 0 16px; }
 .mobile-shell .m-tab .pane,
@@ -190,6 +189,26 @@
 
 /* (the transient bottom feed-toasts were removed 2026-06-27 — RECENT + its pulse
    carry notifications now. See [[remove-feed-toasts]].) */
+
+/* ── ROSTER tab ── */
+#roster-panel .ros-cap { font-size: 12px; color: var(--amber-mid); margin: 2px 0 14px; line-height: 1.5; }
+#roster-panel .ros-cap b { color: var(--amber); }
+.ros-dim { color: var(--amber-faint); font-size: 11px; }
+.ros-sec { font-size: 11px; letter-spacing: 1.5px; color: var(--amber-mid); border-bottom: 1px solid var(--amber-faint); padding-bottom: 4px; margin: 16px 0 10px; }
+.ros-empty { font-size: 12px; color: var(--amber-faint); font-style: italic; margin-bottom: 8px; }
+.ros-row { background: rgba(255,176,0,0.035); border: 1px solid var(--amber-faint); border-left: 3px solid var(--amber-mid); border-radius: 3px; padding: 9px 11px; margin-bottom: 9px; }
+.ros-row.ros-mini { border-left-color: var(--amber-faint); padding: 7px 11px; }
+.ros-row.ros-exotic { border-left-color: var(--cyan); }
+.ros-top { display: flex; align-items: baseline; justify-content: space-between; }
+.ros-name { font-size: 14px; color: var(--amber); font-weight: bold; }
+.ros-mk { font-size: 11px; color: var(--green); letter-spacing: 1px; }
+.ros-role { font-size: 11.5px; color: var(--amber-dim); margin: 3px 0 6px; line-height: 1.4; }
+.ros-stats { font-size: 12px; color: var(--amber-mid); margin-bottom: 7px; }
+.ros-stats b { color: var(--amber); }
+.ros-xpbar { height: 5px; background: rgba(0,0,0,0.4); border: 1px solid var(--amber-faint); border-radius: 3px; overflow: hidden; }
+.ros-xpfill { height: 100%; background: linear-gradient(90deg, var(--amber-mid), var(--amber)); transition: width .3s; }
+.ros-xptext { font-size: 10.5px; color: var(--amber-mid); margin-top: 4px; }
+.ros-mini .ros-role { margin-bottom: 0; }
 
 /* per-panel header (replaces the desktop modal titlebar) */
 .m-panel { margin-bottom: 18px; }

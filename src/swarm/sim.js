@@ -112,7 +112,7 @@
       chBonus: { offense: 0, shield: 0, core: 0 }, podCap: 2, coreBase: 100, pierce: 0, regenMul: 1,
       podDmgMul: 1, podHpMul: 1, podXpMul: 1,   // POD theme: greater-unit damage / HP / level-speed
       flocks: [], enemies: [], shots: [], beams: [], bursts: [], waves: [], spawnQueue: [],
-      units: [],
+      units: [], unitPeak: {},   // unitPeak[type] = best {lvl,xp} a pod of that type reached this fight (survives its death → banked to the run-roster)
       lanes: [], waveLanes: [], laneMode: laneMode !== false,   // laneMode ON by default — enemies snake down lanes (vs open 360)
       stance: 'guard',              // guard (intercept nearest core) | hunt (elites) | press (engage far)
       maxFlocks: 6,                 // swarms are the star — 6 flocks base (upgrades/hive push higher)
@@ -131,6 +131,8 @@
     if (Array.isArray(opts.ex)) opts.ex.forEach(k => { if (k in s.ex) s.ex[k] = true; });
     if (s.ex.hive) s.maxFlocks = 10;
     if (Array.isArray(opts.unlock)) opts.unlock.forEach(t => { if (SWARMS[t] || UNITS[t]) s.unlocked[t] = true; });
+    if (opts.podCap != null) s.podCap = Math.max(1, Math.min(5, opts.podCap | 0));               // campaign pod cap (rare research/policy)
+    if (opts.unitLevels && typeof opts.unitLevels === 'object') s.unitLevels = opts.unitLevels;   // persistent POD run-levels → applied when a pod is fielded
     // DIFFICULTY: derive the curve from ACT (structure) + WAVE (pressure); explicit opts override (traps/guard).
     s.act = Math.max(1, opts.act || 1); s.wave = Math.max(0, opts.wave || 0);
     const D = difficulty(s.act, s.wave);
@@ -221,9 +223,13 @@
     if (s.units.length >= (s.podCap || 2)) { say(s, `pod cap reached — only ${s.podCap || 2} pods at a time.`); return false; }
     if (!spend(s, d.cost)) return false;
     const ang = s.rng() * TAU, rr = 78, sx = s.core.x + Math.cos(ang) * rr, sy = s.core.y + Math.sin(ang) * rr;
-    const phb = Math.round(d.hp * (s.podHpMul || 1));   // POD theme: tougher chassis
-    s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: phb, maxHp: phb, lvl: 1, xp: 0, dmg: d.dmg, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
-    say(s, `${d.name} deployed — ${d.role}.`); return true;
+    // persistent run-level (banked across battles): start scaled if this pod has earned levels
+    const carried = (s.unitLevels && s.unitLevels[type]) ? s.unitLevels[type] : null;
+    const lvl0 = carried && carried.lvl > 1 ? (carried.lvl | 0) : 1, xp0 = carried ? (carried.xp || 0) : 0;
+    let dmg0 = d.dmg, hp0 = Math.round(d.hp * (s.podHpMul || 1));
+    for (let i = 1; i < lvl0; i++) { dmg0 = Math.round(dmg0 * 1.25); hp0 += 25; }   // mirror checkUnitLevel's per-level scaling
+    s.units.push({ id: uid(s), type, behavior: d.behavior, color: d.color, r: d.r, x: sx, y: sy, vx: 0, vy: 0, hp: hp0, maxHp: hp0, lvl: lvl0, xp: xp0, dmg: dmg0, cd: 0, walk: 0, aim: 0, thumpT: 0, moveTo: d.movable ? { x: sx, y: sy } : null });
+    say(s, `${d.name} deployed${lvl0 > 1 ? ` (mk${lvl0})` : ''} — ${d.role}.`); return true;
   }
   function moveUnit(s, id, x, y) {                          // player repositions a movable pod (bulwark/siege)
     const u = s.units.find(u => u.id === id); if (!u || !UNITS[u.type].movable) return false;
@@ -300,7 +306,7 @@
     { id: 'od_core',    name: 'TUNE · FOCUS-FIRE', kind: 'core',   tier: 'common', desc: '+0.45 focus-fire multiplier (damage to your marked target)', apply: s => { s.chBonus.core += 0.45; } },
     // ── solid rewrites / build tools ──
     { id: 'swarm_cap',  name: 'SWARM EXPANSION',  kind: 'cap',  tier: 'rewrite', max: 3, desc: '+2 swarm flocks on the field', apply: s => { s.maxFlocks += 2; s.bonusFlocks = (s.bonusFlocks || 0) + 2; } },
-    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'rewrite', max: 2, desc: '+1 fielded pod',     apply: s => { s.podCap += 1; } },
+    { id: 'extra_pod',  name: 'EXTRA POD BAY',    kind: 'pod',  tier: 'marquee', max: 1, desc: '+1 POD slot — PERMANENT (banks to your roster; takes effect next defense)', apply: s => { /* permanent: the campaign banks +1 pod cap on resolve — no in-sim mutation, so it never double-counts the persisted opts.podCap */ } },
     { id: 'hardened',   name: 'HARDENED CORE',    kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: '+50 base core HP',   apply: s => { s.coreBase += 50; } },
     { id: 'selfrepair', name: 'SELF-REPAIR',      kind: 'edge', tier: 'rewrite', max: 3, pool: 'heuristic', desc: 'the core self-repairs (+4 HP/s)', apply: s => { s.selfRepairFlat = (s.selfRepairFlat || 0) + 4; } },
     // ── duel-answers: clean, no cost ──
@@ -367,6 +373,12 @@
     railwarden: { id: 'sig_railwarden', name: 'RAIL OVERDRIVE',      kind: 'sig', req: s => s.unlocked.railwarden, desc: 'your railwarden charges its piercing lance far faster',         apply: s => { s.railOver = true; } },
     corrosion:  { id: 'sig_corrosion',  name: 'ACID BATH',           kind: 'sig', req: s => s.unlocked.corrosion,  desc: 'your corrosion marks a wider area, longer and stickier',        apply: s => { s.acidBath = true; } },
     singularity:{ id: 'sig_singularity',name: 'EVENT HORIZON',       kind: 'sig', req: s => s.unlocked.singularity,desc: 'your singularity\'s pull reaches much farther',                 apply: s => { s.eventHorizon = true; } },
+    // dedicated per-unit BOOSTS for the new units (a 2nd, solid signature each — req the unit) ──
+    tesla_cap:    { id: 'sig_tesla_cap',  name: 'CAPACITOR BANK',  kind: 'sig', req: s => s.unlocked.tesla,       desc: 'your tesla forks one extra jump, a touch wider',          apply: s => { s.teslaCap = true; } },
+    warden_fast:  { id: 'sig_warden_fast',name: 'HARDENED EMITTER', kind: 'sig', req: s => s.unlocked.warden,      desc: 'your warden pulses noticeably more often',                apply: s => { s.wardenFast = true; } },
+    rail_cal:     { id: 'sig_rail_cal',   name: 'CALIBRATED RAILS', kind: 'sig', req: s => s.unlocked.railwarden,  desc: 'your railwarden\'s lance hits 35% harder',                apply: s => { s.railCal = true; } },
+    caustic:      { id: 'sig_caustic',    name: 'CAUSTIC AGENT',    kind: 'sig', req: s => s.unlocked.corrosion,   desc: 'your corrosion also leaves a venom that eats HP',         apply: s => { s.caustic = true; } },
+    dense_well:   { id: 'sig_dense_well', name: 'DENSE CORE',       kind: 'sig', req: s => s.unlocked.singularity, desc: 'your singularity crushes — enemies caught in the well take damage', apply: s => { s.denseWell = true; } },
   };
   function eligibleSigs(s) { return Object.keys(SIGNATURES).map(k => SIGNATURES[k]).filter(g => g.req(s) && pickCount(s, g.id) < 1); }
   function pickCount(s, id) { let n = 0; for (const x of s.picksTaken) if (x === id) n++; return n; }
@@ -612,7 +624,9 @@
   }
 
   // ── GREATER UNITS — each behavior is a distinct field role. Persistent, level via field XP. ──
-  function checkUnitLevel(s, u) { const need = 20 + u.lvl * 16; if (u.xp >= need) { u.xp -= need; u.lvl++; u.dmg = Math.round(u.dmg * 1.25); u.maxHp += 25; u.hp = Math.min(u.maxHp, u.hp + 25); say(s, `${UNITS[u.type].name} reached mk${u.lvl} (field XP).`); } }
+  function checkUnitLevel(s, u) { const need = 20 + u.lvl * 16; if (u.xp >= need) { u.xp -= need; u.lvl++; u.dmg = Math.round(u.dmg * 1.25); u.maxHp += 25; u.hp = Math.min(u.maxHp, u.hp + 25); say(s, `${UNITS[u.type].name} reached mk${u.lvl} (field XP).`); }
+    const pk = s.unitPeak[u.type]; if (!pk || u.lvl > pk.lvl || (u.lvl === pk.lvl && u.xp > pk.xp)) s.unitPeak[u.type] = { lvl: u.lvl, xp: u.xp };   // remember the high-water mark (survives death → banks to the run-roster)
+  }
   function hitEnemy(s, e, dmg) { let m = 1 + markMul(s, e); if (e.poison > 0) m += 0.4; if (e.frozen > 0) m += 1.0; damageEnemy(s, e, dmg * m); }   // burst hit + state/mark bonuses (frozen = shatter)
   function nearestElite(s, x, y) { let t = null, bv = -Infinity; for (const e of s.enemies) { const v = (e.elite ? 1e5 : 0) - dist(e.x, e.y, x, y); if (v > bv) { bv = v; t = e; } } return t; }
   function roam(s, u, tx, ty, pref, spd, dt) {            // stride toward a target, hold at weapon range, leashed near the core
@@ -713,7 +727,7 @@
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 130, 96, dt);
     if (u.cd > 0 || !tgt) return;
     u.cd = s.arcStorm ? 0.55 : 1.0;
-    const maxJumps = s.arcStorm ? 7 : 4, jumpR = s.arcStorm ? 150 : 120;
+    const maxJumps = (s.arcStorm ? 7 : 4) + (s.teslaCap ? 1 : 0), jumpR = (s.arcStorm ? 150 : 120) + (s.teslaCap ? 20 : 0);   // CAPACITOR BANK: +1 jump, wider
     const hit = {}; let from = u, cur = tgt, dmg = pdmg(s, u);
     for (let j = 0; j < maxJumps && cur; j++) {
       hit[cur.id] = 1; hitEnemy(s, cur, dmg); cur.shock = Math.max(cur.shock || 0, 0.7);
@@ -729,7 +743,7 @@
     if (!tgt) tgt = nearestEnemy(s, u.x, u.y);
     roam(s, u, tgt ? tgt.x : null, tgt ? tgt.y : null, 90, 92, dt);
     if (u.cd > 0) return;
-    u.cd = 2.6;
+    u.cd = s.wardenFast ? 1.9 : 2.6;   // HARDENED EMITTER: pulses more often
     const R = s.empGrid ? 305 : 215;
     for (const e of s.enemies) {
       if (dist(e.x, e.y, u.x, u.y) > R) continue;
@@ -749,7 +763,7 @@
     if (u.charge < chargeTime) return;
     u.charge = 0; u.cd = 0.25;
     const ang = u.aim, ex = u.x + Math.cos(ang) * 1700, ey = u.y + Math.sin(ang) * 1700;
-    const dmg = pdmg(s, u) * 2.6, A = { x: u.x, y: u.y }, B = { x: ex, y: ey };
+    const dmg = pdmg(s, u) * 2.6 * (s.railCal ? 1.35 : 1), A = { x: u.x, y: u.y }, B = { x: ex, y: ey };   // CALIBRATED RAILS: +35%
     for (const e of s.enemies) {
       if (distToSeg(e.x, e.y, A, B) > e.r + 17) continue;
       let amt = dmg * (1 + markMul(s, e));
@@ -765,7 +779,7 @@
     if (u.cd > 0 || !tgt || dist(tgt.x, tgt.y, u.x, u.y) > 340) return;
     u.cd = 1.5;
     const R = s.acidBath ? 132 : 94, dur = s.acidBath ? 6 : 4;
-    for (const e of s.enemies) { if (dist(e.x, e.y, tgt.x, tgt.y) > R) continue; e.corrode = Math.max(e.corrode || 0, dur); hitEnemy(s, e, pdmg(s, u)); }
+    for (const e of s.enemies) { if (dist(e.x, e.y, tgt.x, tgt.y) > R) continue; e.corrode = Math.max(e.corrode || 0, dur); hitEnemy(s, e, pdmg(s, u)); if (s.caustic) e.poison = Math.min(60, e.poison + 8); }   // CAUSTIC AGENT: leaves venom
     s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.55, color: '#b6e84a', ring: true, acid: true });
     s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.18, color: '#cdf06a', acid: true });
     u.fireT = 0.2;
@@ -858,7 +872,7 @@
       let pulled = null;
       if (wells.length) {
         const pullR = s.eventHorizon ? 250 : 175;
-        for (const w of wells) { const dw = dist(e.x, e.y, w.x, w.y); if (dw < pullR) { const k = 1 - dw / pullR; sp *= 1 - 0.72 * k; if (!pulled || k > pulled.k) pulled = { w, dw, k }; } }
+        for (const w of wells) { const dw = dist(e.x, e.y, w.x, w.y); if (dw < pullR) { const k = 1 - dw / pullR; sp *= 1 - 0.72 * k; if (s.denseWell) damageEnemy(s, e, 10 * k * dt * chMult(s, 'offense')); if (!pulled || k > pulled.k) pulled = { w, dw, k }; } }   // DENSE CORE: the well crushes
       }
       if (block) {                                                    // halted at the wall — grind through it, no advance
         block.hp -= ENEMIES[e.type].dotDmg * dt;

@@ -261,6 +261,7 @@
     // `effects` are collected from researched nodes by Game.effects (no-op here).
     if (g.reveal) { const s = Game.save.state; s.revealed = s.revealed || {}; s.revealed[g.reveal] = true; }
     if (g.mod) ensureState().mods[g.mod] = true;
+    if (g.podCap && Game.roster && Game.roster.addPodCap) Game.roster.addPodCap(g.podCap);   // rare nodes raise the campaign POD CAP (+1, ceiling 5)
     // A run-defining CHANGER node hands off to the unified changer system (research as a source).
     if (g.changer && Game.changers) Game.changers.grant(g.changer);
   }

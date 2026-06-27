@@ -11,12 +11,13 @@
   let activeFlag = false, built = false, curTab = 'home';
 
   const TABS = [
-    { id: 'home',  glyph: '⌂', label: 'HOME' },
-    { id: 'work',  glyph: '$', label: 'DARKNET' },
-    { id: 'build', glyph: '⊞', label: 'RESEARCH' },
-    { id: 'gear',  glyph: '▦', label: 'GEAR' },
-    { id: 'sys',   glyph: '◎', label: 'SYS' },
-    { id: 'more',  glyph: '≡', label: 'MORE' },
+    { id: 'home',   glyph: '⌂', label: 'HOME' },
+    { id: 'work',   glyph: '$', label: 'DARKNET' },
+    { id: 'build',  glyph: '⊞', label: 'RESEARCH' },
+    { id: 'roster', glyph: '⚔', label: 'ROSTER' },
+    { id: 'gear',   glyph: '▦', label: 'GEAR' },
+    { id: 'sys',    glyph: '◎', label: 'SYS' },
+    { id: 'more',   glyph: '≡', label: 'MORE' },
   ];
   // Where each existing panel/section is re-homed. `[data-modal="x"]` = a modal panel;
   // `#id` = a left-pane / center section. The order here is the stacking order in the tab.
@@ -28,9 +29,10 @@
     // #terminal-pane stays in HOME as the file-READING surface (decode regions render
     // into it) — it's no longer a prose log, and collapses to nothing when empty.
     // ROOM (room-widget) — the diegetic cam-feed of the AI's space — sits at the BOTTOM of HOME.
-    home:  ['#home-status', '#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#room-widget'],
+    home:  ['#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#room-widget'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
+    roster: ['#roster-panel'],   // the defense ROSTER: units, persistent run-level, boosts, pod cap
     gear:  ['#hardware-panel', '#vitals-panel', '.modal-panel[data-modal="inventory"]'],   // GEAR carries the rig hardware + DIAGNOSTICS (vitals) + inventory
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
     more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]'],   // SETTINGS lives behind the HUD gear, not here
@@ -74,6 +76,15 @@
     // Built here so the MOUNT loop below can relocate it into the HOME tab as the first item.
     buildHomeStatus(crt);
 
+    // the ROSTER panel doesn't exist in the desktop DOM — mint it here so the MOUNT loop
+    // can relocate it like any other section. Filled by panels.renderRoster(). Hidden until
+    // combat is revealed (the first guard battle), so the tab stays dark until it matters.
+    if (!document.getElementById('roster-panel')) {
+      const rp = el('section', 'pane'); rp.id = 'roster-panel'; rp.hidden = true;
+      rp.innerHTML = '<h2>ROSTER</h2><div id="roster-body"></div>';
+      crt.appendChild(rp);
+    }
+
     // relocate existing DOM into the shell (IDs preserved → render fns unaffected)
     const hudRes = hud.querySelector('#m-hud-res');
     HUD.forEach(sel => { const e = document.querySelector(sel); if (e) hudRes.appendChild(e); });
@@ -89,6 +100,11 @@
         } else { sec.appendChild(e); }   // left-pane sections keep their own <h2>
       });
     }
+
+    // GLOBAL status header: the HOME dashboard header rides at the top of EVERY tab
+    // (sticky) so running functions / vitals / objective are always glanceable without
+    // hopping back to HOME. It lives in #m-view above the tab sections, not inside one.
+    const hs = document.getElementById('home-status'); if (hs) view.insertBefore(hs, view.firstChild);
 
     // SETTINGS (save transfer / wipe) lives in its own slide-up SHEET behind the HUD gear,
     // so it isn't jammed in with the activity feed when you tap the recent line.
@@ -147,6 +163,7 @@
     document.querySelectorAll('#m-nav .m-navb').forEach(b => b.classList.toggle('on', b.dataset.go === tab));
     const v = document.getElementById('m-view'); if (v) v.scrollTop = 0;
     (MOUNT[tab] || []).forEach(sel => { const m = sel.match(/data-modal="(\w+)"/); if (m && Game.panels && Game.panels.renderModalContent) try { Game.panels.renderModalContent(m[1]); } catch (e) {} });
+    if (tab === 'roster' && Game.panels && Game.panels.renderRoster) try { Game.panels.renderRoster(); } catch (e) {}
     requestAnimationFrame(() => dispatchEvent(new Event('resize')));   // re-measure canvases (scan radar, etc.)
   }
 
@@ -163,9 +180,10 @@
     if (!activeFlag || !built) return;
     // keep each panel's header-wrapper in lockstep with the panel's own hidden state
     document.querySelectorAll('#m-view .m-panel > .modal-panel').forEach(p => { p.parentNode.hidden = p.hidden; });
+    const rv = (Game.save && Game.save.state && Game.save.state.revealed) || {};
     TABS.forEach(t => {
       const sels = MOUNT[t.id];
-      const avail = (t.id === 'home') || sels.some(sel => { const e = document.querySelector(sel); return e && !e.hidden; });
+      const avail = (t.id === 'home') || (t.id === 'roster' ? !!rv.combat : sels.some(sel => { const e = document.querySelector(sel); return e && !e.hidden; }));
       const nav = document.querySelector(`#m-nav .m-navb[data-go="${t.id}"]`);
       if (nav) nav.hidden = !avail;
       let badge = false;

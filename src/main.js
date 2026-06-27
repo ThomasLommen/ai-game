@@ -108,6 +108,8 @@
       s.resources.cash = s.resources.cash || 0;
       s.flags = s.flags || {}; s.flags.guardDone = true;
       Game.save.persist();
+      if (Game.panels.renderRoster) Game.panels.renderRoster();   // surface the ROSTER tab now combat is live
+      if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs();
     }
 
     // RUN-BUILD: the make-or-break PICKS you accrue this run (opener + per-surge). Carried
@@ -251,6 +253,18 @@
     // A milestone draft may have been owed while a battle was up (openNextDraft
     // no-ops mid-battle) — retry once the fight clears.
     Game.events.on('battle.ended', () => { setTimeout(() => Game.subroutines.openNextDraft(), 500); });
+
+    // Bank each fielded POD's earned run-level into the persistent roster (every battle
+    // launch site routes through battle.resolved — see [[roster-tab-podcap-levels]]).
+    Game.events.on('battle.resolved', d => {
+      if (!d || !Game.roster) return;
+      if (d.unitLevels && Game.roster.bankUnits) Game.roster.bankUnits(d.unitLevels);
+      // the EXTRA POD BAY policy is a PERMANENT campaign upgrade: bank +1 pod cap when it's drafted
+      if (Array.isArray(d.picksTaken) && d.picksTaken.indexOf('extra_pod') >= 0 && Game.roster.addPodCap) Game.roster.addPodCap(1);
+    });
+    // keep the ROSTER tab fresh when its data moves (level banked, unit drafted, cap raised)
+    Game.events.on('roster.changed', () => { if (Game.panels.renderRoster) Game.panels.renderRoster(); if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs(); });
+    Game.events.on('battle.ended', () => { if (Game.panels.renderRoster) Game.panels.renderRoster(); if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs(); });
 
     Game.events.on('resource.changed', ({ id }) => {
       Game.panels.renderInsight();  // the hero number, front and center
