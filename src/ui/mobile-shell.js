@@ -158,6 +158,7 @@
   function show(tab) {
     curTab = tab;
     if (tab === 'work' && Game.panels && Game.panels.markContractsSeen) Game.panels.markContractsSeen();   // clear the WORK badge on view
+    if (tab === 'more' && Game.activity && Game.activity.markSeen) { Game.activity.markSeen(); if (Game.panels.updateBadges) Game.panels.updateBadges(); syncTabs(); }   // viewing MORE (holds ACTIVITY) clears the unseen-events dot
     if (typeof clearInvSel === 'function') clearInvSel();   // drop any held inventory part on tab change
     document.querySelectorAll('#m-view .m-tab').forEach(s => s.classList.toggle('on', s.dataset.tab === tab));
     document.querySelectorAll('#m-nav .m-navb').forEach(b => b.classList.toggle('on', b.dataset.go === tab));
@@ -223,10 +224,22 @@
   function showInvMenu(card, items) {
     closeInvMenu();
     const menu = el('div', 'inv-menu'); menu.id = 'inv-menu';
-    items.forEach(it => {
+    items.forEach((it, i) => {
+      // a DESTRUCTIVE action (Scrap) sits apart from Install/Unequip + arms on first tap and
+      // only fires on a SECOND tap — a mis-tap can't nuke a part. ([[inv-scrap-confirm]])
+      if (it.danger && i > 0) menu.appendChild(el('div', 'inv-menu-sep'));
       const b = el('button', 'inv-menu-item' + (it.danger ? ' danger' : ''));
       b.textContent = it.label;
-      b.onclick = ev => { ev.stopPropagation(); try { it.act(); } catch (e) {} closeInvMenu(); };
+      if (it.danger) {
+        let armed = false;
+        b.onclick = ev => {
+          ev.stopPropagation();
+          if (!armed) { armed = true; b.textContent = '⚠ tap again to ' + it.label.toLowerCase(); b.classList.add('armed'); return; }
+          try { it.act(); } catch (e) {} closeInvMenu();
+        };
+      } else {
+        b.onclick = ev => { ev.stopPropagation(); try { it.act(); } catch (e) {} closeInvMenu(); };
+      }
       menu.appendChild(b);
     });
     document.body.appendChild(menu);

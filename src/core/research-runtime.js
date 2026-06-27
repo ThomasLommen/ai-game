@@ -252,7 +252,12 @@
     Game.events.emit('terminal.print', { lines: [`> research complete: ${node.label}. ${node.desc || ''}`, ''], cls: 'dim' });
     Game.events.emit('research.completed', { nodeId });
     Game.events.emit('research.changed', {});
-    rollHand(true);                            // a fresh hand for the next pick
+    // FORK: drafting a node branches the tree — its direct children (≤1 tier ahead, not
+    // yet taken) are GUARANTEED into the next hand, so finishing a node visibly reveals
+    // the new nodes you can go further with. ([[research-fork-on-draft]])
+    const kids = Game.research.all().filter(n => (n.parents || []).indexOf(nodeId) >= 0 && !takenOrBusy(n, r) && !ownsChanger(n) && act2Ok(n) && n.tier <= currentTier() + 1);
+    if (kids.length) r.guaranteed = (r.guaranteed || []).concat(kids.slice(0, 3).map(n => n.id));
+    rollHand(true);                            // a fresh hand for the next pick (forks in the children above)
     Game.save.persist();
   }
 

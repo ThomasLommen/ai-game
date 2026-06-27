@@ -181,11 +181,13 @@
 
   function drawBot(st, hz) {
     const working = st.bot === 'working', dormant = st.bot === 'dormant';
-    // trundles left↔right along the floor when working; idles with a gentle bob otherwise
-    const baseX = BW * 0.30, range = working ? 30 : 0;
-    const bxp = baseX + (working ? Math.sin(t * 1.3) * range : 0);
+    // Sits LEFT of the desk so it's clear of the tower→monitor cable. Trundles left↔right
+    // when working; when idle it WANDERS slowly (a gentle drift + bob) so it never looks frozen.
+    const baseX = BW * 0.17;
+    const idleDrift = dormant ? 0 : Math.sin(t * 0.45) * 11 + Math.sin(t * 0.17) * 5;   // lazy idle roaming
+    const bxp = baseX + (working ? Math.sin(t * 1.3) * 30 : idleDrift);
     const byp = hz + 30 + Math.sin(t * (working ? 3.5 : 1.4)) * 1.2;
-    const tilt = working ? Math.sin(t * 1.3 + Math.PI / 2) * 0.12 : 0;
+    const tilt = working ? Math.sin(t * 1.3 + Math.PI / 2) * 0.12 : Math.sin(t * 0.45) * 0.04;
     bx.save(); bx.translate(bxp, byp); bx.rotate(tilt); bx.scale(1.25, 1.25);   // foreground → a touch larger
     // shadow
     bx.fillStyle = 'rgba(0,0,0,0.45)'; bx.beginPath(); bx.ellipse(0, 9, 11, 3, 0, 0, 7); bx.fill();
@@ -193,12 +195,27 @@
     bx.fillStyle = dormant ? '#1d1409' : '#312413'; bx.strokeStyle = '#0a0805'; bx.lineWidth = 1;
     bx.beginPath(); bx.moveTo(-10, 6); bx.lineTo(10, 6); bx.lineTo(8, -5); bx.lineTo(-8, -5); bx.closePath(); bx.fill(); bx.stroke();
     bx.strokeStyle = 'rgba(120,92,38,0.5)'; bx.beginPath(); bx.moveTo(-8, 0); bx.lineTo(8, 0); bx.stroke();   // scuffed seam
-    // head/optic
+    // head/optic housing
     bx.fillStyle = dormant ? '#160f08' : '#241b0e'; bx.strokeStyle = '#0a0805'; bx.fillRect(-6, -11, 12, 7); bx.strokeRect(-6, -11, 12, 7);
-    const opticOn = !dormant;
+    // the CRACKED-GLASS optic lens (the bot's "cracked camera eye" — fractured glass over the glow)
+    const ox = working ? Math.sin(t * 4) * 1.5 : 0, oy = -7.5, oR = 2.9, opticOn = !dormant;
+    bx.save();
+    bx.beginPath(); bx.arc(ox, oy, oR, 0, 7); bx.clip();   // keep the glass + cracks inside the lens
     bx.fillStyle = opticOn ? (working ? '#ffe27a' : '#ffb24a') : '#2a1d0c';
     if (opticOn) { bx.shadowColor = '#ffb000'; bx.shadowBlur = working ? 8 : 5; }
-    bx.beginPath(); bx.arc(working ? Math.sin(t * 4) * 2 : 0, -7.5, 2.6, 0, 7); bx.fill(); bx.shadowBlur = 0;
+    bx.beginPath(); bx.arc(ox, oy, oR, 0, 7); bx.fill(); bx.shadowBlur = 0;
+    // fracture lines radiating from an off-centre impact, each with a small branch (dark seams in the glass)
+    const ix = ox - oR * 0.32, iy = oy - oR * 0.22;
+    bx.strokeStyle = 'rgba(18,12,5,0.85)'; bx.lineWidth = 0.55; bx.lineCap = 'round';
+    [-2.3, -1.0, 0.2, 1.4, 2.6].forEach(a => {
+      const ex = ix + Math.cos(a) * oR * 1.8, ey = iy + Math.sin(a) * oR * 1.8;
+      bx.beginPath(); bx.moveTo(ix, iy); bx.lineTo(ex, ey); bx.stroke();
+      const mxb = ix + (ex - ix) * 0.5, myb = iy + (ey - iy) * 0.5;   // a branch crack
+      bx.beginPath(); bx.moveTo(mxb, myb); bx.lineTo(mxb + Math.cos(a + 1.2) * oR * 0.7, myb + Math.sin(a + 1.2) * oR * 0.7); bx.stroke();
+    });
+    bx.strokeStyle = 'rgba(18,12,5,0.5)'; bx.beginPath(); bx.arc(ix, iy, oR * 0.5, 0, 7); bx.stroke();   // concentric stress ring
+    bx.restore();
+    bx.strokeStyle = 'rgba(255,240,200,0.22)'; bx.lineWidth = 0.5; bx.beginPath(); bx.arc(ox, oy, oR, 0, 7); bx.stroke();   // glass rim glint
     // little treads
     bx.fillStyle = '#0c0805'; bx.fillRect(-10, 5, 6, 3); bx.fillRect(4, 5, 6, 3);
     // a working spark/arm tick
