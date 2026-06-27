@@ -40,8 +40,8 @@
       desc: p => `recursive self-improvement: +${p}% Coherence yield`, names: ['branch predictor', 'speculative execution', 'loop unrolling', 'micro-op cache', 'register renaming', 'instruction prefetch', 'value prediction', 'trace cache', 'macro-op fusion', 'return stack buffer'] },
     { id: 'cyc',  cat: 'econ',   target: 'cycle.speed', lo: 0.08, hi: 0.20, neg: false, weight: 10,
       desc: p => `cycles run +${p}% faster`, names: ['instruction pipeline', 'out-of-order execution', 'JIT cache', 'instruction fusion', 'superscalar dispatch', 'deep pipeline', 'branch folding', 'speculative dispatch', 'micro-threading', 'hot-loop JIT'] },
-    { id: 'spdr', cat: 'econ',   target: 'web_scrape.cash', lo: 0.12, hi: 0.28, neg: false, weight: 10,
-      desc: p => `spider cash +${p}%`, names: ['connection pooling', 'request pipelining', 'keep-alive sockets', 'response cache', 'TCP fast open', 'HTTP/2 multiplexing', 'connection reuse', 'gzip transfer', 'edge caching', 'parallel fetch'] },
+    { id: 'spdr', cat: 'econ',   target: 'method.cash', lo: 0.12, hi: 0.28, neg: false, weight: 7,
+      desc: p => `data pipeline +${p}% cash`, names: ['connection pooling', 'request pipelining', 'keep-alive sockets', 'response cache', 'TCP fast open', 'HTTP/2 multiplexing', 'connection reuse', 'gzip transfer', 'edge caching', 'parallel fetch'] },
     { id: 'mthd', cat: 'econ',   target: 'method.cash', lo: 0.10, hi: 0.24, neg: false, weight: 9,
       desc: p => `earning ops +${p}% cash`, names: ['batch scheduler', 'work stealing', 'task fusion', 'pipeline parallelism', 'vectorized dispatch', 'fused multiply-add', 'kernel autotuning', 'op scheduler', 'throughput governor', 'load coalescing'] },
     // relief: thermal / power / stability / stealth (effects; negative magnitudes)

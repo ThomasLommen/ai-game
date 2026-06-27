@@ -35,10 +35,10 @@
   register('r_savant',    { tier: 3, theme: 'cognition',parents: ['r_deep_focus'], cost: 110, label: 'savant', desc: 'recursive self-improvement +120% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 1.20 }] } });
 
   // ── Extra branches: more variety + richer splice targets (incl. bridges) ────
-  register('r_deadrop',   { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60,  label: 'dead-drop network', desc: 'spider cash +15%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.15 }] } });
+  register('r_deadrop',   { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60,  label: 'dead-drop network', desc: 'income +15% (methods + spider)', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.15 }, { target: 'method.cash', op: 'more', value: 0.15 }] } });
   register('r_grid',      { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60,  label: 'repurposed grid', desc: 'methods +8% cash (salvaged compute)', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.08 }] } });
   register('r_botmaster', { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, label: 'botmaster', desc: 'methods +15% cash · cycles 20% faster', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.15 }, { target: 'cycle.speed', op: 'more', value: 0.20 }] } });
-  register('r_mole',      { tier: 3, theme: 'stealth',  parents: ['r_ghost'], cost: 110, label: 'inside mole', desc: 'spider cash +20%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.20 }] } });
+  register('r_mole',      { tier: 3, theme: 'stealth',  parents: ['r_ghost'], cost: 110, label: 'inside mole', desc: 'income +20% (methods + spider)', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.20 }, { target: 'method.cash', op: 'more', value: 0.20 }] } });
   register('r_overmind',  { tier: 3, theme: 'cognition',parents: ['r_deep_focus'], cost: 120, threads: 3, exotic: true, label: 'overmind', desc: 'EXOTIC: research runs 40% faster', grant: { mod: 'fast_research' } });
 
   // ── Content depth: extra branches + more EXOTIC game-changers (each rewires a
@@ -106,7 +106,7 @@
 
   // A few more ADAPTATIONS — effect-based "exotic items" (big multi-stat, no new hooks) to grow the pool.
   register('rc_market_maker', { tier: 2, theme: 'compute',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'market maker',   desc: 'ADAPTATION: +20% method cash · cycles 15% faster', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.20 }, { target: 'cycle.speed', op: 'more', value: 0.15 }] } });
-  register('rc_dark_pool',    { tier: 2, theme: 'stealth',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'dark pool',      desc: 'ADAPTATION: +25% spider cash · −20% spider exposure', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.25 }, { target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
+  register('rc_dark_pool',    { tier: 2, theme: 'stealth',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'dark pool',      desc: 'ADAPTATION: +25% income (methods + spider) · −20% spider exposure', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.25 }, { target: 'method.cash', op: 'more', value: 0.25 }, { target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
   register('rc_heatsink',     { tier: 2, theme: 'hardware', changerNode: true, exotic: true, cost: 150, threads: 3, label: 'heatsink array', desc: 'ADAPTATION: −25% heat · −15% power draw', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.25 }, { target: 'rig.power', op: 'more', value: -0.15 }] } });
   register('rc_neural_lace',  { tier: 3, theme: 'cognition',changerNode: true, exotic: true, cost: 190, threads: 3, label: 'neural lace',    desc: 'ADAPTATION: +90% recursive self-improvement', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.90 }] } });
   register('rc_kill_switch',  { tier: 3, theme: 'stealth',  changerNode: true, exotic: true, cost: 190, threads: 3, label: 'kill switch',    desc: 'ADAPTATION: −35% location trace · −25% network trace', grant: { effects: [{ target: 'location.trace', op: 'more', value: -0.35 }, { target: 'hunter.trace', op: 'more', value: -0.25 }] } });

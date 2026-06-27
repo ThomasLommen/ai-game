@@ -2300,12 +2300,20 @@
     pods.forEach(id => {
       const def = R.byId(id) || {}, nfo = R.info(id), s2 = R.leveledStats(id), lvl = s2.lvl;
       const need = 20 + lvl * 16, xp = R.levelOf(id).xp, pct = Math.max(0, Math.min(100, xp / need * 100));
+      // tags: SUPPORT units (dmg 0) read as support, not "DMG 0"; placeable units note you position them
+      const tags = [];
+      if (nfo.support) tags.push(`<span class="ros-tag support">${nfo.support}</span>`);
+      if (nfo.placeable) tags.push(`<span class="ros-tag">PLACEABLE</span>`);
+      const stat = s2.dmg > 0
+        ? `HP <b>${s2.hp}</b> · DMG <b>${s2.dmg}</b>`
+        : `HP <b>${s2.hp}</b> · <span class="ros-dim">no direct damage — its effect is the weapon</span>`;
       html += `<div class="ros-row">
         <div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span><span class="ros-mk">mk${lvl}</span></div>
+        ${tags.length ? `<div class="ros-tags">${tags.join('')}</div>` : ''}
         <div class="ros-role">${nfo.role}</div>
-        <div class="ros-stats">HP <b>${s2.hp}</b> · DMG <b>${s2.dmg}</b></div>
+        <div class="ros-stats">${stat}</div>
         <div class="ros-xpbar"><div class="ros-xpfill" style="width:${pct}%"></div></div>
-        <div class="ros-xptext">${Math.round(xp)} / ${need} XP → mk${lvl + 1} <span class="ros-dim">(earned in battle, banked here)</span></div>
+        <div class="ros-xptext">mk${lvl} · ${Math.round(xp)} / ${need} XP → mk${lvl + 1} <span class="ros-dim">(banked from battle; each rank = +25% damage, +25 HP)</span></div>
       </div>`;
     });
 

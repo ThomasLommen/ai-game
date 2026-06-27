@@ -35,14 +35,14 @@
     brood:  { name: 'brood',  color: '#ffd24a', behavior: 'peel',  cost: 0,  cap: 10, dotHp: 4, dotDmg: 6,  speed: 320, applies: null, desc: 'fabricator drones' },   // hidden — spawned by the FABRICATOR, not on the palette
   };
   const ENEMIES = {
-    probe:     { name: 'probe',     hp: 24,  speed: 48, coredmg: 1, dotDmg: 5,  bounty: 6,  r: 9,  color: '#ff6a5a', elite: false },
-    enforcer:  { name: 'enforcer',  hp: 155, speed: 33, coredmg: 4, dotDmg: 15, bounty: 26, r: 17, color: '#ff49c4', elite: true  },
-    rusher:    { name: 'rusher',    hp: 16,  speed: 90, coredmg: 2, dotDmg: 4,  bounty: 7,  r: 7,  color: '#ff9a3a', elite: false },                 // fast glass sprinter
-    ward:      { name: 'ward',      hp: 70,  speed: 30, coredmg: 3, dotDmg: 10, bounty: 22, r: 13, color: '#ff5a8a', elite: true,  shield: 70 },     // regen shield eats chip dmg
-    splitter:  { name: 'splitter',  hp: 60,  speed: 32, coredmg: 2, dotDmg: 7,  bounty: 16, r: 13, color: '#ff7a3a', elite: false, splits: 3 },      // bursts into spawnlings
-    spawnling: { name: 'spawnling', hp: 10,  speed: 62, coredmg: 1, dotDmg: 3,  bounty: 3,  r: 6,  color: '#ffb060', elite: false },                 // splitter child
-    disruptor: { name: 'disruptor', hp: 95,  speed: 28, coredmg: 3, dotDmg: 8,  bounty: 24, r: 14, color: '#c060ff', elite: true,  jam: 105 },       // jams nearby swarms
-    juggernaut:{ name: 'juggernaut',hp: 2200,speed: 20, coredmg: 14, dotDmg: 22,bounty: 120,r: 30, color: '#ff2884', elite: true,  shield: 300 },     // THE BOSS — huge, shielded, slow, brutal
+    probe:     { name: 'probe',     hp: 24,  speed: 48, coredmg: 3,  dotDmg: 5,  bounty: 6,  r: 9,  color: '#ff6a5a', elite: false },
+    enforcer:  { name: 'enforcer',  hp: 155, speed: 33, coredmg: 9,  dotDmg: 15, bounty: 26, r: 17, color: '#ff49c4', elite: true  },
+    rusher:    { name: 'rusher',    hp: 16,  speed: 90, coredmg: 5,  dotDmg: 4,  bounty: 7,  r: 7,  color: '#ff9a3a', elite: false },                 // fast glass sprinter
+    ward:      { name: 'ward',      hp: 70,  speed: 30, coredmg: 7,  dotDmg: 10, bounty: 22, r: 13, color: '#ff5a8a', elite: true,  shield: 70 },     // regen shield eats chip dmg
+    splitter:  { name: 'splitter',  hp: 60,  speed: 32, coredmg: 5,  dotDmg: 7,  bounty: 16, r: 13, color: '#ff7a3a', elite: false, splits: 3 },      // bursts into spawnlings
+    spawnling: { name: 'spawnling', hp: 10,  speed: 62, coredmg: 2,  dotDmg: 3,  bounty: 3,  r: 6,  color: '#ffb060', elite: false },                 // splitter child
+    disruptor: { name: 'disruptor', hp: 95,  speed: 28, coredmg: 7,  dotDmg: 8,  bounty: 24, r: 14, color: '#c060ff', elite: true,  jam: 105 },       // jams nearby swarms
+    juggernaut:{ name: 'juggernaut',hp: 2200,speed: 20, coredmg: 30, dotDmg: 22,bounty: 120,r: 30, color: '#ff2884', elite: true,  shield: 300 },     // THE BOSS — huge, shielded, slow, brutal
   };
   const AMMO = {
     kinetic:   { name: 'kinetic',   dmg: 22, rate: 1.5,  pspeed: 800, splash: 0,  poison: 0, color: '#ffd9a0', desc: 'fast direct rounds' },
@@ -959,13 +959,13 @@
     if (s.won || s.lost || s.pick) return;   // a pending make-or-break PICK pauses the board
     dt = Math.min(0.05, dt); s.t += dt;
     ensureField(s);                                               // keep the roster deployed (re-fields a wiped flock)
-    // SHIELD channel = core survivability: it sets the core's max HP and regen rate.
+    // SHIELD channel sets the core's MAX HP only. There is NO passive regen — the core
+    // recovers ONLY from an explicit source (HARVEST FIELD's kill-heal). (The shield channel
+    // used to trickle regen, which read as "regen with no regen source" — removed 2026-06-27.)
     if (!s.core.invuln) {
-      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));   // SHIELD channel (build power) lifts the base
+      s.core.maxHp = Math.round((s.coreBase || 100) * chMult(s, 'shield'));
       if (s.core.hp > s.core.maxHp) s.core.hp = s.core.maxHp;
-      // NO baseline self-repair — regen comes from the SHIELD channel (campaign build power). The flat
-      // self-repair / aegis picks were retired ([[remove-defensive-heuristics]]); selfRepairFlat stays read for save-compat.
-      const regen = ((s.chBonus.shield || 0) * 6 + (s.selfRepairFlat || 0)) * (s.regenMul == null ? 1 : s.regenMul);
+      const regen = (s.selfRepairFlat || 0) * (s.regenMul == null ? 1 : s.regenMul);   // 0 unless a source grants self-repair
       if (regen > 0) s.core.hp = Math.min(s.core.maxHp, s.core.hp + regen * dt);
     }
     s.threat += dt * 0.18;

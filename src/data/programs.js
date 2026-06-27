@@ -21,10 +21,10 @@
   });
   Game.programs.register('wage_shave_sh', {
     name: 'harvester.sh',
-    description: 'spider cash +25%.',
+    description: 'all income +20% (methods + spider).',
     price: 120,
     requires: 'methods',
-    effects: [ { target: 'web_scrape.cash', op: 'more', value: +0.25 } ]
+    effects: [ { target: 'web_scrape.cash', op: 'more', value: +0.20 }, { target: 'method.cash', op: 'more', value: +0.20 } ]
   });
 
   // ── Efficiency knobs vs the bite-backs ──────────────────────────────────────
