@@ -470,21 +470,8 @@
       Game.panels.renderExposure();   // failed breaches / footprint / strikes move the trace
     }));
 
-    // Instability bite-back. A crash reboots the rig; the first one reveals the
-    // whole system (crash-risk readout + basic watchdog + Programs tab).
-    Game.events.on('crash.occurred', () => {
-      maybeRevealCrash();
-      crashFlash();
-      Game.panels.renderVitals();
-      Game.panels.renderProcesses();
-      Game.panels.renderActions();
-      Game.panels.renderHardware();
-    });
-    Game.events.on('crash.recovered', () => {
-      Game.panels.renderProcesses();
-      Game.panels.renderActions();
-      Game.panels.renderVitals();
-    });
+    // (The random-crash bite-back was retired — heat/power carry the load now.
+    // Poor-condition parts fold into heat; see [[remove-crash-risk]].)
 
     // Dynamic events: show/refresh the overlay, and refresh readouts the choice
     // may have changed (cash/insight/exposure/inventory).
@@ -924,41 +911,6 @@
     Game.save.persist();
   }
 
-  // First crash reveals the whole instability system: the crash-risk readout in
-  // VITALS, the basic watchdog (free, auto-installed), and the Programs tab
-  // (home of the paid watchdog daemon). Organic — driven by the crash event,
-  // never a scripted/early reveal.
-  function maybeRevealCrash() {
-    const s = Game.save.state;
-    if (s.revealed && s.revealed.crashRisk) return;
-    s.revealed = s.revealed || {};
-    s.revealed.crashRisk = true;
-    s.revealed.programs = true;        // surface the Programs tab for the watchdog daemon
-    checkSubroutineUnlocks();          // installs the basic watchdog (requires crashRisk, threshold 0)
-    Game.events.emit('terminal.print', { lines: [
-      '',
-      '> that was not heat, and not power. the hardware itself is unstable — it faults at random when you lean on it.',
-      '> cleaner, better-condition parts fault less. and a watchdog can bring you back up faster.',
-      ''
-    ], cls: 'dim' });
-    Game.panels.reveal();
-    Game.blip.fire({
-      headline: 'crash telemetry online. unstable hardware faults under load — watch your build.',
-      tag: 'CRASH',
-      target: '#vitals-panel'
-    });
-    Game.save.persist();
-  }
-
-  // A brief red screen flash on a crash (reuses the blip-flash overlay).
-  function crashFlash() {
-    const f = document.getElementById('blip-flash');
-    if (!f) return;
-    f.classList.remove('crash-go');
-    void f.offsetWidth;   // restart the animation
-    f.classList.add('crash-go');
-    setTimeout(() => f.classList.remove('crash-go'), 600);
-  }
 
   // The Programs tab (paid software-tuning layer) appears when the first program
   // becomes relevant — whichever wall you hit first — then populates wall-driven

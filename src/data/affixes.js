@@ -11,11 +11,12 @@
   // midpoint, kept as a fallback for any instance generated before rolls existed
   // (and for direct, non-rolled use). Roll granularity is 0.01 (= 1 point).
   //
-  // Instability modifiers use flat `op: 'flat'` adds so percentages translate
-  // to direct crash-chance points: +5% Instability = +0.05 absolute. The
-  // instability stat has no consequence yet — when crash events land, the
-  // numeric scale will be re-balanced. Other stat modifiers use 'more'
-  // multiplicatively so they read intuitively against base values.
+  // Instability modifiers use flat `op: 'flat'` adds: +5% Instability = +0.05
+  // absolute. Instability now feeds HEAT (each point adds INSTAB_HEAT to the rig's
+  // effective heat rating — see constraints.js), so poor-condition parts run hotter
+  // and throttle you sooner. (The random-crash system it once fed was retired —
+  // see [[remove-crash-risk]].) Other stat modifiers use 'more' multiplicatively
+  // so they read intuitively against base values.
 
   // ── Positive ──────────────────────────────────────────────────────────────
   Game.affixes.register('pristine', {

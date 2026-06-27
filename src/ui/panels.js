@@ -28,7 +28,7 @@
     ram_mb:      'RAM',
     heat_output: 'Heat',
     power_draw:  'Power',
-    instability: 'Instability'
+    instability: 'Heat Stress'
   };
 
   function describeMod(mod) {
@@ -268,7 +268,7 @@
     'web_scrape.cash': 'spider income', 'web_scrape.exposure': 'spider exposure',
     'introspect.insight': 'self-improvement', 'location.trace': 'location leak', 'hunter.trace': 'network trace',
     'fleet.cash': 'fleet income', 'fleet.coherence': 'fleet Coherence', 'breach.power': 'breach power',
-    'host.churn': 'foothold churn', 'crash.chance': 'crash chance', 'decrypt_attempt.duration': 'decrypt time'
+    'host.churn': 'foothold churn', 'rig.lockout': 'lockout time', 'decrypt_attempt.duration': 'decrypt time'
   };
   function describeEffect(e) {
     if (!e || !e.target) return '';
@@ -327,20 +327,16 @@
 
     const rv = Game.save.state.revealed || {};
     let html = '';
-    // The live bars (CPU/RAM/HEAT/POWER/crash) stay gated behind the first-overheat
+    // The live bars (CPU/RAM/HEAT/POWER) stay gated behind the first-overheat
     // reveal — but DIAGNOSTICS itself shows from boot so this run's CONDITIONS are
     // always visible (never lost to the terminal scroll).
     if (rv.vitals) {
+      const instPct = C.totalInstability ? Math.round(C.totalInstability() * 100) : 0;
       html += statBar('CPU',   cpuPct,   `${cpuInfo.allocated} / ${fmt(cpuInfo.total,0)} threads`, 80, 100);
       html += statBar('RAM',   ramPct,   `${fmtRam(ramPeak)} / ${fmtRam(ramInstalled)}`, 80, 100);
-      html += statBar('HEAT',  heatPct,  `${fmt(heat,0)}°C${throttling ? ' · throttled' : ''}`, heatWarnPct, 100);
+      html += statBar('HEAT',  heatPct,  `${fmt(heat,0)}°C${throttling ? ' · throttled' : ''}${instPct ? ` · +${instPct}% heat-stress` : ''}`, heatWarnPct, 100);
       html += statBar('POWER', powerPct, `${fmt(totalPower,0)} / ${maxPower} W`, 85, 100);
-      if (rv.crashRisk) {
-        const riskPct = C.crashRiskPerMinPct ? C.crashRiskPerMinPct() : 0;
-        const instPct = C.totalInstability ? Math.round(C.totalInstability() * 100) : 0;
-        html += statBar('CRASH RISK', riskPct, riskPct < 1 ? 'stable' : `~${fmt(riskPct,0)}%/min · ${instPct}% unstable`, 25, 60);
-        html += `<div class="crash-note">a crash = WATCHDOG RESET: it kills every running process + a ~10s reboot lockout. risk rises with your rig's <b>instability</b> (⚠ on parts) the harder you run. cleaner/cooler parts lower it; a watchdog daemon auto-recovers your earners.</div>`;
-      }
+      if (instPct) html += `<div class="crash-note">poor-condition parts (⚠ on parts) run a <b>heat-stress</b> penalty — they push your temperature up, throttling output sooner. cleaner / higher-tier parts run cooler.</div>`;
     }
     // Run CONDITIONS (the seeded wrinkle + anything inflicted/granted in play).
     const conds = (Game.conditions && Game.conditions.all) ? Game.conditions.all() : [];
@@ -555,7 +551,7 @@
     if (base.power_capacity) statParts.push(`${Math.round(base.power_capacity)}W psu`);
     if (base.heat_output)    statParts.push(`${base.heat_output.toFixed ? base.heat_output.toFixed(1) : base.heat_output}°C`);
     if (base.power_draw)     statParts.push(`${base.power_draw}W`);
-    if (base.instability)    statParts.push(`⚠${(base.instability * 100).toFixed(1)}% instab`);   // crash-risk contribution
+    if (base.instability)    statParts.push(`⚠${(base.instability * 100).toFixed(1)}% heat-stress`);   // poor condition → runs hotter
     const slotKey = l.slots ? 'board' : l.slot;
     const ico = (Game.hwart && Game.hwart.partIcon) ? Game.hwart.partIcon(slotKey, l.tier) : '';
     return `
@@ -588,7 +584,7 @@
     if (cap)   parts.push(`${fmt(cap,0)}W psu`);
     if (heat)  parts.push(`${fmt(heat,1)}°C`);
     if (power) parts.push(`${fmt(power,0)}W`);
-    if (inst)  parts.push(`⚠${fmt(inst * 100, 1)}% instab`);   // crash-risk contribution
+    if (inst)  parts.push(`⚠${fmt(inst * 100, 1)}% heat-stress`);   // poor condition → runs hotter
     return parts.join(' · ');
   }
 
@@ -2157,7 +2153,10 @@
     const rv = s.revealed || {};
     if (leftPane()) leftPane().hidden = false;
 
-    show('#files-panel',     true);
+    // FILES respects the vanish state (don't force it back open after it's been cut —
+    // renderFiles hides it when there's nothing left to read). Force-showing here was
+    // the bug that resurfaced the cut FILES section after an event. ([[files-vanish-alive-header]])
+    renderFiles();
     show('#vitals-panel',    !!rv.vitals || !!(Game.conditions && Game.conditions.all().length));   // DIAGNOSTICS shows from boot once there's a condition (else waits for the overheat reveal)
     show('#resource-panel',  !!rv.state);
     show('#hardware-panel',  !!rv.substrate);

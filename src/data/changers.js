@@ -26,7 +26,7 @@
   });
   register('speculative_exec', {
     name: 'Speculative Execution', domain: 'engine', kind: 'exotic', mod: 'speculative',
-    flavor: 'a crash no longer halts you. the work was already run ahead — it commits and rolls on. failure becomes throughput.'
+    flavor: 'a thermal shutdown or breaker trip no longer HALTS you. the work was already run ahead — it commits and rolls on through a brief brownout. no processes lost.'
   });
 
   // ── THE TYCOON (economy: methods / cash / loot / income) ─────────────────────

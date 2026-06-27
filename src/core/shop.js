@@ -9,7 +9,7 @@
   // Loot quality is gated by an Insight-unlocked supplier level (the AI learning
   // where better parts are). Each level raises the tier ceiling and improves the
   // condition pool; the worst conditions phase out near the top. Cash still buys
-  // the part. (`faulty` is excluded everywhere — instability has no teeth yet.)
+  // the part. (`faulty` is excluded everywhere — its heat-stress is too punishing for the open pool.)
   // Access tiers open by EITHER enough Coherence (insight) OR enough cash — two roads to the
   // same gate (the unlock is monotonic, so a momentary cash high keeps the tier even if spent).
   // CONDITION PROGRESSION: early = JUNK with MILD NEGATIVE conditions (minCond forces ≥1, so

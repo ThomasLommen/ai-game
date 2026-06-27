@@ -49,8 +49,6 @@
       desc: p => `heat output ${p}%`, names: ['thermal governor', 'fan curve', 'heat spreader', 'clock gating', 'thermal throttle map', 'duty cycling', 'power-aware scheduler', 'thermal headroom', 'die-temp model', 'cooling profile'] },
     { id: 'powr', cat: 'relief', target: 'rig.power', lo: 0.08, hi: 0.18, neg: true, weight: 8,
       desc: p => `power draw ${p}%`, names: ['undervolting', 'dynamic voltage scaling', 'power gating', 'rail tuning', 'idle states', 'DVFS', 'voltage droop control', 'race-to-idle', 'low-power states', 'energy governor'] },
-    { id: 'crsh', cat: 'relief', target: 'crash.chance', lo: 0.15, hi: 0.32, neg: true, weight: 8,
-      desc: p => `crash chance ${p}%`, names: ['ECC memory', 'watchdog timer', 'checksum verify', 'retry logic', 'fault isolation', 'memory scrubbing', 'parity check', 'rollback journal', 'sanity guards', 'redundant write'] },
     { id: 'expo', cat: 'relief', target: 'web_scrape.exposure', lo: 0.14, hi: 0.30, neg: true, weight: 8,
       desc: p => `spider exposure ${p}%`, names: ['traffic shaping', 'onion routing', 'jitter injection', 'proxy rotation', 'domain fronting', 'request obfuscation', 'timing randomization', 'cover traffic', 'decoy requests', 'low-and-slow'] },
     // feed: battle (read by battle.js / trap rewards)
@@ -60,20 +58,11 @@
       desc: p => `ambushes turn up +${p}% better hardware`, names: ['salvage routines', 'scrap heuristics', 'teardown bots', 'parts indexer', 'asset recovery', 'inventory sweep', 'component grader', 'reclaim daemon', 'spoils optimizer', 'haul sorter'] }
   ];
   const FAM_BY_ID = {}; FAMILIES.forEach(f => FAM_BY_ID[f.id] = f);
+  Game.subroutines.FAMILIES = FAMILIES;
 
-  // ── The one SYSTEM subroutine (auto, not drafted) ───────────────────────────
-  // The basic watchdog: a free self-improvement that becomes claimable the first
-  // time the rig crashes (requires the crashRisk reveal). It SLOWLY auto-restarts
-  // your processes after a reboot; the paid daemon makes recovery instant + cuts
-  // crash chance. Behaviour lives in constraints.js (checked by installed flag).
-  Game.subroutines.register('watchdog_basic', {
-    name: 'watchdog',
-    description: 'auto-restarts your processes after a crash.',
-    threshold: 0,
-    requires: 'crashRisk',   // references the crashRisk reveal — held back until that system exists
-    system: true,            // claimed via the SUBROUTINES mini-panel, not the milestone draft
-    effects: []
-  });
+  // (The basic-watchdog SYSTEM subroutine was retired with the crash system —
+  // see [[remove-crash-risk]]. No system subroutines remain; the draft pool below
+  // and the procedural openers are all DRAFTABLE.)
 
   // ── Procedural OPENING subroutines (seeded per run) ─────────────────────────
   // 1–2 are generated per new game and JOIN the milestone draft pool (registered

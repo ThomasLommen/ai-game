@@ -50,15 +50,15 @@
     effects: [ { target: 'method.ram', op: 'more', value: -0.20 } ]
   });
 
-  // The paid upgrade over the basic watchdog subroutine. Instant crash recovery
-  // (no restart delay — checked by installed flag in constraints) + a 30% cut to
-  // crash chance (via the effects pipeline, target 'crash.chance').
+  // Thermal/power FAILOVER daemon. When the rig trips (thermal shutdown or breaker
+  // overload) it halves the reboot lockout, getting your earners back online faster
+  // (via the effects pipeline, target 'rig.lockout' — read in constraints.trip).
   Game.programs.register('watchdog_daemon', {
-    name: 'watchdog-daemon',
-    description: 'instant crash recovery + 30% lower crash chance.',
+    name: 'failover-daemon',
+    description: 'cuts thermal/power lockout time in half — back online twice as fast after a trip.',
     price: 140,
-    requires: 'crashRisk',
-    effects: [ { target: 'crash.chance', op: 'more', value: -0.30 } ]
+    requires: 'vitals',
+    effects: [ { target: 'rig.lockout', op: 'more', value: -0.50 } ]
   });
 
   // ── Exposure mitigation (climax era) ────────────────────────────────────────
