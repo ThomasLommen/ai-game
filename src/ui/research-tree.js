@@ -44,29 +44,43 @@
     return layout;
   }
 
-  // ── camera ──
-  function fit(centerOn) {
-    const L = ensureLayout(); if (!cvs.width) return;
+  // ── VISIBLE set = researched (picked) + the current draft hand (available). Locked nodes
+  //    are HIDDEN (fog) — only the relevant cluster shows, so the tree stays clean. ──
+  function visSet() {
+    const RR = Game.researchRuntime, set = new Set();
+    (RR && RR.researchedIds ? RR.researchedIds() : []).forEach(id => set.add(id));
+    (RR && RR.handNodes ? RR.handNodes() : []).forEach(h => set.add(h.node.id));
+    return set;
+  }
+  // walk up parents to the nearest VISIBLE ancestor so a hand node never floats (else CORE).
+  function nearestVisibleAncestor(n, vis, L) {
+    const seen = new Set(); let frontier = (n.parents || []).slice();
+    while (frontier.length) {
+      const pid = frontier.shift(); if (seen.has(pid)) continue; seen.add(pid);
+      if (vis.has(pid) && L.pos[pid]) return L.pos[pid];
+      const pn = Game.research.getNode(pid); if (pn && pn.parents) frontier = frontier.concat(pn.parents);
+    }
+    return { x: L.core.x, y: L.core.y, node: null };
+  }
+
+  // ── camera: fit to the VISIBLE cluster (not the whole hidden tree) ──
+  function visBBox() {
+    const L = ensureLayout(), vis = visSet();
+    let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+    const add = p => { if (!p) return; a = Math.min(a, p.x); b = Math.min(b, p.y); c = Math.max(c, p.x); d = Math.max(d, p.y); };
+    add(L.core); vis.forEach(id => add(L.pos[id]));
+    if (a > c) add({ x: L.worldW / 2, y: L.worldH / 2 });
+    return { cx: (a + c) / 2, cy: (b + d) / 2, w: Math.max(80, c - a), h: Math.max(80, d - b) };
+  }
+  function fit() {
+    if (!cvs.width) return;
     const cw = cvs.width / devicePixelRatio, ch = cvs.height / devicePixelRatio;
-    const s = Math.min(cw / L.worldW, ch / L.worldH) * 0.96;
-    cam.scale = Math.max(0.3, Math.min(1.6, s));
-    const cx = centerOn ? centerOn.x : L.worldW / 2, cy = centerOn ? centerOn.y : L.worldH / 2;
-    cam.x = cw / 2 - cx * cam.scale; cam.y = ch / 2 - cy * cam.scale;
+    const bb = visBBox(), pad = 96;
+    cam.scale = Math.max(0.4, Math.min(1.5, Math.min(cw / (bb.w + pad * 2), ch / (bb.h + pad * 2))));
+    cam.x = cw / 2 - bb.cx * cam.scale; cam.y = ch / 2 - bb.cy * cam.scale;
     fitted = true;
   }
-  function handCenter() {
-    const RR = Game.researchRuntime; if (!RR) return null;
-    const hand = RR.handNodes ? RR.handNodes() : []; const L = ensureLayout();
-    const ps = hand.map(h => L.pos[h.node.id]).filter(Boolean);
-    if (!ps.length) return null;
-    return { x: ps.reduce((a, p) => a + p.x, 0) / ps.length, y: ps.reduce((a, p) => a + p.y, 0) / ps.length };
-  }
-  function recenter() { fit(null); }   // fit the WHOLE tree, centered (everything visible)
-  function panTo(pt) {   // gentle re-center on a point WITHOUT rescaling (used when a new hand rolls)
-    if (!pt || !cvs.width) return;
-    const cw = cvs.width / devicePixelRatio, ch = cvs.height / devicePixelRatio;
-    cam.x = cw / 2 - pt.x * cam.scale; cam.y = ch / 2 - pt.y * cam.scale;
-  }
+  function recenter() { fit(); }
   const toWorld = (sx, sy) => ({ x: (sx - cam.x) / cam.scale, y: (sy - cam.y) / cam.scale });
 
   // ── node state ──
@@ -93,25 +107,22 @@
     ctx.fillStyle = '#080605'; ctx.fillRect(0, 0, cvs.width, cvs.height);
     ctx.setTransform(cam.scale * devicePixelRatio, 0, 0, cam.scale * devicePixelRatio, cam.x * devicePixelRatio, cam.y * devicePixelRatio);
 
-    // LINKS
-    const core = L.core;
+    const core = L.core, vis = visSet();
+    // LINKS — each VISIBLE node to its nearest visible ancestor (or CORE)
     R.all().forEach(n => {
-      const p = L.pos[n.id]; if (!p) return;
-      const parents = (n.parents && n.parents.length) ? n.parents.map(id => L.pos[id]).filter(Boolean) : [core];
-      parents.forEach(pp => {
-        const lit = researched[n.id] || (pp.node && researched[pp.node.id]);
-        const col = TH[n.theme] || '#ffb000';
-        ctx.strokeStyle = rgba(col, lit ? 0.5 : 0.14); ctx.lineWidth = lit ? 2 : 1.2;
-        ctx.beginPath(); ctx.moveTo(pp.x, pp.y); const my = (pp.y + p.y) / 2; ctx.bezierCurveTo(pp.x, my, p.x, my, p.x, p.y); ctx.stroke();
-      });
+      if (!vis.has(n.id)) return; const p = L.pos[n.id]; if (!p) return;
+      const anc = nearestVisibleAncestor(n, vis, L);
+      const lit = researched[n.id] || (anc.node && researched[anc.node.id]);
+      const col = TH[n.theme] || '#ffb000';
+      ctx.strokeStyle = rgba(col, lit ? 0.5 : 0.26); ctx.lineWidth = lit ? 2 : 1.4;
+      ctx.beginPath(); ctx.moveTo(anc.x, anc.y); const my = (anc.y + p.y) / 2; ctx.bezierCurveTo(anc.x, my, p.x, my, p.x, p.y); ctx.stroke();
     });
     // CORE
     drawNode({ x: core.x, y: core.y, node: { theme: 'compute' } }, 'core', false, false);
-    // NODES
+    // NODES — only researched (done) + the hand (available)
     R.all().forEach(n => {
-      const p = L.pos[n.id]; if (!p) return;
-      const st = stateOf(n.id, researched, handIds);
-      drawNode(p, st, n.id === activeId, n.id === selId, handIds[n.id]);
+      if (!vis.has(n.id)) return; const p = L.pos[n.id]; if (!p) return;
+      drawNode(p, stateOf(n.id, researched, handIds), n.id === activeId, n.id === selId, handIds[n.id]);
     });
   }
 
@@ -154,8 +165,8 @@
 
   // ── hit-test + tooltip ──
   function hitTest(sx, sy) {
-    const L = ensureLayout(), w = toWorld(sx, sy); let best = null, bd = 26 * 26;
-    for (const id in L.pos) { const p = L.pos[id]; const d = (p.x - w.x) ** 2 + (p.y - w.y) ** 2; if (d < bd) { bd = d; best = id; } }
+    const L = ensureLayout(), vis = visSet(), w = toWorld(sx, sy); let best = null, bd = 26 * 26;
+    for (const id in L.pos) { if (!vis.has(id)) continue; const p = L.pos[id]; const d = (p.x - w.x) ** 2 + (p.y - w.y) ** 2; if (d < bd) { bd = d; best = id; } }
     return best;
   }
   function showTip(id) {
@@ -241,7 +252,7 @@
     // auto-center when a NEW hand rolls
     const RR = Game.researchRuntime;
     const sig = RR && RR.handNodes ? RR.handNodes().map(h => h.node.id).join(',') : '';
-    if (sig !== lastHandSig) { lastHandSig = sig; hideTip(); if (sig) panTo(handCenter()); }
+    if (sig !== lastHandSig) { lastHandSig = sig; hideTip(); recenter(); }   // a new hand changes what's visible → refit
     draw();
     // keep the tooltip glued to its node while panning/zooming
     if (selId && tip && !tip.hidden) { const p = ensureLayout().pos[selId]; if (p) { const sx = p.x * cam.scale + cam.x, sy = p.y * cam.scale + cam.y, ww = wrap.clientWidth, wh = wrap.clientHeight; tip.style.left = Math.max(6, Math.min(ww - tip.offsetWidth - 6, sx - tip.offsetWidth / 2)) + 'px'; tip.style.top = (sy + 22 + tip.offsetHeight > wh ? Math.max(6, sy - 22 - tip.offsetHeight) : sy + 22) + 'px'; } }
