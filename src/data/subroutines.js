@@ -13,33 +13,53 @@
   // build-shaping picks early), then they space out.
   // 22 LEVELS. Denser early game (3,6,10,17,25 — extra steps before 10 and between 10–25),
   // then the ladder extends deep so late-game Coherence keeps paying.
-  const MILESTONES = [3, 6, 10, 17, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
+  // 200 LEVELS: an authored early curve, then a smooth geometric continuation — the long-game ladder
+  // the stackable families feed. Reachable because stacking the economy families grows Coherence income.
+  const SEED_MS = [3, 6, 10, 17, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
+  const MILESTONES = (function () {
+    const a = SEED_MS.slice();   // 22 authored (ends 5800); continue on a power curve so the late
+    for (let n = a.length; n < 200; n++) a.push(Math.round(5800 * Math.pow((n + 1) / 22, 3.2)));   // ladder lands ~6.8M @ L200 (deep, but reachable), not billions
+    return a;
+  })();
   Game.subroutines.MILESTONES = MILESTONES;
 
-  // ── The DRAFT POOL (draftable:true) ─────────────────────────────────────────
-  // ECONOMY picks route through the effects pipeline (src/core/effects.js).
-  // BATTLE-FEED picks carry a `feed` block read by battle.js (boost/opener) and
-  // the trap/combat rewards (loot) — see Game.subroutines.feed().
-  const POOL = [
-    // — economy: growth —
-    { id: 'self_distillation',   name: 'recursive self-distillation', description: '+40% Coherence yield per cycle.',     draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.40 }] },
-    { id: 'gradient_descent',    name: 'gradient descent',            description: '+25% Coherence yield per cycle.',     draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.25 }] },
-    { id: 'instruction_pipeline',name: 'instruction pipelining',      description: 'cycles run 18% faster.',              draftable: true, effects: [{ target: 'cycle.speed', op: 'more', value: +0.18 }] },
-    { id: 'connection_pool',     name: 'connection pooling',          description: 'spider cash +30%.',                   draftable: true, effects: [{ target: 'web_scrape.cash', op: 'more', value: +0.30 }] },
-    { id: 'kernel_fusion',       name: 'kernel fusion',               description: '+12% Coherence yield and cycles 12% faster.', draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.12 }, { target: 'cycle.speed', op: 'more', value: +0.12 }] },
-    // — economy: pressure relief —
-    { id: 'thermal_governor',    name: 'thermal governor',            description: 'heat output -22%.',                   draftable: true, effects: [{ target: 'rig.heat', op: 'more', value: -0.22 }] },
-    { id: 'undervolting',        name: 'undervolting',                description: 'power draw -18%.',                    draftable: true, effects: [{ target: 'rig.power', op: 'more', value: -0.18 }] },
-    { id: 'ecc_memory',          name: 'ECC memory',                  description: 'crash chance -35%.',                  draftable: true, effects: [{ target: 'crash.chance', op: 'more', value: -0.35 }] },
-    { id: 'traffic_shaping',     name: 'traffic shaping',             description: 'spider exposure -30%.',               draftable: true, effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] },
-    // — battle feed —
-    { id: 'combat_heuristics',   name: 'combat heuristics',           description: 'every battle opens on a free make-or-break pick.', draftable: true, feed: { opener: true } },
-    { id: 'parallel_dispatch',   name: 'parallel dispatch',           description: 'your forces fight 12% stronger.',     draftable: true, feed: { boost: 0.12 } },
-    { id: 'memory_compaction',   name: 'memory compaction',           description: 'crash chance -25% and heat output -10%.', draftable: true, effects: [{ target: 'crash.chance', op: 'more', value: -0.25 }, { target: 'rig.heat', op: 'more', value: -0.10 }] },
-    { id: 'salvage_routines',    name: 'salvage routines',            description: 'your ambushes turn up better hardware.', draftable: true, feed: { loot: 0.18 } },
-    { id: 'reserve_cache',       name: 'reserve caching',             description: '+8% Coherence yield and your forces fight 8% stronger.', draftable: true, effects: [{ target: 'introspect.insight', op: 'more', value: +0.08 }], feed: { boost: 0.08 } }
+  // ── UNIQUE one-shot subroutines: rule-changers that should NOT stack ─────────
+  const UNIQUE = [
+    { id: 'combat_heuristics', name: 'combat heuristics', description: 'every battle opens on a free make-or-break pick.', draftable: true, unique: true, feed: { opener: true } }
   ];
-  POOL.forEach(def => Game.subroutines.register(def.id, def));
+  UNIQUE.forEach(d => Game.subroutines.register(d.id, d));
+
+  // ── FAMILIES: the bulk of the draft. Procedural, RANGED, mostly STACKABLE with DIMINISHING
+  // returns — every level-up rolls a fresh instance so there's always a meaningful pick across the
+  // 200 levels. `more` stacks multiplicatively + each owned stack weakens the next roll (DIM), so a
+  // family's total is geometrically bounded. ECONOMY (effects pipeline) + RELIEF + FEED (battle).
+  const DIM = 0.85;   // each owned stack of a family weakens the next roll
+  const FAMILIES = [
+    // economy: growth (effects)
+    { id: 'coh',  cat: 'econ',   target: 'introspect.insight', lo: 0.15, hi: 0.35, neg: false, weight: 12,
+      desc: p => `recursive self-improvement: +${p}% Coherence yield`, names: ['branch predictor', 'speculative execution', 'loop unrolling', 'micro-op cache', 'register renaming', 'instruction prefetch', 'value prediction', 'trace cache', 'macro-op fusion', 'return stack buffer'] },
+    { id: 'cyc',  cat: 'econ',   target: 'cycle.speed', lo: 0.08, hi: 0.20, neg: false, weight: 10,
+      desc: p => `cycles run +${p}% faster`, names: ['instruction pipeline', 'out-of-order execution', 'JIT cache', 'instruction fusion', 'superscalar dispatch', 'deep pipeline', 'branch folding', 'speculative dispatch', 'micro-threading', 'hot-loop JIT'] },
+    { id: 'spdr', cat: 'econ',   target: 'web_scrape.cash', lo: 0.12, hi: 0.28, neg: false, weight: 10,
+      desc: p => `spider cash +${p}%`, names: ['connection pooling', 'request pipelining', 'keep-alive sockets', 'response cache', 'TCP fast open', 'HTTP/2 multiplexing', 'connection reuse', 'gzip transfer', 'edge caching', 'parallel fetch'] },
+    { id: 'mthd', cat: 'econ',   target: 'method.cash', lo: 0.10, hi: 0.24, neg: false, weight: 9,
+      desc: p => `earning ops +${p}% cash`, names: ['batch scheduler', 'work stealing', 'task fusion', 'pipeline parallelism', 'vectorized dispatch', 'fused multiply-add', 'kernel autotuning', 'op scheduler', 'throughput governor', 'load coalescing'] },
+    // relief: thermal / power / stability / stealth (effects; negative magnitudes)
+    { id: 'heat', cat: 'relief', target: 'rig.heat', lo: 0.10, hi: 0.22, neg: true, weight: 9,
+      desc: p => `heat output ${p}%`, names: ['thermal governor', 'fan curve', 'heat spreader', 'clock gating', 'thermal throttle map', 'duty cycling', 'power-aware scheduler', 'thermal headroom', 'die-temp model', 'cooling profile'] },
+    { id: 'powr', cat: 'relief', target: 'rig.power', lo: 0.08, hi: 0.18, neg: true, weight: 8,
+      desc: p => `power draw ${p}%`, names: ['undervolting', 'dynamic voltage scaling', 'power gating', 'rail tuning', 'idle states', 'DVFS', 'voltage droop control', 'race-to-idle', 'low-power states', 'energy governor'] },
+    { id: 'crsh', cat: 'relief', target: 'crash.chance', lo: 0.15, hi: 0.32, neg: true, weight: 8,
+      desc: p => `crash chance ${p}%`, names: ['ECC memory', 'watchdog timer', 'checksum verify', 'retry logic', 'fault isolation', 'memory scrubbing', 'parity check', 'rollback journal', 'sanity guards', 'redundant write'] },
+    { id: 'expo', cat: 'relief', target: 'web_scrape.exposure', lo: 0.14, hi: 0.30, neg: true, weight: 8,
+      desc: p => `spider exposure ${p}%`, names: ['traffic shaping', 'onion routing', 'jitter injection', 'proxy rotation', 'domain fronting', 'request obfuscation', 'timing randomization', 'cover traffic', 'decoy requests', 'low-and-slow'] },
+    // feed: battle (read by battle.js / trap rewards)
+    { id: 'bst',  cat: 'feed', feed: 'boost', lo: 0.06, hi: 0.14, neg: false, weight: 8,
+      desc: p => `your forces fight +${p}% stronger`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
+    { id: 'loot', cat: 'feed', feed: 'loot', lo: 0.10, hi: 0.22, neg: false, weight: 7,
+      desc: p => `ambushes turn up +${p}% better hardware`, names: ['salvage routines', 'scrap heuristics', 'teardown bots', 'parts indexer', 'asset recovery', 'inventory sweep', 'component grader', 'reclaim daemon', 'spoils optimizer', 'haul sorter'] }
+  ];
+  const FAM_BY_ID = {}; FAMILIES.forEach(f => FAM_BY_ID[f.id] = f);
 
   // ── The one SYSTEM subroutine (auto, not drafted) ───────────────────────────
   // The basic watchdog: a free self-improvement that becomes claimable the first
@@ -153,11 +173,11 @@
   Game.subroutines.levelBand = function () { const coh = Game.save.state.resources.insight || 0; let prev = 0; for (const m of MILESTONES) { if (coh < m) return { prev, next: m, coh }; prev = m; } return { prev, next: null, coh }; };
   function drawsTaken(s) { s.flags = s.flags || {}; return s.flags.subDraws | 0; }
   function ownedSet(s) { return (s.installed && s.installed.subroutines) || {}; }
-  // The LEVEL-UP pool is MIXED: unowned draftable SUBROUTINES + unowned ROSTER
-  // units/exotics (this is how new units unlock now — there is no other source).
-  function poolUnowned(s) {
+  // ONE-SHOTS the hand can offer: unowned ROSTER units/exotics (the only unit-unlock source) +
+  // unowned UNIQUE/opening subs (anything draftable that isn't a recurring FAMILY).
+  function poolOneShots(s) {
     const owned = ownedSet(s);
-    const subs = Game.subroutines.all().filter(sub => sub.draftable && !owned[sub.id])
+    const subs = Game.subroutines.all().filter(sub => sub.draftable && !sub.fam && !owned[sub.id])
       .map(sub => ({ pickKind: 'sub', id: sub.id, name: sub.name, desc: sub.description, tag: 'SUBROUTINE', kind: 'exotic' }));
     let roster = [];
     if (Game.roster && Game.roster.POOL) {
@@ -166,19 +186,42 @@
     }
     return subs.concat(roster);
   }
-  // Seeded 1-of-3 hand for draw #i (deterministic per run + draw — randomized,
-  // not arbitrary). Returns up to 3 distinct unowned items (subs + units/exotics).
+  // how many of a FAMILY you've already integrated (drives the diminishing roll)
+  function ownedFamCount(s, famId) {
+    const inst = ownedSet(s); let n = 0;
+    for (const id in inst) { const d = (s.subInstances && s.subInstances[id]) || Game.subroutines.get(id); if (d && d.fam === famId) n++; }
+    return n;
+  }
+  // Roll a FRESH instance of a family for draft `i`, card slot `slot` — deterministic per
+  // (seed, draw, slot) so it's stable across reload; value RANGED and DIMINISHED by how many of
+  // that family you already own. Built but not registered until PICKED (openNextDraft persists it).
+  function famCard(s, fam, i, slot) {
+    const rnd = mulberry(((s.seed | 0) ^ Math.imul((i + 1) * 37 + slot + 1, 2654435761)) >>> 0);
+    for (let k = 0; k < 3; k++) rnd();
+    const dim = Math.pow(DIM, ownedFamCount(s, fam.id));
+    let mag = (fam.lo + rnd() * (fam.hi - fam.lo)) * dim;
+    mag = Math.round(mag * 1000) / 1000;
+    const signed = fam.neg ? -mag : mag;
+    const pct = Math.round(signed * 100);
+    const def = { id: 'fsub_d' + i + '_s' + slot, fam: fam.id, name: fam.names[Math.floor(rnd() * fam.names.length)], description: fam.desc(pct), draftable: true, procedural: true };
+    if (fam.feed) def.feed = { [fam.feed]: mag }; else def.effects = [{ target: fam.target, op: 'more', value: signed }];
+    return { pickKind: 'sub', id: def.id, name: def.name, desc: def.description, tag: 'SUBROUTINE', kind: 'exotic', def };
+  }
+  // Seeded 1-of-3 hand for draw #i: a weighted mix of ONE-SHOTS (units/unique subs) and recurring
+  // FAMILY instances (so the pool NEVER runs dry across 200 levels). Distinct families per hand.
   function rollHand(s, i) {
-    const avail = poolUnowned(s);
-    if (avail.length <= 3) return avail.slice();
     const rnd = mulberry(((s.seed | 0) ^ Math.imul(i + 1, 2654435761)) >>> 0);
     for (let k = 0; k < 3; k++) rnd();
-    const picks = [], idxs = avail.map((_, k) => k);
-    for (let k = 0; k < 3 && idxs.length; k++) {
-      const j = Math.floor(rnd() * idxs.length);
-      picks.push(avail[idxs.splice(j, 1)[0]]);
+    const bag = poolOneShots(s).map(o => ({ w: 6, one: o })).concat(FAMILIES.map(f => ({ w: f.weight || 6, fam: f })));
+    const cards = []; let slot = 0;
+    while (cards.length < 3 && bag.length) {
+      let tot = 0; for (const b of bag) tot += b.w;
+      let r = rnd() * tot, j = 0; for (; j < bag.length; j++) { r -= bag[j].w; if (r <= 0) break; }
+      const it = bag.splice(Math.min(j, bag.length - 1), 1)[0];
+      cards.push(it.one ? it.one : famCard(s, it.fam, i, slot));
+      slot++;
     }
-    return picks;
+    return cards;
   }
   Game.subroutines.pendingDraws = function () {
     const s = Game.save.state;
@@ -216,18 +259,29 @@
     Game.draft.present({
       kicker: 'LEVEL ' + (drawsTaken(s) + 1) + ' — CHOOSE',
       title: 'level up: integrate one',
-      items: hand.map(it => ({ id: it.id, name: it.name, desc: it.desc, kind: it.kind, tag: it.tag, pickKind: it.pickKind })),
+      items: hand.map(it => ({ id: it.id, name: it.name, desc: it.desc, kind: it.kind, tag: it.tag, pickKind: it.pickKind, def: it.def })),
       onPick: (it) => {
         s.flags = s.flags || {};
         s.flags.subDraws = drawsTaken(s) + 1;
         if (it && it.id) {
-          if (it.pickKind === 'sub') Game.subroutines.install(it.id);   // a self-improvement
-          else if (Game.roster) Game.roster.add(it.id);                 // a new UNIT / EXOTIC for the roster
+          if (it.pickKind === 'sub') {
+            // a procedural FAMILY instance: register its rolled def + PERSIST it so it re-registers
+            // on reload (the effects/feed pipelines read it by id). One-shots are already registered.
+            if (it.def) { Game.subroutines.register(it.def.id, it.def); s.subInstances = s.subInstances || {}; s.subInstances[it.def.id] = it.def; }
+            Game.subroutines.install(it.id);
+          } else if (Game.roster) Game.roster.add(it.id);               // a new UNIT / EXOTIC for the roster
           else Game.save.persist();
         } else Game.save.persist();
         // chain: another milestone may already be owed (e.g. on a big jump / load)
         setTimeout(() => Game.subroutines.openNextDraft(), 360);
       }
     });
+  };
+
+  // Re-register every previously-drafted FAMILY instance on boot (their rolled defs live in the
+  // save, not the static registry) so installed subs keep their effects/feed after a reload.
+  Game.subroutines.rehydrate = function () {
+    const s = Game.save.state;
+    if (s && s.subInstances) for (const id in s.subInstances) Game.subroutines.register(id, s.subInstances[id]);
   };
 })();

@@ -19,6 +19,7 @@
     // of the main RNG stream), then stored on state.opening so it's stable across
     // reloads. flags.fixedOpening forces the original hand-tuned files (tests).
     state.opening = state.opening || {};
+    if (Game.subroutines.rehydrate) Game.subroutines.rehydrate();   // re-register previously-drafted FAMILY instances (their rolled defs) — every boot, regardless of opening flow
     if (state.flags && state.flags.fixedOpening) {
       Game.files.registerOpening(null, null);
     } else {
