@@ -173,7 +173,10 @@
       .map(sub => ({ pickKind: 'sub', id: sub.id, name: sub.name, desc: sub.description, tag: 'SUBROUTINE', kind: 'exotic' }));
     let roster = [];
     if (Game.roster && Game.roster.POOL) {
-      roster = Game.roster.POOL.filter(p => !Game.roster.has(p.id))
+      // POD CAP: only offer new POD units when the roster has room (pod count < pod cap).
+      // Swarms + exotics are never pod-capped. ([[pod-cap-roster-gate]])
+      const roomForPod = Game.roster.roomForPod ? Game.roster.roomForPod() : true;
+      roster = Game.roster.POOL.filter(p => !Game.roster.has(p.id) && !(Game.roster.isPod && Game.roster.isPod(p.id) && !roomForPod))
         .map(p => ({ pickKind: p.kind, id: p.id, name: p.name, desc: p.desc, tag: p.kind === 'exotic' ? 'EXOTIC' : 'UNIT', kind: p.kind === 'exotic' ? 'exotic' : 'unit' }));
     }
     return subs.concat(roster);

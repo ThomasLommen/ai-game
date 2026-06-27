@@ -49,6 +49,10 @@
     singularity:{ kind: 'pod', hp: 300, dmg: 4,  support: 'GRAVITY WELL', role: 'A roaming well that hunts the densest clump, hauls enemies together, slows them to a crawl and grinds them down — sets up your AoE.' },
   };
   function info(id) { return INFO[id] || { kind: 'unit', role: '' }; }
+  function isPod(id) { return info(id).kind === 'pod'; }
+  // POD-CAP gate on the ROSTER: you can only OWN as many pods as your campaign pod cap.
+  function podCount() { return units().filter(isPod).length; }
+  function roomForPod() { return podCount() < podCap(); }
   // base stats scaled by the persistent run-level (mirrors the sim: ×1.25 dmg, +25 HP per level)
   function leveledStats(id) {
     const i = info(id); if (i.kind !== 'pod') return null;
@@ -94,6 +98,7 @@
   function add(id) {
     const def = byId(id); const r = ensure();
     if (!def || has(id)) return false;
+    if (isPod(id) && !roomForPod()) return false;   // pod cap limits how many PODS the roster can hold (raise it via rare research/policy)
     (def.kind === 'exotic' ? r.exotics : r.units).push(id);
     Game.save.persist && Game.save.persist();
     try { Game.events && Game.events.emit('roster.changed', { id }); } catch (e) {}
@@ -111,5 +116,5 @@
     return avail.slice(0, Math.min(n, avail.length));
   }
 
-  Game.roster = { ensure, units, exotics, has, add, reset, toOpts, offer, POOL, byId, info, leveledStats, levelOf, bankUnits, podCap, addPodCap, POD_CAP_BASE, POD_CAP_MAX };
+  Game.roster = { ensure, units, exotics, has, add, reset, toOpts, offer, POOL, byId, info, isPod, podCount, roomForPod, leveledStats, levelOf, bankUnits, podCap, addPodCap, POD_CAP_BASE, POD_CAP_MAX };
 })();
