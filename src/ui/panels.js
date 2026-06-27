@@ -2518,6 +2518,12 @@
     const pips = document.getElementById('m-hud-pips');
     if (pips && Game.constraints) {
       const out = [];
+      // LOCKED OUT (thermal shutdown / breaker trip) — the most urgent state, pinned FIRST in the
+      // always-on top bar so you see it without opening VITALS.
+      if (Game.constraints.isLockedOut && Game.constraints.isLockedOut()) {
+        const lsec = Math.ceil((Game.constraints.lockoutRemainingTicks ? Game.constraints.lockoutRemainingTicks() : 0) / (Game.tick.HZ || 4));
+        out.push(`<span class="m-pip crit lockout" data-jump="vitals-panel">⛔ LOCKED ${lsec}s</span>`);
+      }
       const exp = Math.round(s.exposure || 0);
       if (exp > 0) out.push(`<span class="m-pip ${exp >= 50 ? 'crit' : 'warn'}" data-jump="exposure-panel">⚠ ${exp}</span>`);
       // HEAT (toward thermal shutdown)

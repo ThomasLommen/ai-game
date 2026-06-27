@@ -61,6 +61,8 @@
 .m-pip.warm { color: var(--amber); }
 .m-pip.warn { color: #ff9a3c; text-shadow: 0 0 6px rgba(255,154,60,.5); }
 .m-pip.crit { color: var(--err); text-shadow: 0 0 8px rgba(255,80,80,.7); animation: pip-throb .7s ease-in-out infinite; }
+/* LOCKED-OUT pip — a hard, unmistakable badge (fuse tripped / thermal shutdown) */
+.m-pip.lockout { color: #fff; background: var(--err); padding: 1px 6px; border-radius: 3px; font-weight: bold; text-shadow: none; box-shadow: 0 0 10px rgba(255,80,80,.8); }
 @keyframes pip-throb { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 
 /* ── scrolling tabbed view ── */

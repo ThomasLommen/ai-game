@@ -195,6 +195,7 @@
     r.active = node.id;
     r.activeCost = ptsCost || 0;
     Game.events.emit('terminal.print', { lines: [`> researching: ${node.label} (${threads} thr).`], cls: 'dim' });
+    if (Game.activity) Game.activity.log(`Researching: ${node.label} (${threads} threads).`, { kind: 'research' });   // distinct success line in RECENT
     Game.events.emit('research.changed', {});
     Game.save.persist();
   }
@@ -219,13 +220,14 @@
     const r = ensureState();
     const node = Game.research.getNode(nodeId);
     if (!node || r.hand.indexOf(nodeId) < 0) return false;
-    if (r.active) { Game.events.emit('research.rejected', { reason: 'busy' }); return false; }
+    const L = node.label;
+    if (r.active) { Game.events.emit('research.rejected', { reason: 'busy', label: L }); return false; }
     const threads = node.threads || 2;
-    if (freeThreads() < threads) { Game.events.emit('research.rejected', { reason: 'threads', need: threads }); return false; }
-    if (Game.constraints && Game.constraints.isLockedOut()) { Game.events.emit('research.rejected', { reason: 'lockout' }); return false; }
+    if (freeThreads() < threads) { Game.events.emit('research.rejected', { reason: 'threads', need: threads, label: L }); return false; }
+    if (Game.constraints && Game.constraints.isLockedOut()) { Game.events.emit('research.rejected', { reason: 'lockout', label: L }); return false; }
     const free = nodeId === r.freeId;        // the per-hand jackpot pick is free; everything else costs points
     const cost = pointCost(node);
-    if (!free && points() < cost) { Game.events.emit('research.rejected', { reason: 'points', need: cost }); return false; }
+    if (!free && points() < cost) { Game.events.emit('research.rejected', { reason: 'points', need: cost, label: L }); return false; }
     if (!free) r.ptsSpent += cost;
     r.hand = [];                              // consume the hand; a fresh one rolls when this install resolves
     launchResearchTask(node, free ? 0 : cost);

@@ -562,6 +562,13 @@
       Game.panels.renderInsight();
       Game.panels.renderCash();
     }));
+    // A FAILED draft must read as a failure, not a success — surface WHY (distinct err line),
+    // so it never looks like the research cleared.
+    Game.events.on('research.rejected', d => {
+      const why = { threads: `need ${d && d.need} free threads`, points: `need ${d && d.need} more points`, lockout: 'the rig is locked out', busy: 'a research is already running', insight: `need ${d && d.need} Coherence` }[d && d.reason] || 'not available';
+      const lbl = (d && d.label) ? `${d.label}` : 'research';
+      if (Game.activity) Game.activity.log(`Couldn't research ${lbl} — ${why}.`, { cls: 'err', kind: 'warn' });
+    });
 
     // Upgrading a method changes its rate + thread cost (which moves heat/power).
     Game.events.on('method.upgraded', () => {
