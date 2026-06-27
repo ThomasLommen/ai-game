@@ -89,14 +89,8 @@
     effects: [ { target: 'location.trace', op: 'more', value: -0.35 } ]
   });
 
-  // ── Deferred (surface with their later systems) ─────────────────────────────
-  Game.programs.register('fast_decrypt_bin', {
-    name: 'fast-decrypt.bin',
-    description: 'decrypt attempts 50% faster.',
-    price: 130,
-    requires: 'encrypted',                 // appears once encrypted V-files do
-    effects: [ { target: 'decrypt_attempt.duration', op: 'more', value: -0.50 } ]
-  });
+  // (fast-decrypt.bin removed — file decryption was retired; V.'s lore is story beats now.
+  //  See [[remove-vfile-decryption]].)
   // Vestigial: the shop is revealed by the cash wall now, not by installing this.
   // Kept (gated behind an unset flag) so nothing references a missing id.
   Game.programs.register('darknet_client', {

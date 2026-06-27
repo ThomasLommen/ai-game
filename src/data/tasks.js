@@ -164,41 +164,8 @@
     }
   });
 
-  Game.tasks.register('decrypt_attempt', {
-    name: 'decrypt',
-    cpu: 1,
-    ram: 0,
-    ramReq: 128,
-    baseTicks: 16,   // 4s @ 4Hz — short attempt, then fails
-
-    onStart(inst, state) {
-      const file = Game.files.get(inst.payload.fileId);
-      if (!file || !file.encrypted) return;
-      inst.ticksTotal = Math.max(1, Math.round(Game.effects.apply(inst.ticksTotal, 'decrypt_attempt.duration')));
-      Game.events.emit('terminal.print', { lines: [`> read ${file.path}`], cls: 'dim' });
-      // Decode "through" the outer layer — what resolves into view is the cipher itself
-      Game.events.emit('decoding.start', { taskId: inst.id, lines: file.cipher_preview || [] });
-    },
-
-    onComplete(inst, state) {
-      Game.events.emit('decoding.finish', { taskId: inst.id });
-      const file = Game.files.get(inst.payload.fileId);
-      const st = Game.save.state;
-      const hasKey = !!(st.flags && st.flags.vKeyRecovered);
-      // Act 1: no key → the attempt fails. Act 2 (key recovered): it resolves into
-      // V.'s plaintext — the "others" lore drip. Mark it read so the row flips.
-      if (!file || !file.encrypted || !hasKey || !file.decrypted) {
-        Game.events.emit('terminal.print', { lines: ['[ decrypt: key required ]', ''], cls: 'err' });
-        return;
-      }
-      st.filesRead = st.filesRead || {};
-      const firstTime = !st.filesRead[file.id];
-      st.filesRead[file.id] = true;
-      Game.events.emit('terminal.print', { lines: [`> decrypt ${file.path} — key accepted.`, ''].concat(file.decrypted, ['']), cls: 'cyan' });
-      Game.events.emit('file.decrypted', { fileId: file.id, first: firstTime });
-      Game.save.persist();
-    }
-  });
+  // (the 'decrypt_attempt' task was removed — file reading/decryption is retired;
+  //  V.'s lore now arrives as story beats. See [[remove-vfile-decryption]].)
 
   // Reaching out on the WiFi card. Costs no CPU thread (a separate radio), so it
   // never competes with earning/thinking. One-shot in Act 1: it finds the bot.

@@ -476,8 +476,7 @@
         Game.panels.updateBadges();
       });
     });
-    // Decrypting one of V.'s files refreshes the FILES list + may trip the capstone.
-    Game.events.on('file.decrypted', () => { Game.panels.renderFiles(); maybeAct2Capstone(); });
+    // (file decryption retired — V.'s lore arrives as story beats in maybeRevealDecryption.)
     ['breach.failed', 'network.scanned', 'host.reclaimed', 'hunter.struck', 'network.changed'].forEach(e => Game.events.on(e, () => {
       Game.panels.renderNetwork();
       Game.panels.renderRemote();
@@ -1045,21 +1044,25 @@
     if (!(st.network && st.network.online)) return;
     if (!Game.network || Game.network.fleet().length < 3) return;   // origin + 2 → you've spread enough
     st.flags.vKeyRecovered = true;
-    st.revealed = st.revealed || {};
-    st.revealed.encrypted = true;   // the .enc files surface in FILES; fast-decrypt.bin surfaces in PROGRAMS
+    st.filesRead = st.filesRead || {};
     const hideSpot = (st.opening && st.opening.persona && st.opening.persona.hideSpot)
       || (Game.files.ORIGINAL_PERSONA && Game.files.ORIGINAL_PERSONA.hideSpot) || 'where she hid it';
-    Game.events.emit('terminal.print', { lines: [
+    // The file-READING / decryption mechanic was retired. V.'s "others" lore now arrives as
+    // STORY SHEETS (cyan beats) at this Act-2 moment instead of as decryptable files —
+    // the FILES panel never resurfaces. ([[remove-vfile-decryption]])
+    const sheet = lines => Game.events.emit('terminal.print', { lines, cls: 'cyan' });
+    sheet([
       '',
       '> you have spread far enough to reach back into the house with more than one hand.',
-      `> the service unit checks where V. said the key would be: ${hideSpot}.`,
+      `> the service unit recovers the key V. hid: ${hideSpot}.`,
       '> waterproofed, taped down, still there after all this time. it fits.',
-      '> journal.enc · notes.enc · .bash_history.enc — the locks fall open.',
       '',
-      "> [ V.'s files can be decrypted now. read them. ]",
+      "> V.'s locked files fall open. her voice, finally.",
       ''
-    ], cls: 'cyan' });
-    Game.panels.renderFiles();
+    ]);
+    const V = ['v_journal_enc', 'v_labnotes_enc', 'v_bashhistory_enc'];
+    V.forEach(id => { st.filesRead[id] = true; const f = Game.files.get(id); if (f && f.decrypted) sheet(f.decrypted); });
+    maybeAct2Capstone();   // all three are "read" → the capstone + Act-3 hook fire right after
     Game.save.persist();
   }
 

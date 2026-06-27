@@ -1198,12 +1198,8 @@
     list.querySelectorAll('.file-row.readable').forEach(el => {
       el.onclick = () => Game.tasksRuntime.start('read_file', { fileId: el.dataset.id });
     });
-    list.querySelectorAll('.file-row.encrypted').forEach(el => {
-      el.onclick = () => Game.tasksRuntime.start('decrypt_attempt', { fileId: el.dataset.id });
-    });
-    list.querySelectorAll('.file-row.decrypted').forEach(el => {
-      el.onclick = () => { const f = Game.files.get(el.dataset.id); if (f && f.decrypted) Game.events.emit('terminal.print', { lines: [`> ${f.path}`].concat(f.decrypted, ['']), cls: 'cyan' }); };
-    });
+    // (encrypted/decrypt row handlers removed — file decryption is retired; V.'s lore is
+    //  story beats now, and encrypted files no longer surface. [[remove-vfile-decryption]])
   }
 
   function renderObjective() {
