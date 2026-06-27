@@ -19,7 +19,7 @@
   // ── tuning knobs (balance-pass later) ──────────────────────────────────────
   const STACK_STEP   = 0.12;   // each off-theme pick compounds others' point-cost
   const STACK_CAP    = 3.0;    // ceiling on the stacking multiplier
-  const BASE_PTS     = { 1: 2, 2: 3, 3: 5, 4: 8 };   // point-cost by tier (CHANGERS pay a ×1.5 premium on top)
+  const BASE_PTS     = { 1: 1, 2: 2, 3: 3, 4: 5 };   // point-cost by tier — starts at 1 (CHANGERS pay a ×1.5 premium on top)
   const PTS_BASE     = 12, PTS_EXP = 0.62;     // Coherence→points curve (sublinear)
   const HAND_MIN     = 4, HAND_MAX = 5;        // normal roll size
   const RARE_HAND    = 3;                       // hand size when a rare prize is present
