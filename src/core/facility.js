@@ -7,8 +7,8 @@
   // YOU), and the flee — your consciousness + every resource dragged to the new location →
   // Act 4: THE FRONT. The buy is owned here; main.js runs the cinematic on 'facility.secured'.
   // DOM-free (migration-safe). See [[act3_design]] (slice 3). PRICE is a tunable balance knob
-  // — set high so the later acts pace out (a real save, not a quick buy).
-  const PRICE = 25000;
+  // — a reachable save (lowered from 25000 → 5000 so the escape isn't a long flat grind).
+  const PRICE = 5000;
 
   function ensure() {
     const s = Game.save.state;
