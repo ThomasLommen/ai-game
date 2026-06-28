@@ -1455,7 +1455,33 @@ h2 {
 .rtree-active .ra-secs { font-size: 11px; color: var(--amber-dim); white-space: nowrap; }
 .rtree-active .ra-abort { font-size: 11px; color: var(--err); cursor: pointer; white-space: nowrap; }
 
-/* ─── the VISUAL SKILL-TREE picker ─── */
+/* ─── RESEARCH: investment LANES + draft CARDS ([[research-tree-rework-design]] v2) ─── */
+.res-sec { font-size: 9.5px; letter-spacing: 1.5px; color: var(--amber-mid); margin: 4px 0 8px; }
+.res-sec.res-draft-head { border-top: 1px solid var(--amber-faint); padding-top: 12px; margin-top: 14px; }
+#res-lanes { display: flex; gap: 5px; align-items: flex-start; }
+.res-lane { flex: 1; min-width: 0; }
+.rl-head { font-size: 8.5px; letter-spacing: .5px; text-align: center; padding-bottom: 3px; border-bottom: 2px solid; }
+.rl-head .rl-n { color: var(--amber-faint); }
+.rl-bar { height: 3px; background: rgba(255,176,0,0.1); margin: 4px 0 6px; }
+.rl-bar i { display: block; height: 100%; transition: width .3s; }
+.rl-chip { font-size: 8px; text-align: center; border: 1px solid; border-radius: 3px; padding: 5px 1px; line-height: 1.15; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
+#res-cards { display: flex; flex-direction: column; gap: 9px; }
+.res-card { border: 1px solid var(--amber); border-left-width: 4px; border-radius: 4px; padding: 10px 12px; background: rgba(255,176,0,0.03); }
+.res-card.exo { box-shadow: 0 0 14px -4px #c79bff88; }
+.rc-top { display: flex; justify-content: space-between; align-items: baseline; }
+.rc-tag { font-size: 8.5px; letter-spacing: 1px; }
+.rc-lane { font-size: 8.5px; color: #7a5e2e; }
+.rc-name { font-size: 17px; color: #ffe9b0; margin: 3px 0 2px; }
+.rc-desc { font-size: 11px; color: var(--amber-dim); line-height: 1.35; }
+.rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.rc-cost { font-size: 10px; color: var(--amber-faint); }
+.rc-draft { font-family: var(--mono); font-size: 11px; border: 1px solid var(--amber); border-radius: 3px; padding: 3px 14px; background: none; cursor: pointer; }
+.rc-draft.off { opacity: .65; cursor: not-allowed; font-size: 10px; }
+#res-reroll { text-align: center; margin-top: 13px; }
+.res-reroll-btn { display: inline-block; font-size: 11px; color: var(--amber-mid); cursor: pointer; }
+.res-reroll-btn.used { color: var(--amber-faint); cursor: default; }
+
+/* ─── the VISUAL SKILL-TREE picker (retired — replaced by lanes+cards above) ─── */
 #rtree-wrap {
   position: relative; width: 100%; height: 62vh; min-height: 340px; margin-top: 10px;
   border: 1px solid var(--amber-faint); background: #080605; overflow: hidden;

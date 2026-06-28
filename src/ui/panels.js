@@ -906,39 +906,50 @@
   const RROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' };
   let resSig = null;    // signature of the last full rebuild (scroll-safe per-frame diffing)
 
+  // theme palette for the research lanes + cards ([[research-tree-rework-design]] v2: lanes+cards)
+  const RES_TH = { cognition: '#c79bff', compute: '#ffb000', hardware: '#ff9a4a', network: '#49d6ff', stealth: '#79e08c' };
+  let _resSig = null;
+  function resEsc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+  // one draft card (a node in the current 1-of-3 hand) — big + detailed (the make-or-break pick)
+  function resCard(h, free) {
+    const n = h.node, theme = n.theme || 'compute', col = RES_TH[theme] || '#ffb000';
+    const exo = !!(n.exotic || n.changerNode), acc = (h.free || h.changer || exo) ? '#c79bff' : col;
+    const needThr = n.threads || 2, cant = !h.affordable || free < needThr;
+    const why = !h.affordable ? `need ${h.cost} pts` : (free < needThr ? `need ${needThr} threads` : '');
+    const ribbon = h.free ? '⚡ FREE DROP' : (h.rare ? 'RARE · A TIER EARLY' : (exo ? '⚡ EXOTIC' : `${theme.toUpperCase()} · TIER ${n.tier}`));
+    const cost = h.free ? 'FREE' : `◆ ${h.cost} pts · ~${needThr} thr`;
+    return `<div class="res-card${exo ? ' exo' : ''}" style="border-color:${acc};border-left-color:${acc}">`
+      + `<div class="rc-top"><span class="rc-tag" style="color:${acc}">${ribbon}</span><span class="rc-lane">↳ deepens ${theme.toUpperCase()}</span></div>`
+      + `<div class="rc-name">${resEsc(n.label)}${exo ? ' ⚡' : ''}</div>`
+      + `<div class="rc-desc">${resEsc(n.desc)}</div>`
+      + `<div class="rc-foot"><span class="rc-cost">${cost}</span><button class="rc-draft${cant ? ' off' : ''}" data-draft="${n.id}" style="border-color:${acc};color:${acc}">${cant ? resEsc(why) : '[ DRAFT ]'}</button></div>`
+      + `</div>`;
+  }
   function renderResearch() {
     const list = document.getElementById('research-list');
     if (!list) return;
     const RR = Game.researchRuntime;
     if (!RR || !RR.handNodes) return;
-    const R = Game.research;
-    const s = Game.save.state;
-    const HZ = Game.tick.HZ || 4;
+    const R = Game.research, s = Game.save.state, HZ = Game.tick.HZ || 4;
     RR.maybeRollHand();                       // ensure a hand exists when idle (load / first open)
     const activeId = (s.research && s.research.active) || null;
-    const free = RR.freeThreads();
-    const pts = RR.points();
-    const nextAt = RR.nextPointAt();
-    const have = Math.floor(s.resources.insight || 0);
-    const themes = (s.research && s.research.themes) || [];
+    const free = RR.freeThreads(), pts = RR.points(), nextAt = RR.nextPointAt();
 
     const status = document.getElementById('research-status');
     if (status) status.textContent = `◆ ${pts} point${pts === 1 ? '' : 's'} · next at ${nextAt} Coherence · ${free} free thread${free === 1 ? '' : 's'}`;
 
-    // ── build the static SHELL once: active strip · specialization strip · the TREE canvas ──
-    if (!document.getElementById('rtree-canvas')) {
+    // build the static SHELL once: investment LANES + active strip + draft CARDS + reroll
+    if (!document.getElementById('res-lanes')) {
       list.innerHTML =
-        `<div class="rtree-active" id="rtree-active" hidden><div class="ra-main"><div class="ra-name" id="rtree-aname"></div><div class="ra-bar"><div class="ra-bar-fill" id="rtree-bar-fill"></div></div></div><div class="ra-secs"><span id="rtree-secs">0</span>s</div><div class="ra-abort" id="rtree-abort">[abort]</div></div>`
-        + `<div class="draft-ctx" id="rtree-spec"></div>`
-        + `<div id="rtree-wrap"><canvas id="rtree-canvas"></canvas><div id="rtree-tip" hidden></div><button id="rtree-recenter" title="recenter">⊙</button></div>`;
-      const rc = document.getElementById('rtree-recenter'); if (rc) rc.onclick = () => Game.researchTree && Game.researchTree.recenter();
+        `<div class="res-sec">YOUR INVESTMENT</div><div id="res-lanes"></div>`
+        + `<div class="res-sec res-draft-head" id="res-draft-head">LEVEL UP — INTEGRATE ONE</div>`
+        + `<div class="rtree-active" id="res-active" hidden><div class="ra-main"><div class="ra-name" id="rtree-aname"></div><div class="ra-bar"><div class="ra-bar-fill" id="rtree-bar-fill"></div></div></div><div class="ra-secs"><span id="rtree-secs">0</span>s</div><div class="ra-abort" id="rtree-abort">[abort]</div></div>`
+        + `<div id="res-cards"></div><div id="res-reroll"></div>`;
       const ab = document.getElementById('rtree-abort'); if (ab) ab.onclick = () => { const t = (Game.save.state.tasks.active || []).find(x => x.defId === 'research'); if (t) Game.tasksRuntime.cancel(t.id); };
     }
-    // the tree draws itself (its own rAF loop reads state live) — just keep it mounted
-    if (Game.researchTree) Game.researchTree.mount(document.getElementById('rtree-canvas'), document.getElementById('rtree-wrap'), document.getElementById('rtree-tip'));
 
-    // ── active-research strip (while a pick is installing) — the tree shows the rest ──
-    const act = document.getElementById('rtree-active');
+    // active-research strip (countdown) — refreshed every tick while a pick installs
+    const act = document.getElementById('res-active');
     if (act) {
       if (activeId) {
         const node = R.getNode(activeId);
@@ -953,19 +964,43 @@
       } else act.hidden = true;
     }
 
-    // ── specialization strip (theme investment) + the free reroll ──
-    const spec = document.getElementById('rtree-spec');
-    if (spec) {
-      const lanePool = R.themesInPool().slice();
-      if (s.revealed && s.revealed.network && lanePool.indexOf('network') < 0 && RR.themeCount('network') > 0) lanePool.push('network');
-      const maxC = Math.max(1, ...lanePool.map(t => RR.themeCount(t)));
-      const lanes = lanePool.map(t => {
-        const c = RR.themeCount(t), seeded = themes.indexOf(t) >= 0;
-        return `<span class="lean ${seeded ? 'seed' : ''}">${t} <span class="bar ${c === 0 ? 'lo' : ''}"><i style="width:${Math.round(c / maxC * 100)}%"></i></span></span>`;
-      }).join('');
-      const rerolled = !!(s.research && s.research.rerolled);
-      spec.innerHTML = `<span class="dx-label">SPECIALIZATION</span>${lanes}<span class="dx-skip ${rerolled || activeId ? 'used' : ''}" id="rtree-skip">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</span>`;
-      const skip = document.getElementById('rtree-skip'); if (skip && !rerolled && !activeId) skip.onclick = () => RR.skipHand();
+    // LANES + CARDS rebuild only when the state actually changes (this fn runs every tick)
+    const rerolled = !!(s.research && s.research.rerolled);
+    const hand = RR.handNodes();
+    const sig = (RR.researchedIds ? RR.researchedIds().length : 0) + '|' + hand.map(h => h.node.id + (h.affordable ? 'a' : '')).join(',') + '|' + activeId + '|' + rerolled + '|' + pts + '|' + free;
+    if (sig === _resSig) return;
+    _resSig = sig;
+
+    // ── YOUR INVESTMENT: a theme lane per column (depth bar + count + your researched chips) ──
+    const order = ['cognition', 'compute', 'hardware', 'network', 'stealth'];
+    const researched = (RR.researchedIds ? RR.researchedIds() : []).map(id => R.getNode(id)).filter(Boolean);
+    const pool = R.themesInPool ? R.themesInPool() : [];
+    const present = order.filter(t => researched.some(n => n.theme === t) || pool.indexOf(t) >= 0 || (t === 'network' && s.revealed && s.revealed.network));
+    const maxC = Math.max(1, ...present.map(t => RR.themeCount(t)));
+    const lanesEl = document.getElementById('res-lanes');
+    if (lanesEl) lanesEl.innerHTML = present.map(t => {
+      const col = RES_TH[t] || '#ffb000', cnt = RR.themeCount(t);
+      const chips = researched.filter(n => n.theme === t).map(n => `<div class="rl-chip" style="color:${col};border-color:${col}66;background:${col}1f">${resEsc(n.label)}</div>`).join('');
+      const depth = Math.round(Math.min(1, cnt / maxC) * 100);
+      return `<div class="res-lane"><div class="rl-head" style="color:${col};border-color:${col}">${t.slice(0, 4).toUpperCase()} <span class="rl-n">·${cnt}</span></div><div class="rl-bar"><i style="width:${depth}%;background:${col}"></i></div>${chips}</div>`;
+    }).join('');
+
+    // ── the draft: 3 big cards while a hand is pending; hidden while a pick installs ──
+    const head = document.getElementById('res-draft-head'), cardsEl = document.getElementById('res-cards'), rerollEl = document.getElementById('res-reroll');
+    if (activeId) {
+      if (head) head.textContent = 'RESEARCHING…';
+      if (cardsEl) cardsEl.innerHTML = '';
+      if (rerollEl) rerollEl.innerHTML = '';
+    } else {
+      if (head) head.textContent = 'LEVEL UP — INTEGRATE ONE';
+      if (cardsEl) {
+        cardsEl.innerHTML = hand.map(h => resCard(h, free)).join('');
+        cardsEl.querySelectorAll('.rc-draft:not(.off)').forEach(b => b.onclick = () => { RR.draft(b.dataset.draft); });
+      }
+      if (rerollEl) {
+        rerollEl.innerHTML = `<div class="res-reroll-btn${rerolled ? ' used' : ''}" id="res-reroll-b">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</div>`;
+        const rb = document.getElementById('res-reroll-b'); if (rb && !rerolled) rb.onclick = () => { RR.skipHand(); };
+      }
     }
   }
 
