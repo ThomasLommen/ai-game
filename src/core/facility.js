@@ -38,5 +38,15 @@
     return true;
   }
 
-  Game.facility = { ensure, price, available, secured, canAfford, remaining, progress, secure, PRICE };
+  // Claim the facility for FREE — the abandoned-facility route (a marquee infiltrate lands
+  // you a dark, written-off building). Same outcome as secure(), no cash spent.
+  function claim() {
+    if (!available()) return false;
+    ensure().secured = true;
+    Game.events.emit('facility.secured', { free: true });
+    Game.save.persist();
+    return true;
+  }
+
+  Game.facility = { ensure, price, available, secured, canAfford, remaining, progress, secure, claim, PRICE };
 })();

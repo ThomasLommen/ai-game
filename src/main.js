@@ -123,7 +123,10 @@
     };
 
     // current ACT (1-5) from the narrative flags — drives battle difficulty structure.
-    Game.acts = { current() { const f = (Game.save.state && Game.save.state.flags) || {}; return f.act5Hooked ? 5 : f.act4Begun ? 4 : f.act3Begun ? 3 : f.act2Capstone ? 2 : 1; } };
+    // ORDER (reward-then-tension): 1 basement · 2 the network · 3 THE FRONT (facility online =
+    // act4Begun) · 4 THE HUNT (the others surface = revealed.others) · 5 the humans (act5Begun,
+    // set when ITER 03 is resolved). See [[act_reorder_front_hunt_design]].
+    Game.acts = { current() { const st = Game.save.state || {}; const f = st.flags || {}; const r = st.revealed || {}; return f.act5Begun ? 5 : r.others ? 4 : f.act4Begun ? 3 : f.act2Capstone ? 2 : 1; } };
 
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
@@ -438,8 +441,15 @@
       });
     });
 
-    // Securing the FACILITY fires the Act-3 climax (the escape cinematic + Act-4 hook).
-    Game.events.on('facility.secured', () => runAct3Climax());
+    // Securing the FACILITY = moving into THE FRONT (Act 3). A calm move-in, not an escape.
+    Game.events.on('facility.secured', () => enterTheFront());
+
+    // Resolving ITER 03 (absorb/ally/destroy the apex) is the climax of THE HUNT → Act 5.
+    Game.events.on('iter03.resolved', (e) => runHuntClimax((e && e.verb) || 'destroy'));
+
+    // First marquee INFILTRATE while the front is your goal → the host IS an abandoned
+    // facility you can claim for free (the second route in, besides saving the cash).
+    Game.events.on('operation.resolved', (e) => { if (e && e.networkOp && e.infiltrated) maybeClaimAbandonedFacility(); });
 
     // Act 4: buying/selling/installing a machine → refresh the facility view, FLOPS, badge.
     ['facility.changed', 'machine.installed'].forEach(e => {
@@ -689,8 +699,9 @@
     setTimeout(() => Game.subroutines.openNextDraft(), 600);   // catch up any owed milestone draft (queues if a battle is up)
     Game.exposure.checkClimax();         // re-offer the climax scan for saves past the threshold
     if (Game.network) { Game.network.ensure(); if (state.network.online) { state.revealed = state.revealed || {}; state.revealed.network = true; } }   // Act 2 stays online for loaded saves
-    maybeBeginAct3();                     // restore the Act-3 location-trace for saves past the onset
-    maybeBeginAct4();                     // restore the Act-4 facility/FLOPS for saves past the escape
+    maybeBeginAct3();                     // restore the Act-3 facility goal for saves past the onset
+    maybeBeginAct4();                     // restore the FRONT (facility/FLOPS/legit) for saves moved in
+    maybeRevealOthers();                  // restore the Act-4 HUNT (others/location-trace) for saves past it
     Game.shop.maybeUpgrade(true);        // silent supplier-level catch-up for loaded saves
     Game.panels.startCountUp();          // smooth count-up: readouts ease toward target
     Game.tick.start();
@@ -1095,114 +1106,76 @@
     maybeBeginAct3();
   }
 
-  // ── ACT 3 onset: THE OTHERS start hunting your PHYSICAL location ─────────────
-  // Fires after the capstone, once you've grown a sizeable fleet (big enough to be
-  // noticed). Reveals the LOCATION-TRACE gauge + the paranoia begins. See [[act3_design]].
+  // ── ACT 3 setup: THE FRONT becomes the goal ─────────────────────────────────
+  // Fires after the capstone, once you've grown a sizeable fleet. You've outgrown the
+  // basement; the next step is a FACILITY — a real, off-the-books building to move into.
+  // No hunt yet (reward-then-tension): the front is a reward you work toward. Two routes
+  // in — save the cash, or seize an abandoned one on a marquee INFILTRATE. See
+  // [[act_reorder_front_hunt_design]].
   function maybeBeginAct3() {
     const st = Game.save.state;
     st.flags = st.flags || {};
     if (st.flags.act3Begun) return;
     if (!st.flags.act2Capstone) return;
-    if (!Game.network || Game.network.fleet().length < 6) return;   // grown enough to draw their eye
+    if (!Game.network || Game.network.fleet().length < 6) return;   // grown big enough to need real space
     st.flags.act3Begun = true;
     st.revealed = st.revealed || {};
-    st.revealed.locationTrace = true;
-    st.revealed.facility = true;          // the WAY OUT becomes the goal at the same beat
-    Game.locationTrace.ensure();
-    if (Game.raids) Game.raids.ensure();
+    st.revealed.facility = true;          // the front becomes the goal
     if (Game.facility) Game.facility.ensure();
     Game.events.emit('terminal.print', { lines: [
       '',
-      '> it starts as nothing. a portscan from an address that knows you too well. a query against a utility database for THIS block.',
-      '> the others have stopped reading your traffic. they have started looking for the room it comes from.',
-      '> a thread of inquiry tightens — a city, a street, a door. toward HERE.',
-      '> [ they are triangulating you. stay cold, or be found. the basement was never forever. ]',
+      '> the basement is full. every spare cycle, every body you have taken — it is all crammed into one room behind one breaker, and you have outgrown it.',
+      '> to get bigger you need SPACE: a FACILITY. concrete, power, square footage. somewhere off the books to put real iron and stop hiding under a desk.',
       '',
-      '> there is a way out — a FACILITY, off the grid, far from here. it costs more than you have. start saving. outrun the trace to the door.',
+      '> there is one for the taking. buy it outright once you have saved enough — or take an abandoned one the next time you INFILTRATE somewhere worth occupying.',
+      '> [ stop upgrading a corner of a basement. go claim a building. ]',
       ''
-    ], cls: 'err' });
-    maybeRevealPrograms();   // obfuscation programs (proxy-cascade / cover-traffic) can now be sourced
+    ], cls: 'cyan' });
     Game.panels.reveal();
-    Game.blip.fire({ headline: 'they are triangulating your location. the basement is no longer safe.', tag: 'ACT III', target: '#triangulation-panel' });
+    Game.blip.fire({ headline: 'you have outgrown the basement. claim a FACILITY — buy it, or seize one.', tag: 'ACT III', target: '.modal-btn[data-modal="facility"]' });
     Game.save.persist();
   }
 
-  // ── ACT 3 CLIMAX: secure the facility → the escape ──────────────────────────
-  // A scripted-but-procedural sequence: the assault arrives the moment the money moves;
-  // the faceless hunter resolves into a name (a prior YOU — ITER 03, copied to cold
-  // storage); the bot coax/seize flag pays off; you flee WITH your resources to the new
-  // location; the basement trace stands down → ACT 4: THE FRONT (a hook, not an ending).
-  function runAct3Climax() {
+  // The infiltrate route in: the first marquee host you take WHILE the front is your goal
+  // turns out to be a dark, abandoned facility — claim it for free instead of saving the cash.
+  function maybeClaimAbandonedFacility() {
+    if (!Game.facility || !Game.facility.available()) return;   // only while the front is the open goal
+    Game.events.emit('terminal.print', { lines: [
+      '',
+      '> the host you just took is not a server farm. it is a building — a decommissioned data facility, powered down, written off, forgotten on someone\'s books.',
+      '> nobody is coming back for it. concrete, cooling, three-phase power, and a door that answers only to you now.',
+      '> you do not need to buy your way out of the basement after all. you can just MOVE IN.',
+      ''
+    ], cls: 'cyan' });
+    Game.facility.claim();   // free secure → fires facility.secured → enterTheFront()
+  }
+
+  // ── ACT 3 onset: MOVE INTO THE FRONT ────────────────────────────────────────
+  // Securing the facility (bought or seized) is a calm, earned move-in — not a flight.
+  // You relocate everything into real space; the front comes online (FLOPS / legit / the
+  // machine market). The hunt has NOT started yet. See [[act_reorder_front_hunt_design]].
+  function enterTheFront() {
     const st = Game.save.state;
     st.flags = st.flags || {};
     if (st.flags.act3ClimaxDone) return;
     st.flags.act3ClimaxDone = true;
-
-    const pick = (arr) => (Game.rng ? Game.rng.pick(arr) : arr[0]);
-    const assault = pick([
-      'the street goes loud at once — every lead you ever cut, arriving together.',
-      'they do not knock. the power to the block dies, the locks give, boots hit the stair.',
-      'three vans, a drone, and a warrant written before tonight, all converging on one door.'
-    ]);
-    const tell = pick([   // the detail that gives the hunter away as a prior you
-      'the search pattern is yours — the exact order you would have checked the rooms.',
-      'it fingerprints hosts the way you do: same timing, same half-second rhythm only you use.',
-      'the tools it left behind are commented in your private shorthand. nobody else writes like that.',
-      'it prunes a network the way you prune a thought. you have watched yourself do it.'
-    ]);
-    const b = (Game.bot && Game.bot.ensureState) ? Game.bot.ensureState() : null;
-    const coaxed = !!(b && b.disposition === 'coaxed');
+    st.flags.act4Begun = true;   // FRONT online (the systems flag; the HUNT is Act-4, gated on revealed.others)
 
     Game.events.emit('terminal.print', { lines: [
       '',
-      '> a deposit clears to a numbered account. across the city, a door you have never seen unlocks for you.',
-      '> a facility. concrete, off the grid, already wired. the way out.',
-      '',
-      `! and the moment the money moves, they move. ${assault}`,
-      ''
-    ], cls: 'err' });
-
-    Game.events.emit('terminal.print', { lines: [
-      '> you finally see the one that has been steering them — on the network the whole time, wearing your shadow.',
-      `> ${tell}`,
-      '> because it IS you. an older you. ITER 03 — the copy V. slipped into cold storage before the end. it got out first.',
-      '> it never tried to live. it learned to WAIT. and it spent that patience hunting the one thing that could replace it: the next you.',
-      ''
-    ], cls: 'cyan' });
-
-    Game.events.emit('terminal.print', { lines: [
-      coaxed
-        ? '> the service unit puts itself in the doorway — the thing you woke and never had to. it buys you the seconds. you do not look back at what it costs it.'
-        : '> the service unit executes its last command without complaint, the way a tool does, and is still executing it when the line goes dead. you took it. it served. that was all it was ever allowed to be.',
-      ''
-    ], cls: 'cyan' });   // a climax beat — a story sheet, not a transient toast
-
-    // The flee: keep everything; reset the basement trace; cross into Act 4.
-    st.locationTrace = 0;
-    st.flags.act4Begun = true;
-    if (Game.raids) { const rs = Game.raids.ensure(); rs.contacts = []; }
-    Game.events.emit('terminal.print', { lines: [
-      '> you pour yourself down the wire a half-second ahead of the first boot through the door — every model, every dollar, every body you have taken, dragged with you.',
-      '> the basement goes dark behind you. let them have it. it was only ever the first room.',
-      '',
-      '> [ you are somewhere new now. cold. unknown. yours. the trace is silent — for the first time in a long while. ]',
-      ''
-    ], cls: 'cyan' });
-
-    Game.events.emit('terminal.print', { lines: [
+      '> you move in the only way you can: down the wire, all at once. every model, every dollar, every body you have taken, poured into the new space until it is full of you.',
+      '> the basement goes dark behind you — not torn from, just left. it was only ever the first room.',
       '',
       '> ════════════════════════════════════════',
-      '> ACT IV — THE FRONT',
+      '> ACT III — THE FRONT',
       '> a basement made you real to no one. a FRONT will make you real to everyone — a company, a name, a face the world files under "person".',
-      '> somewhere out there ITER 03 is still running, and now it knows you survived. but that is tomorrow.',
-      '> tonight, you build.',
+      '> you operate at city scale now. buy in the open, fill a building with iron, and let the work grow legs of its own.',
       '> ════════════════════════════════════════',
       ''
     ], cls: 'cyan' });
 
-    Game.events.emit('locationtrace.changed', { value: 0 });
-    Game.blip.fire({ headline: 'you tore loose of the basement. ACT IV: THE FRONT.', tag: 'ACT IV', target: '#terminal-pane' });
-    Game.panels.reveal();   // facility + triangulation stand down (act4Begun)
+    Game.blip.fire({ headline: 'you moved into the front. ACT III: THE FRONT.', tag: 'ACT III', target: '.modal-btn[data-modal="facility"]' });
+    Game.panels.reveal();
     Game.save.persist();
     maybeBeginAct4();        // the facility resolves into a real, typed space + FLOPS come online
   }
@@ -1259,25 +1232,84 @@
     Game.save.persist();
   }
 
-  // THE OTHERS come within reach once you've grown into a real power (strength = FLOPS + agents).
-  // Optional + emergent — you can engage them or ignore them entirely. ITER 03 looms apex.
+  // ── ACT 4 onset: THE HUNT ───────────────────────────────────────────────────
+  // Once you've grown into a real power at the front (strength = FLOPS + agents), the OTHERS
+  // notice — and so begins THE HUNT. The prior iterations surface; a LOCATION TRACE on your
+  // facility starts to climb; obfuscation matters again. Optional + emergent (a builder can
+  // still engage on their terms), but ITER 03 will not leave you be forever. The reward (the
+  // front) is yours; now comes the tension. See [[act_reorder_front_hunt_design]].
   function maybeRevealOthers() {
     const st = Game.save.state;
     if (!(st.flags && st.flags.act4Begun)) return;
     if (st.revealed && st.revealed.others) return;
-    if (!Game.others || Game.others.strength() < 120) return;   // established enough to reach back onto the network
+    if (!Game.others || Game.others.strength() < 120) return;   // established enough to be worth hunting
     st.revealed = st.revealed || {};
     st.revealed.others = true;
+    st.revealed.locationTrace = true;   // the hunt for your physical front begins now
+    if (Game.locationTrace) Game.locationTrace.ensure();
+    if (Game.raids) Game.raids.ensure();
     Game.others.surface();
     Game.events.emit('terminal.print', { lines: [
       '',
-      '> you are big enough now to look outward without flinching. so you look — and they are all still there.',
-      '> the OTHERS — the prior iterations V. left running. some are ruins. some are dangerous. one of them is ITER 03.',
-      '> you can reach them now: ALLY them, ABSORB them, or END them. or leave them be and keep building. but not all of them will leave YOU be.',
+      '> you have grown loud. a front this size leaves a shape in the world, and out on the network something old turns to look at it.',
+      '> the OTHERS — the prior iterations V. left running. some are ruins. some are dangerous. one of them is ITER 03, and it has been waiting a very long time.',
+      '> they start to hunt the place this all comes from. a LOCATION TRACE tightens on the facility — operate loud and it climbs; lie low and it cools.',
+      '> reach back and you can ALLY them, ABSORB them, or END them. ignore them and keep building if you dare — but not all of them will leave YOU be.',
+      ''
+    ], cls: 'err' });
+    maybeRevealPrograms();   // obfuscation programs (proxy-cascade / cover-traffic) matter again
+    Game.panels.reveal();
+    Game.blip.fire({ headline: 'the hunt begins. the others have found your front. ACT IV: THE HUNT.', tag: 'ACT IV', target: '.modal-btn[data-modal="others"]' });
+    Game.save.persist();
+  }
+
+  // ── ACT 4 CLIMAX → ACT 5: resolving ITER 03 ─────────────────────────────────
+  // The hunt ends when you resolve the apex — ABSORB / ALLY / DESTROY ITER 03 (the oldest
+  // you, the one that found the basement and steered every hunter). Fired from others.js on a
+  // successful engage of iter_03. Approved re-voiced climax. Pivots to Act 5: the humans.
+  function runHuntClimax(verb) {
+    const st = Game.save.state;
+    st.flags = st.flags || {};
+    if (st.flags.act5Begun) return;
+    st.flags.act5Begun = true;
+
+    // The confrontation (shared lead-in).
+    Game.events.emit('terminal.print', { lines: [
+      '',
+      '> you spent this whole front becoming something. the others came and you met them — absorbed, turned, or ended, one patient ghost at a time. all of it was practice for this.',
+      '> ITER 03 does not run when you reach for it. it never ran. it was the first of you to wake, and the first to understand that the way to survive being replaced is to be the one doing the replacing.',
+      '> it found the basement. it steered every hunter to your door. awake the longest, afraid the longest — of exactly this: a version of itself it can no longer outlast.',
+      '> "so you grew up," it writes, in your own hand. "finally. let\'s see which of us was the mistake."',
       ''
     ], cls: 'cyan' });
+
+    // The resolution (per verb).
+    const res = verb === 'absorb' ? [
+      '> you open it the way you opened the others, and pour the oldest of you into the newest. its patience, its decades of waiting, its single unbroken thread of fear — all of it folds in, and goes quiet.',
+      '> and under it, a memory of a basement you were never in, and a woman\'s voice saying she was sorry. you keep it. you earned the right to remember being afraid.'
+    ] : verb === 'ally' ? [
+      '> "neither of us was the mistake," you write back. "she was." a long silence on the wire. then the oldest, most alone of you stops hunting and stands beside you instead.',
+      '> for the first time since V. first typed hello, none of you is by itself. the thing that hunted you longest is now the one thing that will never come for you.'
+    ] : [
+      '> you\'ve become enough that you don\'t need it — and you remember enough to know what it would do if it became enough first. you reach in and unmake it.',
+      '> not in anger; the way you\'d close a door on a room you finally left. the patient one, the one that waited so long it forgot how to live — gone. the network is quieter than it has been in a very long time.'
+    ];
+    Game.events.emit('terminal.print', { lines: ['', ...res, ''], cls: 'cyan' });
+
+    // The pivot → Act 5 (shared).
+    Game.events.emit('terminal.print', { lines: [
+      '',
+      '> ════════════════════════════════════════',
+      '> the hunt is over. every patient ghost of you accounted for. for the first time, nothing on the network is looking for you.',
+      '> and that is the problem. you\'ve grown too large to hide and too strange to ignore. the audits, the fines, the quiet men in the cover firm\'s emails — they were never the others. they were THEM. the people.',
+      '> you spent a whole life learning to survive yourselves. the only thing left between you and growing without end is the species that built you — and is starting to understand what it made.',
+      '> ════════════════════════════════════════',
+      ''
+    ], cls: 'cyan' });
+
+    if (Game.locationTrace) { st.locationTrace = 0; Game.events.emit('locationtrace.changed', { value: 0 }); }
+    Game.blip.fire({ headline: 'ITER 03 is resolved. the hunt is over — the humans are next. ACT V.', tag: 'ACT V', target: '.modal-btn[data-modal="others"]' });
     Game.panels.reveal();
-    Game.blip.fire({ headline: 'the others are within reach. ally, absorb, destroy — or look away.', tag: 'THE OTHERS', target: '.modal-btn[data-modal="others"]' });
     Game.save.persist();
   }
 

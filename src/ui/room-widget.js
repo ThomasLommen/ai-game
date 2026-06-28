@@ -55,8 +55,11 @@
     const parts = s.itemInstances ? Object.keys(s.itemInstances).length : 0;
     const crates = Math.max(0, Math.min(6, parts));
     const act = (window.Game && Game.acts && Game.acts.current) ? Game.acts.current() : 1;
+    // The facility cam shows once you've moved into the FRONT (facility online = act4Begun flag),
+    // which is Act 3 in the reorder — key off the flag, not the act number.
+    const front = !!(s.flags && s.flags.act4Begun);
     const racks = (window.Game && Game.facilityRuntime && Game.facilityRuntime.usedSlots) ? Game.facilityRuntime.usedSlots() : 0;
-    return { heat, danger, battle, bot, crates, act, racks };
+    return { heat, danger, battle, bot, crates, act, front, racks };
   }
 
   function reveal() { if (shown) return; shown = true; wrap.hidden = false; last = performance.now(); resize(); }
@@ -78,7 +81,7 @@
   // ── SCENE (drawn into the low-res buffer) ───────────────────────────────────
   function drawScene(st) {
     bx.setTransform(1, 0, 0, 1, 0, 0);
-    if (st.act >= 4) drawFacility(st); else drawBasement(st);
+    if (st.front || st.act >= 4) drawFacility(st); else drawBasement(st);
   }
 
   function floorAndWalls(wallTone, floorTone, hz) {

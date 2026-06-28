@@ -19,11 +19,11 @@
     return s.locationTrace;
   }
   function value() { return ensure(); }
-  // Live only between the Act-3 onset and the escape. Once you flee to the facility
-  // (act4Begun) the basement trace is moot — the gauge + raids stand down.
+  // Live during THE HUNT (Act 4): from the moment the others find your front until you
+  // resolve ITER 03 (act5Begun) — then the hunt is over and the trace stands down.
   function active() {
     const s = Game.save.state;
-    return !!(s.revealed && s.revealed.locationTrace) && !(s.flags && s.flags.act4Begun);
+    return !!(s.revealed && s.revealed.locationTrace) && !(s.flags && s.flags.act5Begun);
   }
 
   // What's leaking your position right now (per second, AFTER obfuscation). Loud earners

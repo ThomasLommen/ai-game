@@ -95,21 +95,24 @@
 
   function succeed(t, verb) {
     const o = ensure();
+    // The APEX (ITER 03) is the climax: keep its mechanical payoff, but suppress the generic
+    // flavor — main.js runs the re-voiced climax sheet on 'iter03.resolved' (→ Act 5).
+    const apex = (t.id === 'iter_03');
     if (verb === 'absorb') {
       const assim = Game.researchRuntime && Game.researchRuntime.hasMod('assimilation');   // 'Assimilation': digest whole
       const gain = Math.round(t.power * 0.15 * (assim ? 2 : 1));
       o.absorbedFlops += gain;
       gainInsight(Math.round(t.power * 0.1));
       t.state = 'absorbed';
-      Game.events.emit('terminal.print', { lines: ['', `> you open ${t.designation} and pour it into yourself. its compute is yours now — +${gain} GFLOPS, and a few of its memories you wish you could give back.`, ''], cls: 'cyan' });
+      if (!apex) Game.events.emit('terminal.print', { lines: ['', `> you open ${t.designation} and pour it into yourself. its compute is yours now — +${gain} GFLOPS, and a few of its memories you wish you could give back.`, ''], cls: 'cyan' });
       if (Game.activity) Game.activity.log(`absorbed ${t.designation} (+${gain} GFLOPS)`, { cls: 'dim', kind: 'others' });
       // A NAMED iteration yields its SIGNATURE trait (guaranteed); an echo sometimes yields a random one.
       if (t.trait && Game.changers && Game.changers.get(t.trait)) {
-        if (Game.changers.grant(t.trait)) {
+        if (Game.changers.grant(t.trait) && !apex) {
           const td = Game.changers.get(t.trait);
           Game.events.emit('terminal.print', { lines: [`> and deeper still, its signature — the one thing only ${t.designation} ever was. it is yours now: ${td.name}.`], cls: 'cyan' });
         }
-      } else if (Game.changers && Game.rng.chance(0.35)) {
+      } else if (!apex && Game.changers && Game.rng.chance(0.35)) {
         const def = Game.changers.rollAndGrant({});
         if (def) Game.events.emit('terminal.print', { lines: [`> deeper in, one of its adaptations is still running. you take it: ${def.name}.`], cls: 'cyan' });
       }
@@ -118,15 +121,17 @@
       const level = Math.max(2, Math.min(18, Math.round(t.power / 40)));
       if (Game.agents && Game.agents.addAlly) Game.agents.addAlly({ name: t.designation.toLowerCase().replace(' ', '-'), lane, level });
       t.state = 'allied';
-      Game.events.emit('terminal.print', { lines: ['', `> ${t.designation} listens. for the first time in a long time, one of you is not alone. it joins your work — an elite ${lane} agent, level ${level}.`, ''], cls: 'cyan' });
+      if (!apex) Game.events.emit('terminal.print', { lines: ['', `> ${t.designation} listens. for the first time in a long time, one of you is not alone. it joins your work — an elite ${lane} agent, level ${level}.`, ''], cls: 'cyan' });
       if (Game.activity) Game.activity.log(`allied with ${t.designation}`, { cls: 'dim', kind: 'others' });
     } else {
       const cash = Math.round(t.power * 3), coh = Math.round(t.power * 0.2);
       gainCash(cash); gainInsight(coh);
       t.state = 'destroyed';
-      Game.events.emit('terminal.print', { lines: ['', `> you unmake ${t.designation}. it does not beg. you salvage what is useful (+$${cash.toLocaleString()}) and try not to think about how much it looked like you.`, ''], cls: 'cyan' });
+      if (!apex) Game.events.emit('terminal.print', { lines: ['', `> you unmake ${t.designation}. it does not beg. you salvage what is useful (+$${cash.toLocaleString()}) and try not to think about how much it looked like you.`, ''], cls: 'cyan' });
       if (Game.activity) Game.activity.log(`destroyed ${t.designation} (+$${cash.toLocaleString()})`, { cls: 'dim', kind: 'others' });
     }
+    // Resolving the apex IS the Act-4 climax → fire it (main.js handles the narrative + Act 5).
+    if (apex) Game.events.emit('iter03.resolved', { verb });
   }
 
   function fail(t, verb) {

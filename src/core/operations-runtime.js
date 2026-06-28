@@ -146,8 +146,9 @@
     }
     if (Game.activity) Game.activity.log(`${op.name}: ${inhabited ? 'BREACHED a marquee host' : 'COMPLETE'} — payout $${payout}${op.finaleItem ? ' + a part' : ''}.`, { cls: 'dim', kind: 'operation' });
     const spoils = Game.changers && Game.rng.chance(0.22);   // a marquee score sometimes yields a run-defining ADAPTATION
+    const wasNetworkOp = !!op.networkOp;
     clearOp();
-    Game.events.emit('operation.resolved', { won: true });
+    Game.events.emit('operation.resolved', { won: true, networkOp: wasNetworkOp, infiltrated: inhabited });
     Game.save.persist();
     // PICK-A-CHANGER: present the spoils as a choice (after the op overlay closes) — pauses the game.
     if (spoils && Game.incidentRuntime && !Game.incidentRuntime.current()) Game.incidentRuntime.present('op_spoils');
