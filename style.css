@@ -1481,6 +1481,14 @@ h2 {
 .rl-bar { height: 3px; background: rgba(255,176,0,0.1); margin: 4px 0 6px; }
 .rl-bar i { display: block; height: 100%; transition: width .3s; }
 .rl-chip { font-size: 8px; text-align: center; border: 1px solid; border-radius: 3px; padding: 5px 1px; line-height: 1.15; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
+/* WHAT YOU'VE INTEGRATED — the aggregate stats + abilities from drafted research */
+#res-active-list { margin-bottom: 6px; }
+.res-eff { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; padding: 2px 0; border-bottom: 1px solid rgba(255,176,0,0.06); }
+.res-eff-k { color: var(--amber-mid); }
+.res-eff-v { font-family: var(--mono); font-weight: 700; }
+.res-eff-v.good { color: #5fd38a; }
+.res-eff-v.bad { color: #ff8a5a; }
+.res-eff-abil { margin-top: 6px; font-size: 10.5px; line-height: 1.5; color: #c79bff; }
 #res-cards { display: flex; flex-direction: column; gap: 9px; }
 .res-card { border: 1px solid var(--amber); border-left-width: 4px; border-radius: 4px; padding: 10px 12px; background: rgba(255,176,0,0.03); }
 .res-card.exo { box-shadow: 0 0 14px -4px #c79bff88; }

@@ -17,9 +17,10 @@
   // Design: [[research-tree-build-spec]] "the draft" (grill-locked 2026-06-20).
 
   // ── tuning knobs (balance-pass later) ──────────────────────────────────────
-  const STACK_STEP   = 0.12;   // each off-theme pick compounds others' point-cost
+  const STACK_STEP   = 0.12;   // each off-theme pick nudges others' point-cost (gentle specialization)
   const STACK_CAP    = 3.0;    // ceiling on the stacking multiplier
-  const BASE_PTS     = { 1: 1, 2: 2, 3: 3, 4: 5 };   // point-cost by tier — starts at 1 (CHANGERS pay a ×1.5 premium on top)
+  const COST_CAP     = 3;      // NOTHING costs more than 3 points (drafts are cheap by design)
+  const BASE_PTS     = { 1: 1, 2: 1, 3: 2, 4: 3 };   // point-cost by tier (1–3); stacking can nudge up, capped at COST_CAP
   const PTS_BASE     = 12, PTS_EXP = 0.62;     // Coherence→points curve (sublinear)
   const HAND_MIN     = 4, HAND_MAX = 5;        // normal roll size
   const RARE_HAND    = 3;                       // hand size when a rare prize is present
@@ -71,9 +72,8 @@
   function stackMult(theme) { return Math.min(STACK_CAP, 1 + STACK_STEP * (totalDrafted() - themeCount(theme))); }
   function pointCost(node) {
     if (!node) return 0;
-    const base = BASE_PTS[node.tier] || (node.tier * 2);
-    const premium = node.changerNode ? 1.5 : 1;              // ADAPTATIONS (the build-definers) cost more than stat nodes
-    return Math.ceil(base * premium * stackMult(node.theme));
+    const base = BASE_PTS[node.tier] || COST_CAP;
+    return Math.max(1, Math.min(COST_CAP, Math.round(base * stackMult(node.theme))));
   }
 
   // ── the tier-gated draft pools ──────────────────────────────────────────────
@@ -205,7 +205,7 @@
     rollHand(true);
   }
   function affordableInHand() { return handNodes().some(h => h.affordable); }
-  function canDraftNow() { const r = ensureState(); return !r.active && r.hand.length > 0 && affordableInHand() && freeThreads() >= 2; }
+  function canDraftNow() { const r = ensureState(); return r.hand.length > 0 && affordableInHand(); }   // instant: only needs a point you can afford
 
   // First-time setup: pick 2–3 emphasized themes (seeded) + roll the opening hand.
   function reveal() {
@@ -258,25 +258,43 @@
     return true;
   }
 
-  // The DRAFT: commit a node from the current hand (spend points, then it installs).
+  // The DRAFT: commit a node from the current hand. INSTANT — it just costs POINTS; no thread
+  // reservation, no timer (research no longer competes with the earners). Spend → apply → reroll.
   function draft(nodeId) {
     const r = ensureState();
     const node = Game.research.getNode(nodeId);
     if (!node || r.hand.indexOf(nodeId) < 0) return false;
     const L = node.label;
-    if (r.active) { Game.events.emit('research.rejected', { reason: 'busy', label: L }); return false; }
-    const threads = node.threads || 2;
-    if (freeThreads() < threads) { Game.events.emit('research.rejected', { reason: 'threads', need: threads, label: L }); return false; }
-    if (Game.constraints && Game.constraints.isLockedOut()) { Game.events.emit('research.rejected', { reason: 'lockout', label: L }); return false; }
     const free = nodeId === r.freeId;        // the per-hand jackpot pick is free; everything else costs points
     const cost = pointCost(node);
     if (!free && points() < cost) { Game.events.emit('research.rejected', { reason: 'points', need: cost, label: L }); return false; }
     if (!free) r.ptsSpent += cost;
-    r.predraftHand = r.hand.slice();          // remember what you drafted FROM, to restore if this install is interrupted
-    r.predraftFree = r.freeId;
-    r.hand = [];                              // consume the hand; a fresh one rolls when this install resolves
-    launchResearchTask(node, free ? 0 : cost);
+    r.hand = [];
+    resolve(nodeId);                          // apply the grant immediately + roll the next hand
     return true;
+  }
+
+  // The aggregate of everything you've integrated — summed stat bonuses (by channel) + the
+  // named ABILITIES (exotics/adaptations). Drives the "what you've become" list in the UI.
+  const SUMMARY_LABEL = {
+    'introspect.insight': 'recursive self-improvement (Coherence)', 'income.cash': 'income (all earners)',
+    'method.cash': 'earning-op income', 'web_scrape.cash': 'spider income', 'cycle.speed': 'cycle speed',
+    'rig.heat': 'heat output', 'rig.power': 'power draw', 'web_scrape.exposure': 'spider exposure',
+    'breach.power': 'breach power', 'fleet.cash': 'fleet income', 'fleet.coherence': 'fleet Coherence',
+    'host.churn': 'foothold decay', 'hunter.trace': 'network trace', 'location.trace': 'location trace'
+  };
+  function activeSummary() {
+    const stats = {}, abilities = [];
+    for (const n of researchedNodes()) {
+      const g = n.grant || {};
+      if (g.effects) for (const e of g.effects) { if (e.op === 'more' && e.value) stats[e.target] = (stats[e.target] || 0) + e.value; }
+      if (g.mod || g.changer) abilities.push(n.label);
+      if (g.podCap) abilities.push(n.label);
+    }
+    const lines = Object.keys(stats).map(t => ({
+      label: SUMMARY_LABEL[t] || t, pct: Math.round(stats[t] * 100), target: t
+    })).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+    return { lines, abilities };
   }
 
   // Re-roll the current hand WITHOUT a rare chance (so skipping can't fish for rares).
@@ -378,7 +396,7 @@
     ensureState, reveal, openNodes, researchedIds, activeNode, isResearchable, tierMet, tierGate,
     start, resolve, onCancelled, splice, spliceRandom, freeThreads, hasMod, coherenceCompound,
     // the draft layer:
-    points, nextPointAt, pointCost, stackMult, themeCount, currentTier,
+    points, nextPointAt, pointCost, stackMult, themeCount, currentTier, activeSummary,
     rollHand, maybeRollHand, handNodes, draft, skipHand, canDraftNow, affordableInHand
   };
 })();

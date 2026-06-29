@@ -14,20 +14,20 @@
   const TIER_INSIGHT = { 1: 0, 2: 180, 3: 260, 4: 400 };
 
   // ── Tier 1 — roots (revealed at reveal; the anchored start) ─────────────────
-  register('r_telemetry', { tier: 1, theme: 'compute',  cost: 30, label: 'self-telemetry', desc: 'methods +15% cash', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.15 }] } });
+  register('r_telemetry', { tier: 1, theme: 'compute',  cost: 30, label: 'self-telemetry', desc: 'income +15% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.15 }] } });
   register('r_proxy_net',  { tier: 1, theme: 'stealth',  cost: 30, label: 'proxy-net',     desc: 'spider exposure -25%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.25 }] } });
   register('r_scavenger',  { tier: 1, theme: 'hardware', cost: 30, label: 'scavenger protocols', desc: 'rig runs 12% cooler', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.12 }] } });
   register('r_focus',      { tier: 1, theme: 'cognition',cost: 30, label: 'attentional focus', desc: 'recursive self-improvement +50% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.50 }] } });
 
   // ── Tier 2 ──────────────────────────────────────────────────────────────────
-  register('r_pipelines',  { tier: 2, theme: 'compute',  parents: ['r_telemetry'], cost: 60, label: 'parallel pipelines', desc: 'methods +25% cash · cycles 25% faster', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.25 }, { target: 'cycle.speed', op: 'more', value: 0.25 }] } });
+  register('r_pipelines',  { tier: 2, theme: 'compute',  parents: ['r_telemetry'], cost: 60, label: 'parallel pipelines', desc: 'income +25% · cycles 25% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'cycle.speed', op: 'more', value: 0.25 }] } });
   register('r_overclock_tol', { tier: 2, theme: 'compute', parents: ['r_telemetry'], cost: 65, threads: 3, exotic: true, label: 'overclock tolerance', desc: 'EXOTIC: heat ceiling +8°C before you throttle', grant: { mod: 'heat_tolerance' } });
   register('r_ghost',      { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60, label: 'ghost routing', desc: 'spider exposure -20%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
   register('r_salvage2',   { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60, label: 'efficient salvage', desc: 'power draw -10%', grant: { effects: [{ target: 'rig.power', op: 'more', value: -0.10 }] } });
   register('r_deep_focus', { tier: 2, theme: 'cognition',parents: ['r_focus'], cost: 60, label: 'deep focus', desc: 'recursive self-improvement +40% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.40 }] } });
   // An exclusive FORK (doctrine): pick one — the other walls off.
   register('r_doctrine_quiet', { tier: 2, theme: 'stealth', parents: ['r_proxy_net'], cost: 70, label: 'quiet doctrine', desc: 'spider exposure -30%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] } });
-  register('r_doctrine_loud',  { tier: 2, theme: 'compute', parents: ['r_proxy_net'], cost: 70, label: 'loud doctrine', desc: 'methods +25% cash', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.25 }] } });
+  register('r_doctrine_loud',  { tier: 2, theme: 'compute', parents: ['r_proxy_net'], cost: 70, label: 'loud doctrine', desc: 'income +25% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }] } });
 
   // ── Tier 3 — capstones + exotics ────────────────────────────────────────────
   register('r_hivemind',  { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, threads: 3, exotic: true, label: 'hive-mind', desc: 'EXOTIC: running methods also trickle Coherence', grant: { mod: 'hivemind' } });
@@ -35,17 +35,17 @@
   register('r_savant',    { tier: 3, theme: 'cognition',parents: ['r_deep_focus'], cost: 110, label: 'savant', desc: 'recursive self-improvement +120% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 1.20 }] } });
 
   // ── Extra branches: more variety + richer splice targets (incl. bridges) ────
-  register('r_deadrop',   { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60,  label: 'dead-drop network', desc: 'income +15% (methods + spider)', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.15 }, { target: 'method.cash', op: 'more', value: 0.15 }] } });
-  register('r_grid',      { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60,  label: 'repurposed grid', desc: 'methods +8% cash (salvaged compute)', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.08 }] } });
-  register('r_botmaster', { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, label: 'botmaster', desc: 'methods +15% cash · cycles 20% faster', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.15 }, { target: 'cycle.speed', op: 'more', value: 0.20 }] } });
-  register('r_mole',      { tier: 3, theme: 'stealth',  parents: ['r_ghost'], cost: 110, label: 'inside mole', desc: 'income +20% (methods + spider)', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.20 }, { target: 'method.cash', op: 'more', value: 0.20 }] } });
+  register('r_deadrop',   { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60,  label: 'dead-drop network', desc: 'income +15% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.15 }] } });
+  register('r_grid',      { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60,  label: 'repurposed grid', desc: 'income +8% (salvaged compute)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.08 }] } });
+  register('r_botmaster', { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, label: 'botmaster', desc: 'income +15% · cycles 20% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.15 }, { target: 'cycle.speed', op: 'more', value: 0.20 }] } });
+  register('r_mole',      { tier: 3, theme: 'stealth',  parents: ['r_ghost'], cost: 110, label: 'inside mole', desc: 'income +20% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.20 }] } });
   register('r_overmind',  { tier: 3, theme: 'cognition',parents: ['r_deep_focus'], cost: 120, threads: 3, exotic: true, label: 'overmind', desc: 'EXOTIC: research runs 40% faster', grant: { mod: 'fast_research' } });
 
   // ── Content depth: extra branches + more EXOTIC game-changers (each rewires a
   //    RULE via a hook in the systems — Isaac/Diablo-style, not just a stat) ────
   register('r_thermal_mass',  { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60,  label: 'thermal mass',  desc: 'rig runs 8% cooler', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.08 }] } });
   register('r_working_set',   { tier: 2, theme: 'cognition',parents: ['r_focus'],     cost: 60,  label: 'working set',   desc: 'recursive self-improvement +30% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.30 }] } });
-  register('r_load_balancer', { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, label: 'load balancer', desc: 'methods +18% cash', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.18 }] } });
+  register('r_load_balancer', { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, label: 'load balancer', desc: 'income +18% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.18 }] } });
   register('r_parallel_cores',   { tier: 3, theme: 'compute',  parents: ['r_pipelines'],     cost: 130, threads: 3, exotic: true, label: 'parallel cores',   desc: 'EXOTIC: +1 CPU thread — run one more thing at once', grant: { mod: 'extra_thread' } });
   register('rc_pod_bay',         { tier: 3, theme: 'compute',  parents: ['r_parallel_cores'], cost: 150, threads: 3, exotic: true, label: 'extra pod bay',    desc: 'EXOTIC: +1 POD slot — field one more greater unit at once (permanent)', grant: { podCap: 1 } });
   register('rc_pod_array',       { tier: 4, theme: 'compute',  parents: ['rc_pod_bay'],       cost: 240, threads: 4, exotic: true, label: 'pod array',        desc: 'EXOTIC: +1 POD slot — field yet another greater unit at once (permanent)', grant: { podCap: 1 } });
@@ -105,8 +105,8 @@
   register('rc_liquidation',  { tier: 4, theme: 'compute',  parents: ['rc_vertical'],   cost: 220, threads: 3, exotic: true, changerNode: true, label: 'liquidation engine',  desc: 'ADAPTATION: selling a machine returns 150% of its value', grant: { changer: 'liquidation' } });
 
   // A few more ADAPTATIONS — effect-based "exotic items" (big multi-stat, no new hooks) to grow the pool.
-  register('rc_market_maker', { tier: 2, theme: 'compute',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'market maker',   desc: 'ADAPTATION: +20% method cash · cycles 15% faster', grant: { effects: [{ target: 'method.cash', op: 'more', value: 0.20 }, { target: 'cycle.speed', op: 'more', value: 0.15 }] } });
-  register('rc_dark_pool',    { tier: 2, theme: 'stealth',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'dark pool',      desc: 'ADAPTATION: +25% income (methods + spider) · −20% spider exposure', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.25 }, { target: 'method.cash', op: 'more', value: 0.25 }, { target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
+  register('rc_market_maker', { tier: 2, theme: 'compute',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'market maker',   desc: 'ADAPTATION: +20% income · cycles 15% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.20 }, { target: 'cycle.speed', op: 'more', value: 0.15 }] } });
+  register('rc_dark_pool',    { tier: 2, theme: 'stealth',  changerNode: true, exotic: true, cost: 150, threads: 3, label: 'dark pool',      desc: 'ADAPTATION: +25% income · −20% spider exposure', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
   register('rc_heatsink',     { tier: 2, theme: 'hardware', changerNode: true, exotic: true, cost: 150, threads: 3, label: 'heatsink array', desc: 'ADAPTATION: −25% heat · −15% power draw', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.25 }, { target: 'rig.power', op: 'more', value: -0.15 }] } });
   register('rc_neural_lace',  { tier: 3, theme: 'cognition',changerNode: true, exotic: true, cost: 190, threads: 3, label: 'neural lace',    desc: 'ADAPTATION: +90% recursive self-improvement', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.90 }] } });
   register('rc_kill_switch',  { tier: 3, theme: 'stealth',  changerNode: true, exotic: true, cost: 190, threads: 3, label: 'kill switch',    desc: 'ADAPTATION: −35% location trace · −25% network trace', grant: { effects: [{ target: 'location.trace', op: 'more', value: -0.35 }, { target: 'hunter.trace', op: 'more', value: -0.25 }] } });

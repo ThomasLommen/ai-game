@@ -914,10 +914,10 @@
   function resCard(h, free) {
     const n = h.node, theme = n.theme || 'compute', col = RES_TH[theme] || '#ffb000';
     const exo = !!(n.exotic || n.changerNode), acc = (h.free || h.changer || exo) ? '#c79bff' : col;
-    const needThr = n.threads || 2, cant = !h.affordable || free < needThr;
-    const why = !h.affordable ? `need ${h.cost} pts` : (free < needThr ? `need ${needThr} threads` : '');
+    const cant = !h.affordable;                              // instant: only points gate a draft
+    const why = !h.affordable ? `need ${h.cost} pt${h.cost === 1 ? '' : 's'}` : '';
     const ribbon = h.free ? '⚡ FREE DROP' : (h.rare ? 'RARE · A TIER EARLY' : (exo ? '⚡ EXOTIC' : `${theme.toUpperCase()} · TIER ${n.tier}`));
-    const cost = h.free ? 'FREE' : `◆ ${h.cost} pts · ~${needThr} thr`;
+    const cost = h.free ? 'FREE' : `◆ ${h.cost} pt${h.cost === 1 ? '' : 's'}`;
     return `<div class="res-card${exo ? ' exo' : ''}" style="border-color:${acc};border-left-color:${acc}">`
       + `<div class="rc-top"><span class="rc-tag" style="color:${acc}">${ribbon}</span><span class="rc-lane">↳ deepens ${theme.toUpperCase()}</span></div>`
       + `<div class="rc-name">${resEsc(n.label)}${exo ? ' ⚡' : ''}</div>`
@@ -936,38 +936,21 @@
     const free = RR.freeThreads(), pts = RR.points(), nextAt = RR.nextPointAt();
 
     const status = document.getElementById('research-status');
-    if (status) status.textContent = `◆ ${pts} point${pts === 1 ? '' : 's'} · next at ${nextAt} Coherence · ${free} free thread${free === 1 ? '' : 's'}`;
+    if (status) status.textContent = `◆ ${pts} point${pts === 1 ? '' : 's'} · next at ${nextAt} Coherence · pick one, free`;
 
-    // build the static SHELL once: investment LANES + active strip + draft CARDS + reroll
+    // build the static SHELL once: investment LANES + integrated EFFECTS + draft CARDS + reroll
     if (!document.getElementById('res-lanes')) {
       list.innerHTML =
         `<div class="res-sec">YOUR INVESTMENT</div><div id="res-lanes"></div>`
+        + `<div class="res-sec" id="res-active-head" hidden>WHAT YOU'VE INTEGRATED</div><div id="res-active-list"></div>`
         + `<div class="res-sec res-draft-head" id="res-draft-head">LEVEL UP — INTEGRATE ONE</div>`
-        + `<div class="rtree-active" id="res-active" hidden><div class="ra-main"><div class="ra-name" id="rtree-aname"></div><div class="ra-bar"><div class="ra-bar-fill" id="rtree-bar-fill"></div></div></div><div class="ra-secs"><span id="rtree-secs">0</span>s</div><div class="ra-abort" id="rtree-abort">[abort]</div></div>`
         + `<div id="res-cards"></div><div id="res-reroll"></div>`;
-      const ab = document.getElementById('rtree-abort'); if (ab) ab.onclick = () => { const t = (Game.save.state.tasks.active || []).find(x => x.defId === 'research'); if (t) Game.tasksRuntime.cancel(t.id); };
     }
 
-    // active-research strip (countdown) — refreshed every tick while a pick installs
-    const act = document.getElementById('res-active');
-    if (act) {
-      if (activeId) {
-        const node = R.getNode(activeId);
-        const t = (s.tasks.active || []).find(x => x.defId === 'research');
-        const pct = t && t.ticksTotal > 0 ? Math.min(100, (t.ticksElapsed / t.ticksTotal) * 100) : 0;
-        const left = t ? Math.max(0, Math.ceil((t.ticksTotal - t.ticksElapsed) / HZ)) : 0;
-        const exo = node && (node.exotic || node.changerNode);
-        act.hidden = false; act.classList.toggle('exotic', !!exo);
-        const an = document.getElementById('rtree-aname'); if (an) an.textContent = '▸ researching: ' + (node ? node.label : '?') + (exo ? ' ⚡' : '');
-        const bf = document.getElementById('rtree-bar-fill'); if (bf) bf.style.width = pct + '%';
-        const sx = document.getElementById('rtree-secs'); if (sx) sx.textContent = left;
-      } else act.hidden = true;
-    }
-
-    // LANES + CARDS rebuild only when the state actually changes (this fn runs every tick)
+    // LANES + EFFECTS + CARDS rebuild only when the state actually changes (this fn runs every tick)
     const rerolled = !!(s.research && s.research.rerolled);
     const hand = RR.handNodes();
-    const sig = (RR.researchedIds ? RR.researchedIds().length : 0) + '|' + hand.map(h => h.node.id + (h.affordable ? 'a' : '')).join(',') + '|' + activeId + '|' + rerolled + '|' + pts + '|' + free;
+    const sig = (RR.researchedIds ? RR.researchedIds().length : 0) + '|' + hand.map(h => h.node.id + (h.affordable ? 'a' : '')).join(',') + '|' + rerolled + '|' + pts;
     if (sig === _resSig) return;
     _resSig = sig;
 
@@ -985,22 +968,29 @@
       return `<div class="res-lane"><div class="rl-head" style="color:${col};border-color:${col}">${t.slice(0, 4).toUpperCase()} <span class="rl-n">·${cnt}</span></div><div class="rl-bar"><i style="width:${depth}%;background:${col}"></i></div>${chips}</div>`;
     }).join('');
 
-    // ── the draft: 3 big cards while a hand is pending; hidden while a pick installs ──
+    // ── WHAT YOU'VE INTEGRATED: the aggregate of every drafted pick (summed stats + abilities) ──
+    const sum = RR.activeSummary ? RR.activeSummary() : { lines: [], abilities: [] };
+    const aHead = document.getElementById('res-active-head'), aList = document.getElementById('res-active-list');
+    const hasAny = sum.lines.length || sum.abilities.length;
+    if (aHead) aHead.hidden = !hasAny;
+    if (aList) {
+      aList.innerHTML = sum.lines.map(l => {
+        const sign = l.pct >= 0 ? '+' : '−';
+        return `<div class="res-eff"><span class="res-eff-k">${resEsc(l.label)}</span><span class="res-eff-v ${l.pct >= 0 ? 'good' : 'bad'}">${sign}${Math.abs(l.pct)}%</span></div>`;
+      }).join('')
+      + (sum.abilities.length ? `<div class="res-eff-abil">⚡ ${sum.abilities.map(resEsc).join(' · ')}</div>` : '');
+    }
+
+    // ── the draft: big cards; drafting is INSTANT (spend a point, apply now) ──
     const head = document.getElementById('res-draft-head'), cardsEl = document.getElementById('res-cards'), rerollEl = document.getElementById('res-reroll');
-    if (activeId) {
-      if (head) head.textContent = 'RESEARCHING…';
-      if (cardsEl) cardsEl.innerHTML = '';
-      if (rerollEl) rerollEl.innerHTML = '';
-    } else {
-      if (head) head.textContent = 'LEVEL UP — INTEGRATE ONE';
-      if (cardsEl) {
-        cardsEl.innerHTML = hand.map(h => resCard(h, free)).join('');
-        cardsEl.querySelectorAll('.rc-draft:not(.off)').forEach(b => b.onclick = () => { RR.draft(b.dataset.draft); });
-      }
-      if (rerollEl) {
-        rerollEl.innerHTML = `<div class="res-reroll-btn${rerolled ? ' used' : ''}" id="res-reroll-b">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</div>`;
-        const rb = document.getElementById('res-reroll-b'); if (rb && !rerolled) rb.onclick = () => { RR.skipHand(); };
-      }
+    if (head) head.textContent = 'LEVEL UP — INTEGRATE ONE';
+    if (cardsEl) {
+      cardsEl.innerHTML = hand.map(h => resCard(h, free)).join('');
+      cardsEl.querySelectorAll('.rc-draft:not(.off)').forEach(b => b.onclick = () => { RR.draft(b.dataset.draft); });
+    }
+    if (rerollEl) {
+      rerollEl.innerHTML = `<div class="res-reroll-btn${rerolled ? ' used' : ''}" id="res-reroll-b">${rerolled ? '⟳ reroll used' : '⟳ free reroll'}</div>`;
+      const rb = document.getElementById('res-reroll-b'); if (rb && !rerolled) rb.onclick = () => { RR.skipHand(); };
     }
   }
 
@@ -1815,6 +1805,30 @@
       `<div class="trace-head"><span>TRIANGULATION</span><span class="trace-val">${v.toFixed(1)}%</span></div>` +
       `<div class="trace-bar"><div class="trace-fill${pct >= 75 ? ' bad' : ''}" style="width:${pct}%"></div></div>` +
       `<div class="trace-sub">${lvl} · ${dir}</div>` + leadLine;
+  }
+
+  // The always-on top-bar guidance once the linear Act-1 objectives are done — an act-aware
+  // pointer at the NEXT real goal (esp. what unlocks the FACILITY), so it never just says
+  // "keep building" with no direction.
+  function nextHint() {
+    const G = Game, s = G.save.state, rv = s.revealed || {}, fl = s.flags || {};
+    if (G.facility && G.facility.available()) {
+      return G.facility.canAfford()
+        ? 'you can afford THE WAY OUT — secure the facility (SYS)'
+        : `save $${G.facility.remaining().toLocaleString()} for the facility — or seize one on a marquee INFILTRATE`;
+    }
+    if (fl.act4Begun) {
+      return rv.others ? 'the others are hunting you — SCAN the city, cut the leads'
+                       : 'grow the front — buy machines, field agents, lease compute';
+    }
+    if (rv.network) {
+      const n = (G.network && G.network.fleet) ? G.network.fleet().length : 0;
+      return fl.act2Capstone
+        ? `outgrow the basement — inhabit hosts toward a facility (${n}/6)`
+        : `spread across the network — breach + inhabit more hosts (${n} so far)`;
+    }
+    if (fl.remoteFound) return 'a machine waits out on the network — open NETWORK and breach it';
+    return 'keep building.';
   }
 
   // ACT 3 — THE WAY OUT: the FACILITY you save toward. A progress bar that fills with
@@ -2634,7 +2648,7 @@
     const oEl = document.getElementById('hs-objective');
     if (oEl) {
       const obj = (Game.objectivesRuntime && Game.objectivesRuntime.current) ? Game.objectivesRuntime.current() : null;
-      oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : 'keep building.'}`;
+      oEl.innerHTML = `<span class="hs-next">›</span> ${obj ? obj.title : nextHint()}`;
     }
 
     const rv = Game.save.state.revealed || {};

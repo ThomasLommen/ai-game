@@ -90,7 +90,7 @@
       // 'cold_cash' (ghost→economy bridge): staying invisible pays — up to +50% at zero exposure.
       if (RR.hasMod('cold_cash')) v *= (1 + Math.max(0, (30 - (Game.save.state.exposure || 0)) / 30) * 0.5);
     }
-    return fx(v, 'method.cash');
+    return fx(fx(v, 'method.cash'), 'income.cash');   // income.cash = the unified earner boost (methods + spider)
   }
   function nextIsMilestone(id) { return (level(id) + 1) % 5 === 0; }
   function upgradeCost(id) {

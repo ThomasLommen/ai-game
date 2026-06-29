@@ -128,7 +128,7 @@
       inst.gains = inst.gains || {};
       // One payout per ~5s cycle.
       if (Game.cycle.advance(inst)) {
-        const cashGain = Game.effects.apply(Game.cycle.perCycle(def.cash_per_tick * Game.tick.HZ), 'web_scrape.cash');
+        const cashGain = Game.effects.apply(Game.effects.apply(Game.cycle.perCycle(def.cash_per_tick * Game.tick.HZ), 'web_scrape.cash'), 'income.cash');   // income.cash = unified earner boost
         state.resources.cash = (state.resources.cash || 0) + cashGain;
         inst.gains.cash = (inst.gains.cash || 0) + cashGain;
         Game.events.emit('resource.changed', { id: 'cash', value: state.resources.cash, delta: cashGain });
