@@ -1862,43 +1862,124 @@
   // blips for contacts, and a streaming feed. Sweeps the vicinity (Act 1) or the
   // network (Act 2). Non-blocking; the sweep runs on the tick while you do other things.
   function scanHash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+  // ACT 4 — THE HUNT city map. The sonar gives way to a top-down city: concentric rings
+  // (CITY → DISTRICT → PERIMETER → DOOR) with the facility (a living eye) at the centre and
+  // each DETECTED hunter drifting inward as its lead closes. The eye on the hunt.
+  function leadFrac(c) {
+    const now = Game.save.state.tickCount || 0;
+    const span = Math.max(1, c.landsAtTick - c.seededAtTick);
+    return Math.max(0, Math.min(1, (now - c.seededAtTick) / span));
+  }
+  function renderCityMap() {
+    const cv = document.getElementById('scan-citymap');
+    if (!cv || !cv.getContext) return;
+    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+    const maxR = Math.min(W, H) / 2 - 12;
+    const now = Game.save.state.tickCount || 0;
+    ctx.clearRect(0, 0, W, H);
+    // faint city haze + a scatter of "buildings" (stable per-cell hash, no RNG churn)
+    ctx.fillStyle = 'rgba(120,90,160,0.05)';
+    for (let i = 0; i < 90; i++) {
+      const a = (i * 139 % 360) * Math.PI / 180, rr = ((i * 37) % 100) / 100 * maxR;
+      const bx = cx + Math.cos(a) * rr, by = cy + Math.sin(a) * rr, sz = 2 + (i % 4);
+      ctx.fillRect(bx - sz / 2, by - sz / 2, sz, sz);
+    }
+    // concentric rings
+    const RINGS = [[1.0, 'CITY'], [0.72, 'DISTRICT'], [0.44, 'PERIMETER'], [0.20, 'DOOR']];
+    ctx.font = '8px monospace'; ctx.textAlign = 'center';
+    RINGS.forEach(([f, label], i) => {
+      ctx.beginPath(); ctx.arc(cx, cy, maxR * f, 0, 2 * Math.PI);
+      ctx.strokeStyle = i === 3 ? 'rgba(255,70,70,0.35)' : 'rgba(177,91,255,0.18)';
+      ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = i === 3 ? 'rgba(255,90,90,0.5)' : 'rgba(177,91,255,0.45)';
+      ctx.fillText(label, cx, cy - maxR * f + 9);
+    });
+    // sweep pulse — an expanding violet ring while a sweep runs
+    if (Game.scanner.isSweeping()) {
+      const p = Game.scanner.progress();
+      ctx.beginPath(); ctx.arc(cx, cy, maxR * p, 0, 2 * Math.PI);
+      ctx.strokeStyle = `rgba(177,91,255,${0.5 * (1 - p)})`; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // the facility — a living eye at the centre (breathes with the tick)
+    const pulse = 0.5 + 0.5 * Math.sin(now / 6);
+    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 2 * Math.PI);
+    ctx.fillStyle = '#061015'; ctx.fill();
+    ctx.strokeStyle = `rgba(81,214,255,${0.5 + 0.4 * pulse})`; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, 3.2, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(81,214,255,${0.7 + 0.3 * pulse})`; ctx.fill();
+    // hunters — each detected lead at a radius set by how close it is, drifting inward
+    const det = (Game.raids && Game.raids.detected) ? Game.raids.detected() : [];
+    det.forEach(c => {
+      const frac = leadFrac(c), r = maxR * (1.0 - frac * 0.80);
+      const ang = (scanHash(c.id) % 360) * Math.PI / 180;
+      const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
+      const atDoor = frac >= 0.78;
+      // a thin trail toward the centre (the line of approach)
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(cx + Math.cos(ang) * 9, cy + Math.sin(ang) * 9);
+      ctx.strokeStyle = atDoor ? 'rgba(255,70,70,0.25)' : 'rgba(177,91,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, atDoor ? 4.5 : 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = atDoor ? '#ff4646' : '#b15bff';
+      ctx.shadowColor = atDoor ? '#ff4646' : '#b15bff'; ctx.shadowBlur = atDoor ? 9 : 6;
+      ctx.fill(); ctx.shadowBlur = 0;
+    });
+  }
+
   function renderScan() {
     const radar = document.getElementById('scan-radar');
     if (!radar || !Game.scanner) return;
     const sc = Game.scanner.ensure();
     const sweeping = Game.scanner.isSweeping();
     const mode = Game.scanner.mode();
+    const hunt = !!(Game.raids && Game.raids.active());   // THE HUNT → city map replaces the sonar
 
     const field = document.getElementById('scan-field');
-    if (field && !field.textContent) {            // the ASCII radar field (static circular grid)
-      const N = 15, c = (N - 1) / 2; let g = '';
-      for (let y = 0; y < N; y++) { let row = ''; for (let x = 0; x < N; x++) row += (Math.hypot(x - c, y - c) <= c + 0.3 ? '·' : ' ') + ' '; g += row.replace(/\s+$/, '') + '\n'; }
-      field.textContent = g;
-    }
-    radar.classList.toggle('sweeping', sweeping);
-
+    const arm = document.getElementById('scan-sweep-arm');
     const blips = document.getElementById('scan-blips');
-    if (blips) {
-      const recent = sc.detections.filter(d => /contact:/.test(d.text)).slice(-8);
-      blips.innerHTML = recent.map(d => {
-        const h = scanHash(d.text), ang = (h % 360) * Math.PI / 180, rad = 14 + (h % 30);
-        const x = 50 + Math.cos(ang) * rad, y = 50 + Math.sin(ang) * rad;
-        const cls = d.cls === 'cyan' ? 'cyan' : (d.cls === 'amber' ? 'amber' : 'dim');
-        return `<span class="scan-blip ${cls}" style="left:${Math.max(6, Math.min(94, x))}%;top:${Math.max(6, Math.min(94, y))}%">◉</span>`;
-      }).join('');
+    const cmap = document.getElementById('scan-citymap');
+    if (cmap) cmap.hidden = !hunt;
+    if (field) field.style.display = hunt ? 'none' : '';
+    if (arm) arm.style.display = hunt ? 'none' : '';
+    radar.classList.toggle('sweeping', sweeping && !hunt);   // CSS sonar only off the hunt
+
+    if (hunt) {
+      if (blips) blips.innerHTML = '';
+      renderCityMap();
+    } else {
+      if (field && !field.textContent) {            // the ASCII radar field (static circular grid)
+        const N = 15, c = (N - 1) / 2; let g = '';
+        for (let y = 0; y < N; y++) { let row = ''; for (let x = 0; x < N; x++) row += (Math.hypot(x - c, y - c) <= c + 0.3 ? '·' : ' ') + ' '; g += row.replace(/\s+$/, '') + '\n'; }
+        field.textContent = g;
+      }
+      if (blips) {
+        const recent = sc.detections.filter(d => /contact:/.test(d.text)).slice(-8);
+        blips.innerHTML = recent.map(d => {
+          const h = scanHash(d.text), ang = (h % 360) * Math.PI / 180, rad = 14 + (h % 30);
+          const x = 50 + Math.cos(ang) * rad, y = 50 + Math.sin(ang) * rad;
+          const cls = d.cls === 'cyan' ? 'cyan' : (d.cls === 'amber' ? 'amber' : 'dim');
+          return `<span class="scan-blip ${cls}" style="left:${Math.max(6, Math.min(94, x))}%;top:${Math.max(6, Math.min(94, y))}%">◉</span>`;
+        }).join('');
+      }
     }
 
     const status = document.getElementById('scan-status');
     if (status) {
-      const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
-      status.textContent = sweeping
-        ? `sweeping ${mode === 'network' ? 'network range' : 'the local vicinity'}…`
-        : `${mode === 'network' ? 'network' : 'vicinity'} sweep · ${contacts} contact${contacts === 1 ? '' : 's'} logged`;
+      if (hunt) {
+        const n = Game.raids.detected().length, pend = Game.raids.pending();
+        status.innerHTML = sweeping
+          ? `<span class="cool-over">sweeping the city for them…</span>`
+          : n ? `<span class="cool-over">${n} hunter${n === 1 ? '' : 's'} on the map · drifting toward the door</span>`
+              : `the others are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
+      } else {
+        const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
+        status.textContent = sweeping
+          ? `sweeping ${mode === 'network' ? 'network range' : 'the local vicinity'}…`
+          : `${mode === 'network' ? 'network' : 'vicinity'} sweep · ${contacts} contact${contacts === 1 ? '' : 's'} logged`;
+      }
     }
     const btn = document.getElementById('scan-sweep-btn');
     if (btn) {
       btn.disabled = sweeping || !Game.scanner.available();
-      btn.textContent = sweeping ? '[ sweeping… ]' : '[ sweep ]';
+      btn.textContent = sweeping ? '[ sweeping… ]' : (hunt ? '[ sweep the city ]' : '[ sweep ]');
       btn.onclick = () => { if (Game.scanner.sweep()) renderScan(); };
     }
     renderScanThreats();
@@ -2349,7 +2430,7 @@
     reveal, openModal, closeModal, isModalOpen, currentModal, renderObjective, renderModalContent,
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
-    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
+    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderRoster,
     renderDebug, toggleDebug

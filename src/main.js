@@ -1249,6 +1249,7 @@
     st.revealed = st.revealed || {};
     st.revealed.others = true;
     st.revealed.locationTrace = true;   // the hunt for your physical front begins now
+    st.revealed.scan = true;            // the city-map SCAN is the eye on the hunt
     if (Game.locationTrace) Game.locationTrace.ensure();
     if (Game.raids) Game.raids.ensure();
     Game.others.surface();

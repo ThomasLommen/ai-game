@@ -105,6 +105,22 @@
     return lost;
   }
   function remove(c) { const st = ensure(); st.contacts = st.contacts.filter(x => x !== c); }
+  // Loud money (gray-market iron, aggressive ops) drags every closing lead INWARD — the
+  // hunters move faster the louder you operate. `frac` = how much of each lead's remaining
+  // window to burn off.
+  function pushInward(frac) {
+    const st = ensure(), now = Game.save.state.tickCount || 0;
+    st.contacts.forEach(c => { const left = Math.max(0, c.landsAtTick - now); c.landsAtTick = now + Math.floor(left * (1 - frac)); });
+    Game.events.emit('raid.changed', {});
+  }
+  // A single hook for "you just did something loud" — bumps the trace and accelerates the hunt.
+  // No-ops outside the hunt (so Act-3 gray-market buys are free of it until the others arrive).
+  function loudActivity(opt) {
+    if (!active()) return;
+    opt = opt || {};
+    if (opt.trace) adjustTrace(opt.trace);
+    if (opt.inward) pushInward(opt.inward);
+  }
 
   function severityFor(trace) {
     if (trace >= 70) return Game.rng.int(2, 3);
@@ -301,7 +317,7 @@
 
   Game.raids = {
     ensure, active, tick, seedOne, detect, cut, misdirect, land, overload, loreDrip,
-    contacts, detected, pending, closeness, cutCost,
+    contacts, detected, pending, closeness, cutCost, pushInward, loudActivity,
     counterCost, counterReady, canCounterstrike, counterCooldownLeft, counterstrike,
     SEED_FLOOR, MAX_CONTACTS, MISDIRECT_P, COUNTER_TRACE_MIN, COUNTER_COOLDOWN, HZ
   };

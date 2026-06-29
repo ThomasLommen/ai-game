@@ -128,6 +128,8 @@
     g.listings.splice(idx, 1);
     f.machines.push(m);
     if (Game.legit) { const l = Game.legit.ensure(); l.reputation = Math.max(0, (l.reputation || 0) - GRAY_REP_HIT); }
+    // Loud iron during THE HUNT drags the hunters inward (no-op before the others arrive).
+    if (Game.raids) Game.raids.loudActivity({ trace: 5, inward: 0.12 });
     Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
     Game.events.emit('machine.installed', { machine: m, gray: true });
     Game.events.emit('terminal.print', { lines: [`> a ${m.classLabel} arrives in an unmarked crate — no invoice, no serial. it runs hot in every sense; your footprint just spiked.`], cls: 'dim' });
