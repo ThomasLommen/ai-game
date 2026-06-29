@@ -78,7 +78,25 @@
 
   // ── the tier-gated draft pools ──────────────────────────────────────────────
   function currentTier() { let t = 1; for (let k = 2; k <= SPINE_MAX_TIER; k++) if (gateMet(k)) t = k; return t; }
-  function act2Ok(n) { return !n.act2 || !!(Game.save.state.revealed && Game.save.state.revealed.network); }
+  // A node is only draftable once the SYSTEMS its grant touches actually exist — so the draft
+  // never offers picks for later-act mechanics (the network, the hunt's trace, the front's
+  // agents/legit/facility) before you've reached that act. Basement (Act-1) channels are always
+  // fine. Keeps the name `act2Ok` for its many callers; the check is now act-wide.
+  const NETWORK_TARGETS = { 'breach.power': 1, 'fleet.cash': 1, 'fleet.coherence': 1, 'host.churn': 1, 'hunter.trace': 1 };  // Act 2
+  const FRONT_CHANGERS = { audit_immunity: 1, mitosis: 1, swarm_intelligence: 1, distributed_ledger: 1, assimilation: 1, liquidation: 1, dead_mans_switch: 1 };  // do nothing before THE FRONT (Act 4 flag)
+  function targetReady(t, rv) {
+    if (NETWORK_TARGETS[t]) return !!rv.network;        // Act 2: the inhabited fleet
+    if (t === 'location.trace') return !!rv.locationTrace;  // the hunt's physical trace
+    return true;                                        // basement channels: heat/power/cycle/insight/method/spider/exposure
+  }
+  function act2Ok(n) {
+    const rv = Game.save.state.revealed || {}, fl = Game.save.state.flags || {};
+    if (n.act2 && !rv.network) return false;            // explicit network-branch tag
+    const g = n.grant || {};
+    if (g.effects && g.effects.some(e => !targetReady(e.target, rv))) return false;   // gated stat targets
+    if (g.changer && FRONT_CHANGERS[g.changer] && !fl.act4Begun) return false;        // front-only adaptations
+    return true;
+  }
   function takenOrBusy(n, r) { return r.researched[n.id] || r.walled[n.id] || n.id === r.active; }
   function ownsChanger(n) { return (Game.changers && n.grant && n.grant.changer) ? Game.changers.has(n.grant.changer) : false; }
 
