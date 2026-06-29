@@ -15,10 +15,12 @@
   // then the ladder extends deep so late-game Coherence keeps paying.
   // 200 LEVELS: an authored early curve, then a smooth geometric continuation — the long-game ladder
   // the stackable families feed. Reachable because stacking the economy families grows Coherence income.
-  const SEED_MS = [3, 6, 10, 17, 25, 50, 90, 140, 200, 280, 380, 510, 670, 870, 1120, 1430, 1820, 2300, 2900, 3650, 4600, 5800];
+  // Cheap, Fibonacci-flavoured START (a level every few Coherence early) easing into a steady
+  // ~1.33x climb — the early/mid grind between levels was too steep. 22 authored values.
+  const SEED_MS = [2, 5, 7, 12, 19, 31, 50, 81, 110, 150, 200, 270, 360, 480, 640, 850, 1130, 1500, 2000, 2650, 3500, 4700];
   const MILESTONES = (function () {
-    const a = SEED_MS.slice();   // 22 authored (ends 5800); continue on a power curve so the late
-    for (let n = a.length; n < 200; n++) a.push(Math.round(5800 * Math.pow((n + 1) / 22, 3.2)));   // ladder lands ~6.8M @ L200 (deep, but reachable), not billions
+    const a = SEED_MS.slice();   // 22 authored (ends 4700); continue on a GENTLE power curve so the
+    for (let n = a.length; n < 200; n++) a.push(Math.round(4700 * Math.pow((n + 1) / 22, 2.6)));   // late game stays reachable — lands ~1.46M @ L200 (was ~6.8M), not billions
     return a;
   })();
   Game.subroutines.MILESTONES = MILESTONES;
