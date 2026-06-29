@@ -162,6 +162,7 @@
           </div>
           <div class="modal-panel" data-modal="agents" hidden>
             <div id="agents-status" class="faint" style="font-size:12px;margin-bottom:12px"></div>
+            <div id="agents-brokerage"></div>
             <div id="agents-spawn"></div>
             <div id="agents-roster"></div>
           </div>
@@ -177,6 +178,8 @@
             <div id="facility-bay"></div>
             <div id="facility-market-head" class="net-section">MACHINE MARKET</div>
             <div id="facility-market"></div>
+            <div id="facility-gray-head" class="net-section gray-head" hidden>DARKNET HARDWARE · ungated, cheaper, loud</div>
+            <div id="facility-gray" hidden></div>
             <div id="facility-relocate-head" class="net-section">RELOCATE · a bigger space</div>
             <div id="facility-relocate"></div>
           </div>
@@ -349,8 +352,10 @@
   <script src="src/core/facility.js"></script>
   <script src="src/core/flops.js"></script>
   <script src="src/core/facility-runtime.js"></script>
+  <script src="src/core/cooling.js"></script>
   <script src="src/core/legitimacy.js"></script>
   <script src="src/core/agents.js"></script>
+  <script src="src/core/brokerage.js"></script>
   <script src="src/core/others.js"></script>
   <script src="src/core/rewards.js"></script>
   <script src="src/core/activity.js"></script>

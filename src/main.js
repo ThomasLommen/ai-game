@@ -172,8 +172,10 @@
       if (Game.raids) Game.raids.tick();                   // Act 3: leads close in → SCAN/cut/misdirect or eat a raid
       if (Game.changers) Game.changers.tick();                 // run-defining: compound interest + per-tick adaptations
       if (Game.facilityRuntime) Game.facilityRuntime.tick();   // Act 4: refresh the machine market
+      if (Game.cooling) Game.cooling.tick();                   // Act 4: warn when the bays out-run facility cooling
       if (Game.legit) Game.legit.tick();                       // Act 4: footprint-vs-legitimacy → audits
       if (Game.agents) Game.agents.tick();                     // Act 4: sub-agents work their lanes + level up
+      if (Game.brokerage) Game.brokerage.tick();               // Act 4: leased compute pays clean, legit-scaled cash
       if (Game.others) Game.others.tick();                     // Act 4: echoes drift in; ITER 03 looms
       maybeRevealAgents();                                     // Act 4: agents come online once FLOPS hosts one
       maybeRevealOthers();                                     // Act 4: the others come within reach once you're established
@@ -452,10 +454,11 @@
     Game.events.on('operation.resolved', (e) => { if (e && e.networkOp && e.infiltrated) maybeClaimAbandonedFacility(); });
 
     // Act 4: buying/selling/installing a machine → refresh the facility view, FLOPS, badge.
-    ['facility.changed', 'machine.installed'].forEach(e => {
+    ['facility.changed', 'machine.installed', 'cooling.changed'].forEach(e => {
       Game.events.on(e, () => {
         Game.panels.renderFacilityView();
         Game.panels.renderFlops();
+        Game.panels.renderLegit();   // heat-throttle shifts footprint (cooling surcharge)
         Game.panels.updateBadges();
       });
     });

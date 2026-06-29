@@ -81,9 +81,13 @@
   }
 
   // ── footprint (how loud you are) ────────────────────────────────────────────
+  const GRAY_FOOT_MULT = 1.6;   // untraceable gray-market iron is far louder than legit boxes
   function footprint() {
     const ms = (Game.facilityRuntime && Game.facilityRuntime.machines) ? Game.facilityRuntime.machines() : [];
-    return ms.reduce((a, m) => a + (FOOT[m.cls] || 4), 0);
+    const base = ms.reduce((a, m) => a + (FOOT[m.cls] || 4) * (m.gray ? GRAY_FOOT_MULT : 1), 0);
+    // Waste heat from over-cooled bays leaks into your footprint (harder to hide a hot building).
+    const heatFoot = (Game.cooling && Game.cooling.footprintSurcharge) ? Game.cooling.footprintSurcharge() : 0;
+    return base + heatFoot;
   }
   function demand() { return footprint(); }
   function margin() { return score() - demand(); }

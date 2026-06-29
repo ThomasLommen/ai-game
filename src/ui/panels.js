@@ -1473,23 +1473,25 @@
     const caps = (m.caps || []).map(c => Game.machines.capLabel(c)).join(', ');
     const flopsStr = m.flops >= 1000 ? (m.flops / 1000).toFixed(2) + ' TFLOPS' : m.flops.toFixed(1) + ' GFLOPS';
     const tierTag = m.tier !== 'common' ? `<span class="name-tier">${m.tier}</span> ` : '';
+    const grayTag = m.gray ? `<span class="gray-tag">gray</span> ` : '';
     const stats = `${flopsStr} · ${m.power}W · ${m.heat} heat${caps ? ' · ' + caps : ''}`;
     let action = '';
-    if (mode === 'buy') {
+    if (mode === 'buy' || mode === 'gray') {
       const FR = Game.facilityRuntime;
+      const attr = mode === 'gray' ? 'data-gray' : 'data-buy';
       const afford = (cash || 0) >= m.price;
       const fits = FR.canInstall(m);
-      if (afford && fits) action = `<button data-buy="${m.id}">[ buy · $${m.price.toLocaleString()} ]</button>`;
+      if (afford && fits) action = `<button ${attr}="${m.id}">[ buy · $${m.price.toLocaleString()} ]</button>`;
       else {
         const reason = !afford ? `need $${m.price.toLocaleString()}` : (FR.freeSlots() <= 0 ? 'no free bay' : 'over power');
-        action = `<button class="disabled" data-buy="${m.id}">[ $${m.price.toLocaleString()} · ${reason} ]</button>`;
+        action = `<button class="disabled" ${attr}="${m.id}">[ $${m.price.toLocaleString()} · ${reason} ]</button>`;
       }
     } else {
       action = `<button class="machine-sell" data-sell="${m.id}">[ sell ]</button>`;
     }
     const ico = (Game.hwart && Game.hwart.machineIcon) ? Game.hwart.machineIcon(m) : '';
-    return `<div class="machine-row tier-${m.tier}">
-        <div class="row-lead">${ico}<div class="machine-info"><div class="machine-name">${tierTag}${m.classLabel}</div><div class="machine-stats">${stats}</div></div></div>
+    return `<div class="machine-row tier-${m.tier}${m.gray ? ' gray' : ''}">
+        <div class="row-lead">${ico}<div class="machine-info"><div class="machine-name">${grayTag}${tierTag}${m.classLabel}</div><div class="machine-stats">${stats}</div></div></div>
         <div class="machine-act">${action}</div>
       </div>`;
   }
@@ -1505,7 +1507,15 @@
 
     const status = document.getElementById('facility-status');
     if (status) {
-      status.innerHTML = `${f.label} · ${FR.usedSlots()}/${f.slots} bays · ${FR.usedPower().toLocaleString()}/${f.powerBudget.toLocaleString()}W · ` +
+      let cool = '';
+      if (Game.cooling) {
+        const C = Game.cooling, hot = C.overheating();
+        const coolStr = `${Math.round(C.totalHeat())}/${Math.round(C.capacity())} cooling`;
+        cool = hot
+          ? ` · <span class="cool-over">${coolStr} · THROTTLED ×${C.throttle().toFixed(2)}</span>`
+          : ` · <span class="cool-ok">${coolStr}</span>`;
+      }
+      status.innerHTML = `${f.label} · ${FR.usedSlots()}/${f.slots} bays · ${FR.usedPower().toLocaleString()}/${f.powerBudget.toLocaleString()}W${cool} · ` +
         `<span class="flops-inline">${Game.flops.fmt()}</span>` + (f.bonus ? ` · ${f.bonus.label}` : '');
     }
     const bay = document.getElementById('facility-bay');
@@ -1526,6 +1536,22 @@
     }
     const head = document.getElementById('facility-market-head');
     if (head) { const secs = Math.floor(FR.ticksUntilRefresh() / HZ); head.textContent = `MACHINE MARKET · new stock in ${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`; }
+    // DARKNET gray-market — ungated cheaper boxes that spike footprint (shown once cover matters).
+    const grayHead = document.getElementById('facility-gray-head'), grayBox = document.getElementById('facility-gray');
+    const grayLive = !!(Game.legit && Game.legit.active() && FR.grayListings);
+    if (grayHead) grayHead.hidden = !grayLive;
+    if (grayBox) {
+      grayBox.hidden = !grayLive;
+      if (grayLive) {
+        FR.ensureGrayMarket();
+        const cash = s.resources.cash || 0;
+        grayBox.innerHTML = FR.grayListings().map(m => machineRow(m, 'gray', cash)).join('');
+        grayBox.querySelectorAll('button[data-gray]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => FR.buyGray(b.dataset.gray); });
+        if (Game.hwart) Game.hwart.paint(grayBox);
+        const secs = Math.floor(FR.ticksUntilGrayRefresh() / HZ);
+        grayHead.textContent = `DARKNET HARDWARE · ungated, ~${Math.round((1 - FR.GRAY_DISCOUNT) * 100)}% off, loud · new crates in ${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+      }
+    }
     // Relocation market — bigger typed spaces to move the whole operation into.
     const relo = document.getElementById('facility-relocate');
     if (relo && FR.facListings) {
@@ -1624,15 +1650,37 @@
       </div>`;
   }
 
+  // ACT 4: COMPUTE BROKERAGE — the FLOPS allocation dial. Lease a slice of your compute for
+  // clean, legitimacy-scaled cash; the rest stays free for your agents. Lives atop the AGENTS tab.
+  function renderBrokerage() {
+    const B = Game.brokerage, box = document.getElementById('agents-brokerage');
+    if (!box) return;
+    if (!B || !B.active()) { box.innerHTML = ''; return; }
+    const fmt = Game.flops.fmt, alloc = B.alloc();
+    const leased = B.leasedFlops(), cps = B.cashPerSec(), mult = B.legitMult();
+    const chips = B.STEPS.map(f =>
+      `<button class="brk-step${Math.abs(f - alloc) < 0.001 ? ' on' : ''}" data-brk="${f}">${Math.round(f * 100)}%</button>`).join('');
+    box.innerHTML = `
+      <div class="net-section">COMPUTE BROKERAGE · lease compute, clean money</div>
+      <div class="brk-readout">leasing <span class="brk-flops">${fmt(leased)}</span> of ${fmt(B.totalFlops())}
+        · legit ×${mult.toFixed(2)} → <span class="brk-cash">$${cps.toFixed(2)}/s</span></div>
+      <div class="brk-steps">${chips}</div>
+      <div class="faint" style="font-size:11px;margin:4px 0 14px">the rest powers your agents. a more legitimate front leases for more.</div>`;
+    box.querySelectorAll('[data-brk]').forEach(b => b.onclick = () => B.setAlloc(parseFloat(b.dataset.brk)));
+  }
+
   // ACT 4: the AGENTS modal — FLOPS-gated roster of autonomous operators you assign to lanes.
   function renderAgents() {
     const A = Game.agents;
     const status = document.getElementById('agents-status');
     if (!A || !status) return;
     const spawn = document.getElementById('agents-spawn'), ro = document.getElementById('agents-roster');
-    if (!A.active()) { status.textContent = ''; if (spawn) spawn.innerHTML = ''; if (ro) ro.innerHTML = ''; return; }
+    if (!A.active()) { status.textContent = ''; if (spawn) spawn.innerHTML = ''; if (ro) ro.innerHTML = ''; renderBrokerage(); return; }
+    renderBrokerage();
     const roster = A.roster(), max = A.maxAgents(), free = A.freeSlots();
-    status.innerHTML = `${roster.length}/${max} agents online · ${free} free slot${free === 1 ? '' : 's'} · compute (FLOPS) hosts more as it grows`;
+    const leasing = (Game.brokerage && Game.brokerage.active() && Game.brokerage.alloc() > 0)
+      ? ` · ${Math.round(Game.brokerage.alloc() * 100)}% compute leased` : '';
+    status.innerHTML = `${roster.length}/${max} agents online · ${free} free slot${free === 1 ? '' : 's'} · compute (FLOPS) hosts more as it grows${leasing}`;
     if (spawn) {
       if (free > 0) {
         const lanes = Game.agentLanes.LANES;
@@ -2301,7 +2349,7 @@
     reveal, openModal, closeModal, isModalOpen, currentModal, renderObjective, renderModalContent,
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
-    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
+    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderOthers, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderRoster,
     renderDebug, toggleDebug

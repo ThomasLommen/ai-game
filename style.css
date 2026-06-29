@@ -1030,6 +1030,12 @@ h2 {
 .flops-num { color: #8be9fd; font-size: 15px; text-shadow: 0 0 8px rgba(139, 233, 253, 0.5); }
 .flops-label { color: #5a8a96; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
 .flops-inline { color: #8be9fd; }
+.cool-ok { color: #5a8a96; }
+.cool-over { color: var(--err); text-shadow: 0 0 6px rgba(255,70,70,0.4); }
+/* ACT 4: DARKNET gray-market hardware — ungated, cheap, loud (magenta = illicit). */
+.gray-head { color: #c77dff; }
+.gray-tag { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #c77dff; border: 1px solid rgba(199,125,255,0.5); padding: 0 4px; }
+.machine-row.gray { border-left: 3px solid #c77dff; }
 
 /* ACT 4: the FACILITY machine bay + market. Whole machines as loot rows. */
 #facility-bay { margin-bottom: 16px; }
@@ -1086,6 +1092,15 @@ h2 {
 .agent-acts button { background: var(--bg-pane); border: 1px solid var(--amber-faint); color: var(--amber-mid); font-family: var(--mono); font-size: 10px; padding: 3px 6px; cursor: pointer; }
 .agent-acts button:hover { border-color: var(--amber); color: var(--amber); }
 .agent-dismiss:hover { border-color: var(--err) !important; color: var(--err) !important; }
+
+/* ACT 4: COMPUTE BROKERAGE — the FLOPS allocation dial (green = clean money, like the earn lane). */
+.brk-readout { font-size: 12px; color: var(--amber-mid); margin: 6px 0; }
+.brk-flops { color: var(--amber); }
+.brk-cash { color: #5fd38a; }
+.brk-steps { display: flex; gap: 6px; flex-wrap: wrap; }
+.brk-step { background: var(--bg-pane); border: 1px solid rgba(95,211,138,0.35); color: var(--amber-mid); font-family: var(--mono); font-size: 12px; padding: 5px 11px; cursor: pointer; }
+.brk-step:hover { border-color: #5fd38a; color: #5fd38a; }
+.brk-step.on { background: rgba(95,211,138,0.14); border-color: #5fd38a; color: #5fd38a; box-shadow: 0 0 8px rgba(95,211,138,0.2); }
 
 /* ACT 4: THE OTHERS — prior iterations you may ally / absorb / destroy (cyan, kin). */
 .other-row { padding: 10px; border: 1px solid rgba(81,214,255,0.3); border-left-width: 3px; border-left-color: var(--cyan); margin-bottom: 8px; }

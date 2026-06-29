@@ -16,7 +16,10 @@
   function facilityFlops() {
     const f = Game.save.state.facility;
     if (!f || !Array.isArray(f.machines)) return 0;
-    return f.machines.reduce((a, m) => a + (m.flops || 0), 0);
+    const raw = f.machines.reduce((a, m) => a + (m.flops || 0), 0);
+    // Cooling throttle: bays hotter than the facility can cool run at reduced compute (soft).
+    const thr = (Game.cooling && Game.cooling.throttle) ? Game.cooling.throttle() : 1;
+    return raw * thr;
   }
   function absorbedFlops() { return (Game.others && Game.others.absorbedFlops) ? Game.others.absorbedFlops() : 0; }
   function total() {

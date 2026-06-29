@@ -26,7 +26,10 @@
   function roster() { return ensure().roster; }
   function nonAllyCount() { return roster().filter(a => !a.ally).length; }   // allied iterations don't consume FLOPS slots
   function maxAgents() {
-    const flops = (Game.flops && Game.flops.total) ? Game.flops.total() : 0;
+    // Compute brokerage leases away some of your FLOPS — agents only get what's left.
+    const flops = (Game.brokerage && Game.brokerage.active && Game.brokerage.active())
+      ? Game.brokerage.freeFlops()
+      : ((Game.flops && Game.flops.total) ? Game.flops.total() : 0);
     const RR = Game.researchRuntime;
     const div = FLOPS_PER_SLOT * ((RR && RR.hasMod('mitosis')) ? 0.55 : 1);   // 'Mitosis': minds split cheaper → more slots
     const flat = (RR && RR.hasMod('fragment_swarm')) ? 3 : 0;                 // 'Fragment Swarm' (ITER 07): +3 free slots, no FLOPS cost

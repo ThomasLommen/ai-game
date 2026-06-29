@@ -82,6 +82,62 @@
     return { ok: true, machine: m };
   }
 
+  // ── the DARKNET gray-market — ungated, cheaper iron, but it screams ──────────────────
+  // The legit market is tech-gated by your cover (a sole-prop can't be seen buying a mainframe).
+  // The gray market doesn't care: any class, ~30% off — but the boxes are untraceable and LOUD,
+  // so each one you run carries an outsized FOOTPRINT (legitimacy.js weights gray iron heavier),
+  // and buying one immediately dings your reputation. Dirty-fast compute vs the clean ladder.
+  const GRAY_SIZE = 4;
+  const GRAY_REFRESH_TICKS = 90 * HZ;
+  const GRAY_DISCOUNT = 0.7;
+  const GRAY_REP_HIT = 1;
+  function genGray() {
+    if (!Game.machines) return null;
+    const m = Game.machines.generate({});   // no class cap — the whole catalogue is on offer
+    m.gray = true;
+    m.price = Math.max(1, Math.round((m.price || 0) * GRAY_DISCOUNT));
+    return m;
+  }
+  function ensureGrayMarket() {
+    const f = ensureStarter();
+    f.gray = f.gray || { listings: [], lastRefreshTick: -1 };
+    while (f.gray.listings.length < GRAY_SIZE && Game.machines) { const g = genGray(); if (g) f.gray.listings.push(g); else break; }
+    return f.gray;
+  }
+  function refreshGrayMarket() {
+    const f = ensureStarter();
+    f.gray = { listings: [], lastRefreshTick: Game.save.state.tickCount || 0 };
+    for (let i = 0; i < GRAY_SIZE && Game.machines; i++) { const g = genGray(); if (g) f.gray.listings.push(g); }
+    Game.events.emit('facility.changed', {});
+  }
+  function grayListings() { const f = fac(); return (f && f.gray) ? f.gray.listings : []; }
+  function ticksUntilGrayRefresh() {
+    const f = fac(); if (!f || !f.gray) return GRAY_REFRESH_TICKS;
+    return Math.max(0, (f.gray.lastRefreshTick || 0) + GRAY_REFRESH_TICKS - (Game.save.state.tickCount || 0));
+  }
+  function buyGray(listingId) {
+    const s = Game.save.state, f = ensureStarter();
+    const g = ensureGrayMarket();
+    const idx = g.listings.findIndex(l => l.id === listingId);
+    if (idx < 0) return { ok: false, reason: 'gone' };
+    const m = g.listings[idx];
+    if ((s.resources.cash || 0) < m.price) return { ok: false, reason: 'cash' };
+    if (freeSlots() <= 0) return { ok: false, reason: 'slots' };
+    if (usedPower() + (m.power || 0) > powerBudget()) return { ok: false, reason: 'power' };
+    s.resources.cash -= m.price;
+    g.listings.splice(idx, 1);
+    f.machines.push(m);
+    if (Game.legit) { const l = Game.legit.ensure(); l.reputation = Math.max(0, (l.reputation || 0) - GRAY_REP_HIT); }
+    Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
+    Game.events.emit('machine.installed', { machine: m, gray: true });
+    Game.events.emit('terminal.print', { lines: [`> a ${m.classLabel} arrives in an unmarked crate — no invoice, no serial. it runs hot in every sense; your footprint just spiked.`], cls: 'dim' });
+    if (Game.activity) Game.activity.log(`gray-market ${m.classLabel} installed (-$${m.price.toLocaleString()}, footprint up)`, { cls: 'dim', kind: 'facility' });
+    Game.events.emit('facility.changed', {});
+    Game.events.emit('legit.changed', {});
+    Game.save.persist();
+    return { ok: true, machine: m };
+  }
+
   // ── the facility (relocation) market — move the whole operation into a bigger space ────
   const FAC_MARKET_SIZE = 3;
   const FAC_REFRESH_TICKS = 300 * HZ;   // ~5 min — big-ticket, rarely refreshed
@@ -146,12 +202,19 @@
     const fm = ensureFacMarket();
     if (fm.lastRefreshTick < 0) { fm.lastRefreshTick = Game.save.state.tickCount || 0; }
     else if ((Game.save.state.tickCount || 0) >= (fm.lastRefreshTick || 0) + FAC_REFRESH_TICKS) refreshFacMarket();
+    // gray-market only matters once cover/footprint is in play (legit active)
+    if (Game.legit && Game.legit.active()) {
+      const g = ensureGrayMarket();
+      if (g.lastRefreshTick < 0) { g.lastRefreshTick = Game.save.state.tickCount || 0; }
+      else if ((Game.save.state.tickCount || 0) >= (g.lastRefreshTick || 0) + GRAY_REFRESH_TICKS) refreshGrayMarket();
+    }
   }
 
   Game.facilityRuntime = {
     active, ensureStarter, ensureMarket, refreshMarket, tick,
     machines, usedSlots, freeSlots, usedPower, powerBudget, freePower, canInstall,
     listings, ticksUntilRefresh, buy, sell, MARKET_SIZE,
-    ensureFacMarket, refreshFacMarket, facListings, relocate
+    ensureFacMarket, refreshFacMarket, facListings, relocate,
+    ensureGrayMarket, refreshGrayMarket, grayListings, ticksUntilGrayRefresh, buyGray, GRAY_DISCOUNT
   };
 })();
