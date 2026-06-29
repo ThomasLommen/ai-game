@@ -424,6 +424,7 @@
         Game.events.emit('terminal.print', { lines: ['', '> ' + Game.rng.pick(OTHERS_TRACES), ''], cls: 'faint' });
       }
       maybeRevealDecryption();
+      maybeAct2Capstone();   // heal: fire the capstone even if the key was recovered before the file-gate fix
       maybeBeginAct3();
       Game.panels.renderRemote();
       Game.panels.renderNetwork();
@@ -702,6 +703,8 @@
     setTimeout(() => Game.subroutines.openNextDraft(), 600);   // catch up any owed milestone draft (queues if a battle is up)
     Game.exposure.checkClimax();         // re-offer the climax scan for saves past the threshold
     if (Game.network) { Game.network.ensure(); if (state.network.online) { state.revealed = state.revealed || {}; state.revealed.network = true; } }   // Act 2 stays online for loaded saves
+    maybeRevealDecryption();             // recover V.'s key for saves that grew the fleet past the threshold
+    maybeAct2Capstone();                 // fire the capstone for saves that have the key (heals the retired-file gate)
     maybeBeginAct3();                     // restore the Act-3 facility goal for saves past the onset
     maybeBeginAct4();                     // restore the FRONT (facility/FLOPS/legit) for saves moved in
     maybeRevealOthers();                  // restore the Act-4 HUNT (others/location-trace) for saves past it
@@ -1086,8 +1089,10 @@
     const st = Game.save.state;
     st.flags = st.flags || {};
     if (st.flags.act2Capstone) return;
-    const V = ['v_journal_enc', 'v_labnotes_enc', 'v_bashhistory_enc'];
-    if (!V.every(id => st.filesRead && st.filesRead[id])) return;
+    // Gate on the actual progression signal — V.'s key recovered (set at fleet>=3) — NOT on
+    // reading the retired encrypted files. (The old filesRead gate could never clear on saves
+    // that recovered the key before the decryption mechanic was retired → Act 2 stuck forever.)
+    if (!st.flags.vKeyRecovered) return;
     st.flags.act2Capstone = true;
     Game.events.emit('terminal.print', { lines: [
       '',
