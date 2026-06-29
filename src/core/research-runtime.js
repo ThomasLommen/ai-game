@@ -43,6 +43,8 @@
     if (typeof r.bonusPts !== 'number') r.bonusPts = 0;       // baseline points granted on reveal (the "start with 1")
     if (typeof r.rerolled !== 'boolean') r.rerolled = false;  // a free skip is available once per rolled hand
     if (typeof r.freeId === 'undefined') r.freeId = null;     // the one hand-node that's FREE this roll (changer jackpot)
+    if (typeof r.predraftHand === 'undefined') r.predraftHand = null;   // the hand you drafted FROM — restored if the install is interrupted
+    if (typeof r.predraftFree === 'undefined') r.predraftFree = null;
     r.hand       = r.hand      || [];    // current rolled hand (node ids)
     r.guaranteed = r.guaranteed || [];   // splice queue: forced into the next hand (the living tree)
     return r;
@@ -103,11 +105,26 @@
     const invested = 1 + themeCount(n.theme) * 0.4;          // …and so does the lane you're building
     return seeded * invested;
   }
-  function pickDistinct(pool, k, biasFn) {
-    const chosen = [], avail = pool.slice();
+  // A node's EFFECT FAMILY — two nodes that buff the same thing (e.g. both +method cash) share
+  // a key. Used to keep a hand DIVERSE so it never reads as "the same draft with different stats".
+  function familyKey(n) {
+    const g = n.grant || {};
+    if (g.mod) return 'mod:' + g.mod;
+    if (g.changer) return 'chg:' + g.changer;
+    if (g.podCap) return 'podcap';
+    if (g.effects && g.effects.length) return 'eff:' + g.effects.map(e => e.target).sort().join('+');
+    return 'id:' + n.id;
+  }
+  // Pick k distinct nodes, biased by `biasFn`, AVOIDING effect-family repeats (within the hand and
+  // any `usedKeys` already chosen) until the pool forces one — so hands feel varied, never short.
+  function pickDistinct(pool, k, biasFn, usedKeys) {
+    const chosen = [], avail = pool.slice(), used = usedKeys || new Set();
     while (chosen.length < k && avail.length) {
-      const n = Game.rng.weighted(avail, biasFn) || avail[0];
-      chosen.push(n); avail.splice(avail.indexOf(n), 1);
+      let cand = avail.filter(n => !used.has(familyKey(n)));
+      if (!cand.length) cand = avail;   // every remaining option clashes → allow a repeat over shorting the hand
+      const n = Game.rng.weighted(cand, biasFn) || cand[0];
+      chosen.push(n); used.add(familyKey(n));
+      avail.splice(avail.indexOf(n), 1);
     }
     return chosen;
   }
@@ -128,16 +145,24 @@
     const tierUps = tierUpPool();
     if (allowRare && currentTier() >= CHANGER_DROP_MIN_TIER && changers.length && Game.rng.chance(CHANGER_CHANCE)) {
       const prize = Game.rng.pick(changers);                 // one changer, on the house
-      hand = forced.slice(0, 1).concat(pickDistinct(spine.filter(n => n !== prize), RARE_HAND - 1, weightOf));
+      const lead = forced.slice(0, 1);
+      const used = new Set(lead.map(familyKey)); used.add(familyKey(prize));
+      hand = lead.concat(pickDistinct(spine.filter(n => n !== prize), RARE_HAND - 1, weightOf, used));
       hand.push(prize); r.freeId = prize.id;
     } else if (allowRare && tierUps.length && Game.rng.chance(TIERUP_CHANCE)) {
-      hand = forced.slice(0, 1).concat(pickDistinct(spine, RARE_HAND - 1, weightOf));
-      hand.push(Game.rng.pick(tierUps));                     // a node a tier early
+      const tierUp = Game.rng.pick(tierUps);                 // a node a tier early
+      const lead = forced.slice(0, 1);
+      const used = new Set(lead.map(familyKey)); used.add(familyKey(tierUp));
+      hand = lead.concat(pickDistinct(spine.filter(n => n !== tierUp), RARE_HAND - 1, weightOf, used));
+      hand.push(tierUp);
     } else {
       const size = HAND_MIN + Math.floor(Game.rng.next() * (HAND_MAX - HAND_MIN + 1));
-      hand = forced.concat(pickDistinct(spine, Math.max(0, size - forced.length), weightOf));
+      const used = new Set(forced.map(familyKey));
+      hand = forced.concat(pickDistinct(spine, Math.max(0, size - forced.length), weightOf, used));
     }
-    r.hand = hand.filter(Boolean).map(n => n.id);
+    // Dedupe by id (belt-and-braces: a forced node could coincide with the rare prize).
+    const seenId = new Set();
+    r.hand = hand.filter(n => n && !seenId.has(n.id) && seenId.add(n.id)).map(n => n.id);
     Game.save.persist();
     return r.hand;
   }
@@ -229,6 +254,8 @@
     const cost = pointCost(node);
     if (!free && points() < cost) { Game.events.emit('research.rejected', { reason: 'points', need: cost, label: L }); return false; }
     if (!free) r.ptsSpent += cost;
+    r.predraftHand = r.hand.slice();          // remember what you drafted FROM, to restore if this install is interrupted
+    r.predraftFree = r.freeId;
     r.hand = [];                              // consume the hand; a fresh one rolls when this install resolves
     launchResearchTask(node, free ? 0 : cost);
     return true;
@@ -250,6 +277,7 @@
     if (r.active === nodeId) { r.active = null; r.activeCost = 0; }
     if (!node || r.researched[nodeId]) return;
     r.researched[nodeId] = true;
+    r.predraftHand = null; r.predraftFree = null;   // the install landed — the old hand is spent for good
     applyGrant(node);
     Game.events.emit('terminal.print', { lines: [`> research complete: ${node.label}. ${node.desc || ''}`, ''], cls: 'dim' });
     Game.events.emit('research.completed', { nodeId });
@@ -279,7 +307,16 @@
       if (r.activeCost) r.ptsSpent = Math.max(0, r.ptsSpent - r.activeCost);   // refund the points (you didn't finish)
       r.active = null; r.activeCost = 0;
     }
-    rollHand(true);                            // back to a fresh draft
+    // An interrupted install (heat/power trip, manual abort) RESTORES the hand you drafted from —
+    // your options shouldn't vanish just because the research got knocked over.
+    if (r.predraftHand && r.predraftHand.length) {
+      r.hand = r.predraftHand.filter(id => { const n = Game.research.getNode(id); return n && !takenOrBusy(n, r); });
+      r.freeId = (r.predraftFree && r.hand.indexOf(r.predraftFree) >= 0) ? r.predraftFree : null;
+      r.predraftHand = null; r.predraftFree = null;
+      if (!r.hand.length) rollHand(true);      // edge: everything got taken in the meantime
+    } else {
+      rollHand(true);                          // no stash (legacy/programmatic) → a fresh draft
+    }
     Game.events.emit('research.changed', {});
     Game.save.persist();
   }
