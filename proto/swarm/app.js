@@ -259,7 +259,7 @@
 
     // ── impact / death bursts ──
     S.bursts.forEach(b => {
-      const x = X(b.x), y = Y(b.y), life0 = b.ring ? 0.5 : 0.42, f = 1 - b.life / life0;
+      const x = X(b.x), y = Y(b.y), life0 = b.ring ? 0.5 : 0.42, f = Math.max(0, 1 - b.life / life0);   // clamp: a burst with life>life0 must never drive a NEGATIVE arc radius (ctx.arc throws)
       ctx.globalAlpha = Math.max(0, b.life / life0);
       if (b.shatter) {                                           // GLACIER freeze — ice shards burst outward
         ctx.strokeStyle = '#eaffff'; ctx.shadowColor = '#bfe8ff'; ctx.shadowBlur = 8; ctx.lineWidth = 1.6 * scale; ctx.lineCap = 'round';

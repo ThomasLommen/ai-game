@@ -778,7 +778,7 @@
     u.cd = 1.5;
     const R = s.acidBath ? 132 : 94, dur = s.acidBath ? 6 : 4;
     for (const e of s.enemies) { if (dist(e.x, e.y, tgt.x, tgt.y) > R) continue; e.corrode = Math.max(e.corrode || 0, dur); hitEnemy(s, e, pdmg(s, u)); if (s.caustic) e.poison = Math.min(60, e.poison + 8); }   // CAUSTIC AGENT: leaves venom
-    s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.55, color: '#b6e84a', ring: true, acid: true });
+    s.bursts.push({ x: tgt.x, y: tgt.y, life: 0.5, color: '#b6e84a', ring: true, acid: true });   // life must be ≤ the renderer's ring life0 (0.5) — see app.js burst clamp
     s.beams.push({ x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y, life: 0.18, color: '#cdf06a', acid: true });
     u.fireT = 0.2;
   }

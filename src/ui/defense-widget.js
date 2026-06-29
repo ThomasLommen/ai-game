@@ -84,7 +84,7 @@
 
     S.enemies.forEach(e => { ctx.globalAlpha = e.fade; ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(X(e.x), Y(e.y), Math.max(1.4, S.ENEMIES[e.type].r * s2), 0, 7); ctx.fill(); ctx.globalAlpha = 1; });
     S.beams.forEach(b => { ctx.globalAlpha = Math.min(1, b.life / 0.14); ctx.strokeStyle = b.color; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2)); ctx.stroke(); ctx.globalAlpha = 1; });
-    S.bursts.forEach(b => { const f = 1 - b.life / 0.42; ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), (3 + f * 9) * s2, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
+    S.bursts.forEach(b => { const f = Math.max(0, 1 - b.life / 0.42); ctx.globalAlpha = Math.max(0, b.life / 0.42); ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), Math.max(0, (3 + f * 9) * s2), 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
     S.flocks.forEach(f => f.dots.forEach(d => { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(X(d.x), Y(d.y), Math.max(1, 2 * s2), 0, 7); ctx.fill(); }));
     // GREATER UNITS — drawn with their PROPER models (same rigs as the full battle), a touch
     // smaller for the compact perimeter view. (drawUnitModel ports proto/swarm/app.js.)
