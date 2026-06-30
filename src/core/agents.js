@@ -32,7 +32,8 @@
       : ((Game.flops && Game.flops.total) ? Game.flops.total() : 0);
     const RR = Game.researchRuntime;
     const div = FLOPS_PER_SLOT * ((RR && RR.hasMod('mitosis')) ? 0.55 : 1);   // 'Mitosis': minds split cheaper → more slots
-    const flat = (RR && RR.hasMod('fragment_swarm')) ? 3 : 0;                 // 'Fragment Swarm' (ITER 07): +3 free slots, no FLOPS cost
+    let flat = (RR && RR.hasMod('fragment_swarm')) ? 3 : 0;                   // 'Fragment Swarm' (ITER 07): +3 free slots, no FLOPS cost
+    flat += (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('agentSlots') : 0;   // the foreman's 'ops floor' capstone
     return Math.min(AGENT_CAP + flat, Math.floor(flops / div) + flat);
   }
   function freeSlots() { return Math.max(0, maxAgents() - nonAllyCount()); }

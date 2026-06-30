@@ -21,7 +21,9 @@
 
   function totalHeat() {
     const ms = (Game.facilityRuntime && Game.facilityRuntime.machines) ? Game.facilityRuntime.machines() : [];
-    return ms.reduce((a, m) => a + (m.heat || 0), 0);
+    const raw = ms.reduce((a, m) => a + (m.heat || 0), 0);
+    const fm = (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('heatMult') : 1;   // foreman airflow retrofit
+    return raw * fm;
   }
   function capacity() {
     const f = fac();

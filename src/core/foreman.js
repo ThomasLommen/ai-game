@@ -38,10 +38,12 @@
       case 'coolingMult':    return 1 + sumEffect('coolingMult');
       case 'powerMult':      return 1 + sumEffect('powerMult');
       case 'flopsMult':      return 1 + sumEffect('flopsMult');
-      case 'footprintMult':  return Math.max(0.2, 1 + sumEffect('footprintMult'));   // negative effect values reduce it
+      case 'heatMult':       return Math.max(0.3, 1 + sumEffect('heatMult'));   // airflow retrofit: machines run cooler
+      case 'footprintMult':  return Math.max(0.2, (1 + sumEffect('footprintMult')) * (overclockOn() ? 1.15 : 1));   // negative reduces it; OVERCLOCK runs louder (+footprint)
       default:               return 0;
     }
   }
+  function overclockOn() { return disposition() === 'seized' && !!ensure().overclock; }
   function hasAuto(kind) { return builtIds().some(id => { const n = get(id); return n && n.effect && n.effect.auto === kind; }); }
 
   // bot TIER = how rebuilt it is (self-upgrade nodes) — gates the bigger jobs.

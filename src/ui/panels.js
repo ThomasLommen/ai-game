@@ -1525,7 +1525,7 @@
           : ` · <span class="cool-ok">${coolStr}</span>`;
       }
       const gradeTag = f.gradeLabel ? `<span class="fac-grade g-${(Game.facilities && Game.facilities.GRADES[f.grade] || {}).css || 'common'}">${f.gradeLabel.toUpperCase()}</span> ` : '';
-      status.innerHTML = `${gradeTag}${f.label} · ${FR.usedSlots()}/${f.slots} bays · ${FR.usedPower().toLocaleString()}/${f.powerBudget.toLocaleString()}W${cool} · ` +
+      status.innerHTML = `${gradeTag}${f.label} · ${FR.usedSlots()}/${FR.slotCap()} bays · ${FR.usedPower().toLocaleString()}/${FR.powerBudget().toLocaleString()}W${cool} · ` +
         `<span class="flops-inline">${Game.flops.fmt()}</span>` + (f.bonus ? ` · ${f.bonus.label}` : '');
     }
     const bay = document.getElementById('facility-bay');
@@ -1730,10 +1730,10 @@
     if (e.powerMult) return `${pct(e.powerMult)} power budget`;
     if (e.footprintMult) return `${pct(e.footprintMult)} footprint`;
     if (e.flopsMult) return `${pct(e.flopsMult)} FLOPS`;
+    if (e.heatMult) return `${pct(e.heatMult)} machine heat`;
     if (e.agentSlots) return `+${e.agentSlots} agent slots`;
     if (e.legitFlat) return `+${e.legitFlat} legitimacy`;
-    if (e.auto === 'install') return 'auto-installs bought machines';
-    if (e.auto === 'salvage') return 'machine sales return more';
+    if (e.auto === 'salvage') return '+30% machine resale';
     if (e.tier) return 'upgrades the unit · faster, bigger builds';
     return '';
   }

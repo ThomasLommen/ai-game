@@ -213,7 +213,8 @@
     if (idx < 0) return false;
     const m = f.machines[idx];
     // 'liquidation' (run-defining): a sale returns FULL value + a 50% premium instead of a partial refund.
-    const rate = (Game.researchRuntime && Game.researchRuntime.hasMod('liquidation')) ? 1.5 : SELL_REFUND;
+    let rate = (Game.researchRuntime && Game.researchRuntime.hasMod('liquidation')) ? 1.5 : SELL_REFUND;
+    if (Game.foreman && Game.foreman.hasAuto && Game.foreman.hasAuto('salvage')) rate += 0.3;   // the foreman's teardown bay
     const refund = Math.round((m.price || 0) * rate);
     f.machines.splice(idx, 1);
     s.resources.cash = (s.resources.cash || 0) + refund;

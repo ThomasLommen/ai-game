@@ -41,7 +41,8 @@
   // ── legitimacy (what you've bought) ─────────────────────────────────────────
   function ownedIds() { const l = ensure(); return Object.keys(l.owned).filter(id => l.owned[id]); }
   function facilityLegit() { return (Game.facility && Game.facility.bonusVal) ? Game.facility.bonusVal('legit') : 0; }   // an 'office'-type front carries flat legitimacy
-  function score() { const l = ensure(); return ownedIds().reduce((a, id) => { const c = Game.covers && Game.covers.get(id); return a + (c ? c.legit : 0); }, 0) + (l.agentScore || 0) + (l.scaleScore || 0) + facilityLegit(); }
+  function foremanLegit() { return (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('legitFlat') : 0; }   // the 'registered frontage' capstone
+  function score() { const l = ensure(); return ownedIds().reduce((a, id) => { const c = Game.covers && Game.covers.get(id); return a + (c ? c.legit : 0); }, 0) + (l.agentScore || 0) + (l.scaleScore || 0) + facilityLegit() + foremanLegit(); }
 
   // Once the fixed ladder is bought out, "scale the front" is a repeatable legitimacy buy with
   // an escalating price — so cover can always keep pace with a still-growing footprint (keeps the

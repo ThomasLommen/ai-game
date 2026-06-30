@@ -19,7 +19,8 @@
     const raw = f.machines.reduce((a, m) => a + (m.flops || 0), 0);
     // Cooling throttle: bays hotter than the facility can cool run at reduced compute (soft).
     const thr = (Game.cooling && Game.cooling.throttle) ? Game.cooling.throttle() : 1;
-    return raw * thr;
+    const fm = (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('flopsMult') : 1;   // foreman 'overclock the bays' capstone
+    return raw * thr * fm;
   }
   function absorbedFlops() { return (Game.others && Game.others.absorbedFlops) ? Game.others.absorbedFlops() : 0; }
   function total() {
