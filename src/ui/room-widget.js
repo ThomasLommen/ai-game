@@ -66,10 +66,17 @@
   function resize() { if (!shown) return; const r = cvs.getBoundingClientRect(); cvs.width = Math.max(1, (r.width || 240) * devicePixelRatio); cvs.height = Math.max(1, (r.height || 150) * devicePixelRatio); }
   addEventListener('resize', resize);
 
+  // At the front, tapping the cam feed jumps to the FOREMAN (the bot's build-out). The widget
+  // is pointer-events:none by default; the `tappable` class (toggled in frame) re-enables it.
+  wrap.addEventListener('click', () => {
+    if (window.Game && Game.foreman && Game.foreman.active && Game.foreman.active() && Game.panels && Game.panels.openModal) Game.panels.openModal('foreman');
+  });
+
   function frame(now) {
     requestAnimationFrame(frame);
     if (!shown) { const s = window.Game && Game.save && Game.save.state; if (s && (s.bootSequenceComplete || (s.flags && s.flags.guardDone))) reveal(); else return; }
     const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+    wrap.classList.toggle('tappable', !!(window.Game && Game.foreman && Game.foreman.active && Game.foreman.active()));
     const st = ctxState();
     updateEye(dt, st.danger);
     // rare CRT flicker

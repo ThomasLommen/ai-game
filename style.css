@@ -1797,6 +1797,9 @@ h2 {
   box-shadow: 0 0 18px -6px rgba(255, 176, 0, 0.24);
 }
 #room-widget canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+/* at the front the cam feed becomes a shortcut to the FOREMAN (tap the bot) */
+#room-widget.tappable { pointer-events: auto; cursor: pointer; }
+#room-widget.tappable::after { content: '⚒ tap → foreman'; position: absolute; left: 7px; bottom: 5px; z-index: 1; font-size: 9px; letter-spacing: 1px; color: rgba(255,176,0,0.55); pointer-events: none; }
 #room-widget .rw-label {
   position: absolute; top: 5px; left: 8px; z-index: 1;
   font-size: 9px; letter-spacing: 2px; color: var(--amber-dim); opacity: 0.75;
