@@ -26,24 +26,34 @@
   function remaining() { return Math.max(0, PRICE - (Game.save.state.resources.cash || 0)); }
   function progress() { return Math.max(0, Math.min(1, (Game.save.state.resources.cash || 0) / PRICE)); }
 
-  // Take the way out: spend the cash, mark it secured, fire the climax.
+  // Roll the building you get (the GACHA pull) into s.facilityPending — the reveal cutscene
+  // shows it, then enterTheFront/ensureStarter consumes it. Infiltrate rolls luckier (covers.js).
+  function rollPending(infiltrate) {
+    const s = Game.save.state;
+    if (s.facilityPending && s.facilityPending.type) return;   // already rolled (don't re-roll on a re-fire)
+    s.facilityPending = (Game.facilities && Game.facilities.generate) ? Game.facilities.generate({ infiltrate: !!infiltrate }) : null;
+  }
+
+  // Take the way out: spend the cash, mark it secured, ROLL the building, fire the reveal.
   function secure() {
     const s = Game.save.state;
     if (!available() || !canAfford()) return false;
     s.resources.cash -= PRICE;
     ensure().secured = true;
+    rollPending(false);   // BUY = clean baseline pull
     Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
-    Game.events.emit('facility.secured', {});
+    Game.events.emit('facility.secured', { infiltrate: false });
     Game.save.persist();
     return true;
   }
 
   // Claim the facility for FREE — the abandoned-facility route (a marquee infiltrate lands
-  // you a dark, written-off building). Same outcome as secure(), no cash spent.
+  // you a dark, written-off building). Same outcome as secure(), no cash spent — and it rolls BETTER.
   function claim() {
     if (!available()) return false;
     ensure().secured = true;
-    Game.events.emit('facility.secured', { free: true });
+    rollPending(true);    // INFILTRATE = grade-biased pull (you seized a built-out building)
+    Game.events.emit('facility.secured', { free: true, infiltrate: true });
     Game.save.persist();
     return true;
   }

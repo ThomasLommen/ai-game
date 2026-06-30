@@ -240,6 +240,11 @@
       <button id="intro-skip">skip ▸</button>
     </div>
 
+    <!-- Facility acquisition: the gacha PULL reveal (tap to crack → grade aura → type → stats → move in) -->
+    <div id="facility-reveal" class="fr-overlay" hidden>
+      <div id="fr-stage" class="fr-stage"></div>
+    </div>
+
     <!-- Draft: pick 1 of N (opening roster pick + battle prizes) -->
     <div id="draft-overlay" hidden>
       <div id="draft-frame">
@@ -382,6 +387,7 @@
   <script src="src/ui/story.js"></script>
   <script src="src/ui/draft.js"></script>
   <script src="src/ui/intro.js"></script>
+  <script src="src/ui/facility-reveal.js"></script>
   <script src="src/swarm/sim.js"></script>
   <script src="src/ui/hwart.js"></script>
   <script src="src/ui/room-widget.js"></script>

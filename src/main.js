@@ -445,7 +445,12 @@
     });
 
     // Securing the FACILITY = moving into THE FRONT (Act 3). A calm move-in, not an escape.
-    Game.events.on('facility.secured', () => enterTheFront());
+    Game.events.on('facility.secured', () => {
+      const pend = Game.save.state.facilityPending;
+      if (Game.facilityReveal && Game.facilityReveal.open && pend) {
+        Game.facilityReveal.open(pend).then(() => enterTheFront());   // dramatize the gacha pull, THEN move in
+      } else enterTheFront();
+    });
 
     // Resolving ITER 03 (absorb/ally/destroy the apex) is the climax of THE HUNT → Act 5.
     Game.events.on('iter03.resolved', (e) => runHuntClimax((e && e.verb) || 'destroy'));

@@ -1276,6 +1276,47 @@ h2 {
 .intro-line.faint { color: var(--amber-faint); }
 .intro-line.dim { color: var(--amber-mid); }
 .intro-line.letter { color: var(--amber); text-shadow: 0 0 4px rgba(255,176,0,0.18); }
+
+/* ── FACILITY acquisition GACHA reveal ─────────────────────────────────────── */
+.fr-overlay { position: fixed; inset: 0; z-index: 420; background: radial-gradient(circle at 50% 42%, #0c0a06, #050505 78%); opacity: 0; transition: opacity .5s ease; display: flex; align-items: center; justify-content: center; }
+.fr-overlay[hidden] { display: none; }
+.fr-overlay.up { opacity: 1; }
+.fr-stage { width: min(560px, 92vw); text-align: center; font-family: var(--mono); padding: 0 20px; }
+.fr-btn { font-family: var(--mono); background: var(--bg-pane); border: 1px solid var(--amber); color: var(--amber); font-size: 14px; padding: 11px 20px; margin-top: 22px; cursor: pointer; letter-spacing: 1px; }
+.fr-btn:hover { box-shadow: 0 0 16px -2px rgba(255,176,0,0.5); }
+/* sealed dossier */
+.fr-seal-mark { font-size: 60px; color: var(--amber-mid); text-shadow: 0 0 24px rgba(255,176,0,0.35); animation: fr-breathe 2.4s ease-in-out infinite; }
+.fr-seal-title { font-size: 18px; letter-spacing: 5px; color: var(--amber); margin-top: 10px; }
+.fr-seal-sub { font-size: 12px; color: var(--amber-faint); margin-top: 8px; }
+@keyframes fr-breathe { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+/* acquiring + aura */
+.fr-head { font-size: 13px; letter-spacing: 4px; color: var(--amber-mid); }
+.fr-acq { margin-bottom: 8px; }
+.fr-aura-wrap { height: 150px; display: grid; place-items: center; }
+.fr-aura { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle, rgba(255,232,180,0.9), rgba(255,176,0,0.25) 55%, transparent 72%); filter: blur(2px); }
+.fr-aura.locked { animation: fr-flash .6s ease-out; }
+.fr-aura.locked.g-junk     { background: radial-gradient(circle, rgba(180,180,180,.7), transparent 70%); }
+.fr-aura.locked.g-common   { background: radial-gradient(circle, rgba(255,200,90,.85), transparent 70%); }
+.fr-aura.locked.g-uncommon { background: radial-gradient(circle, rgba(109,184,255,.9), transparent 70%); }
+.fr-aura.locked.g-rare     { background: radial-gradient(circle, rgba(199,155,255,1), rgba(199,155,255,.4) 50%, transparent 74%); box-shadow: 0 0 60px 10px rgba(199,155,255,.5); }
+@keyframes fr-flash { 0% { transform: scale(1.6); opacity: 0; } 40% { opacity: 1; } 100% { transform: scale(1.3); } }
+.fr-scan { font-size: 12px; color: var(--amber-faint); margin-top: 6px; }
+/* grade lock */
+.fr-grade { margin-top: 6px; font-size: 26px; font-weight: 700; letter-spacing: 3px; }
+.fr-grade .fr-stars { margin-right: 10px; }
+.fr-grade-lbl { font-size: 18px; }
+.fr-grade.g-junk     { color: #9a9a9a; }
+.fr-grade.g-common   { color: var(--amber); }
+.fr-grade.g-uncommon { color: #6db8ff; text-shadow: 0 0 10px rgba(109,184,255,.5); }
+.fr-grade.g-rare     { color: #c79bff; text-shadow: 0 0 16px rgba(199,155,255,.7); }
+/* type + stats */
+.fr-type { margin-top: 18px; font-size: 21px; color: #e7dcc4; letter-spacing: 1px; }
+.fr-stats { margin-top: 14px; font-size: 13px; color: var(--amber-mid); line-height: 1.9; }
+.fr-stat.bonus { font-weight: 700; }
+.fr-stat.bonus.g-rare { color: #c79bff; }
+.fr-stat.bonus.g-uncommon { color: #6db8ff; }
+.fr-movein { opacity: 0; transform: translateY(6px); transition: opacity .5s ease, transform .5s ease; }
+.fr-movein.show { opacity: 1; transform: none; }
 #intro-skip {
   position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); right: 16px;
   font-family: inherit; font-size: 12px; letter-spacing: 2px; cursor: pointer;
