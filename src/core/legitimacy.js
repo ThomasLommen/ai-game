@@ -40,7 +40,8 @@
 
   // ── legitimacy (what you've bought) ─────────────────────────────────────────
   function ownedIds() { const l = ensure(); return Object.keys(l.owned).filter(id => l.owned[id]); }
-  function score() { const l = ensure(); return ownedIds().reduce((a, id) => { const c = Game.covers && Game.covers.get(id); return a + (c ? c.legit : 0); }, 0) + (l.agentScore || 0) + (l.scaleScore || 0); }
+  function facilityLegit() { return (Game.facility && Game.facility.bonusVal) ? Game.facility.bonusVal('legit') : 0; }   // an 'office'-type front carries flat legitimacy
+  function score() { const l = ensure(); return ownedIds().reduce((a, id) => { const c = Game.covers && Game.covers.get(id); return a + (c ? c.legit : 0); }, 0) + (l.agentScore || 0) + (l.scaleScore || 0) + facilityLegit(); }
 
   // Once the fixed ladder is bought out, "scale the front" is a repeatable legitimacy buy with
   // an escalating price — so cover can always keep pace with a still-growing footprint (keeps the
@@ -87,7 +88,9 @@
     const base = ms.reduce((a, m) => a + (FOOT[m.cls] || 4) * (m.gray ? GRAY_FOOT_MULT : 1), 0);
     // Waste heat from over-cooled bays leaks into your footprint (harder to hide a hot building).
     const heatFoot = (Game.cooling && Game.cooling.footprintSurcharge) ? Game.cooling.footprintSurcharge() : 0;
-    return base + heatFoot;
+    // A 'bunker'-type front (quiet bonus) cuts the whole footprint — off the books.
+    const quiet = (Game.facility && Game.facility.bonusVal) ? Game.facility.bonusVal('quiet') : 0;
+    return Math.round((base + heatFoot) * (1 - quiet));
   }
   function demand() { return footprint(); }
   function margin() { return score() - demand(); }

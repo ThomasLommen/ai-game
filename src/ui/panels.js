@@ -1522,7 +1522,8 @@
           ? ` · <span class="cool-over">${coolStr} · THROTTLED ×${C.throttle().toFixed(2)}</span>`
           : ` · <span class="cool-ok">${coolStr}</span>`;
       }
-      status.innerHTML = `${f.label} · ${FR.usedSlots()}/${f.slots} bays · ${FR.usedPower().toLocaleString()}/${f.powerBudget.toLocaleString()}W${cool} · ` +
+      const gradeTag = f.gradeLabel ? `<span class="fac-grade g-${(Game.facilities && Game.facilities.GRADES[f.grade] || {}).css || 'common'}">${f.gradeLabel.toUpperCase()}</span> ` : '';
+      status.innerHTML = `${gradeTag}${f.label} · ${FR.usedSlots()}/${f.slots} bays · ${FR.usedPower().toLocaleString()}/${f.powerBudget.toLocaleString()}W${cool} · ` +
         `<span class="flops-inline">${Game.flops.fmt()}</span>` + (f.bonus ? ` · ${f.bonus.label}` : '');
     }
     const bay = document.getElementById('facility-bay');

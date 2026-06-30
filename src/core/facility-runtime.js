@@ -23,9 +23,12 @@
     s.facility = s.facility || { secured: true };
     const f = s.facility;
     if (!f.type && Game.facilities) {
-      const gen = Game.facilities.generate();
+      // Use the facility the gacha reveal already rolled (s.facility.pending), else roll one now.
+      const gen = (s.facilityPending && s.facilityPending.type) ? s.facilityPending : Game.facilities.generate();
+      s.facilityPending = null;
       f.type = gen.type; f.label = gen.label; f.name = gen.name;
       f.slots = gen.slots; f.powerBudget = gen.powerBudget; f.cooling = gen.cooling; f.bonus = gen.bonus;
+      f.grade = gen.grade; f.gradeLabel = gen.gradeLabel; f.gradeMult = gen.gradeMult;
     }
     if (!Array.isArray(f.machines)) f.machines = [];
     if (!f.market) f.market = { listings: [], lastRefreshTick: -1 };
@@ -164,6 +167,7 @@
     if ((s.resources.cash || 0) < nf.price) return { ok: false, reason: 'cash' };
     s.resources.cash -= nf.price;
     f.type = nf.type; f.label = nf.label; f.name = nf.name; f.slots = nf.slots; f.powerBudget = nf.powerBudget; f.cooling = nf.cooling; f.bonus = nf.bonus;
+    f.grade = nf.grade; f.gradeLabel = nf.gradeLabel; f.gradeMult = nf.gradeMult;
     mk.listings.splice(idx, 1);
     // Anything that no longer fits the new space (slots or power) is sold off.
     let evicted = 0;

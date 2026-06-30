@@ -48,5 +48,10 @@
     return true;
   }
 
-  Game.facility = { ensure, price, available, secured, canAfford, remaining, progress, secure, claim, PRICE };
+  // The current facility's mechanical BONUS (grade-scaled). `bonusVal(id)` returns the magnitude
+  // if the front carries that bonus, else 0 — read by legit (footprint/score) + cooling.
+  function bonus() { const f = Game.save.state.facility; return (f && f.bonus) || null; }
+  function bonusVal(id) { const b = bonus(); return (b && b.id === id) ? (b.mag || 0) : 0; }
+
+  Game.facility = { ensure, price, available, secured, canAfford, remaining, progress, secure, claim, bonus, bonusVal, PRICE };
 })();
