@@ -88,9 +88,11 @@
     const base = ms.reduce((a, m) => a + (FOOT[m.cls] || 4) * (m.gray ? GRAY_FOOT_MULT : 1), 0);
     // Waste heat from over-cooled bays leaks into your footprint (harder to hide a hot building).
     const heatFoot = (Game.cooling && Game.cooling.footprintSurcharge) ? Game.cooling.footprintSurcharge() : 0;
-    // A 'bunker'-type front (quiet bonus) cuts the whole footprint — off the books.
+    // A 'bunker'-type front (quiet bonus) cuts the whole footprint; the FOREMAN's shielding
+    // cuts it further (footprintMult ≤ 1).
     const quiet = (Game.facility && Game.facility.bonusVal) ? Game.facility.bonusVal('quiet') : 0;
-    return Math.round((base + heatFoot) * (1 - quiet));
+    const foremanFoot = (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('footprintMult') : 1;
+    return Math.round((base + heatFoot) * (1 - quiet) * foremanFoot);
   }
   function demand() { return footprint(); }
   function margin() { return score() - demand(); }

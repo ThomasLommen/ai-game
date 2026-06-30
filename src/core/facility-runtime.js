@@ -37,9 +37,12 @@
 
   function machines() { const f = fac(); return (f && Array.isArray(f.machines)) ? f.machines : []; }
   function usedSlots() { return machines().length; }
-  function freeSlots() { const f = fac(); return f ? Math.max(0, (f.slots || 0) - usedSlots()) : 0; }
+  // The FOREMAN's facility build-out adds bays (flat) + power headroom (mult) on top of the base building.
+  function foremanBays() { return (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('bays') : 0; }
+  function slotCap() { const f = fac(); return f ? ((f.slots || 0) + foremanBays()) : 0; }
+  function freeSlots() { return Math.max(0, slotCap() - usedSlots()); }
   function usedPower() { return machines().reduce((a, m) => a + (m.power || 0), 0); }
-  function powerBudget() { const f = fac(); return f ? (f.powerBudget || 0) : 0; }
+  function powerBudget() { const f = fac(); if (!f) return 0; const pm = (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('powerMult') : 1; return Math.round((f.powerBudget || 0) * pm); }
   function freePower() { return Math.max(0, powerBudget() - usedPower()); }
   function canInstall(m) { return !!m && freeSlots() > 0 && (usedPower() + (m.power || 0)) <= powerBudget(); }
 
@@ -236,7 +239,7 @@
 
   Game.facilityRuntime = {
     active, ensureStarter, ensureMarket, refreshMarket, tick,
-    machines, usedSlots, freeSlots, usedPower, powerBudget, freePower, canInstall,
+    machines, usedSlots, slotCap, freeSlots, usedPower, powerBudget, freePower, canInstall,
     listings, ticksUntilRefresh, buy, sell, MARKET_SIZE,
     ensureFacMarket, refreshFacMarket, facListings, relocate, scout, scoutCost, moveInto,
     ensureGrayMarket, refreshGrayMarket, grayListings, ticksUntilGrayRefresh, buyGray, GRAY_DISCOUNT

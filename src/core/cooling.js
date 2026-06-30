@@ -26,9 +26,11 @@
   function capacity() {
     const f = fac();
     if (!f) return 0;
-    // A 'datacenter'-type front (power bonus) adds cooling capacity headroom.
+    // A 'datacenter'-type front (power bonus) adds cooling capacity headroom; the FOREMAN's
+    // cooling loops/chillers add more (mult).
     const powerBonus = (Game.facility && Game.facility.bonusVal) ? Game.facility.bonusVal('power') : 0;
-    return (f.slots || 0) * PER_SLOT_COOL * (f.cooling || 1) * (1 + powerBonus);
+    const foremanCool = (Game.foreman && Game.foreman.mod) ? Game.foreman.mod('coolingMult') : 1;
+    return (f.slots || 0) * PER_SLOT_COOL * (f.cooling || 1) * (1 + powerBonus) * foremanCool;
   }
   function ratio() { const c = capacity(); return c > 0 ? totalHeat() / c : 0; }
   function overheating() { return ratio() > 1.0001; }

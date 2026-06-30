@@ -173,6 +173,7 @@
       if (Game.changers) Game.changers.tick();                 // run-defining: compound interest + per-tick adaptations
       if (Game.facilityRuntime) Game.facilityRuntime.tick();   // Act 4: refresh the machine market
       if (Game.cooling) Game.cooling.tick();                   // Act 4: warn when the bays out-run facility cooling
+      if (Game.foreman) Game.foreman.tick();                   // Act 4: the bot-foreman builds out the facility (async jobs)
       if (Game.legit) Game.legit.tick();                       // Act 4: footprint-vs-legitimacy → audits
       if (Game.agents) Game.agents.tick();                     // Act 4: sub-agents work their lanes + level up
       if (Game.brokerage) Game.brokerage.tick();               // Act 4: leased compute pays clean, legit-scaled cash
