@@ -50,19 +50,25 @@
     });
   }
 
-  async function open(fac) {
+  // open(fac, opts): opts.relocation → multi-button footer (MOVE IN / scout again / keep);
+  // opts.skipSeal → straight to the pull (the SCOUT tap was already the gesture).
+  // Resolves with the chosen action: 'movein' | 'scout' | 'close' (milestone always 'movein').
+  async function open(fac, opts) {
+    opts = opts || {};
     const o = ov(), st = stage();
-    if (!o || !st || !fac) return;   // no overlay → resolve immediately so the move-in still runs
+    if (!o || !st || !fac) return 'movein';   // no overlay → resolve so the caller still proceeds
     return new Promise(async resolve => {
       o.hidden = false; requestAnimationFrame(() => o.classList.add('up'));
 
-      // 1 — the sealed dossier; tap to pull
-      st.innerHTML = `<div class="fr-seal">
-        <div class="fr-seal-mark">▣</div>
-        <div class="fr-seal-title">SITE DOSSIER</div>
-        <div class="fr-seal-sub">a building, somewhere, waiting to become you</div>
-        <button class="fr-btn fr-open-btn">[ crack the seal ]</button></div>`;
-      await new Promise(r => { st.querySelector('.fr-open-btn').onclick = r; });
+      // 1 — the sealed dossier; tap to pull (skipped for relocation scouts)
+      if (!opts.skipSeal) {
+        st.innerHTML = `<div class="fr-seal">
+          <div class="fr-seal-mark">▣</div>
+          <div class="fr-seal-title">SITE DOSSIER</div>
+          <div class="fr-seal-sub">a building, somewhere, waiting to become you</div>
+          <button class="fr-btn fr-open-btn">[ crack the seal ]</button></div>`;
+        await new Promise(r => { st.querySelector('.fr-open-btn').onclick = r; });
+      }
 
       // 2 — ACQUIRING + the escalating aura
       const g = gradeMeta(fac.grade);
@@ -99,11 +105,30 @@
         await decode(d, ln, 12); await sleep(130);
       }
 
-      // 6 — MOVE IN
-      const mv = document.createElement('button'); mv.className = 'fr-btn fr-movein'; mv.textContent = '[ MOVE IN ]';
-      st.appendChild(mv);
-      requestAnimationFrame(() => mv.classList.add('show'));
-      mv.onclick = async () => { o.classList.remove('up'); await sleep(520); o.hidden = true; resolve(); };
+      // 6 — the footer: a single MOVE IN (milestone) or the relocation choice
+      const footer = document.createElement('div'); footer.className = 'fr-footer'; st.appendChild(footer);
+      const hide = async (action) => { o.classList.remove('up'); await sleep(500); o.hidden = true; resolve(action); };
+      if (opts.relocation) {
+        const cash = (Game.save.state.resources && Game.save.state.resources.cash) || 0;
+        const canMove = cash >= (opts.moveCost || 0), canScout = cash >= (opts.scoutCost || 0);
+        footer.innerHTML =
+          `<button class="fr-btn fr-movein${canMove ? '' : ' off'}" data-act="movein">[ MOVE IN · $${(opts.moveCost || 0).toLocaleString()} ]</button>` +
+          `<button class="fr-btn fr-scout${canScout ? '' : ' off'}" data-act="scout">[ scout again · $${(opts.scoutCost || 0).toLocaleString()} ]</button>` +
+          `<button class="fr-keep" data-act="close">keep my current front</button>`;
+        requestAnimationFrame(() => footer.classList.add('show'));
+        footer.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
+          const act = b.dataset.act;
+          if (act === 'movein' && !canMove) return;
+          if (act === 'scout' && !canScout) return;
+          if (act === 'scout') { resolve('scout'); return; }   // keep the overlay up; the loop replays the pull
+          hide(act);
+        });
+      } else {
+        const mv = document.createElement('button'); mv.className = 'fr-btn fr-movein'; mv.textContent = '[ MOVE IN ]';
+        footer.appendChild(mv);
+        requestAnimationFrame(() => footer.classList.add('show'));
+        mv.onclick = () => hide('movein');
+      }
     });
   }
 

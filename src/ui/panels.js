@@ -1560,23 +1560,34 @@
         grayHead.textContent = `DARKNET HARDWARE · ungated, ~${Math.round((1 - FR.GRAY_DISCOUNT) * 100)}% off, loud · new crates in ${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
       }
     }
-    // Relocation market — bigger typed spaces to move the whole operation into.
+    // RELOCATION = a gacha SCOUT pull: pay a scout fee to roll + reveal a new site, then
+    // MOVE IN (its price) or scout again. The dramatic reveal lives in Game.facilityReveal.
     const relo = document.getElementById('facility-relocate');
-    if (relo && FR.facListings) {
-      FR.ensureFacMarket();
-      const cash = s.resources.cash || 0;
-      relo.innerHTML = FR.facListings().map(nf => {
-        const better = (nf.slots > f.slots || nf.powerBudget > f.powerBudget);
-        const afford = cash >= nf.price;
-        const tag = afford ? `[ relocate ] $${nf.price.toLocaleString()}` : `$${nf.price.toLocaleString()}`;
-        return `<div class="machine-row${better ? '' : ' faint'}" data-relocate="${nf.id}">
-            <div class="machine-info"><div class="machine-name">${nf.label}</div><div class="machine-stats">${nf.slots} bays · ${nf.powerBudget.toLocaleString()}W · ${nf.bonus ? nf.bonus.label : ''}</div></div>
-            <div class="machine-act"><button class="${afford ? '' : 'disabled'}" data-relocate="${nf.id}">${tag}</button></div>
-          </div>`;
-      }).join('');
-      relo.querySelectorAll('button[data-relocate]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => FR.relocate(b.dataset.relocate); });
+    if (relo && FR.scout) {
+      const cash = s.resources.cash || 0, fee = FR.scoutCost();
+      const can = cash >= fee;
+      relo.innerHTML = `<div class="scout-blurb">scout the market for a bigger front — pay to roll a site, then move in or keep looking. you never have to take a worse building.</div>
+        <button class="scout-btn${can ? '' : ' off'}" id="scout-btn">${can ? `[ scout sites · $${fee.toLocaleString()} ]` : `need $${fee.toLocaleString()} to scout`}</button>`;
+      const sb = document.getElementById('scout-btn');
+      if (sb && can && !relo._scouting) sb.onclick = () => runScout();
     }
     renderCover();
+  }
+
+  // The relocation SCOUT loop: pay → roll → reveal → MOVE IN / scout again / keep.
+  async function runScout() {
+    const FR = Game.facilityRuntime, relo = document.getElementById('facility-relocate');
+    if (!FR || (relo && relo._scouting)) return;
+    if (relo) relo._scouting = true;
+    try {
+      let site = FR.scout();   // first pull (the SCOUT tap is the gesture)
+      while (site && Game.facilityReveal && Game.facilityReveal.open) {
+        const action = await Game.facilityReveal.open(site, { relocation: true, skipSeal: true, moveCost: site.price, scoutCost: FR.scoutCost() });
+        if (action === 'movein') { FR.moveInto(site); break; }
+        if (action === 'scout') { const nx = FR.scout(); if (!nx) break; site = nx; continue; }
+        break;   // keep current front
+      }
+    } finally { if (relo) relo._scouting = false; renderFacilityView(); }
   }
 
   function classGateLabel(idx) {

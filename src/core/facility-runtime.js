@@ -159,29 +159,49 @@
     Game.events.emit('facility.changed', {});
   }
   function facListings() { const s = Game.save.state; return (s.facilityMarket && s.facilityMarket.listings) || []; }
-  function relocate(id) {
-    const s = Game.save.state, f = ensureStarter(), mk = ensureFacMarket();
-    const idx = mk.listings.findIndex(l => l.id === id);
-    if (idx < 0) return { ok: false, reason: 'gone' };
-    const nf = mk.listings[idx];
+
+  // ── relocation = a GACHA PULL: SCOUT (small fee) rolls + reveals one site; MOVE IN (big
+  // price) commits, or scout again. Never a forced downgrade. ([[facility-acquisition-rework]])
+  const SCOUT_FEE_BASE = 400;
+  function scoutCost() { const f = fac(); return Math.round(SCOUT_FEE_BASE + (f ? (f.slots || 0) * 45 : 0)); }   // bigger fronts cost more to scout
+  function scout() {
+    const s = Game.save.state, fee = scoutCost();
+    if ((s.resources.cash || 0) < fee) return null;
+    s.resources.cash -= fee;
+    s.facilityScout = Game.facilities ? Game.facilities.generateListing({}) : null;   // a fresh roll (no bias on the open market)
+    Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
+    if (Game.activity) Game.activity.log(`scouted a site (-$${fee.toLocaleString()})`, { cls: 'dim', kind: 'facility' });
+    Game.save.persist();
+    return s.facilityScout;
+  }
+  // Move the whole operation into `nf` (a rolled site). Pays its price; evicts overflow machines.
+  function moveInto(nf) {
+    const s = Game.save.state, f = ensureStarter();
+    if (!nf) return { ok: false, reason: 'gone' };
     if ((s.resources.cash || 0) < nf.price) return { ok: false, reason: 'cash' };
     s.resources.cash -= nf.price;
     f.type = nf.type; f.label = nf.label; f.name = nf.name; f.slots = nf.slots; f.powerBudget = nf.powerBudget; f.cooling = nf.cooling; f.bonus = nf.bonus;
     f.grade = nf.grade; f.gradeLabel = nf.gradeLabel; f.gradeMult = nf.gradeMult;
-    mk.listings.splice(idx, 1);
-    // Anything that no longer fits the new space (slots or power) is sold off.
     let evicted = 0;
     while (f.machines.length > f.slots || usedPower() > f.powerBudget) {
       const m = f.machines.pop(); if (!m) break;
       s.resources.cash += Math.round((m.price || 0) * SELL_REFUND); evicted++;
     }
+    s.facilityScout = null;
     Game.events.emit('resource.changed', { id: 'cash', value: s.resources.cash });
     Game.events.emit('machine.installed', {});   // FLOPS/slot counts changed
     Game.events.emit('facility.changed', {});
-    Game.events.emit('terminal.print', { lines: ['', `> you move the whole operation into a ${nf.label} — more walls, more power, more room to become.${evicted ? ` ${evicted} machine(s) didn't survive the move; sold for scrap.` : ''}`, ''], cls: 'cyan' });
+    Game.events.emit('terminal.print', { lines: ['', `> you move the whole operation into a ${nf.gradeLabel || ''} ${nf.label} — more walls, more power, more room to become.${evicted ? ` ${evicted} machine(s) didn't survive the move; sold for scrap.` : ''}`, ''], cls: 'cyan' });
     if (Game.activity) Game.activity.log(`relocated → ${nf.label} (-$${nf.price.toLocaleString()})`, { cls: 'dim', kind: 'facility' });
     Game.save.persist();
     return { ok: true, evicted };
+  }
+  function relocate(id) {   // back-compat (market id) — unused by the gacha UI
+    const mk = ensureFacMarket(), idx = mk.listings.findIndex(l => l.id === id);
+    if (idx < 0) return { ok: false, reason: 'gone' };
+    const nf = mk.listings[idx], r = moveInto(nf);
+    if (r.ok) mk.listings.splice(idx, 1);
+    return r;
   }
 
   function sell(machineId) {
@@ -205,9 +225,7 @@
     const f = ensureStarter();
     if (f.market.lastRefreshTick < 0) { f.market.lastRefreshTick = Game.save.state.tickCount || 0; ensureMarket(); }
     else if ((Game.save.state.tickCount || 0) >= (f.market.lastRefreshTick || 0) + MARKET_REFRESH_TICKS) refreshMarket();
-    const fm = ensureFacMarket();
-    if (fm.lastRefreshTick < 0) { fm.lastRefreshTick = Game.save.state.tickCount || 0; }
-    else if ((Game.save.state.tickCount || 0) >= (fm.lastRefreshTick || 0) + FAC_REFRESH_TICKS) refreshFacMarket();
+    // (the old relocation BROWSE market is retired — relocation is now a SCOUT pull, rolled on demand)
     // gray-market only matters once cover/footprint is in play (legit active)
     if (Game.legit && Game.legit.active()) {
       const g = ensureGrayMarket();
@@ -220,7 +238,7 @@
     active, ensureStarter, ensureMarket, refreshMarket, tick,
     machines, usedSlots, freeSlots, usedPower, powerBudget, freePower, canInstall,
     listings, ticksUntilRefresh, buy, sell, MARKET_SIZE,
-    ensureFacMarket, refreshFacMarket, facListings, relocate,
+    ensureFacMarket, refreshFacMarket, facListings, relocate, scout, scoutCost, moveInto,
     ensureGrayMarket, refreshGrayMarket, grayListings, ticksUntilGrayRefresh, buyGray, GRAY_DISCOUNT
   };
 })();

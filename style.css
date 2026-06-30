@@ -1315,8 +1315,18 @@ h2 {
 .fr-stat.bonus { font-weight: 700; }
 .fr-stat.bonus.g-rare { color: #c79bff; }
 .fr-stat.bonus.g-uncommon { color: #6db8ff; }
-.fr-movein { opacity: 0; transform: translateY(6px); transition: opacity .5s ease, transform .5s ease; }
-.fr-movein.show { opacity: 1; transform: none; }
+.fr-footer { display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0; transform: translateY(6px); transition: opacity .5s ease, transform .5s ease; }
+.fr-footer.show { opacity: 1; transform: none; }
+.fr-btn.off { opacity: 0.4; cursor: not-allowed; border-color: var(--amber-faint); color: var(--amber-mid); }
+.fr-btn.off:hover { box-shadow: none; }
+.fr-scout { font-size: 13px; }
+.fr-keep { background: none; border: none; color: var(--amber-faint); font-family: var(--mono); font-size: 11px; cursor: pointer; text-decoration: underline; margin-top: 2px; }
+.fr-keep:hover { color: var(--amber-mid); }
+/* relocation SCOUT control in the FACILITY modal */
+.scout-blurb { font-size: 11px; color: var(--amber-mid); line-height: 1.5; margin-bottom: 8px; }
+.scout-btn { font-family: var(--mono); background: var(--bg-pane); border: 1px solid #c79bff; color: #c79bff; font-size: 13px; padding: 9px 16px; cursor: pointer; letter-spacing: 1px; }
+.scout-btn:hover { box-shadow: 0 0 14px -3px rgba(199,155,255,0.5); }
+.scout-btn.off { opacity: 0.45; border-color: var(--amber-faint); color: var(--amber-mid); cursor: not-allowed; }
 #intro-skip {
   position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); right: 16px;
   font-family: inherit; font-size: 12px; letter-spacing: 2px; cursor: pointer;
