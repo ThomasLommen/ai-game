@@ -16,6 +16,7 @@
     { id: 'build',  glyph: '⊞', label: 'RESEARCH' },
     { id: 'roster', glyph: '⚔', label: 'ROSTER' },
     { id: 'gear',   glyph: '▦', label: 'GEAR' },
+    { id: 'foreman',glyph: '⚒', label: 'FOREMAN' },
     { id: 'sys',    glyph: '◎', label: 'SYS' },
     { id: 'more',   glyph: '≡', label: 'MORE' },
   ];
@@ -34,12 +35,13 @@
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
     roster: ['#roster-panel'],   // the defense ROSTER: units, persistent run-level, boosts, pod cap
     gear:  ['#hardware-panel', '#vitals-panel', '.modal-panel[data-modal="inventory"]'],   // GEAR carries the rig hardware + DIAGNOSTICS (vitals) + inventory
+    foreman: ['.modal-panel[data-modal="foreman"]'],   // the BOT-FOREMAN's facility build-out (front; takes over from GEAR)
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
     more:  ['.modal-panel[data-modal="activity"]', '.modal-panel[data-modal="deliveries"]'],   // SETTINGS lives behind the HUD gear, not here
   };
   const HUD = ['#insight-panel'];   // the resource readouts ride in the sticky header
   // headers for the stacked modal panels (they lose the desktop modal titlebar)
-  const LABELS = { shop: 'DARKNET', missions: 'MISSIONS', research: 'RESEARCH', market: 'PROGRAMS', inventory: 'INVENTORY', subroutines: 'SUBROUTINES', adaptations: 'ADAPTATIONS', facility: 'FACILITY', agents: 'AGENTS', scan: 'SCAN', network: 'NETWORK', others: 'THE OTHERS', activity: 'ACTIVITY', deliveries: 'DELIVERIES', settings: 'SETTINGS' };
+  const LABELS = { shop: 'DARKNET', missions: 'MISSIONS', research: 'RESEARCH', market: 'PROGRAMS', inventory: 'INVENTORY', subroutines: 'SUBROUTINES', adaptations: 'ADAPTATIONS', facility: 'FACILITY', agents: 'AGENTS', foreman: 'FOREMAN', scan: 'SCAN', network: 'NETWORK', others: 'THE OTHERS', activity: 'ACTIVITY', deliveries: 'DELIVERIES', settings: 'SETTINGS' };
 
   function tabOf(modalName) {
     for (const t of Object.keys(MOUNT)) if (MOUNT[t].some(sel => sel.indexOf(`data-modal="${modalName}"`) >= 0)) return t;

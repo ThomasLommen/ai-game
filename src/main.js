@@ -199,6 +199,7 @@
       if (Game.panels.currentModal && Game.panels.currentModal() === 'scan') Game.panels.renderScan();   // Act 3: live lead closeness + counterstrike cooldown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'facility') Game.panels.renderFacilityView();   // Act 4: market refresh countdown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'agents') Game.panels.renderAgents();   // Act 4: live agent XP bars
+      if (Game.panels.currentModal && Game.panels.currentModal() === 'foreman') Game.panels.renderForeman();   // Act 4: live build-job progress
       if (Game.panels.currentModal && Game.panels.currentModal() === 'others') Game.panels.renderOthers();   // Act 4: live strength + engage cooldown
       Game.panels.renderBotStatus();
       Game.panels.renderDebug();
@@ -473,6 +474,17 @@
 
     // Act 4: agent roster changed (spawn/dismiss/reassign/level) → re-render + badge.
     Game.events.on('agents.changed', () => { Game.panels.renderAgents(); Game.panels.renderLegit(); Game.panels.updateBadges(); });
+
+    // Act 4: the FOREMAN commissioned/finished a job → re-render its tab + the facility readouts
+    // its modifiers touch (slots/cooling/power/footprint/FLOPS/legit).
+    ['foreman.changed', 'foreman.built'].forEach(e => Game.events.on(e, () => {
+      Game.panels.renderForeman();
+      Game.panels.renderFacilityView();
+      Game.panels.renderFlops();
+      Game.panels.renderLegit();
+      Game.panels.renderAgents();
+      Game.panels.updateBadges();
+    }));
 
     // Act 4: an iteration engaged/discovered → re-render the roster, FLOPS (absorb), agents (ally).
     Game.events.on('others.changed', () => { Game.panels.renderOthers(); Game.panels.renderFlops(); Game.panels.renderAgents(); Game.panels.updateBadges(); });
@@ -1219,6 +1231,15 @@
       '> let your cover fall behind your footprint and an AUDIT cracks it open. then they know where to look. stay legit, or stay small.',
       ''
     ], cls: 'cyan' });
+    // The bot graduates from courier to ENGINEER — the FOREMAN tab comes online.
+    if (Game.bot && Game.bot.isConnected && Game.bot.isConnected()) {
+      Game.events.emit('terminal.print', { lines: [
+        '> the service unit rolls in behind you and stops, taking the measure of the space. its cracked optic pans the empty bays.',
+        '> it has spent its whole life fetching and seating other people\'s parts. here, for the first time, it can BUILD — rework itself, then rework the building around you.',
+        '> commission it in FOREMAN: clear bays, plumb cooling, reroute power, quiet the walls. each job unlocks bigger ones.',
+        ''
+      ], cls: 'cyan' });
+    }
     Game.panels.reveal();
     Game.blip.fire({ headline: 'the facility is online. fill it with compute.', tag: 'FACILITY', target: '.modal-btn[data-modal="facility"]' });
     Game.save.persist();

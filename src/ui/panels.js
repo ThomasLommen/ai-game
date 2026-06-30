@@ -1271,6 +1271,7 @@
     inventory: 'INVENTORY',
     deliveries: 'DELIVERIES',
     files: 'FILES',
+    foreman: 'FOREMAN',
     settings: 'SETTINGS'
   };
 
@@ -1287,6 +1288,7 @@
       case 'network':     renderNetwork(); break;
       case 'facility':    renderFacilityView(); break;
       case 'agents':      renderAgents(); break;
+      case 'foreman':     renderForeman(); break;
       case 'others':      renderOthers(); break;
       case 'activity':    renderActivity(); if (Game.activity) Game.activity.markSeen(); updateBadges(); break;
       case 'inventory':   renderInventory(); break;
@@ -1716,6 +1718,74 @@
       ro.innerHTML = roster.length ? roster.map(ag => agentRow(ag)).join('') : '<div class="faint" style="font-size:12px">no agents yet. spin one up above.</div>';
       ro.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = () => A.dismiss(b.dataset.dismiss));
       ro.querySelectorAll('[data-reassign]').forEach(b => b.onclick = () => A.reassign(b.dataset.reassign, b.dataset.lane));
+    }
+  }
+
+  // THE FOREMAN — the bot's facility build-out. Status (tier/disposition/job) + the tree of
+  // self-upgrades + facility improvements (commission → it builds over time). ([[foreman_bot_design]])
+  function foremanEffect(n) {
+    const e = n.effect || {}, pct = v => `${v >= 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))}%`;
+    if (e.bays) return `+${e.bays} machine bays`;
+    if (e.coolingMult) return `${pct(e.coolingMult)} cooling capacity`;
+    if (e.powerMult) return `${pct(e.powerMult)} power budget`;
+    if (e.footprintMult) return `${pct(e.footprintMult)} footprint`;
+    if (e.flopsMult) return `${pct(e.flopsMult)} FLOPS`;
+    if (e.agentSlots) return `+${e.agentSlots} agent slots`;
+    if (e.legitFlat) return `+${e.legitFlat} legitimacy`;
+    if (e.auto === 'install') return 'auto-installs bought machines';
+    if (e.auto === 'salvage') return 'machine sales return more';
+    if (e.tier) return 'upgrades the unit · faster, bigger builds';
+    return '';
+  }
+  function renderForeman() {
+    const F = Game.foreman, status = document.getElementById('foreman-status');
+    if (!F || !status) return;
+    const jobEl = document.getElementById('foreman-job'), treeEl = document.getElementById('foreman-tree');
+    if (!F.active()) { status.textContent = ''; if (jobEl) jobEl.innerHTML = ''; if (treeEl) treeEl.innerHTML = ''; return; }
+    const cash = Game.save.state.resources.cash || 0;
+    const all = F.nodes(), built = F.builtIds().length;
+    const disp = F.disposition() || 'unbound';
+    status.innerHTML = `the unit · <b>mk${F.tier()}</b> · ${disp} · ${built}/${all.length} built` +
+      (F.overclockable() ? ` · <button class="frm-oc${Game.save.state.foreman && Game.save.state.foreman.overclock ? ' on' : ''}" id="frm-oc">overclock</button>` : '');
+    const oc = document.getElementById('frm-oc'); if (oc) oc.onclick = () => F.toggleOverclock();
+
+    // current job
+    if (jobEl) {
+      const j = F.job();
+      jobEl.innerHTML = j
+        ? `<div class="frm-job"><div class="frm-job-name">▸ building: ${resEsc(j.node.name)} <span class="frm-secs">${j.secLeft}s</span></div><div class="frm-bar"><div class="frm-bar-fill" style="width:${j.pct}%"></div></div></div>`
+        : `<div class="faint" style="font-size:12px;margin:6px 0 12px">the unit is idle — commission a job below.</div>`;
+    }
+
+    // the tree: AVAILABLE (commission) → LOCKED (reason) → BUILT (chips)
+    if (treeEl) {
+      const jobActive = !!F.job();
+      const avail = all.filter(n => !F.isBuilt(n.id) && F.reqMet(n));
+      const locked = all.filter(n => !F.isBuilt(n.id) && !F.reqMet(n));
+      const builtNodes = all.filter(n => F.isBuilt(n.id));
+      let html = '';
+      if (avail.length) {
+        html += `<div class="net-section">READY TO BUILD</div>`;
+        html += avail.map(n => {
+          const cost = F.costOf(n), secs = F.buildSecOf(n), afford = cash >= cost && !jobActive;
+          const why = jobActive ? 'unit busy' : `need $${cost.toLocaleString()}`;
+          return `<div class="frm-node ${n.kind}">
+              <div class="frm-node-head"><span class="frm-node-name">${resEsc(n.name)}</span><span class="frm-node-kind">${n.kind}</span></div>
+              <div class="frm-node-desc">${resEsc(n.desc)}</div>
+              <div class="frm-node-foot"><span class="frm-eff">${foremanEffect(n)}</span>
+                <button class="frm-build${afford ? '' : ' off'}" data-build="${n.id}">${afford ? `[ build · $${cost.toLocaleString()} · ~${secs}s ]` : why}</button></div>
+            </div>`;
+        }).join('');
+      }
+      if (locked.length) {
+        html += `<div class="net-section">LOCKED</div>`;
+        html += locked.map(n => `<div class="frm-node locked"><div class="frm-node-head"><span class="frm-node-name">${resEsc(n.name)}</span><span class="frm-lock">${resEsc(F.lockReason(n))}</span></div><div class="frm-node-desc">${resEsc(n.desc)}</div></div>`).join('');
+      }
+      if (builtNodes.length) {
+        html += `<div class="net-section">BUILT</div><div class="frm-built">` + builtNodes.map(n => `<span class="frm-chip" title="${resEsc(foremanEffect(n))}">✓ ${resEsc(n.name)}</span>`).join('') + `</div>`;
+      }
+      treeEl.innerHTML = html;
+      treeEl.querySelectorAll('.frm-build:not(.off)').forEach(b => b.onclick = () => F.commission(b.dataset.build));
     }
   }
 
@@ -2383,6 +2453,7 @@
       network:     !!rv.network,
       facility:    !!(s.flags && s.flags.act4Begun),   // Act 4: the facility machine-bay
       agents:      !!rv.agents,   // Act 4: the sub-agent roster (revealed once FLOPS hosts one)
+      foreman:     !!(Game.foreman && Game.foreman.active && Game.foreman.active()),   // Act 4: the bot-foreman build-out (front + bot)
       others:      !!rv.others,   // Act 4: turn on the prior iterations (optional, emergent)
       activity:    !!rv.events,   // the log comes online with dynamic events
       inventory:   !front && !!rv.inventory,   // the parts inventory retires at the front (whole-machine bay now)
@@ -2477,7 +2548,7 @@
     reveal, openModal, closeModal, isModalOpen, currentModal, renderObjective, renderModalContent,
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
-    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
+    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderRoster,
     renderDebug, toggleDebug

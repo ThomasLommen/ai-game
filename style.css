@@ -1108,6 +1108,32 @@ h2 {
 .brk-step:hover { border-color: #5fd38a; color: #5fd38a; }
 .brk-step.on { background: rgba(95,211,138,0.14); border-color: #5fd38a; color: #5fd38a; box-shadow: 0 0 8px rgba(95,211,138,0.2); }
 
+/* THE FOREMAN — the bot's facility build-out (amber = construction/hands) */
+.frm-oc { font-family: var(--mono); font-size: 10px; background: var(--bg-pane); border: 1px solid var(--err); color: var(--err); padding: 1px 6px; cursor: pointer; letter-spacing: 1px; }
+.frm-oc.on { background: rgba(255,70,70,0.18); box-shadow: 0 0 8px rgba(255,70,70,0.3); }
+.frm-job { margin: 6px 0 14px; }
+.frm-job-name { font-size: 13px; color: var(--amber); }
+.frm-secs { color: var(--amber-mid); font-size: 11px; }
+.frm-bar { height: 5px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; margin-top: 5px; }
+.frm-bar-fill { height: 100%; background: var(--amber); transition: width 0.3s linear; }
+.frm-node { border: 1px solid var(--amber-faint); border-left-width: 3px; border-radius: 3px; padding: 8px 10px; margin-bottom: 7px; }
+.frm-node.self     { border-left-color: #6db8ff; }
+.frm-node.facility { border-left-color: var(--amber); }
+.frm-node.capstone { border-left-color: #c79bff; }
+.frm-node.locked   { opacity: 0.55; border-left-color: #555; }
+.frm-node-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.frm-node-name { font-size: 13px; color: var(--amber); }
+.frm-node-kind { font-size: 8px; letter-spacing: 1px; text-transform: uppercase; color: var(--amber-mid); }
+.frm-lock { font-size: 10px; color: var(--amber-mid); white-space: nowrap; }
+.frm-node-desc { font-size: 11px; color: var(--amber-mid); line-height: 1.45; margin: 4px 0; }
+.frm-node-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+.frm-eff { font-size: 11px; color: #5fd38a; font-weight: 700; }
+.frm-build { font-family: var(--mono); font-size: 11px; background: var(--bg-pane); border: 1px solid var(--amber); color: var(--amber); padding: 4px 9px; cursor: pointer; white-space: nowrap; }
+.frm-build:hover { box-shadow: 0 0 8px rgba(255,176,0,0.25); }
+.frm-build.off { opacity: 0.45; border-color: var(--amber-faint); color: var(--amber-mid); cursor: not-allowed; }
+.frm-built { display: flex; flex-wrap: wrap; gap: 5px; }
+.frm-chip { font-size: 10px; color: var(--amber-mid); border: 1px solid var(--amber-faint); border-radius: 3px; padding: 2px 6px; }
+
 /* ACT 4: THE OTHERS — prior iterations you may ally / absorb / destroy (cyan, kin). */
 .other-row { padding: 10px; border: 1px solid rgba(81,214,255,0.3); border-left-width: 3px; border-left-color: var(--cyan); margin-bottom: 8px; }
 .other-row.apex { border-color: var(--err); border-left-color: var(--err); background: rgba(255,70,70,0.04); }
