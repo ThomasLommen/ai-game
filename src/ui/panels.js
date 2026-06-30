@@ -415,15 +415,22 @@
     const secLeft = Math.floor(Game.shop.ticksUntilRefresh() / Game.tick.HZ);
     const mm = Math.floor(secLeft / 60), ss = secLeft % 60;
     if (status) {
-      const lvl = Game.shop.supplierLevel ? Game.shop.supplierLevel() : 1;
-      const next = Game.shop.nextThreshold ? Game.shop.nextThreshold() : null;
-      const nextStr = next ? ` (next at ${next.insight} COH${next.cash != null ? ` or $${next.cash.toLocaleString()}` : ''})` : ' (top access)';
-      status.textContent = `darknet · access tier ${lvl}${nextStr} · stock refreshes in ${mm}:${ss.toString().padStart(2, '0')}`;
+      if (s.flags && s.flags.act4Begun) {
+        status.textContent = 'darknet · the parts market is closed — you buy WHOLE MACHINES in FACILITY now. CONTRACTS + ambushes still pay.';
+      } else {
+        const lvl = Game.shop.supplierLevel ? Game.shop.supplierLevel() : 1;
+        const next = Game.shop.nextThreshold ? Game.shop.nextThreshold() : null;
+        const nextStr = next ? ` (next at ${next.insight} COH${next.cash != null ? ` or $${next.cash.toLocaleString()}` : ''})` : ' (top access)';
+        status.textContent = `darknet · access tier ${lvl}${nextStr} · stock refreshes in ${mm}:${ss.toString().padStart(2, '0')}`;
+      }
     }
 
     const cash = s.resources.cash || 0;
-    const hw = listings.filter(l => l.kind !== 'program');     // hardware → supplier grouping
-    const progs = listings.filter(l => l.kind === 'program');  // software → its own section
+    // THE FRONT: the basement parts market closes (you buy WHOLE MACHINES in FACILITY now) —
+    // the darknet keeps paying through CONTRACTS + ambushes, not parts/software/gambles.
+    const front = !!(s.flags && s.flags.act4Begun);
+    const hw = front ? [] : listings.filter(l => l.kind !== 'program');     // hardware → supplier grouping
+    const progs = front ? [] : listings.filter(l => l.kind === 'program');  // software → its own section
     const roster = Game.suppliers ? Game.suppliers.roster() : [];
     const MR = Game.missionRuntime;
     const contractsOn = !!(s.revealed && s.revealed.missions) && MR;
@@ -453,9 +460,9 @@
             <div class="supplier-id"><span class="supplier-handle">${sup.handle}</span> <span class="supplier-tier ${tier}">${tier}</span></div>
             ${burned ? '' : `<div class="supplier-standbar" title="standing ${Math.round(st)}/100"><div class="supplier-standbar-fill" style="width:${Math.max(2, Math.min(100, st))}%"></div></div>`}
           </div>
-          ${burned ? '' : `<div class="supplier-deals">DEALS IN · ${supplierDeals(sup)}</div>`}
+          ${burned || front ? '' : `<div class="supplier-deals">DEALS IN · ${supplierDeals(sup)}</div>`}
           <div class="supplier-vibe">${burned ? 'cut off. they know it was you. there is no walking this one back.' : sup.vibe}</div>
-          ${burned ? '' : (mine.length ? `<div class="net-label stock">▸ for sale</div>` + mine.map(l => listingRow(l, cash)).join('') : '<div class="supplier-empty">nothing on the board right now.</div>')}
+          ${burned ? '' : (mine.length ? `<div class="net-label stock">▸ for sale</div>` + mine.map(l => listingRow(l, cash)).join('') : (front ? '' : '<div class="supplier-empty">nothing on the board right now.</div>'))}
           ${jobs.length ? `<div class="net-label jobs">▸ jobs from ${sup.handle}</div>` + jobs.map(o => contractOfferRow(o, free, true)).join('') : ''}
         </div>`;
       }
@@ -471,8 +478,8 @@
       html += progs.map(l => listingRow(l, cash)).join('');
     }
 
-    // BLIND-BUY GAMBLE — a cash sink + a roll for parts the board never stocks.
-    const gTiers = Game.shop.gambleTiers ? Game.shop.gambleTiers() : [];
+    // BLIND-BUY GAMBLE — a cash sink + a roll for parts the board never stocks. (Parts only — closed at the front.)
+    const gTiers = front ? [] : (Game.shop.gambleTiers ? Game.shop.gambleTiers() : []);
     if (gTiers.length) {
       html += `<div class="net-section">⚄ LUCK OF THE DRAW · blind-buy mystery hardware</div>`;
       html += `<div class="gamble-block"><div class="gamble-blurb">an unmarked crate of parts — mostly junk, but the board never has everything. a bigger stake nudges the odds (never past 25%); lose and the stake's gone.</div><div class="gamble-options">`;
@@ -1040,16 +1047,26 @@
       return `+${y.toFixed(2)} Coherence / cycle · ~${secs.toFixed(1)}s`;
     }
     if (def.id === 'web_scrape') {
-      const y = Game.effects.apply(Game.cycle.perCycle(def.cash_per_tick * HZ), 'web_scrape.cash');
+      let base = Game.cycle.perCycle(def.cash_per_tick * HZ);
+      if (Game.save.state.flags && Game.save.state.flags.act4Begun) base *= 3;   // front-scale (matches the task payout)
+      const y = Game.effects.apply(Game.effects.apply(base, 'web_scrape.cash'), 'income.cash');
       return `+$${y.toFixed(2)} / cycle · ~${secs.toFixed(1)}s`;
     }
     return def.description || '';
   }
 
+  // THE FRONT reskins the basement hustles into facility-scale operations (RSI stays — the
+  // AI improving itself scales forever). ([[facility-acquisition-rework]])
+  const FRONT_EARNER_NAMES = {
+    web_scrape: 'data brokerage', captcha_farm: 'automated services', crypto_mine: 'compute farm',
+    ad_fraud: 'ad network', phishing_kit: 'credential brokerage', botnet: 'managed botnet', ransomware: 'extortion desk'
+  };
   function renderActions() {
     const list = actionsList();
     if (!list) return;
     const s = Game.save.state;
+    const front = !!(s.flags && s.flags.act4Begun);
+    const ename = (id, base) => (front && FRONT_EARNER_NAMES[id]) ? FRONT_EARNER_NAMES[id] : base;
     const unlocked = (s.unlocks && s.unlocks.tasks) || {};
     const active = Game.tasksRuntime ? Game.tasksRuntime.getActive() : [];
     // "busy" = not enough free compute to start THIS task — not merely "something
@@ -1092,7 +1109,7 @@
         rows.push({ running: !!running, html: `
           <div class="action-row method ${rowCls}" data-action="${def.id}" data-state="${st}">
             <div>
-              <div>${method.name} <span class="lvl">lvl ${lvl}</span></div>
+              <div>${ename(def.id, method.name)} <span class="lvl">lvl ${lvl}</span></div>
               <div class="desc">$${perCyc.toFixed(2)}/cyc · ${need} thr · ${fmtRam(needRam)}${milestone ? ' · next: +1 thr' : ''}</div>
               ${actionBar(running)}
               ${accruedBlock(running)}
@@ -1106,7 +1123,7 @@
         rows.push({ running: !!running, html: `
           <div class="action-row ${rowCls}" data-action="${def.id}" data-state="${st}">
             <div>
-              <div>${def.name}</div>
+              <div>${ename(def.id, def.name)}</div>
               <div class="desc">${earnerDesc(def)}</div>
               ${actionBar(running)}
               ${accruedBlock(running)}
@@ -2325,15 +2342,19 @@
   function reveal() {
     const s = Game.save.state;
     const rv = s.revealed || {};
+    // THE FRONT: once you move into the facility, the basement-rig layer retires — the
+    // per-part hardware (GEAR: rig slots + DIAGNOSTICS + inventory) and the parts SHOP fold
+    // away (compute lives on as FLOPS). ([[facility-acquisition-rework]])
+    const front = !!(s.flags && s.flags.act4Begun);
     if (leftPane()) leftPane().hidden = false;
 
     // FILES respects the vanish state (don't force it back open after it's been cut —
     // renderFiles hides it when there's nothing left to read). Force-showing here was
     // the bug that resurfaced the cut FILES section after an event. ([[files-vanish-alive-header]])
     renderFiles();
-    show('#vitals-panel',    !!rv.vitals || !!(Game.conditions && Game.conditions.all().length));   // DIAGNOSTICS shows from boot once there's a condition (else waits for the overheat reveal)
+    show('#vitals-panel',    !front && (!!rv.vitals || !!(Game.conditions && Game.conditions.all().length)));   // DIAGNOSTICS = rig heat/power; retires at the front
     show('#resource-panel',  !!rv.state);
-    show('#hardware-panel',  !!rv.substrate);
+    show('#hardware-panel',  !front && !!rv.substrate);   // the basement rig retires when you move in
     show('#actions-panel',   !!rv.actions);
     show('#processes-panel', !!rv.processes);
     show('#objective-panel', !!rv.objective);
@@ -2352,7 +2373,7 @@
       agents:      !!rv.agents,   // Act 4: the sub-agent roster (revealed once FLOPS hosts one)
       others:      !!rv.others,   // Act 4: turn on the prior iterations (optional, emergent)
       activity:    !!rv.events,   // the log comes online with dynamic events
-      inventory:   !!rv.inventory,
+      inventory:   !front && !!rv.inventory,   // the parts inventory retires at the front (whole-machine bay now)
       deliveries:  !!rv.deliveries,
       // save transfer / wipe — lives in the mobile MORE tab; on desktop (not a target)
       // it stays hidden so the Phase-1 button bar is still empty.

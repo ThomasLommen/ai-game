@@ -128,7 +128,9 @@
       inst.gains = inst.gains || {};
       // One payout per ~5s cycle.
       if (Game.cycle.advance(inst)) {
-        const cashGain = Game.effects.apply(Game.effects.apply(Game.cycle.perCycle(def.cash_per_tick * Game.tick.HZ), 'web_scrape.cash'), 'income.cash');   // income.cash = unified earner boost
+        let base0 = Game.cycle.perCycle(def.cash_per_tick * Game.tick.HZ);
+        if (state.flags && state.flags.act4Begun) base0 *= 3;   // FACILITY-SCALE: 'data brokerage' runs far bigger at the front
+        const cashGain = Game.effects.apply(Game.effects.apply(base0, 'web_scrape.cash'), 'income.cash');   // income.cash = unified earner boost
         state.resources.cash = (state.resources.cash || 0) + cashGain;
         inst.gains.cash = (inst.gains.cash || 0) + cashGain;
         Game.events.emit('resource.changed', { id: 'cash', value: state.resources.cash, delta: cashGain });
