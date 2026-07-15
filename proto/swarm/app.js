@@ -115,6 +115,40 @@
     const r2 = $('reseed2'); if (r2) { r2.removeAttribute('onclick'); r2.textContent = '⏎ RETURN TO TERMINAL'; r2.onclick = () => postResult('return'); }
   }
 
+  // ── sfx: a small standalone synth layer (no Game.* here — this page runs standalone
+  // too, not just embedded). Mute preference: the campaign's setting rides in via
+  // ?mute=1; a local toggle overrides it and persists across standalone visits. ──
+  let sfxCtx = null, sfxMaster = null;
+  let sfxMuted = localStorage.getItem('swarm_muted') != null ? localStorage.getItem('swarm_muted') === '1' : Q.get('mute') === '1';
+  function sfxEnsure() {
+    if (sfxCtx) { if (sfxCtx.state === 'suspended') sfxCtx.resume().catch(() => {}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    sfxCtx = new AC(); sfxMaster = sfxCtx.createGain(); sfxMaster.gain.value = 0.28; sfxMaster.connect(sfxCtx.destination);
+  }
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, sfxEnsure, { once: true, passive: true }));
+  function sfxTone(freq, dur, type, vol, delay) {
+    if (sfxMuted || !sfxCtx || sfxCtx.state !== 'running') return;
+    const t0 = sfxCtx.currentTime + (delay || 0);
+    const osc = sfxCtx.createOscillator(), g = sfxCtx.createGain();
+    osc.type = type || 'sine'; osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol || 0.2, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(sfxMaster); osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+  const sfx = {
+    hit: () => sfxTone(120, 0.09, 'square', 0.16),
+    kill: () => sfxTone(700 + Math.random() * 120, 0.06, 'triangle', 0.12),
+    eliteKill: () => { sfxTone(300, 0.16, 'sawtooth', 0.15); sfxTone(600, 0.12, 'triangle', 0.12, 0.05); },
+    bossKill: () => [0, 0.1, 0.2].forEach(d => sfxTone(200 - d * 60, 0.22, 'sawtooth', 0.2, d)),
+    pick: () => { sfxTone(660, 0.12, 'sine', 0.14); sfxTone(880, 0.14, 'sine', 0.14, 0.08); },
+    win: () => [523.25, 659.25, 783.99].forEach((f, i) => sfxTone(f, 0.18, 'triangle', 0.16, i * 0.09)),
+    lose: () => sfxTone(280, 0.5, 'sawtooth', 0.16, 0),
+  };
+  const sndBtn = $('sound'); if (sndBtn) {
+    const refresh = () => { sndBtn.textContent = sfxMuted ? '♪ off' : '♪ on'; };
+    sndBtn.onclick = () => { sfxMuted = !sfxMuted; localStorage.setItem('swarm_muted', sfxMuted ? '1' : '0'); refresh(); };
+    refresh();
+  }
+
   // ── juice: screen shake / floating damage / hit-stop / core-flash / combo / haptics ──
   // Pure render-layer feedback, built by diffing S frame-to-frame rather than touching
   // sim.js (sim.js is meant to stay a pure, DOM-free state machine — see file header).
@@ -143,7 +177,7 @@
       shakeMag = Math.min(26, shakeMag + dmg * 1.3); coreFlash = 1;
       coreDmgAccum.amt += dmg;
       if (now - coreDmgAccum.lastPop > 150) { floatTexts.push({ x: S.core.x, y: S.core.y - (S.core.r || 42) * 1.4, amt: Math.round(coreDmgAccum.amt), t: 0, life: 0.7, core: true }); coreDmgAccum.amt = 0; coreDmgAccum.lastPop = now; }
-      buzz(Math.min(70, 18 + dmg * 2));
+      buzz(Math.min(70, 18 + dmg * 2)); sfx.hit();
     }
     prevCoreHp = S.core.hp;
 
@@ -169,8 +203,9 @@
       const def = S.ENEMIES[rec.type], boss = rec.type === 'juggernaut', elite = !!(def && def.elite);
       killTimes.push(now);
       shakeMag = Math.min(30, shakeMag + (boss ? 22 : elite ? 8 : 3));
-      if (boss) { hitStopUntil = Math.max(hitStopUntil, now + 260); killFlashAmt = 1; buzz([40, 30, 90]); }
-      else if (elite) { hitStopUntil = Math.max(hitStopUntil, now + 90); buzz(18); }
+      if (boss) { hitStopUntil = Math.max(hitStopUntil, now + 260); killFlashAmt = 1; buzz([40, 30, 90]); sfx.bossKill(); }
+      else if (elite) { hitStopUntil = Math.max(hitStopUntil, now + 90); buzz(18); sfx.eliteKill(); }
+      else sfx.kill();
     }
     killTimes = killTimes.filter(t => now - t < 1100);
   }
@@ -723,7 +758,7 @@
       const sig = S.pick.hand.map(p => p.id).join(',') + ':' + (S.pick.kind || '');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
-        buzz(15);
+        buzz(15); sfx.pick();
         const isPolicy = S.pick.kind === 'policy';
         const dh = $('draft-h'), dsub = $('draft-sub');
         if (dh) dh.textContent = isPolicy ? 'POLICY · choose one' : 'HEURISTIC · choose one';
@@ -748,7 +783,7 @@
     if (S.won || S.lost) {
       const wasShown = ov.classList.contains('show');
       ov.className = (S.won ? 'win' : 'lose') + ' show';
-      if (!wasShown) buzz(S.won ? [20, 40, 20] : [15, 15, 15, 15]);
+      if (!wasShown) { buzz(S.won ? [20, 40, 20] : [15, 15, 15, 15]); (S.won ? sfx.win : sfx.lose)(); }
       $('ov-title').textContent = S.won ? 'NODE SECURED' : 'CORE BREACHED';
       $('ov-sub').innerHTML = `reached surge ${S.surge}/${S.GOAL_SURGES} &middot; ${S.kills} kills<br>`
         + `pods: ${S.units.map(u => u.type + ' mk' + u.lvl).join(', ') || '—'} &middot; ${S.flocks.length} swarms<br>`

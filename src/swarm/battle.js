@@ -101,6 +101,7 @@
     const unlockSet = uniq((opts.unlock ? String(opts.unlock).split(',') : []).concat(snap.unlock)).filter(Boolean);
 
     const q = new URLSearchParams({ embed: '1' });
+    if (window.Game && Game.audio && Game.audio.muted()) q.set('mute', '1');   // carry the campaign's sound setting in
     if (opts.seed != null) q.set('seed', (opts.seed | 0));
     if (opts.lane != null) q.set('lane', opts.lane ? '1' : '0');
     if (opts.surges != null) q.set('surges', opts.surges);     // a TRAP's bait reshapes the climax

@@ -24,6 +24,16 @@
     if (!exp || exp._wired) return;
     exp._wired = true;
 
+    const sound = document.getElementById('set-sound');
+    if (sound) {
+      const refresh = () => { sound.textContent = 'SOUND — ' + (Game.audio && Game.audio.muted() ? 'OFF' : 'ON'); };
+      sound.onclick = () => { if (Game.audio) Game.audio.toggleMuted(); refresh(); };
+      refresh();
+      // wire() can run before boot() finishes Game.save.load() (both deferred to
+      // DOMContentLoaded, in script-tag order) — re-read once the real save is in.
+      if (Game.events) Game.events.on('game.ready', refresh);
+    }
+
     exp.onclick = () => {
       const code = Game.save.export();
       if (ta) { ta.value = code; ta.focus(); ta.select(); }

@@ -276,6 +276,20 @@ test('launch() builds the iframe src from opts (seed/lane/tier/act/wave/power)',
   assert.equal(params.get('power'), '56'); // rounded
 });
 
+test('launch() carries the campaign sound setting in as ?mute=1 only when actually muted', () => {
+  const { battle: muted, fr: frMuted } = freshBattle({ gameExtra: { audio: { muted: () => true } } });
+  muted.launch({}, () => {});
+  assert.equal(new URLSearchParams(frMuted.src.split('?')[1]).get('mute'), '1');
+
+  const { battle: unmuted, fr: frUnmuted } = freshBattle({ gameExtra: { audio: { muted: () => false } } });
+  unmuted.launch({}, () => {});
+  assert.equal(new URLSearchParams(frUnmuted.src.split('?')[1]).get('mute'), null);
+
+  const { battle: noAudio, fr: frNoAudio } = freshBattle(); // Game.audio not present at all
+  assert.doesNotThrow(() => noAudio.launch({}, () => {}));
+  assert.equal(new URLSearchParams(frNoAudio.src.split('?')[1]).get('mute'), null);
+});
+
 test('launch() folds the campaign build snapshot\'s boost/ex/unlock into the query string', () => {
   const { battle, fr } = freshBattle({
     gameExtra: { save: { state: {} }, changers: { ownedDefs: () => [{ domain: 'hive' }] } },
