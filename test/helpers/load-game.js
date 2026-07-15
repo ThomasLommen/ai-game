@@ -17,7 +17,7 @@ const SRC_ROOT = path.join(__dirname, '..', '..', 'src');
 // (localStorage, document, ...) - a fresh vm context has neither Node's nor
 // a browser's globals, only bare V8 intrinsics, so anything non-ECMA-262
 // (btoa/atob, localStorage, document, ...) must be supplied explicitly.
-function loadGame(files, preload = {}) {
+function runFiles(files, preload = {}) {
   const sandbox = {};
   sandbox.window = sandbox;
   sandbox.console = console;
@@ -28,12 +28,32 @@ function loadGame(files, preload = {}) {
   if (preload.Game) sandbox.Game = preload.Game;
   Object.assign(sandbox, preload.globals);
   const context = vm.createContext(sandbox);
+  // `preload.pinMathRandom` patches this context's own Math.random (a fresh vm
+  // context gets its own Math intrinsic, distinct from the host's). Needed for
+  // modules that call bare Math.random() instead of their seeded RNG - vm.
+  // createContext doesn't reflect intrinsics like Math onto the sandbox object
+  // until code has actually run, so a throwaway statement fetches the reference.
+  if (preload.pinMathRandom != null) {
+    vm.runInContext('this.__vmMath = Math;', context);
+    sandbox.__vmMath.random = typeof preload.pinMathRandom === 'function' ? preload.pinMathRandom : () => preload.pinMathRandom;
+    delete sandbox.__vmMath;
+  }
   for (const file of files) {
     const full = path.join(SRC_ROOT, file);
     const code = fs.readFileSync(full, 'utf8');
     vm.runInContext(code, context, { filename: full });
   }
-  return sandbox.Game;
+  return sandbox;
 }
 
-module.exports = { loadGame };
+function loadGame(files, preload = {}) {
+  return runFiles(files, preload).Game;
+}
+
+// For modules that attach to a global other than window.Game (e.g.
+// swarm/sim.js exports `window.SWARM`). Returns sandbox[globalName].
+function loadGlobal(files, globalName, preload = {}) {
+  return runFiles(files, preload)[globalName];
+}
+
+module.exports = { loadGame, loadGlobal };
