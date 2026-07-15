@@ -11,17 +11,7 @@ const { loadGlobal } = require('../helpers/load-game');
 // because vm-sandbox objects fail Node's cross-realm prototype check even
 // when they match field-for-field.
 function freshSwarm() {
-  // src/swarm/sim.js:105 seeds the core's initial eye-blink timer from bare
-  // Math.random() instead of the sim's own seeded s.rng() (every other random
-  // draw in the file goes through s.rng()). That leaves one non-seeded value
-  // in an otherwise fully-seeded simulation - and because re-arming the blink
-  // later consumes an s.rng() call, the tick at which that first happens
-  // shifts with it, desyncing the ENTIRE rng() stream (flock/enemy positions,
-  // spawn timing, pick hands, ...) between two "same seed" runs once a fight
-  // runs long enough for a blink to fire. Pinning Math.random() here documents
-  // that gap and lets determinism tests verify what the sim *should* guarantee
-  // for a given seed; see the reported finding for the one-line source fix.
-  return loadGlobal(['swarm/sim.js'], 'SWARM', { pinMathRandom: 0 });
+  return loadGlobal(['swarm/sim.js'], 'SWARM');
 }
 
 // ── pure formulas ────────────────────────────────────────────────────────
