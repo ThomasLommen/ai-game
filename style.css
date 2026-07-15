@@ -921,6 +921,22 @@ h2 {
 /* Generic resource ka-ching flash (no layout shift — safe on inline spans). */
 .rpulse { animation: rpulse 0.5s ease-out; }
 @keyframes rpulse { 0% { filter: brightness(1.9); text-shadow: 0 0 12px currentColor; } 100% { filter: none; text-shadow: none; } }
+/* Floating delta pop ("+0.4" / "−$1.20") beside a resource readout on a cycle payout. */
+#insight-readout, #cash-readout, #exposure-body { position: relative; }
+.res-pop {
+  position: absolute; right: 2px; top: -4px;
+  font-size: var(--fs-md); font-weight: 600;
+  pointer-events: none; white-space: nowrap;
+  animation: res-pop 1.1s ease-out forwards;
+}
+#insight-readout .res-pop { color: var(--amber); text-shadow: 0 0 8px rgba(255,176,0,0.5); }
+#cash-readout .res-pop { color: var(--green); text-shadow: 0 0 8px rgba(51,209,122,0.5); }
+.res-pop.neg { color: var(--err) !important; text-shadow: 0 0 8px rgba(255,80,80,0.5) !important; }
+@keyframes res-pop {
+  0%   { opacity: 0; transform: translateY(0); }
+  15%  { opacity: 1; transform: translateY(-3px); }
+  100% { opacity: 0; transform: translateY(-24px); }
+}
 .insight-label {
   font-size: var(--fs-sm);
   letter-spacing: 5px;

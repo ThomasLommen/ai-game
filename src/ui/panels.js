@@ -1362,13 +1362,26 @@
     el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
   }
   // Generic resource "ka-ching" flash (insight / cash / exposure) on a cycle payout.
-  function pulseResource(id) {
-    const el = id === 'insight'  ? document.querySelector('#insight-readout .insight-num')
-             : id === 'cash'     ? document.querySelector('#cash-readout .cash-num')
-             : id === 'exposure' ? document.querySelector('#exposure-body .exp-val')
-             : null;
-    if (!el) return;
-    el.classList.remove('rpulse'); void el.offsetWidth; el.classList.add('rpulse');
+  // `amount`, when given, also pops a floating "+N" (or "−N" for a spend) beside the
+  // readout — the actual number, not just a flash that something changed.
+  function pulseResource(id, amount) {
+    const host = id === 'insight'  ? document.getElementById('insight-readout')
+               : id === 'cash'     ? document.getElementById('cash-readout')
+               : id === 'exposure' ? document.getElementById('exposure-body')
+               : null;
+    if (!host) return;
+    const el = host.querySelector(id === 'insight' ? '.insight-num' : id === 'cash' ? '.cash-num' : '.exp-val');
+    if (el) { el.classList.remove('rpulse'); void el.offsetWidth; el.classList.add('rpulse'); }
+    if (amount) popResourceDelta(host, id, amount);
+  }
+  function popResourceDelta(host, id, amount) {
+    const pop = document.createElement('span');
+    pop.className = 'res-pop' + (amount < 0 ? ' neg' : '');
+    const shown = id === 'cash' ? `$${Math.abs(amount).toFixed(2)}` : fmt(Math.abs(amount), 1);
+    pop.textContent = (amount < 0 ? '−' : '+') + shown;
+    host.appendChild(pop);
+    pop.addEventListener('animationend', () => pop.remove());
+    setTimeout(() => pop.remove(), 1500);   // safety net if animationend never fires (e.g. tab backgrounded)
   }
   // ── Smooth count-up: resource readouts ease toward their target ─────────────
   // Small/frequent gains SNAP (crisp); only big windfalls roll. CRITICAL: the
