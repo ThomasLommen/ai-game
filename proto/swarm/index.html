@@ -5,7 +5,8 @@
   :root{--amber:#ffb000;--dim:#c98700;--mid:#8a5e00;--faint:#5e3f00;--err:#ff5050;--green:#76e08a;--cyan:#49d2ff;--bg:#05060a;}
   *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--amber);font-family:'Consolas','SF Mono','Menlo',monospace;}
-  #field{position:fixed;inset:0;width:100vw;height:100vh;display:block;background:var(--bg);}
+  #field{position:fixed;inset:0;width:100vw;height:100vh;display:block;background:var(--bg);transition:filter .35s ease;}
+  body.picking #field{filter:blur(2.5px) brightness(.55) saturate(.7);}
   b{font-weight:600;} .dim{color:var(--dim);}
   /* top bar */
   #topbar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:7px 13px;
@@ -96,8 +97,8 @@
   .draft-h{font-size:19px;letter-spacing:6px;color:var(--amber);margin-top:auto;}
   .draft-sub{font-size:10.5px;color:var(--dim);letter-spacing:1px;text-align:center;line-height:1.4;}
   #draft-cards{display:flex;flex-direction:column;gap:9px;margin:6px 0 auto;width:min(440px,94vw);}
-  .draftcard{width:100%;background:#0b0e16;border:1px solid var(--faint);border-left:3px solid var(--c,#ffb000);color:var(--dim);font-family:inherit;text-align:left;padding:11px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:border-color .1s,box-shadow .1s;}
-  .draftcard:active{border-color:var(--c);box-shadow:0 0 16px -3px var(--c);}
+  .draftcard{width:100%;background:#0b0e16;border:1px solid var(--faint);border-left:3px solid var(--c,#ffb000);color:var(--dim);font-family:inherit;text-align:left;padding:11px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:border-color .1s,box-shadow .1s,transform .1s;}
+  .draftcard:active{border-color:var(--c);box-shadow:0 0 18px -2px var(--c);transform:scale(.97);}
   .draftcard.sig{border-color:#7a6a2a;background:linear-gradient(100deg,rgba(255,226,122,.10),rgba(11,14,22,.6));box-shadow:0 0 14px -4px var(--c);}
   .draftcard.sig .dc-tag{color:var(--c);}
   .draftcard.marquee{border-color:#8a3a6a;border-left-width:3px;background:linear-gradient(100deg,rgba(255,122,208,.12),rgba(11,14,22,.55));box-shadow:0 0 18px -4px var(--c);}
@@ -111,13 +112,22 @@
   #draft.arming .draftcard{opacity:.38;pointer-events:none;}
   #draft.arming::before{content:'';position:absolute;left:0;top:0;height:3px;width:100%;transform-origin:left;transform:scaleX(0);background:#ffb000;box-shadow:0 0 8px #ffb000;animation:arm-fill 1s linear forwards;}
   @keyframes arm-fill{to{transform:scaleX(1);}}
-  #overlay{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:11px;background:rgba(5,6,10,0.86);z-index:10;}
+  #overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;
+    background:rgba(5,6,10,0.86);z-index:10;opacity:0;pointer-events:none;transform:scale(.94);transition:opacity .45s ease,transform .45s ease;}
+  #overlay.show{opacity:1;pointer-events:auto;transform:scale(1);}
   #ov-title{font-size:30px;letter-spacing:8px;}
   #overlay.win #ov-title{color:var(--green);text-shadow:0 0 16px rgba(118,224,138,.5);}
   #overlay.lose #ov-title{color:var(--err);text-shadow:0 0 16px rgba(255,80,80,.5);}
+  #overlay.lose.show{animation:ov-glitch .5s steps(2,end);}
+  @keyframes ov-glitch{0%,100%{transform:translateX(0) scale(1);}20%{transform:translateX(-6px) scale(1);}40%{transform:translateX(5px) scale(1);}60%{transform:translateX(-3px) scale(1);}80%{transform:translateX(2px) scale(1);}}
   #ov-sub{font-size:12px;color:var(--dim);}
+  /* combo readout */
+  #combo{position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:8;color:#ffd24a;font-size:15px;letter-spacing:3px;
+    text-shadow:0 0 12px rgba(255,210,74,.6);animation:combo-pop .25s ease;pointer-events:none;}
+  @keyframes combo-pop{0%{opacity:0;transform:translateX(-50%) scale(1.4);}100%{opacity:1;transform:translateX(-50%) scale(1);}}
 </style></head><body>
 <canvas id="field"></canvas>
+<div id="combo" hidden></div>
 
 <div id="topbar">
   <div class="stat">CORE <b id="corehp">100</b><div class="track"><i id="corebar"></i></div></div>
