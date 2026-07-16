@@ -52,6 +52,7 @@
     // trap ambush plays with everything you've got, exactly like a siege DEFEND.
     const build = Object.assign({
       picks: (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [],
+      recentPicks: (Game.runBuild && Game.runBuild.recentPicks) ? Game.runBuild.recentPicks() : [],
       power: (Game.fieldPower && Game.fieldPower.get) ? Game.fieldPower.get() : 0
     }, (Game.roster && Game.roster.toOpts) ? Game.roster.toOpts() : {});
     const opts = Object.assign({ seed: (Game.rng.next() * 1e9) | 0, lane: true }, bait.battle, build);
@@ -94,6 +95,7 @@
     // feed the shared difficulty ledger + persist any POLICY picks — every battle source does this.
     if (result && typeof result.power === 'number' && Game.fieldPower) Game.fieldPower.feed(result.power);
     if (result && result.picksTaken && Game.runBuild) Game.runBuild.add(result.picksTaken);
+    if (result && result.recentPicks && Game.runBuild) Game.runBuild.setRecentPicks(result.recentPicks);
     const won = result && result.result === 'won';
     const kills = (result && result.kills) || 0;
     const rt = Game.missionRuntime ? Game.missionRuntime.rewardText : null;

@@ -341,7 +341,7 @@ test('upgradeCore() increments core level and is blocked once the battle is deci
 function baseState(SWARM, overrides = {}) {
   return Object.assign({
     won: false, lost: false, flocks: [], units: [], maxFlocks: 6, ex: { hive: false },
-    unlocked: {}, log: [], nextId: 1, core: { x: 0, y: 0 }, rng: () => 0.5, podCap: 2,
+    unlocked: {}, log: [], nextId: 1, core: { x: 0, y: 0 }, rng: () => 0.5, podCap: 2, recentPicks: [],
   }, overrides);
 }
 
@@ -434,6 +434,53 @@ test('offerPick("policy") sometimes surfaces a signature or marquee special slot
     if (s.pick && s.pick.hand.some(p => p.kind === 'sig' || p.tier === 'marquee')) sawSpecial = true;
   }
   assert.ok(sawSpecial, 'never saw a signature/marquee slot across 400 policy offers');
+});
+
+// The HEURISTIC pool is small (~8 entries: od_offense, od_core, pierce, overextend,
+// swift_swarm, vanguard, tar_field, apex_aim) and — unlike incidents/missions — used to
+// reshuffle blind every surge with zero memory between battles, so the same tactical hand
+// kept recurring fight after fight. s.recentPicks (carried in via opts.recentPicks, see
+// battle.js/Game.runBuild) now biases offerPick('heuristic') away from ids shown recently.
+test('offerPick("heuristic") avoids ids in recentPicks while non-recent alternatives exist', () => {
+  const SWARM = freshSwarm();
+  const allHeuristic = SWARM.PICKS.filter(p => SWARM.pickPool(p) === 'heuristic' && p.tier !== 'marquee').map(p => p.id);
+  const recent = allHeuristic.slice(0, allHeuristic.length - 2);   // all but 2 are "recent" (more than the real 4-item window, but still leaves fresh options)
+  for (let i = 0; i < 40; i++) {
+    const s = baseState(SWARM, { picksTaken: [], recentPicks: recent.slice() });
+    s.rng = Math.random.bind(Math);
+    SWARM.offerPick(s, 'heuristic');
+    assert.ok(s.pick.hand.every(p => recent.indexOf(p.id) < 0), `offered a recent id: ${s.pick.hand.map(p => p.id)}`);
+  }
+});
+
+test('offerPick("heuristic") falls back to the full pool rather than stalling when everything is recent', () => {
+  const SWARM = freshSwarm();
+  const allHeuristic = SWARM.PICKS.filter(p => SWARM.pickPool(p) === 'heuristic' && p.tier !== 'marquee').map(p => p.id);
+  const s = baseState(SWARM, { picksTaken: [], recentPicks: allHeuristic.slice() });
+  s.rng = Math.random.bind(Math);
+  SWARM.offerPick(s, 'heuristic');
+  assert.ok(s.pick && s.pick.hand.length > 0);
+});
+
+test('offerPick("heuristic") records the offered hand into recentPicks, de-duplicated and capped at 4 (half the pool)', () => {
+  const SWARM = freshSwarm();
+  const s = baseState(SWARM, { picksTaken: [], recentPicks: [] });
+  let seq = 0; s.rng = () => { seq = (seq + 0.37) % 1; return seq; };   // deterministic, varied
+  for (let i = 0; i < 6; i++) { s.pick = null; SWARM.offerPick(s, 'heuristic'); }
+  assert.ok(s.recentPicks.length <= 4);
+  assert.equal(new Set(s.recentPicks).size, s.recentPicks.length, 'recentPicks should never contain a duplicate id');
+});
+
+test('offerPick("policy") ignores recentPicks entirely (only heuristic hands are recency-gated)', () => {
+  const SWARM = freshSwarm();
+  const allHeuristic = SWARM.PICKS.filter(p => SWARM.pickPool(p) === 'heuristic' && p.tier !== 'marquee').map(p => p.id);
+  const s = baseState(SWARM, { picksTaken: [], recentPicks: allHeuristic.slice(), ex: {} });
+  s.rng = Math.random.bind(Math);
+  SWARM.offerPick(s, 'policy');
+  assert.ok(s.pick);
+  assert.equal(s.pick.kind, 'policy');
+  // recentPicks is untouched by a policy offer (it's a heuristic-only mechanic)
+  assert.equal(JSON.stringify(s.recentPicks), JSON.stringify(allHeuristic));
 });
 
 test('takePick() applies the chosen pick, records it, and clears the pending pick', () => {

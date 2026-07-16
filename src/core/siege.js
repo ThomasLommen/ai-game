@@ -139,12 +139,13 @@
     const s = ensure();
     if (!s.ready || (Game.battle && Game.battle.active && Game.battle.active())) return false;
     const picks = (Game.runBuild && Game.runBuild.picks) ? Game.runBuild.picks() : [];
+    const recentPicks = (Game.runBuild && Game.runBuild.recentPicks) ? Game.runBuild.recentPicks() : [];
     // BUILD the fight FIRST (waveOpts bakes in overrunWaves() while overdue is still high — so a
     // stalled siege genuinely launches a harder wave), THEN clear the stall.
     // DIFFICULTY SCALES TO POWER, LAGGED: this fight is calibrated to the SMOOTHED power from
     // your previous fights — so a fresh POLICY spike isn't matched until a battle or two later
     // (you feel the jump). First fight has laggedPower 0 → the bare early floor.
-    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks, power: s.laggedPower || 0 }, waveOpts(s.wave), Game.roster.toOpts());
+    const opts = Object.assign({ seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0, picks, recentPicks, power: s.laggedPower || 0 }, waveOpts(s.wave), Game.roster.toOpts());
     const periNet = (Game.save.state.perimeter && Game.save.state.perimeter.net) || 0;   // snapshot the calm BEFORE this fight → feeds the loot
     s.ready = false; s.overdue = 0;   // clear the OVERRUN stall now that the fight's locked in
     Game.battle.launch(opts, (r) => {
@@ -152,6 +153,7 @@
       const lag = (window.SWARM && SWARM.BAL && SWARM.BAL.powerLag) || 0.5;
       if (r && typeof r.power === 'number') st.laggedPower += (r.power - st.laggedPower) * lag;   // ease toward the power you just fielded (catch-up over ~2 fights)
       if (r && r.picksTaken && Game.runBuild) Game.runBuild.add(r.picksTaken);   // persist the wave's picks into the run-build
+      if (r && r.recentPicks && Game.runBuild) Game.runBuild.setRecentPicks(r.recentPicks);   // carry the HEURISTIC anti-repeat window forward
       if (r && r.result === 'won') {
         st.wave++; st.meter = 0;
         const spoils = grantBattleLoot(r, periNet);   // FORCED waves + the pre-battle perimeter NET raise the loot drop chance + cash

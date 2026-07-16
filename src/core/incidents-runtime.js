@@ -15,6 +15,11 @@
   const THREAT_MAX_TICKS = 6 * 60 * HZ; // 1440
   const FLAVOR_MIN_TICKS = 2 * 60 * HZ; // ambient atmosphere cadence (non-modal flavor between the rare event modals)
   const FLAVOR_MAX_TICKS = 5 * 60 * HZ;
+  // RECENCY: the last few incidents SHOWN (fresh fires, chain branches, threat escalations
+  // alike) are excluded from the next weighted pick, so the same one can't resurface
+  // back-to-back over a long session. Falls back to the full pool if avoiding them would
+  // leave nothing eligible — never stalls the event loop over variety.
+  const RECENT_LIMIT = 5;
 
   function scheduleNext(st) { st.incidentNextTick = (st.tickCount || 0) + Game.rng.int(GAP_MIN_TICKS, GAP_MAX_TICKS); }
 
@@ -26,6 +31,7 @@
     if (typeof st.pendingThreat === 'undefined') st.pendingThreat = null;                      // an ignored threat awaiting escalation
     if (typeof st.flavorNextTick !== 'number') st.flavorNextTick = -1;
     st.incidentsSeen = st.incidentsSeen || {};
+    st.incidentRecent = st.incidentRecent || [];
     return st;
   }
 
@@ -64,6 +70,9 @@
     const def = Game.incidents.get(defId);
     if (!def) return false;
     st.incident = { defId, view: def.build(st) };        // view is plain data → render + resolve agree
+    st.incidentRecent = st.incidentRecent.filter(id => id !== defId);
+    st.incidentRecent.push(defId);
+    if (st.incidentRecent.length > RECENT_LIMIT) st.incidentRecent.shift();
     Game.events.emit('incident.shown', { defId });
     Game.save.persist();
     return true;
@@ -73,7 +82,10 @@
     const st = ensureState();
     const pool = Game.incidents.all().filter(d => eligible(d, st));
     if (!pool.length) return false;
-    const def = Game.rng.weighted(pool, d => d.weight || 1);
+    const recent = new Set(st.incidentRecent);
+    let cand = pool.filter(d => !recent.has(d.id));
+    if (!cand.length) cand = pool;   // avoiding recents would leave nothing eligible → allow a repeat over stalling
+    const def = Game.rng.weighted(cand, d => d.weight || 1);
     return present(def.id);
   }
 

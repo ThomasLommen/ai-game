@@ -925,9 +925,11 @@
     const why = !h.affordable ? `need ${h.cost} pt${h.cost === 1 ? '' : 's'}` : '';
     const ribbon = h.free ? '⚡ FREE DROP' : (h.rare ? 'RARE · A TIER EARLY' : (exo ? '⚡ EXOTIC' : `${theme.toUpperCase()} · TIER ${n.tier}`));
     const cost = h.free ? 'FREE' : `◆ ${h.cost} pt${h.cost === 1 ? '' : 's'}`;
+    const flavor = Game.researchRuntime.flavorFor ? Game.researchRuntime.flavorFor(n.id) : '';
     return `<div class="res-card${exo ? ' exo' : ''}" style="border-color:${acc};border-left-color:${acc}">`
       + `<div class="rc-top"><span class="rc-tag" style="color:${acc}">${ribbon}</span><span class="rc-lane">↳ deepens ${theme.toUpperCase()}</span></div>`
       + `<div class="rc-name">${resEsc(n.label)}${exo ? ' ⚡' : ''}</div>`
+      + (flavor ? `<div class="rc-flavor">${resEsc(flavor)}</div>` : '')
       + `<div class="rc-desc">${resEsc(n.desc)}</div>`
       + `<div class="rc-foot"><span class="rc-cost">${cost}</span><button class="rc-draft${cant ? ' off' : ''}" data-draft="${n.id}" style="border-color:${acc};color:${acc}">${cant ? resEsc(why) : '[ DRAFT ]'}</button></div>`
       + `</div>`;

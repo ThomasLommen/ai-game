@@ -20,6 +20,7 @@
     if (Q.has('unlock')) o.unlock = Q.get('unlock').split(',').filter(Boolean); // → pre-unlocked roster
     if (Q.has('boost')) o.boost = qNum('boost', 0);                          // campaign build power → stronger dial channels
     if (Q.has('picks')) o.picks = Q.get('picks').split(',').filter(Boolean); // the carried RUN-BUILD
+    if (Q.has('recentPicks')) o.recentPicks = Q.get('recentPicks').split(',').filter(Boolean); // HEURISTIC ids to avoid re-offering right away
     if (Q.get('opener') === '1') o.opener = true;                            // first-battle opener pick
     if (Q.has('tier')) o.tier = qNum('tier', 2);                             // act/mission threat tier (enemy menagerie)
     if (Q.has('act')) o.act = qNum('act', 1);                                // ACT band → lanes / menagerie / boss
@@ -34,7 +35,7 @@
     // unitLevels = the high-water mark per POD type this fight (alive + peak of any that died) → banked to the run-roster
     const ul = {}; (S.units || []).forEach(u => { const c = ul[u.type]; if (!c || u.lvl > c.lvl || (u.lvl === c.lvl && u.xp > c.xp)) ul[u.type] = { type: u.type, lvl: u.lvl, xp: u.xp }; });
     Object.keys(S.unitPeak || {}).forEach(t => { const p = S.unitPeak[t], c = ul[t]; if (!c || p.lvl > c.lvl || (p.lvl === c.lvl && p.xp > c.xp)) ul[t] = { type: t, lvl: p.lvl, xp: p.xp }; });
-    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, power: SWARM.fieldedPower(S), picksTaken: S.newPolicies.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })), unitLevels: Object.keys(ul).map(t => ul[t]) }, '*'); } catch (e) {}   // power → next fight's difficulty (lagged); ONLY POLICY persists; unitLevels bank to the roster
+    try { window.parent.postMessage({ source: 'swarm-battle', kind, result: S.won ? 'won' : S.lost ? 'lost' : 'abort', surge: S.surge, goal: S.GOAL_SURGES, kills: S.kills, rushed: S.rushed, power: SWARM.fieldedPower(S), picksTaken: S.newPolicies.slice(), recentPicks: S.recentPicks.slice(), units: S.units.map(u => ({ type: u.type, lvl: u.lvl })), unitLevels: Object.keys(ul).map(t => ul[t]) }, '*'); } catch (e) {}   // power → next fight's difficulty (lagged); ONLY POLICY persists; unitLevels bank to the roster; recentPicks carries the HEURISTIC anti-repeat window forward
   }
 
   // ── camera: fit + free PAN (drag) + ZOOM (pinch/wheel/buttons), clamped to the arena ──

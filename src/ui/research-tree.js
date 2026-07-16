@@ -184,9 +184,11 @@
     const hand = RR.handNodes(); const h = hand.find(x => x.node.id === id);
     const col = TH[n.theme] || '#ffb000', exo = !!(n.exotic || n.changerNode);
     const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const flavor = RR.flavorFor ? RR.flavorFor(id) : '';
+    const flavorHtml = flavor ? `<div class="rt-f">${esc(flavor)}</div>` : '';
     let html = '';
     if (researched[id]) {
-      html = `<div class="rt-k" style="color:${col}">✓ RESEARCHED${exo ? ' · ⚡' : ''}</div><div class="rt-n">${esc(n.label)}</div><div class="rt-e">${esc(n.desc || '')}</div>`;
+      html = `<div class="rt-k" style="color:${col}">✓ RESEARCHED${exo ? ' · ⚡' : ''}</div><div class="rt-n">${esc(n.label)}</div>${flavorHtml}<div class="rt-e">${esc(n.desc || '')}</div>`;
     } else if (h) {
       const ribbon = h.free ? '⚡ FREE DROP' : (h.rare ? 'RARE · A TIER EARLY' : (h.changer ? 'ADAPTATION' : `${n.theme.toUpperCase()} · TIER ${n.tier}`));
       const free = RR.freeThreads(), needThr = n.threads || 2;
@@ -195,6 +197,7 @@
       const why = !h.affordable ? `need ${h.cost} pts` : (free < needThr ? `need ${needThr} threads` : '');
       const acc = (h.free || h.changer) ? '#b78cff' : col;
       html = `<div class="rt-k" style="color:${acc}">${ribbon}</div><div class="rt-n">${esc(n.label)}${exo ? ' ⚡' : ''}</div>`
+        + flavorHtml
         + `<div class="rt-e">${esc(n.desc || '')}</div>`
         + `<div class="rt-m">${costStr} · ~${Math.round(n.cost)}s · ${needThr} thr</div>`
         + `<button class="rt-btn${cant ? ' off' : ''}" data-draft="${id}" style="border-color:${acc};color:${acc}">${cant ? esc(why) : '[ DRAFT ]'}</button>`;

@@ -34,6 +34,14 @@
       if (Game.events) Game.events.on('game.ready', refresh);
     }
 
+    const music = document.getElementById('set-music');
+    if (music) {
+      const refresh = () => { music.textContent = 'MUSIC — ' + (Game.music && Game.music.muted() ? 'OFF' : 'ON'); };
+      music.onclick = () => { if (Game.music) Game.music.toggleMuted(); refresh(); };
+      refresh();
+      if (Game.events) Game.events.on('game.ready', refresh);
+    }
+
     exp.onclick = () => {
       const code = Game.save.export();
       if (ta) { ta.value = code; ta.focus(); ta.select(); }
