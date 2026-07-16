@@ -91,5 +91,6 @@
 
   Game.audio = { muted, setMuted, toggleMuted, blip: () => play('blip'), typeClick: () => play('typeClick'),
     chime: () => play('chime'), error: () => play('error'), alert: () => play('alert'),
-    success: () => play('success'), fail: () => play('fail'), power: () => play('power') };
+    success: () => play('success'), fail: () => play('fail'), power: () => play('power'),
+    ctx: ensureCtx };   // shared AudioContext getter — Game.music reuses this rather than opening a second context
 })();
