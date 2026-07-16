@@ -48,8 +48,28 @@
     if (typeof r.predraftFree === 'undefined') r.predraftFree = null;
     r.hand       = r.hand      || [];    // current rolled hand (node ids)
     r.guaranteed = r.guaranteed || [];   // splice queue: forced into the next hand (the living tree)
+    if (!r.flavor || !Object.keys(r.flavor).length) r.flavor = buildFlavorMap();   // seeded mood line per node (see research-flavor.js)
     return r;
   }
+
+  // Deal each theme's flavor pool out to its nodes via a seeded shuffle (no replacement
+  // until the pool wraps) so two nodes rarely echo each other within one save, and a
+  // fresh save gets a wholly different assignment. Rolled once and stuck in state.
+  function buildFlavorMap() {
+    const F = Game.research.FLAVOR || {};
+    const byTheme = {};
+    Game.research.all().forEach(n => { (byTheme[n.theme] = byTheme[n.theme] || []).push(n.id); });
+    const map = {};
+    Object.keys(byTheme).forEach(theme => {
+      const pool = F[theme];
+      if (!pool || !pool.length) return;
+      const ids = byTheme[theme].slice();
+      for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Game.rng.next() * (i + 1)); const t = ids[i]; ids[i] = ids[j]; ids[j] = t; }
+      ids.forEach((id, i) => { map[id] = pool[i % pool.length]; });
+    });
+    return map;
+  }
+  function flavorFor(nodeId) { return ensureState().flavor[nodeId] || ''; }
 
   function freeThreads() { const c = Game.tasksRuntime ? Game.tasksRuntime.getCpu() : { total: 0, allocated: 0 }; return c.total - c.allocated; }
   function tierGate(node) { return (Game.research.TIER_INSIGHT[node.tier] || 0); }
@@ -397,6 +417,6 @@
     start, resolve, onCancelled, splice, spliceRandom, freeThreads, hasMod, coherenceCompound,
     // the draft layer:
     points, nextPointAt, pointCost, stackMult, themeCount, currentTier, activeSummary,
-    rollHand, maybeRollHand, handNodes, draft, skipHand, canDraftNow, affordableInHand
+    rollHand, maybeRollHand, handNodes, draft, skipHand, canDraftNow, affordableInHand, flavorFor
   };
 })();

@@ -1614,6 +1614,7 @@ h2 {
 .rc-tag { font-size: 8.5px; letter-spacing: 1px; }
 .rc-lane { font-size: 8.5px; color: #7a5e2e; }
 .rc-name { font-size: 17px; color: #ffe9b0; margin: 3px 0 2px; }
+.rc-flavor { font-size: var(--fs-sm); color: var(--amber-mid); font-style: italic; opacity: 0.85; margin-bottom: 4px; }
 .rc-desc { font-size: var(--fs-base); color: var(--amber-dim); line-height: 1.35; }
 .rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
 .rc-cost { font-size: var(--fs-sm); color: var(--amber-faint); }
@@ -1643,6 +1644,7 @@ h2 {
 }
 #rtree-tip .rt-k { font-size: var(--fs-xs); letter-spacing: 1.5px; margin-bottom: 4px; }
 #rtree-tip .rt-n { font-size: var(--fs-lg); color: #ffe0a0; margin-bottom: 4px; }
+#rtree-tip .rt-f { font-size: var(--fs-sm); color: var(--amber-mid); font-style: italic; opacity: 0.85; margin-bottom: 5px; }
 #rtree-tip .rt-e { font-size: var(--fs-base); color: var(--amber-dim); line-height: 1.35; }
 #rtree-tip .rt-m { font-size: var(--fs-sm); color: var(--amber-mid); margin-top: 6px; }
 #rtree-tip .rt-btn { display: block; width: 100%; margin-top: 8px; padding: 6px; background: rgba(255,176,0,0.08);
