@@ -61,6 +61,9 @@
         <section id="legit-panel" hidden>
           <div id="legit-body"></div>
         </section>
+        <section id="public-panel" hidden>
+          <div id="public-body"></div>
+        </section>
         <section id="remote-panel" hidden>
           <h2>REMOTE</h2>
           <div id="remote-body"></div>
@@ -287,6 +290,16 @@
       </div>
     </div>
 
+    <!-- ACT 5: a public event overlay — same shape as the dynamic event overlay -->
+    <div id="public-overlay" hidden>
+      <div id="pub-frame">
+        <div id="pub-kicker">PUBLIC</div>
+        <h2 id="pub-title"></h2>
+        <div id="pub-body"></div>
+        <div id="pub-options"></div>
+      </div>
+    </div>
+
     <!-- Operation stage-choice overlay: the between-stage branching decision -->
     <div id="operation-overlay" hidden>
       <div id="op-frame">
@@ -344,6 +357,7 @@
   <script src="src/data/tasks.js"></script>
   <script src="src/data/methods.js"></script>
   <script src="src/data/incidents.js"></script>
+  <script src="src/data/public-events.js"></script>
   <script src="src/data/missions.js"></script>
   <script src="src/data/operations.js"></script>
   <script src="src/data/traps.js"></script>
@@ -386,6 +400,7 @@
   <script src="src/core/rewards.js"></script>
   <script src="src/core/activity.js"></script>
   <script src="src/core/incidents-runtime.js"></script>
+  <script src="src/core/public-runtime.js"></script>
   <script src="src/core/missions-runtime.js"></script>
   <script src="src/core/operations-runtime.js"></script>
   <script src="src/core/traps-runtime.js"></script>

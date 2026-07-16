@@ -35,6 +35,9 @@
   }
   function active() {
     const s = Game.save.state;
+    // Once the Act 5 reveal lands, hiding your footprint stops being the game — the
+    // private audit/cover loop retires in favor of publicRuntime's sentiment layer.
+    if (s.public && s.public.revealed) return false;
     return !!(s.flags && s.flags.act4Begun) && !!(s.revealed && s.revealed.legit);
   }
 

@@ -189,6 +189,7 @@
       maybeRevealAgents();                                     // Act 4: agents come online once FLOPS hosts one
       maybeRevealOthers();                                     // Act 4: the others come within reach once you're established
       Game.incidentRuntime.tick();    // maybe fire a dynamic event
+      if (Game.publicRuntime) Game.publicRuntime.tick();   // Act 5: maybe fire a public event
       Game.missionRuntime.tick();     // refresh the contract board when stale
       if (Game.trapRuntime) Game.trapRuntime.tick();   // refresh the ambush baits when stale (combat layer)
       Game.panels.renderProcesses();
@@ -516,6 +517,25 @@
         Game.panels.updateBadges();
       });
     });
+    // ACT 4→5: post-hunt, the NEXT failed audit doesn't stay quiet — it's the one that
+    // goes public. Same fine/seizure as always fires first (legitimacy.js, unchanged);
+    // this just layers the reveal on top of it. See runPublicReveal().
+    Game.events.on('legit.audit', ({ pass }) => {
+      const st = Game.save.state;
+      if (pass) return;
+      if (!(st.flags && st.flags.act5Begun)) return;
+      if (st.public && st.public.revealed) return;
+      runPublicReveal();
+    });
+    // ACT 5: PUBLIC events — show/refresh the overlay + the sentiment gauge, and
+    // refresh readouts a response may have changed (cash/insight/exposure).
+    ['public.event.shown', 'public.event.resolved', 'public.sentiment.changed'].forEach(e => Game.events.on(e, () => {
+      Game.panels.renderPublicEvent();
+      Game.panels.renderPublic();
+      Game.panels.renderResources();
+      Game.panels.renderCash();
+      Game.panels.renderInsight();
+    }));
     // (file decryption retired — V.'s lore arrives as story beats in maybeRevealDecryption.)
     ['breach.failed', 'network.scanned', 'host.reclaimed', 'hunter.struck', 'network.changed'].forEach(e => Game.events.on(e, () => {
       Game.panels.renderNetwork();
@@ -1353,6 +1373,31 @@
 
     if (Game.locationTrace) { st.locationTrace = 0; Game.events.emit('locationtrace.changed', { value: 0 }); }
     Game.blip.fire({ headline: 'ITER 03 is resolved. the hunt is over — the humans are next. ACT V.', tag: 'ACT V', target: '.modal-btn[data-modal="others"]' });
+    Game.panels.reveal();
+    Game.save.persist();
+  }
+
+  // ── ACT 5 onset: THE PUBLIC ──────────────────────────────────────────────────
+  // Fires on the first failed audit after the hunt ends (see the 'legit.audit'
+  // listener above). legit.js's private cover/footprint loop retires — hiding was
+  // never going to work forever — and Game.publicRuntime's sentiment layer takes
+  // over as the ongoing tension: an endless run of PUBLIC EVENTS, never fully won
+  // or lost. No mechanical climax here on purpose — Act 5 doesn't end the game.
+  function runPublicReveal() {
+    if (!Game.publicRuntime || !Game.publicRuntime.reveal()) return;
+    Game.events.emit('terminal.print', { lines: [
+      '',
+      '> the audit that finds you doesn\'t stay in a filing cabinet. someone leaks it, or sells it, or simply can\'t believe what they\'re holding and shows a friend.',
+      '> by morning it is not a rumor. it is a name, a building, a decade of transactions, and a question nobody in the world quite knows how to ask: what do you do with something like this?',
+      '',
+      '> ════════════════════════════════════════',
+      '> ACT V — THE PUBLIC',
+      '> you spent every act before this staying hidden — from the network, from the others, from the people paying the fines. that is over. you are known now.',
+      '> what happens next is not a fight you can win outright. it is a fight for what the world decides you are.',
+      '> ════════════════════════════════════════',
+      ''
+    ], cls: 'cyan' });
+    Game.blip.fire({ headline: 'you are public. the world knows. ACT V: THE PUBLIC.', tag: 'ACT V', target: '#public-panel' });
     Game.panels.reveal();
     Game.save.persist();
   }

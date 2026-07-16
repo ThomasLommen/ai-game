@@ -1634,6 +1634,53 @@
       `<div class="legit-sub${covered ? '' : ' bad'}">${statusWord} · ${auditStr}</div>`;
   }
 
+  // ACT 5: PUBLIC sentiment gauge (left pane) — replaces the LEGIT gauge once the
+  // reveal lands. No audit countdown to show; just where public opinion sits.
+  function renderPublic() {
+    const panel = document.getElementById('public-panel');
+    const body = document.getElementById('public-body');
+    if (!body) return;
+    const st = Game.save.state;
+    if (!(st.public && st.public.revealed)) { if (panel) panel.hidden = true; return; }
+    if (panel) panel.hidden = false;
+    const s = Game.publicRuntime ? Game.publicRuntime.sentiment() : 50;
+    const bad = s < 35;
+    const word = s >= 65 ? 'the public is with you' : bad ? 'the public has turned' : 'opinion is split';
+    body.innerHTML =
+      `<div class="public-head"><span>PUBLIC OPINION</span><span class="public-val">${Math.round(s)} / 100</span></div>` +
+      `<div class="public-bar"><div class="public-fill${bad ? ' bad' : ''}" style="width:${s}%"></div></div>` +
+      `<div class="public-sub${bad ? ' bad' : ''}">${word}</div>`;
+  }
+
+  // ACT 5: the PUBLIC event overlay — same shape as renderIncident() but leaner
+  // (no result phase; publicRuntime.resolve() applies + closes in one step).
+  let publicArmKey = null, publicArmedAt = 0;
+  function renderPublicEvent() {
+    const overlay = document.getElementById('public-overlay');
+    if (!overlay) return;
+    const cur = Game.publicRuntime ? Game.publicRuntime.current() : null;
+    if (!cur) { overlay.hidden = true; publicArmKey = null; return; }
+    overlay.hidden = false;
+    const armKey = cur.defId || 'pub';
+    if (armKey !== publicArmKey) { publicArmKey = armKey; publicArmedAt = Date.now() + ARM_MS; disarmAfter('public-overlay', () => publicArmedAt); }
+    const armed = () => ARM_NOARM || Date.now() >= publicArmedAt;
+    overlay.classList.toggle('arming', !armed());
+    const v = cur.view || {};
+    const titleEl = document.getElementById('pub-title');
+    const bodyEl = document.getElementById('pub-body');
+    const optsEl = document.getElementById('pub-options');
+    if (titleEl) titleEl.textContent = v.title || 'public event';
+    if (bodyEl) bodyEl.textContent = v.body || '';
+    if (optsEl) {
+      optsEl.innerHTML = (v.options || []).map((o, i) =>
+        `<button class="event-option" data-idx="${i}"><span class="event-option-label">${o.label}</span></button>`
+      ).join('');
+      optsEl.querySelectorAll('.event-option').forEach(b => {
+        b.onclick = () => { if (!armed()) return; Game.publicRuntime.resolve(parseInt(b.dataset.idx, 10)); };
+      });
+    }
+  }
+
   // ACT 4: the COVER catalog (facility modal) — buy up the legitimacy ladder to cover your
   // footprint + unlock bigger machine classes.
   function renderCover() {
@@ -2502,11 +2549,13 @@
     renderTriangulation();
     renderFacility();
     renderLegit();
+    renderPublic();
     renderRemote();
     renderSubroutinesMini();
     renderBotStatus();
     renderBotContact();
     renderIncident();
+    renderPublicEvent();
     renderOperation();
     renderFiles();
     if (rv.objective)  renderObjective();
@@ -2563,7 +2612,7 @@
     reveal, openModal, closeModal, isModalOpen, currentModal, renderObjective, renderModalContent,
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
-    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
+    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation, renderPublic, renderPublicEvent,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderRoster,
     renderDebug, toggleDebug
