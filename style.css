@@ -1649,6 +1649,13 @@ h2 {
   border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono); font-size: var(--fs-base); letter-spacing: 1px; cursor: pointer; }
 #rtree-tip .rt-btn.off { opacity: 0.5; cursor: not-allowed; border-color: var(--amber-faint); color: var(--amber-mid); background: none; }
 
+/* Generic tap-to-show info card (replaces title="" for touch — see src/ui/tooltip.js). */
+#tap-tooltip {
+  position: fixed; z-index: 40; max-width: 240px; padding: 7px 10px;
+  background: rgba(10,8,5,0.97); border: 1px solid var(--amber-faint); box-shadow: 0 0 16px -4px rgba(0,0,0,0.8);
+  color: var(--amber-dim); font-size: var(--fs-base); line-height: 1.35; pointer-events: none;
+}
+
 .rtree-wrap { display: flex; gap: 18px; align-items: flex-start; }
 .rtree-table { flex: 1; min-width: 0; }
 .rtree-head, .rtree-row { display: grid; grid-template-columns: 24px 1fr 250px 50px 34px; align-items: baseline; }

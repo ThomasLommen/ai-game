@@ -89,7 +89,7 @@
       const aff = Game.affixes.get(id);
       if (!aff) continue;
       const rolled = obj.affixMods && obj.affixMods[id];
-      parts.push(`<span class="name-affix" title="${affixTooltip(aff, rolled)}">${aff.name}</span>`);
+      parts.push(`<span class="name-affix" data-tip="${resEsc(affixTooltip(aff, rolled))}">${aff.name}</span>`);
     }
     parts.push(`<span class="name-base">${base}</span>`);
     return parts.join(' ');
@@ -458,7 +458,7 @@
         html += `<div class="supplier-block${burned ? ' burned' : ''}">
           <div class="supplier-head">
             <div class="supplier-id"><span class="supplier-handle">${sup.handle}</span> <span class="supplier-tier ${tier}">${tier}</span></div>
-            ${burned ? '' : `<div class="supplier-standbar" title="standing ${Math.round(st)}/100"><div class="supplier-standbar-fill" style="width:${Math.max(2, Math.min(100, st))}%"></div></div>`}
+            ${burned ? '' : `<div class="supplier-standbar" data-tip="standing ${Math.round(st)}/100"><div class="supplier-standbar-fill" style="width:${Math.max(2, Math.min(100, st))}%"></div></div>`}
           </div>
           ${burned || front ? '' : `<div class="supplier-deals">DEALS IN · ${supplierDeals(sup)}</div>`}
           <div class="supplier-vibe">${burned ? 'cut off. they know it was you. there is no walking this one back.' : sup.vibe}</div>
@@ -1795,7 +1795,7 @@
         html += locked.map(n => `<div class="frm-node locked"><div class="frm-node-head"><span class="frm-node-name">${resEsc(n.name)}</span><span class="frm-lock">${resEsc(F.lockReason(n))}</span></div><div class="frm-node-desc">${resEsc(n.desc)}</div></div>`).join('');
       }
       if (builtNodes.length) {
-        html += `<div class="net-section">BUILT</div><div class="frm-built">` + builtNodes.map(n => `<span class="frm-chip" title="${resEsc(foremanEffect(n))}">✓ ${resEsc(n.name)}</span>`).join('') + `</div>`;
+        html += `<div class="net-section">BUILT</div><div class="frm-built">` + builtNodes.map(n => `<span class="frm-chip" data-tip="${resEsc(foremanEffect(n))}">✓ ${resEsc(n.name)}</span>`).join('') + `</div>`;
       }
       treeEl.innerHTML = html;
       treeEl.querySelectorAll('.frm-build:not(.off)').forEach(b => b.onclick = () => F.commission(b.dataset.build));
