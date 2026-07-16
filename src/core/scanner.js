@@ -70,6 +70,13 @@
       leads.forEach(c => addDetection(`contact: ${c.mo} · ${Game.raids.closeness(c)}`, 'trace'));
       if (!leads.length && !Game.raids.pending()) addDetection('sweep complete. the street is quiet — for now.', 'faint');
     }
+    // ACT 5: once public, the same sweep watches for CONTAINMENT leads instead —
+    // raids.js and containment.js never overlap (see containment.js's header).
+    if (Game.containment && Game.containment.active()) {
+      const leads = Game.containment.detect();
+      leads.forEach(c => addDetection(`contact: ${c.mo} · ${Game.containment.closeness(c)}`, 'trace'));
+      if (!leads.length && !Game.containment.pending()) addDetection('sweep complete. quiet, for now.', 'faint');
+    }
     Game.events.emit('scan.sweep.done', { mode: m });
     Game.save.persist();
   }

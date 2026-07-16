@@ -1,9 +1,8 @@
 // ── Game.tooltip — a tap-to-show info card, for content currently hidden behind
 // native title="" attributes. title only shows on hover, which doesn't exist on
 // touch — and this game is mobile-only, so anything living in a title= is
-// effectively invisible to every real player. Mirrors the tap-a-node pattern
-// already proven in research-tree.js, generalized for plain DOM elements: give
-// an element `data-tip="plain text"` instead of `title="..."` and it gets a
+// effectively invisible to every real player. Give an element
+// `data-tip="plain text"` instead of `title="..."` and it gets a
 // tap-triggered popover instead of a hover-only one. Not for elements whose tap
 // already does something else (equip/acquire/etc — those keep their own affordance).
 (function () {

@@ -2,8 +2,9 @@
   window.Game = window.Game || {};
 
   // Shared reward application for the procedural-content layer (events, missions,
-  // and later research). Effects shape: { cash, insight, exposure, item:true|{slot} }.
-  // Negative cash/exposure work too (a cost / a payment).
+  // research, and Act 5's public events). Effects shape:
+  // { cash, insight, exposure, sentiment, item:true|{slot} }.
+  // Negative cash/exposure/sentiment work too (a cost / a setback).
 
   // Build a plain common item instance from the archetype pool (for item rewards).
   function makeRandomItem(slot) {
@@ -30,6 +31,7 @@
     if (eff.cash)     { st.resources.cash = (st.resources.cash || 0) + eff.cash;       out.cash = eff.cash; Game.events.emit('resource.changed', { id: 'cash', value: st.resources.cash }); }
     if (eff.insight)  { st.resources.insight = (st.resources.insight || 0) + eff.insight; out.insight = eff.insight; Game.events.emit('resource.changed', { id: 'insight', value: st.resources.insight }); }
     if (eff.exposure) { st.exposure = (st.exposure || 0) + eff.exposure;                out.exposure = eff.exposure; Game.events.emit('resource.changed', { id: 'exposure', value: st.exposure }); }
+    if (eff.sentiment && Game.publicRuntime) { Game.publicRuntime.adjustSentiment(eff.sentiment); out.sentiment = eff.sentiment; }   // Act 5: public opinion (publicRuntime owns clamping)
     if (eff.item) {
       const it = makeRandomItem(eff.item && eff.item.slot);
       if (it) {

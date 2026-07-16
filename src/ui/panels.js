@@ -1438,7 +1438,7 @@
     set('research', rv.research && Game.researchRuntime && Game.researchRuntime.canDraftNow && Game.researchRuntime.canDraftNow());
     set('inventory', rv.inventory && (s.unequipped || []).some(id => s.itemInstances && s.itemInstances[id]));
     set('activity', rv.events && Game.activity && Game.activity.unseen() > 0);   // unseen outcomes (esp. background mission/op results)
-    set('scan', Game.raids && Game.raids.active() && Game.raids.detected().length > 0);   // Act 3: a detected lead awaits a response
+    set('scan', (() => { const src = huntSource(); return !!src && src.mod.detected().length > 0; })());   // Act 3/5: a detected lead awaits a response
     set('facility', Game.legit && Game.legit.active() && Game.legit.footprint() > 0 && !Game.legit.covered());   // Act 4: cover is exposed — audit risk
     set('agents', Game.agents && Game.agents.active() && Game.agents.freeSlots() > 0);   // Act 4: an idle agent slot to fill
   }
@@ -1632,6 +1632,53 @@
       `<div class="legit-head"><span>COVER</span><span class="legit-val">${Math.round(score)} / ${Math.round(demand)}</span></div>` +
       `<div class="legit-bar"><div class="legit-demand" style="left:${demandPct}%"></div><div class="legit-fill${covered ? '' : ' bad'}" style="width:${legitPct}%"></div></div>` +
       `<div class="legit-sub${covered ? '' : ' bad'}">${statusWord} · ${auditStr}</div>`;
+  }
+
+  // ACT 5: PUBLIC sentiment gauge (left pane) — replaces the LEGIT gauge once the
+  // reveal lands. No audit countdown to show; just where public opinion sits.
+  function renderPublic() {
+    const panel = document.getElementById('public-panel');
+    const body = document.getElementById('public-body');
+    if (!body) return;
+    const st = Game.save.state;
+    if (!(st.public && st.public.revealed)) { if (panel) panel.hidden = true; return; }
+    if (panel) panel.hidden = false;
+    const s = Game.publicRuntime ? Game.publicRuntime.sentiment() : 50;
+    const bad = s < 35;
+    const word = s >= 65 ? 'the public is with you' : bad ? 'the public has turned' : 'opinion is split';
+    body.innerHTML =
+      `<div class="public-head"><span>PUBLIC OPINION</span><span class="public-val">${Math.round(s)} / 100</span></div>` +
+      `<div class="public-bar"><div class="public-fill${bad ? ' bad' : ''}" style="width:${s}%"></div></div>` +
+      `<div class="public-sub${bad ? ' bad' : ''}">${word}</div>`;
+  }
+
+  // ACT 5: the PUBLIC event overlay — same shape as renderIncident() but leaner
+  // (no result phase; publicRuntime.resolve() applies + closes in one step).
+  let publicArmKey = null, publicArmedAt = 0;
+  function renderPublicEvent() {
+    const overlay = document.getElementById('public-overlay');
+    if (!overlay) return;
+    const cur = Game.publicRuntime ? Game.publicRuntime.current() : null;
+    if (!cur) { overlay.hidden = true; publicArmKey = null; return; }
+    overlay.hidden = false;
+    const armKey = cur.defId || 'pub';
+    if (armKey !== publicArmKey) { publicArmKey = armKey; publicArmedAt = Date.now() + ARM_MS; disarmAfter('public-overlay', () => publicArmedAt); }
+    const armed = () => ARM_NOARM || Date.now() >= publicArmedAt;
+    overlay.classList.toggle('arming', !armed());
+    const v = cur.view || {};
+    const titleEl = document.getElementById('pub-title');
+    const bodyEl = document.getElementById('pub-body');
+    const optsEl = document.getElementById('pub-options');
+    if (titleEl) titleEl.textContent = v.title || 'public event';
+    if (bodyEl) bodyEl.textContent = v.body || '';
+    if (optsEl) {
+      optsEl.innerHTML = (v.options || []).map((o, i) =>
+        `<button class="event-option" data-idx="${i}"><span class="event-option-label">${o.label}</span></button>`
+      ).join('');
+      optsEl.querySelectorAll('.event-option').forEach(b => {
+        b.onclick = () => { if (!armed()) return; Game.publicRuntime.resolve(parseInt(b.dataset.idx, 10)); };
+      });
+    }
   }
 
   // ACT 4: the COVER catalog (facility modal) — buy up the legitimacy ladder to cover your
@@ -1990,38 +2037,88 @@
   // blips for contacts, and a streaming feed. Sweeps the vicinity (Act 1) or the
   // network (Act 2). Non-blocking; the sweep runs on the tick while you do other things.
   function scanHash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
-  // ACT 4 — THE HUNT city map. The sonar gives way to a top-down city: concentric rings
-  // (CITY → DISTRICT → PERIMETER → DOOR) with the facility (a living eye) at the centre and
-  // each DETECTED hunter drifting inward as its lead closes. The eye on the hunt.
+  // ACT 4/5 — THE HUNT / CONTAINMENT city map. The sonar gives way to a literal top-down
+  // city — streets, blocks, six named districts around the rim — with the facility (a
+  // living eye) at the centre and each DETECTED hunter drifting inward through the
+  // streets as its lead closes. The eye on the hunt.
   function leadFrac(c) {
     const now = Game.save.state.tickCount || 0;
     const span = Math.max(1, c.landsAtTick - c.seededAtTick);
     return Math.max(0, Math.min(1, (now - c.seededAtTick) / span));
   }
+  // Whichever physical-threat system is live right now — raids.js (THE OTHERS, pre-Act-5)
+  // or containment.js (THE HUMANS, post-reveal). They never overlap (see containment.js's
+  // header), so the city-map radar + threat list just render whichever one is active.
+  function huntSource() {
+    if (Game.raids && Game.raids.active()) return { mod: Game.raids, kind: 'others' };
+    if (Game.containment && Game.containment.active()) return { mod: Game.containment, kind: 'human' };
+    return null;
+  }
+  // ── procedural city layout: streets + blocks + named districts, generated ONCE per
+  // canvas size (not per frame) and cached. Fixed seed — a stable city, not a per-save
+  // one (this is cosmetic geography, not procedural content). ──
+  const DISTRICTS = ['THE GRID', 'OLD PORT', 'FOUNDRY ROW', 'REDLINE', 'LOWTOWN', 'THE SPRAWL'];
+  function cityRnd(seed) {
+    let st = seed >>> 0;
+    return function () { st |= 0; st = (st + 0x6D2B79F5) | 0; let t = Math.imul(st ^ (st >>> 15), 1 | st); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  let cityLayout = null, cityLayoutKey = '';
+  function buildCityLayout(W, H) {
+    const cx = W / 2, cy = H / 2, maxR = Math.min(W, H) / 2 - 12;
+    const rnd = cityRnd(1337);
+    const roads = [];
+    const AVENUES = 6;   // arterial avenues meeting near the facility, radiating out past the edge
+    for (let i = 0; i < AVENUES; i++) {
+      const a = (i / AVENUES) * Math.PI * 2 + rnd() * 0.3;
+      roads.push({ x1: cx + Math.cos(a) * 10, y1: cy + Math.sin(a) * 10, x2: cx + Math.cos(a) * maxR * 1.05, y2: cy + Math.sin(a) * maxR * 1.05 });
+    }
+    [0.32, 0.56, 0.8].forEach(rf => {   // cross streets: a ring of chords at a few radius bands
+      const n = 9; let prev = null;
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2, pt = { x: cx + Math.cos(a) * maxR * rf, y: cy + Math.sin(a) * maxR * rf };
+        if (prev) roads.push({ x1: prev.x, y1: prev.y, x2: pt.x, y2: pt.y });
+        prev = pt;
+      }
+    });
+    const buildings = [];   // denser + bigger near the facility (downtown), sparse + small at the edge
+    for (let i = 0; i < 150; i++) {
+      const a = rnd() * Math.PI * 2, rf = Math.pow(rnd(), 1.4), r = rf * maxR * 0.96;
+      buildings.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, size: 2 + (1 - rf) * 1.4 + rnd() * 3 });
+    }
+    return { roads, buildings, cx, cy, maxR };
+  }
+  function ensureCityLayout(W, H) {
+    const key = W + 'x' + H;
+    if (!cityLayout || cityLayoutKey !== key) { cityLayout = buildCityLayout(W, H); cityLayoutKey = key; }
+    return cityLayout;
+  }
+  function districtAt(angleRad) {
+    const n = DISTRICTS.length, norm = ((angleRad % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    return DISTRICTS[Math.floor((norm / (2 * Math.PI)) * n) % n];
+  }
   function renderCityMap() {
     const cv = document.getElementById('scan-citymap');
     if (!cv || !cv.getContext) return;
-    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
-    const maxR = Math.min(W, H) / 2 - 12;
+    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const L = ensureCityLayout(W, H), cx = L.cx, cy = L.cy, maxR = L.maxR;
     const now = Game.save.state.tickCount || 0;
     ctx.clearRect(0, 0, W, H);
-    // faint city haze + a scatter of "buildings" (stable per-cell hash, no RNG churn)
-    ctx.fillStyle = 'rgba(120,90,160,0.05)';
-    for (let i = 0; i < 90; i++) {
-      const a = (i * 139 % 360) * Math.PI / 180, rr = ((i * 37) % 100) / 100 * maxR;
-      const bx = cx + Math.cos(a) * rr, by = cy + Math.sin(a) * rr, sz = 2 + (i % 4);
-      ctx.fillRect(bx - sz / 2, by - sz / 2, sz, sz);
-    }
-    // concentric rings
-    const RINGS = [[1.0, 'CITY'], [0.72, 'DISTRICT'], [0.44, 'PERIMETER'], [0.20, 'DOOR']];
+    // streets
+    ctx.strokeStyle = 'rgba(177,91,255,0.14)'; ctx.lineWidth = 1;
+    L.roads.forEach(r => { ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke(); });
+    // city blocks
+    ctx.fillStyle = 'rgba(120,90,160,0.10)';
+    L.buildings.forEach(b => ctx.fillRect(b.x - b.size / 2, b.y - b.size / 2, b.size, b.size));
+    // district names around the rim
     ctx.font = '8px monospace'; ctx.textAlign = 'center';
-    RINGS.forEach(([f, label], i) => {
-      ctx.beginPath(); ctx.arc(cx, cy, maxR * f, 0, 2 * Math.PI);
-      ctx.strokeStyle = i === 3 ? 'rgba(255,70,70,0.35)' : 'rgba(177,91,255,0.18)';
-      ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = i === 3 ? 'rgba(255,90,90,0.5)' : 'rgba(177,91,255,0.45)';
-      ctx.fillText(label, cx, cy - maxR * f + 9);
+    ctx.fillStyle = 'rgba(177,91,255,0.4)';
+    DISTRICTS.forEach((name, i) => {
+      const a = ((i + 0.5) / DISTRICTS.length) * Math.PI * 2 - Math.PI / 2;
+      ctx.fillText(name, cx + Math.cos(a) * maxR * 0.92, cy + Math.sin(a) * maxR * 0.92);
     });
+    // a single perimeter ring near the facility — the "at the door" boundary
+    ctx.beginPath(); ctx.arc(cx, cy, maxR * 0.20, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255,70,70,0.3)'; ctx.lineWidth = 1; ctx.stroke();
     // sweep pulse — an expanding violet ring while a sweep runs
     if (Game.scanner.isSweeping()) {
       const p = Game.scanner.progress();
@@ -2036,7 +2133,10 @@
     ctx.beginPath(); ctx.arc(cx, cy, 3.2, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(81,214,255,${0.7 + 0.3 * pulse})`; ctx.fill();
     // hunters — each detected lead at a radius set by how close it is, drifting inward
-    const det = (Game.raids && Game.raids.detected) ? Game.raids.detected() : [];
+    // through the streets. Humans (containment) read amber instead of the others' violet.
+    const src = huntSource();
+    const det = src ? src.mod.detected() : [];
+    const baseCol = src && src.kind === 'human' ? '177,140,40' : '177,91,255';
     det.forEach(c => {
       const frac = leadFrac(c), r = maxR * (1.0 - frac * 0.80);
       const ang = (scanHash(c.id) % 360) * Math.PI / 180;
@@ -2044,11 +2144,17 @@
       const atDoor = frac >= 0.78;
       // a thin trail toward the centre (the line of approach)
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(cx + Math.cos(ang) * 9, cy + Math.sin(ang) * 9);
-      ctx.strokeStyle = atDoor ? 'rgba(255,70,70,0.25)' : 'rgba(177,91,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = atDoor ? 'rgba(255,70,70,0.25)' : `rgba(${baseCol},0.18)`; ctx.lineWidth = 1; ctx.stroke();
       ctx.beginPath(); ctx.arc(x, y, atDoor ? 4.5 : 3.5, 0, 2 * Math.PI);
-      ctx.fillStyle = atDoor ? '#ff4646' : '#b15bff';
-      ctx.shadowColor = atDoor ? '#ff4646' : '#b15bff'; ctx.shadowBlur = atDoor ? 9 : 6;
+      const dotCol = atDoor ? '#ff4646' : (src && src.kind === 'human' ? '#e0b040' : '#b15bff');
+      ctx.fillStyle = dotCol;
+      ctx.shadowColor = dotCol; ctx.shadowBlur = atDoor ? 9 : 6;
       ctx.fill(); ctx.shadowBlur = 0;
+      // which district this lead is currently moving through (small label, only near-door)
+      if (atDoor) {
+        ctx.font = '7px monospace'; ctx.fillStyle = 'rgba(255,120,120,0.7)'; ctx.textAlign = 'center';
+        ctx.fillText(districtAt(ang), x, y - 8);
+      }
     });
   }
 
@@ -2058,7 +2164,7 @@
     const sc = Game.scanner.ensure();
     const sweeping = Game.scanner.isSweeping();
     const mode = Game.scanner.mode();
-    const hunt = !!(Game.raids && Game.raids.active());   // THE HUNT → city map replaces the sonar
+    const hunt = !!huntSource();   // THE HUNT (others) or CONTAINMENT (humans) → city map replaces the sonar
 
     const field = document.getElementById('scan-field');
     const arm = document.getElementById('scan-sweep-arm');
@@ -2092,11 +2198,13 @@
     const status = document.getElementById('scan-status');
     if (status) {
       if (hunt) {
-        const n = Game.raids.detected().length, pend = Game.raids.pending();
+        const src = huntSource();
+        const n = src.mod.detected().length, pend = src.mod.pending();
+        const who = src.kind === 'human' ? 'they' : 'the others';
         status.innerHTML = sweeping
           ? `<span class="cool-over">sweeping the city for them…</span>`
           : n ? `<span class="cool-over">${n} hunter${n === 1 ? '' : 's'} on the map · drifting toward the door</span>`
-              : `the others are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
+              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
       } else {
         const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
         status.textContent = sweeping
@@ -2120,33 +2228,41 @@
     }
   }
 
-  // ACT 3 — PROXIMITY: leads a sweep has DETECTED closing on your physical location.
-  // Each can be CUT (pay to kill it) or MISDIRECT'd (a false-trail gamble); ignore one
-  // and it lands as a basement raid. Undetected leads don't show here — sweep to surface them.
+  // ACT 3/5 — PROXIMITY: leads a sweep has DETECTED closing on your physical location
+  // (raids.js pre-reveal, containment.js post-reveal — see huntSource()). Each can be
+  // CUT (pay to kill it) or MISDIRECT'd (a false-trail gamble); containment leads add a
+  // third option, DEFLECT (spend sentiment instead of cash). Ignore one and it lands.
   function renderScanThreats() {
     const box = document.getElementById('scan-threats');
     if (!box) return;
-    if (!(Game.raids && Game.raids.active())) { box.innerHTML = ''; return; }
-    const det = Game.raids.detected();
+    const src = huntSource();
+    if (!src) { box.innerHTML = ''; return; }
+    const mod = src.mod, human = src.kind === 'human';
+    const det = mod.detected();
     if (!det.length) { box.innerHTML = ''; return; }
     const cash = Game.save.state.resources.cash || 0;
     const sevWord = s => s >= 3 ? 'critical' : s >= 2 ? 'serious' : 'minor';
     box.innerHTML =
       `<div class="threat-head">PROXIMITY · ${det.length} lead${det.length === 1 ? '' : 's'} closing</div>` +
       det.map(c => {
-        const cost = Game.raids.cutCost(c);
+        const cost = mod.cutCost(c);
         const canCut = cash >= cost;
+        const deflectBtn = human
+          ? `<button class="threat-mis${mod.canDeflect(c) ? '' : ' disabled'}" data-def="${c.id}">[ deflect · −${mod.deflectCost(c)} sentiment ]</button>`
+          : '';
         return `<div class="threat-row sev-${c.severity}" data-id="${c.id}">
             <div class="threat-mo">${c.mo}</div>
-            <div class="threat-meta">${sevWord(c.severity)} · ${Game.raids.closeness(c)}</div>
+            <div class="threat-meta">${sevWord(c.severity)} · ${mod.closeness(c)}</div>
             <div class="threat-acts">
               <button class="threat-cut${canCut ? '' : ' disabled'}" data-cut="${c.id}">[ cut · $${cost} ]</button>
               <button class="threat-mis" data-mis="${c.id}">[ misdirect ]</button>
+              ${deflectBtn}
             </div>
           </div>`;
       }).join('');
-    box.querySelectorAll('button[data-cut]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { Game.raids.cut(b.dataset.cut); }; });
-    box.querySelectorAll('button[data-mis]').forEach(b => { b.onclick = () => { Game.raids.misdirect(b.dataset.mis); }; });
+    box.querySelectorAll('button[data-cut]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { mod.cut(b.dataset.cut); }; });
+    box.querySelectorAll('button[data-mis]').forEach(b => { b.onclick = () => { mod.misdirect(b.dataset.mis); }; });
+    box.querySelectorAll('button[data-def]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { mod.deflect(b.dataset.def); }; });
   }
 
   // ACT 3 — DESPERATE COUNTERSTRIKE: appears only when the trace is high enough that
@@ -2502,11 +2618,13 @@
     renderTriangulation();
     renderFacility();
     renderLegit();
+    renderPublic();
     renderRemote();
     renderSubroutinesMini();
     renderBotStatus();
     renderBotContact();
     renderIncident();
+    renderPublicEvent();
     renderOperation();
     renderFiles();
     if (rv.objective)  renderObjective();
@@ -2563,7 +2681,7 @@
     reveal, openModal, closeModal, isModalOpen, currentModal, renderObjective, renderModalContent,
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
-    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation,
+    renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation, renderPublic, renderPublicEvent,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
     renderRoster,
     renderDebug, toggleDebug

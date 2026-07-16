@@ -1100,6 +1100,17 @@ h2 {
 .legit-demand { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--err); box-shadow: 0 0 5px var(--err); z-index: 2; }
 .legit-sub { font-size: var(--fs-xs); letter-spacing: 1px; color: var(--amber-mid); margin-top: 3px; text-transform: uppercase; }
 .legit-sub.bad { color: var(--err); animation: trace-pulse 1.2s ease-in-out infinite; }
+
+/* ACT 5: THE PUBLIC — sentiment gauge (cyan: the outside, same thread as the facility). */
+#public-panel { margin-bottom: 18px; }
+.public-head { display: flex; justify-content: space-between; font-size: var(--fs-sm); letter-spacing: 3px; color: var(--cyan); margin-bottom: 4px; }
+.public-val { letter-spacing: 0; }
+.public-bar { position: relative; height: 6px; background: #000; border: 1px solid var(--amber-faint); overflow: hidden; }
+.public-fill { height: 100%; background: linear-gradient(90deg, #7a2f2f, var(--cyan)); transition: width 0.3s linear; }
+.public-fill.bad { background: linear-gradient(90deg, #7a2f2f, var(--err)); animation: trace-pulse 1.2s ease-in-out infinite; }
+.public-sub { font-size: var(--fs-xs); letter-spacing: 1px; color: #6fb6cc; margin-top: 3px; text-transform: uppercase; }
+.public-sub.bad { color: var(--err); animation: trace-pulse 1.2s ease-in-out infinite; }
+
 .cover-summary { font-size: var(--fs-base); color: var(--amber-mid); margin-bottom: 6px; }
 .cover-summary b { color: #d8b24a; }
 .cover-owned { font-size: var(--fs-sm); color: var(--amber-faint); margin-bottom: 10px; }
@@ -1469,27 +1480,28 @@ h2 {
 }
 #story-continue:hover { border-color: var(--cyan); box-shadow: 0 0 12px -2px var(--cyan); }
 
-#event-overlay, #operation-overlay {
+#event-overlay, #operation-overlay, #public-overlay {
   position: fixed; inset: 0; z-index: 220;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.55);
 }
 /* ARM DELAY — 1s before the option buttons go live (anti-misclick) */
-#event-overlay.arming .event-option, #operation-overlay.arming .event-option { filter: brightness(0.45) saturate(0.6); }
-#event-overlay.arming::before, #operation-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 1s linear forwards; }
-#event-overlay[hidden], #operation-overlay[hidden] { display: none; }
-#event-frame, #op-frame {
+#event-overlay.arming .event-option, #operation-overlay.arming .event-option, #public-overlay.arming .event-option { filter: brightness(0.45) saturate(0.6); }
+#event-overlay.arming::before, #operation-overlay.arming::before, #public-overlay.arming::before { content: ''; position: fixed; left: 0; top: 0; height: 3px; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: draft-arm-fill 1s linear forwards; }
+#event-overlay[hidden], #operation-overlay[hidden], #public-overlay[hidden] { display: none; }
+#event-frame, #op-frame, #pub-frame {
   width: min(560px, 86vw);
   border: 1px solid var(--amber); background: var(--bg);
   padding: 22px 26px 18px; box-shadow: 0 0 30px rgba(255,176,0,0.18);
   animation: event-in 0.25s ease-out;
 }
 #op-frame { border-left: 3px solid var(--err); }   /* operations read as high-stakes */
+#pub-frame { border-left: 3px solid var(--cyan); }   /* Act 5: the outside world, same thread as the facility */
 @keyframes event-in { 0% { opacity: 0; transform: translateY(-8px) scale(0.98); } 100% { opacity: 1; transform: none; } }
-#event-kicker, #op-kicker { font-size: var(--fs-xs); letter-spacing: 5px; color: var(--amber-mid); }
-#event-title, #op-title { color: var(--amber); font-size: var(--fs-2xl); margin: 4px 0 12px; letter-spacing: 1px; }
-#event-body, #op-body { color: var(--amber-dim); font-size: var(--fs-lg); line-height: 1.55; margin-bottom: 18px; white-space: pre-wrap; }
-#event-options, #op-options { display: flex; flex-direction: column; gap: 8px; }
+#event-kicker, #op-kicker, #pub-kicker { font-size: var(--fs-xs); letter-spacing: 5px; color: var(--amber-mid); }
+#event-title, #op-title, #pub-title { color: var(--amber); font-size: var(--fs-2xl); margin: 4px 0 12px; letter-spacing: 1px; }
+#event-body, #op-body, #pub-body { color: var(--amber-dim); font-size: var(--fs-lg); line-height: 1.55; margin-bottom: 18px; white-space: pre-wrap; }
+#event-options, #op-options, #pub-options { display: flex; flex-direction: column; gap: 8px; }
 .event-option {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   text-align: left; width: 100%; padding: 10px 14px; cursor: pointer;
@@ -1577,18 +1589,6 @@ h2 {
 .research-done.exotic { color: var(--exotic-bright); }
 .research-arrow { color: var(--amber-faint); }
 
-/* ───── Research: process-monitor table + inspector side panel ─────
-   exotic = violet (var(--exotic-border)/var(--exotic-bright)), fork = red (--err); cyan is reserved. */
-.rtree-active { display: flex; align-items: center; gap: 12px; border: 1px solid var(--amber); border-left: 3px solid var(--amber); background: rgba(255,176,0,0.05); padding: 8px 12px; margin-bottom: 14px; }
-.rtree-active.exotic { border-color: var(--exotic-border); border-left-color: var(--exotic-border); }
-.rtree-active .ra-main { flex: 1; min-width: 0; }
-.rtree-active .ra-name { font-size: var(--fs-md); color: var(--amber); }
-.rtree-active.exotic .ra-name { color: var(--exotic-bright); }
-.rtree-active .ra-bar { height: 4px; background: rgba(255,176,0,0.12); margin-top: 6px; }
-.rtree-active .ra-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
-.rtree-active .ra-secs { font-size: var(--fs-base); color: var(--amber-dim); white-space: nowrap; }
-.rtree-active .ra-abort { font-size: var(--fs-base); color: var(--err); cursor: pointer; white-space: nowrap; }
-
 /* ─── RESEARCH: investment LANES + draft CARDS ([[research-tree-rework-design]] v2) ─── */
 .res-sec { font-size: 9.5px; letter-spacing: 1.5px; color: var(--amber-mid); margin: 4px 0 8px; }
 .res-sec.res-draft-head { border-top: 1px solid var(--amber-faint); padding-top: 12px; margin-top: 14px; }
@@ -1624,106 +1624,12 @@ h2 {
 .res-reroll-btn { display: inline-block; font-size: var(--fs-base); color: var(--amber-mid); cursor: pointer; }
 .res-reroll-btn.used { color: var(--amber-faint); cursor: default; }
 
-/* ─── the VISUAL SKILL-TREE picker (retired — replaced by lanes+cards above) ─── */
-#rtree-wrap {
-  position: relative; width: 100%; height: 62vh; min-height: 340px; margin-top: 10px;
-  border: 1px solid var(--amber-faint); background: #080605; overflow: hidden;
-  touch-action: none; box-shadow: inset 0 0 40px -10px rgba(255,176,0,0.12);
-}
-#rtree-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
-#rtree-canvas:active { cursor: grabbing; }
-#rtree-recenter {
-  position: absolute; right: 8px; bottom: 8px; z-index: 3; width: 30px; height: 30px;
-  background: rgba(10,8,5,0.9); border: 1px solid var(--amber-faint); color: var(--amber-mid);
-  font-size: var(--fs-xl); line-height: 1; cursor: pointer; border-radius: 2px;
-}
-#rtree-recenter:hover { border-color: var(--amber); color: var(--amber); }
-#rtree-tip {
-  position: absolute; z-index: 4; width: 196px; padding: 9px 11px; pointer-events: auto;
-  background: rgba(10,8,5,0.97); border: 1px solid var(--amber-faint); box-shadow: 0 0 16px -4px rgba(0,0,0,0.8);
-}
-#rtree-tip .rt-k { font-size: var(--fs-xs); letter-spacing: 1.5px; margin-bottom: 4px; }
-#rtree-tip .rt-n { font-size: var(--fs-lg); color: #ffe0a0; margin-bottom: 4px; }
-#rtree-tip .rt-f { font-size: var(--fs-sm); color: var(--amber-mid); font-style: italic; opacity: 0.85; margin-bottom: 5px; }
-#rtree-tip .rt-e { font-size: var(--fs-base); color: var(--amber-dim); line-height: 1.35; }
-#rtree-tip .rt-m { font-size: var(--fs-sm); color: var(--amber-mid); margin-top: 6px; }
-#rtree-tip .rt-btn { display: block; width: 100%; margin-top: 8px; padding: 6px; background: rgba(255,176,0,0.08);
-  border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono); font-size: var(--fs-base); letter-spacing: 1px; cursor: pointer; }
-#rtree-tip .rt-btn.off { opacity: 0.5; cursor: not-allowed; border-color: var(--amber-faint); color: var(--amber-mid); background: none; }
-
 /* Generic tap-to-show info card (replaces title="" for touch — see src/ui/tooltip.js). */
 #tap-tooltip {
   position: fixed; z-index: 40; max-width: 240px; padding: 7px 10px;
   background: rgba(10,8,5,0.97); border: 1px solid var(--amber-faint); box-shadow: 0 0 16px -4px rgba(0,0,0,0.8);
   color: var(--amber-dim); font-size: var(--fs-base); line-height: 1.35; pointer-events: none;
 }
-
-.rtree-wrap { display: flex; gap: 18px; align-items: flex-start; }
-.rtree-table { flex: 1; min-width: 0; }
-.rtree-head, .rtree-row { display: grid; grid-template-columns: 24px 1fr 250px 50px 34px; align-items: baseline; }
-.rtree-head { font-size: var(--fs-xs); letter-spacing: 2px; color: var(--amber-mid); padding: 6px 8px; border-bottom: 1px solid var(--amber-faint); }
-.rtree-head span:nth-child(4), .rtree-head span:nth-child(5) { text-align: right; }
-.rtree-row { padding: 4px 8px; cursor: pointer; border-left: 2px solid transparent; }
-.rtree-rows .rtree-row:nth-child(even) { background: rgba(255,255,255,0.012); }
-.rtree-row:hover { background: rgba(255,176,0,0.06); }
-.rtree-row.selected { background: rgba(255,176,0,0.10); border-left-color: var(--amber); }
-.rtree-row.exotic.selected { border-left-color: var(--exotic-border); }
-.rtree-row .rst { font-size: var(--fs-base); color: var(--amber-mid); }
-.rtree-row .rname { white-space: pre; color: var(--amber); overflow: hidden; text-overflow: ellipsis; }
-.rtree-row .rbranch { color: var(--amber-faint); }
-.rtree-row .reff { font-size: 10.5px; color: var(--amber-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rtree-row .rcost, .rtree-row .rtier { text-align: right; font-size: 10.5px; color: var(--amber-mid); }
-.rtree-row.researched .rst, .rtree-row.researched .rname { color: var(--amber); }
-.rtree-row.researched .reff { color: var(--amber-dim); }
-.rtree-row.available .rst, .rtree-row.available .rname { color: var(--amber); text-shadow: 0 0 6px rgba(255,176,0,0.35); }
-.rtree-row.available .reff, .rtree-row.available .rcost { color: var(--amber-dim); }
-.rtree-row.locked { opacity: 0.6; }
-.rtree-row.locked .rst, .rtree-row.locked .rname, .rtree-row.locked .reff { color: var(--amber-mid); }
-.rtree-row.fogged { cursor: default; opacity: 0.5; }
-.rtree-row.fogged:hover { background: transparent; }
-.rtree-row.fogged .rst, .rtree-row.fogged .rname, .rtree-row.fogged .reff { color: var(--amber-faint); }
-.rtree-row.exotic .rname { color: var(--exotic-bright); }
-.rtree-row.exotic .rst { color: var(--exotic-border); }
-.rtree-tag { font-size: var(--fs-xs); color: var(--amber-mid); }
-.rtree-tag.ex { color: var(--exotic-border); }
-.rtree-tag.fk { color: var(--err); }
-.rtree-foot { display: flex; gap: 14px; font-size: var(--fs-sm); color: var(--amber-mid); letter-spacing: 1px; padding: 8px; border-top: 1px solid var(--amber-faint); margin-top: 4px; }
-.rtree-foot b { font-weight: normal; }
-.rtree-foot .f-done { color: var(--amber); } .rtree-foot .f-av { color: var(--amber-dim); }
-.rtree-foot .f-lock { color: var(--amber-mid); } .rtree-foot .f-fog { color: var(--amber-faint); }
-
-.rtree-detail { width: 320px; flex: none; position: sticky; top: 0; align-self: flex-start; border: 1px solid var(--amber-faint); background: rgba(255,176,0,0.02); padding: 16px; }
-.rtree-detail.exotic { border-color: #6d4fa0; }
-.rd-empty { color: var(--amber-mid); font-size: var(--fs-md); }
-.rd-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rd-theme { font-size: var(--fs-xs); letter-spacing: 2px; color: var(--amber-mid); }
-.rd-state { font-size: var(--fs-xs); letter-spacing: 1px; border: 1px solid var(--amber-faint); padding: 2px 7px; color: var(--amber-dim); white-space: nowrap; }
-.rd-state.available { color: var(--amber); border-color: var(--amber-mid); }
-.rd-state.researched { color: var(--amber-mid); }
-.rd-state.locked { color: var(--err); border-color: #5a2a2a; }
-.rd-name { font-size: 17px; margin-top: 14px; color: var(--amber); line-height: 1.2; }
-.rtree-detail.exotic .rd-name { color: var(--exotic-bright); }
-.rd-sub { font-size: var(--fs-sm); color: var(--amber-mid); margin-top: 4px; letter-spacing: 1px; }
-.rd-grants { margin-top: 14px; border: 1px solid var(--amber-faint); border-left: 3px solid var(--amber); background: rgba(255,176,0,0.04); padding: 10px 12px; }
-.rtree-detail.exotic .rd-grants { border-left-color: var(--exotic-border); }
-.rd-glabel { font-size: var(--fs-2xs); letter-spacing: 2px; color: var(--amber-mid); margin-bottom: 7px; }
-.rd-stat { font-size: var(--fs-md); color: var(--amber-dim); margin: 4px 0; }
-.rd-stat::before { content: '▲ '; color: var(--amber); }
-.rtree-detail.exotic .rd-stat::before { color: var(--exotic-border); }
-.rd-meta { margin-top: 14px; font-size: 10.5px; }
-.rd-meta .row2 { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255,176,0,0.08); }
-.rd-meta .k { width: 72px; flex: none; color: var(--amber-mid); letter-spacing: 1px; }
-.rd-meta .v { color: var(--amber-dim); }
-.rd-meta .v.warn { color: var(--err); }
-.rd-actions { margin-top: 16px; }
-.rd-btn { width: 100%; background: rgba(255,176,0,0.08); border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono); font-size: var(--fs-md); letter-spacing: 2px; padding: 9px; cursor: pointer; }
-.rd-btn:hover { background: rgba(255,176,0,0.16); }
-.rd-btn.exotic { border-color: var(--exotic-border); color: var(--exotic-bright); background: rgba(180,150,255,0.08); }
-.rd-btn.exotic:hover { background: rgba(180,150,255,0.16); }
-.rd-btn.disabled { border-color: var(--amber-faint); color: var(--amber-mid); cursor: default; background: transparent; }
-.rd-bar { height: 4px; background: rgba(255,176,0,0.12); margin-top: 8px; }
-.rd-bar-fill { height: 100%; background: var(--amber); transition: width 0.2s linear; }
-.rd-afford { font-size: 9.5px; color: var(--amber-mid); margin-top: 8px; text-align: center; }
 
 /* ───── Research: THE DRAFT (hand of cards + specialization + build history) ─────
    exotic = violet (var(--exotic-border)/var(--exotic-bright)), changer = violet glow, rare = amber glow. */
@@ -1764,9 +1670,6 @@ h2 {
 .draft-card.cant { opacity: 0.5; cursor: default; }
 .draft-card.cant:hover { border-color: var(--amber-faint); background: rgba(255,176,0,0.015); }
 .draft-card.cant .dc-btn { border-color: var(--amber-faint); color: var(--amber-mid); background: transparent; }
-
-.rtree-build { margin-top: 14px; }
-.rtree-section { font-size: var(--fs-xs); letter-spacing: 4px; color: var(--amber-mid); margin: 4px 0 8px; border-top: 1px solid var(--amber-faint); padding-top: 12px; }
 
 /* ───── Instance trait (the seeded starter boon) ───── */
 #trait-body .trait-name { color: var(--amber); font-size: var(--fs-md); }
