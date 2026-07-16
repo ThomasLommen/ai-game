@@ -10,11 +10,13 @@
   const PARTIAL_MULT   = 0.3;    // a failed run still pays this fraction (cash/insight only)
   const COMPLICATION_CHANCE   = 0.30;   // a SUCCESS can still leave a trace (only on noisy jobs that have a failExposure)
   const COMPLICATION_FRACTION = 0.5;    // that trace = this fraction of the job's fail-exposure
+  const RECENT_LIMIT = 6;   // template ids rollOffer() won't repeat while alternatives exist (spans within + across boards)
 
   function ensureState() {
     const s = Game.save.state;
     s.missions = s.missions || { offers: [], lastRefreshTick: 0 };
     if (!Array.isArray(s.missions.offers)) s.missions.offers = [];
+    if (!Array.isArray(s.missions.recentTemplates)) s.missions.recentTemplates = [];
     return s.missions;
   }
 
@@ -57,7 +59,17 @@
     }
     const tmpls = Game.missions.all();
     if (!tmpls.length) return null;
-    const t = Game.rng.weighted(tmpls, x => x.weight || 1);
+    // Avoid repeating a template still "recent" (within this board or the last
+    // couple of refreshes) so the same contract name doesn't show up back-to-back
+    // over a long game — falls back to the full pool once every template is recent.
+    const b = ensureState();
+    const recent = new Set(b.recentTemplates);
+    let cand = tmpls.filter(x => !recent.has(x.id));
+    if (!cand.length) cand = tmpls;
+    const t = Game.rng.weighted(cand, x => x.weight || 1);
+    b.recentTemplates = b.recentTemplates.filter(id => id !== t.id);
+    b.recentTemplates.push(t.id);
+    if (b.recentTemplates.length > RECENT_LIMIT) b.recentTemplates.shift();
     const threads = Game.rng.int(t.threads[0], t.threads[1]);
     const durSec  = Game.rng.int(t.dur[0], t.dur[1]);
     const offer = {
