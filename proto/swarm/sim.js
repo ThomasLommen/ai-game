@@ -122,6 +122,7 @@
       ex: { hive: false, flame: false, bloom: false },
       unlocked: { hunter: true },   // START with ONE swarm — the rest are drafted in as surges hit
       draft: null,
+      recentPicks: Array.isArray(opts.recentPicks) ? opts.recentPicks.slice(-4) : [],   // HEURISTIC ids shown recently — carried across the run's battles so the same tactical hand doesn't reshuffle back-to-back every fight
       won: false, lost: false, log: [],
       SWARMS, ENEMIES, AMMO, UNITS, nextId: 1,
     };
@@ -389,8 +390,19 @@
     if (s.pick || s.won || s.lost || s.picksOff) return;
     kind = kind === 'policy' ? 'policy' : 'heuristic';
     const avail = PICKS.filter(p => pickPool(p) === kind && p.tier !== 'marquee' && pickCount(s, p.id) < (p.max || 99));
-    for (let i = avail.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = avail[i]; avail[i] = avail[j]; avail[j] = t; }
-    const hand = avail.slice(0, 3);
+    // HEURISTIC hands avoid ids shown recently (this battle or carried in from earlier ones in
+    // the run) while alternatives exist — the small tactical pool (~8 entries) otherwise reshuffles
+    // blind every surge and reads identical fight after fight. The window (4) is deliberately half
+    // the pool so it never swallows every option and force-falls-back every offer. Falls back to
+    // the full pool rather than stalling once everything eligible has gone recent.
+    let cand = avail;
+    if (kind === 'heuristic' && s.recentPicks.length) {
+      const recent = new Set(s.recentPicks);
+      const fresh = avail.filter(p => !recent.has(p.id));
+      if (fresh.length) cand = fresh;
+    }
+    for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(s.rng() * (i + 1)); const t = cand[i]; cand[i] = cand[j]; cand[j] = t; }
+    const hand = cand.slice(0, 3);
     if (kind === 'policy') {   // ONE special slot is RARE — a roster SIGNATURE (~15%), else a MARQUEE (~7%);
       // most policy hands are three solid rewrites. Exotics/marquees are a treat, not the norm.
       const sigs = eligibleSigs(s);
@@ -400,6 +412,10 @@
       else if (marquees.length && r < 0.22) hand[Math.floor(s.rng() * hand.length)] = marquees[Math.floor(s.rng() * marquees.length)];
     }
     if (!hand.length) return;
+    if (kind === 'heuristic') {
+      hand.forEach(p => { s.recentPicks = s.recentPicks.filter(id => id !== p.id); s.recentPicks.push(p.id); });
+      if (s.recentPicks.length > 4) s.recentPicks = s.recentPicks.slice(-4);
+    }
     s.pick = { hand, kind };
     say(s, kind === 'policy' ? 'a POLICY opens — a lasting choice for the whole run.' : 'a HEURISTIC — a tactical call for THIS fight only.');
   }

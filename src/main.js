@@ -116,10 +116,17 @@
     // across the run's battles (passed into each), reset between runs — no meta. Units come
     // from the economy/roster, never a draft. ([[battle-duel-rework]] v2 slice C)
     Game.runBuild = {
-      ensure() { const s = Game.save.state; if (!s.runBuild || !Array.isArray(s.runBuild.picks)) s.runBuild = { picks: [] }; return s.runBuild; },
+      ensure() {
+        const s = Game.save.state;
+        if (!s.runBuild || !Array.isArray(s.runBuild.picks)) s.runBuild = { picks: [] };
+        if (!Array.isArray(s.runBuild.recentPicks)) s.runBuild.recentPicks = [];   // HEURISTIC anti-repeat window (battle-duel-rework recency fix)
+        return s.runBuild;
+      },
       picks() { return Game.runBuild.ensure().picks.slice(); },
       add(ids) { const b = Game.runBuild.ensure(); (ids || []).forEach(id => { if (id) b.picks.push(id); }); Game.save.persist && Game.save.persist(); },
-      reset() { Game.save.state.runBuild = { picks: [] }; },
+      recentPicks() { return Game.runBuild.ensure().recentPicks.slice(); },
+      setRecentPicks(ids) { Game.runBuild.ensure().recentPicks = Array.isArray(ids) ? ids.slice(-4) : []; Game.save.persist && Game.save.persist(); },
+      reset() { Game.save.state.runBuild = { picks: [], recentPicks: [] }; },
     };
 
     // current ACT (1-5) from the narrative flags — drives battle difficulty structure.
@@ -141,10 +148,11 @@
       const opts = Object.assign({
         seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
         lane: true, act: Game.acts.current(), wave: 0,   // first battle of the run → difficulty(act,0): 1 lane, probes
-        opener: true, picks: Game.runBuild.picks(),   // first battle opens on a pick
+        opener: true, picks: Game.runBuild.picks(), recentPicks: Game.runBuild.recentPicks(),   // first battle opens on a pick
       }, Game.roster.toOpts());   // the roster decides WHAT you field
       Game.battle.launch(opts, (r) => {
         if (r && r.picksTaken) Game.runBuild.add(r.picksTaken);   // persist this battle's picks into the run
+        if (r && r.recentPicks) Game.runBuild.setRecentPicks(r.recentPicks);   // carry the HEURISTIC anti-repeat window forward
         if (r && typeof r.power === 'number' && Game.fieldPower) Game.fieldPower.feed(r.power);   // seed the difficulty ledger
         done && done();
       });
