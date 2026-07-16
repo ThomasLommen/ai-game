@@ -21,6 +21,7 @@
     for (let i = 0; i < text.length; i++) {
       span.textContent += text[i];
       pane().scrollTop = pane().scrollHeight;
+      if (text[i] !== ' ' && Game.audio) Game.audio.typeClick();
       await sleep(rand(delayRange[0], delayRange[1]));
     }
   }

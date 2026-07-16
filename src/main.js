@@ -237,7 +237,7 @@
     Game.events.on('action.cycle', ({ defId, resource, amount }) => {
       const t = Game.tasksRuntime.getActive().find(t => t.defId === defId);
       if (t) { t.accrued = t.accrued || {}; t.accrued[resource] = (t.accrued[resource] || 0) + (amount || 0); }
-      Game.panels.pulseResource(resource);
+      Game.panels.pulseResource(resource, amount);
       Game.panels.renderActions();    // refresh the accrued readout + running-first order
       const row = document.querySelector(`#actions-list .action-row[data-action="${defId}"]`);
       if (row) { row.classList.remove('cycle-pop'); void row.offsetWidth; row.classList.add('cycle-pop'); }
@@ -373,7 +373,7 @@
         target: '.modal-btn[data-modal="inventory"]'
       });
       Game.events.emit('terminal.print', { lines: [
-        '> open INVENTORY and drag a part onto a slot — the unit installs it.', ''
+        '> open INVENTORY and tap a part — the unit installs it.', ''
       ], cls: 'dim' });
       Game.save.persist();
     });

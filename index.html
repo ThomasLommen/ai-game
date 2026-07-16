@@ -197,13 +197,13 @@
           <div class="modal-panel" data-modal="inventory" hidden>
             <div id="inventory-grid">
               <div class="inv-col">
-                <h3>EQUIPPED<span class="inv-hint"> · drag a part to a slot · drag one OUT to remove</span></h3>
+                <h3>EQUIPPED<span class="inv-hint"> · tap a part to unequip or scrap it</span></h3>
                 <div id="equipped-slots"></div>
               </div>
               <div class="inv-col">
-                <h3>UNEQUIPPED<span class="inv-hint"> · drag to a slot to install · drag here to remove</span></h3>
+                <h3>UNEQUIPPED<span class="inv-hint"> · tap a part to install or scrap it</span></h3>
                 <div id="inventory-list"></div>
-                <div id="scrap-bin">⌦ SCRAP · drag a part here to sell it for parts</div>
+                <div id="scrap-bin">⌦ SCRAP · tap an unequipped part above to sell it for parts</div>
               </div>
             </div>
           </div>
@@ -212,6 +212,12 @@
           </div>
           <div class="modal-panel" data-modal="settings" hidden>
             <div id="settings-body">
+              <div class="set-sec">
+                <h3>SOUND</h3>
+                <div class="set-row">
+                  <button id="set-sound" class="set-btn">SOUND — ...</button>
+                </div>
+              </div>
               <div class="set-sec">
                 <h3>TRANSFER SAVE</h3>
                 <p class="faint set-note">Progress is stored on this device only. Export a code here, paste it on another device to carry your run across.</p>
@@ -313,6 +319,7 @@
   </div>
 
   <script src="src/core/event-bus.js"></script>
+  <script src="src/core/audio.js"></script>
   <script src="src/core/registry.js"></script>
   <script src="src/core/modifiers.js"></script>
   <script src="src/core/effects.js"></script>
@@ -389,6 +396,7 @@
   <script src="src/ui/terminal.js"></script>
   <script src="src/ui/decoder.js"></script>
   <script src="src/ui/panels.js"></script>
+  <script src="src/ui/tooltip.js"></script>
   <script src="src/ui/research-tree.js"></script>
   <script src="src/ui/blip.js"></script>
   <script src="src/ui/settings.js"></script>

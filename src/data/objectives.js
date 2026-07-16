@@ -70,7 +70,7 @@
 
   Game.objectives.register('first_equip', {
     title: 'install hardware',
-    description: 'open INVENTORY and drag the new part onto an empty slot.',
+    description: 'open INVENTORY and tap the new part to install it.',
     check: (s) => {
       const eq = s.equipped || {};
       for (const slot of Object.values(eq)) {

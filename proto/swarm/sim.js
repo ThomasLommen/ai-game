@@ -102,7 +102,7 @@
     const s = {
       W, H, rng, t: 0, seed: (seed | 0) || 7,
       core: { x: W / 2, y: H / 2, r: 42, hp: 100, maxHp: 100, lvl: 1, marks: [], maxMarks: 1, cd: 0,   // r = body radius (collision + render, both frames); marks = your FOCUS-FIRE targets
-              eye: { x: 0, y: 0, tx: 0, ty: 0, dil: 0, blink: 0, blinkT: 2 + Math.random() * 3, t: 0, staring: false } },   // the LIVING gaze (updateEye): wanders, locks on, blinks, sometimes stares at YOU
+              eye: { x: 0, y: 0, tx: 0, ty: 0, dil: 0, blink: 0, blinkT: 2 + rng() * 3, t: 0, staring: false } },   // the LIVING gaze (updateEye): wanders, locks on, blinks, sometimes stares at YOU
       viewR: ambient ? 200 : Math.round(mn * 0.469), spawnR: ambient ? 175 : Math.round(mn * 0.64), ambient: !!ambient,
       // BATTLE v2: no live compute economy. Channels (offense/shield/core) are BUILD-STATS
       // accrued from picks/roster/boost; chMult = 1 + chBonus. The guard reads/counters your

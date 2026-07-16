@@ -102,8 +102,8 @@
   $('zoomout').onclick  = () => setZoom(userZoom / 1.25);
   $('recenter').onclick = () => recenter();
   $('sendwave').onclick = () => SWARM.sendWave(S);
-  const re = $('reseed'); if (re) re.onclick = () => { S = newState(); posted = false; lastLogLen = -1; recenter(); };
-  const md = $('mode'); if (md) md.onclick = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; recenter(); };
+  const re = $('reseed'); if (re) re.onclick = () => { S = newState(); posted = false; lastLogLen = -1; recenter(); resetJuice(); };
+  const md = $('mode'); if (md) md.onclick = () => { laneMode = !laneMode; S = newState(); posted = false; lastLogLen = -1; recenter(); resetJuice(); };
   let pickArmedAt = 0;   // a pick is only selectable 2s after it appears (anti-misclick, esp. mid-battle)
   $('draft-cards').addEventListener('click', e => { if (Date.now() < pickArmedAt) return; const c = e.target.closest('[data-pick]'); if (c) SWARM.takePick(S, c.dataset.pick); });
 
@@ -115,10 +115,114 @@
     const r2 = $('reseed2'); if (r2) { r2.removeAttribute('onclick'); r2.textContent = '⏎ RETURN TO TERMINAL'; r2.onclick = () => postResult('return'); }
   }
 
+  // ── sfx: a small standalone synth layer (no Game.* here — this page runs standalone
+  // too, not just embedded). Mute preference: the campaign's setting rides in via
+  // ?mute=1; a local toggle overrides it and persists across standalone visits. ──
+  let sfxCtx = null, sfxMaster = null;
+  let sfxMuted = localStorage.getItem('swarm_muted') != null ? localStorage.getItem('swarm_muted') === '1' : Q.get('mute') === '1';
+  function sfxEnsure() {
+    if (sfxCtx) { if (sfxCtx.state === 'suspended') sfxCtx.resume().catch(() => {}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    sfxCtx = new AC(); sfxMaster = sfxCtx.createGain(); sfxMaster.gain.value = 0.28; sfxMaster.connect(sfxCtx.destination);
+  }
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, sfxEnsure, { once: true, passive: true }));
+  function sfxTone(freq, dur, type, vol, delay) {
+    if (sfxMuted || !sfxCtx || sfxCtx.state !== 'running') return;
+    const t0 = sfxCtx.currentTime + (delay || 0);
+    const osc = sfxCtx.createOscillator(), g = sfxCtx.createGain();
+    osc.type = type || 'sine'; osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol || 0.2, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(sfxMaster); osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+  const sfx = {
+    hit: () => sfxTone(120, 0.09, 'square', 0.16),
+    kill: () => sfxTone(700 + Math.random() * 120, 0.06, 'triangle', 0.12),
+    eliteKill: () => { sfxTone(300, 0.16, 'sawtooth', 0.15); sfxTone(600, 0.12, 'triangle', 0.12, 0.05); },
+    bossKill: () => [0, 0.1, 0.2].forEach(d => sfxTone(200 - d * 60, 0.22, 'sawtooth', 0.2, d)),
+    pick: () => { sfxTone(660, 0.12, 'sine', 0.14); sfxTone(880, 0.14, 'sine', 0.14, 0.08); },
+    win: () => [523.25, 659.25, 783.99].forEach((f, i) => sfxTone(f, 0.18, 'triangle', 0.16, i * 0.09)),
+    lose: () => sfxTone(280, 0.5, 'sawtooth', 0.16, 0),
+  };
+  const sndBtn = $('sound'); if (sndBtn) {
+    const refresh = () => { sndBtn.textContent = sfxMuted ? '♪ off' : '♪ on'; };
+    sndBtn.onclick = () => { sfxMuted = !sfxMuted; localStorage.setItem('swarm_muted', sfxMuted ? '1' : '0'); refresh(); };
+    refresh();
+  }
+
+  // ── juice: screen shake / floating damage / hit-stop / core-flash / combo / haptics ──
+  // Pure render-layer feedback, built by diffing S frame-to-frame rather than touching
+  // sim.js (sim.js is meant to stay a pure, DOM-free state machine — see file header).
+  let shakeMag = 0, coreFlash = 0, killFlashAmt = 0;
+  let hitStopUntil = 0;
+  let floatTexts = [];                       // {x,y,amt,t,life,core}
+  let dmgAccum = new Map(), coreDmgAccum = { amt: 0, lastPop: 0 };   // throttle numbers to ~1 per 150ms per target
+  let prevEnemyRec = new Map();               // enemy id -> {hp,x,y,type} as of last frame
+  let prevCoreHp = S.core.hp;
+  let killTimes = [];                        // recent kill timestamps, for the combo readout
+  let lastBuzzAt = 0;
+  const canVibrate = typeof navigator !== 'undefined' && !!navigator.vibrate;
+  function buzz(pattern) {
+    if (!canVibrate) return;
+    const now = performance.now(); if (now - lastBuzzAt < 60) return; lastBuzzAt = now;
+    try { navigator.vibrate(pattern); } catch (e) {}
+  }
+  function resetJuice() {
+    shakeMag = 0; coreFlash = 0; killFlashAmt = 0; hitStopUntil = 0;
+    floatTexts = []; dmgAccum.clear(); coreDmgAccum = { amt: 0, lastPop: 0 };
+    prevEnemyRec.clear(); prevCoreHp = S.core.hp; killTimes = [];
+  }
+  function sense(now) {
+    if (S.core.hp < prevCoreHp - 0.01) {
+      const dmg = prevCoreHp - S.core.hp;
+      shakeMag = Math.min(26, shakeMag + dmg * 1.3); coreFlash = 1;
+      coreDmgAccum.amt += dmg;
+      if (now - coreDmgAccum.lastPop > 150) { floatTexts.push({ x: S.core.x, y: S.core.y - (S.core.r || 42) * 1.4, amt: Math.round(coreDmgAccum.amt), t: 0, life: 0.7, core: true }); coreDmgAccum.amt = 0; coreDmgAccum.lastPop = now; }
+      buzz(Math.min(70, 18 + dmg * 2)); sfx.hit();
+    }
+    prevCoreHp = S.core.hp;
+
+    const seen = new Set();
+    for (const e of S.enemies) {
+      seen.add(e.id);
+      const rec = prevEnemyRec.get(e.id);
+      if (rec && e.hp < rec.hp - 0.01) {
+        const acc = dmgAccum.get(e.id) || { amt: 0, lastPop: now };
+        acc.amt += rec.hp - e.hp;
+        if (now - acc.lastPop > 150) { floatTexts.push({ x: e.x, y: e.y, amt: Math.round(acc.amt), t: 0, life: 0.55 }); acc.amt = 0; acc.lastPop = now; }
+        dmgAccum.set(e.id, acc);
+      }
+      prevEnemyRec.set(e.id, { hp: e.hp, x: e.x, y: e.y, type: e.type });
+    }
+    // sim.js only ever removes an enemy from S.enemies on a kill (leaks get sent back to
+    // start, not removed) — so anything present last frame but gone now just died.
+    for (const [id, rec] of prevEnemyRec) {
+      if (seen.has(id)) continue;
+      const acc = dmgAccum.get(id);
+      if (acc && acc.amt > 0) floatTexts.push({ x: rec.x, y: rec.y, amt: Math.round(acc.amt), t: 0, life: 0.55 });
+      dmgAccum.delete(id); prevEnemyRec.delete(id);
+      const def = S.ENEMIES[rec.type], boss = rec.type === 'juggernaut', elite = !!(def && def.elite);
+      killTimes.push(now);
+      shakeMag = Math.min(30, shakeMag + (boss ? 22 : elite ? 8 : 3));
+      if (boss) { hitStopUntil = Math.max(hitStopUntil, now + 260); killFlashAmt = 1; buzz([40, 30, 90]); sfx.bossKill(); }
+      else if (elite) { hitStopUntil = Math.max(hitStopUntil, now + 90); buzz(18); sfx.eliteKill(); }
+      else sfx.kill();
+    }
+    killTimes = killTimes.filter(t => now - t < 1100);
+  }
+  function decayJuice(dt) {
+    shakeMag *= Math.pow(0.001, dt); if (shakeMag < 0.1) shakeMag = 0;
+    coreFlash = Math.max(0, coreFlash - dt / 0.25);
+    killFlashAmt = Math.max(0, killFlashAmt - dt / 0.55);
+    floatTexts.forEach(t => t.t += dt);
+    floatTexts = floatTexts.filter(t => t.t < t.life);
+  }
+
   // ── render ──
   function draw() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+    const shx = shakeMag > 0.1 ? (Math.random() - 0.5) * 2 * shakeMag : 0;
+    const shy = shakeMag > 0.1 ? (Math.random() - 0.5) * 2 * shakeMag : 0;
+    ctx.setTransform(1, 0, 0, 1, shx, shy);
+    ctx.fillStyle = '#05060a'; ctx.fillRect(-shx, -shy, cvs.width, cvs.height);
     const cx = X(S.core.x), cy = Y(S.core.y);
 
     // ── lanes (dim paths) ──
@@ -318,9 +422,15 @@
       for (let i = 0; i < 4; i++) { const br = rr * 1.5; ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(br, -br * 0.4); ctx.lineTo(br, -br); ctx.lineTo(br * 0.4, -br); ctx.stroke(); }
       ctx.restore(); ctx.shadowBlur = 0;
     }
-    const pulse = 0.5 + 0.5 * Math.sin(S.t * 3), cr = (S.core.r || 42) * scale, hpf = S.core.hp / S.core.maxHp;
+    const cr = (S.core.r || 42) * scale, hpf = S.core.hp / S.core.maxHp;
+    const beatHz = 3 + (1 - hpf) * 7;   // the gyro/eye pulse quickens as the core gets hurt
+    const pulse = 0.5 + 0.5 * Math.sin(S.t * beatHz);
     ctx.strokeStyle = hpf > 0.4 ? 'rgba(255,176,0,0.35)' : 'rgba(255,80,80,0.6)'; ctx.lineWidth = 3.5 * scale;
     ctx.beginPath(); ctx.arc(cx, cy, cr + 11 * scale, -Math.PI / 2, -Math.PI / 2 + hpf * 7); ctx.stroke();
+    if (coreFlash > 0) {   // a hard white-hot pulse the instant the core takes a hit
+      ctx.strokeStyle = `rgba(255,255,255,${coreFlash * 0.9})`; ctx.lineWidth = (3.5 + coreFlash * 7) * scale;
+      ctx.beginPath(); ctx.arc(cx, cy, cr + (11 + (1 - coreFlash) * 20) * scale, 0, 7); ctx.stroke();
+    }
     // GYRO-CORE — an optic in nested rotating gimbal rings (from the saved unit concepts).
     const low = hpf <= 0.4;
     const cMain = low ? '#ff5a5a' : '#ffb000', cAcc = low ? '#ffd0d0' : '#ffd24a', cEye = low ? '#ffe2e2' : '#fff3d0';
@@ -345,6 +455,29 @@
       ctx.strokeStyle = '#ff2884'; ctx.lineWidth = 1 * dpr; ctx.strokeRect(bx, by, bw, bh);
       ctx.fillStyle = '#fff'; ctx.font = `${Math.round(12 * dpr)}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('◈ JUGGERNAUT', cvs.width / 2, by + bh / 2); ctx.textBaseline = 'alphabetic';
     }
+
+    // ── floating damage numbers (still in the shaky world transform) ──
+    ctx.textAlign = 'center'; ctx.font = `${Math.round(11 * scale)}px monospace`;
+    floatTexts.forEach(t => {
+      if (t.amt <= 0) return;
+      const f = t.t / t.life, x = X(t.x), y = Y(t.y) - f * 34 * scale;
+      ctx.globalAlpha = Math.max(0, 1 - f);
+      ctx.fillStyle = t.core ? '#ff5a5a' : '#fff3d0';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 5;
+      ctx.fillText((t.core ? '−' : '') + t.amt, x, y);
+      ctx.shadowBlur = 0;
+    });
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+
+    // ── screen-space overlays (reset transform so these don't shake with the world) ──
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (hpf < 0.4) {   // low-core-hp red vignette, intensifying + pulsing as danger climbs
+      const danger = 1 - hpf / 0.4, vPulse = 0.6 + 0.4 * Math.sin(S.t * (3 + danger * 6));
+      const g = ctx.createRadialGradient(cvs.width / 2, cvs.height / 2, cvs.height * 0.28, cvs.width / 2, cvs.height / 2, cvs.height * 0.65);
+      g.addColorStop(0, 'rgba(255,20,20,0)'); g.addColorStop(1, `rgba(255,20,20,${(0.08 + danger * 0.32) * vPulse})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, cvs.width, cvs.height);
+    }
+    if (killFlashAmt > 0) { ctx.fillStyle = `rgba(255,255,255,${killFlashAmt * 0.45})`; ctx.fillRect(0, 0, cvs.width, cvs.height); }   // boss-kill flash
   }
 
   // The core's LIVING gaze (shared shape with the perimeter widget). Reads S.core.eye —
@@ -614,11 +747,18 @@
 
     if (S.log.length !== lastLogLen) { const l = $('log'); l.innerHTML = S.log.slice(-4).map(m => `<div>${m}</div>`).join(''); l.scrollTop = l.scrollHeight; lastLogLen = S.log.length; }
 
+    document.body.classList.toggle('picking', !!S.pick);   // dim + blur the board while a pick is up
+
+    // COMBO — 3+ kills within ~1.1s of each other
+    const combo = $('combo');
+    if (combo) { if (killTimes.length >= 3) { combo.textContent = '×' + killTimes.length + ' COMBO'; combo.hidden = false; } else combo.hidden = true; }
+
     const dr = $('draft');                                // the make-or-break PICK (pauses the board)
     if (S.pick) {
       const sig = S.pick.hand.map(p => p.id).join(',') + ':' + (S.pick.kind || '');
       if (sig !== lastDraftSig) {
         lastDraftSig = sig;
+        buzz(15); sfx.pick();
         const isPolicy = S.pick.kind === 'policy';
         const dh = $('draft-h'), dsub = $('draft-sub');
         if (dh) dh.textContent = isPolicy ? 'POLICY · choose one' : 'HEURISTIC · choose one';
@@ -641,17 +781,21 @@
 
     const ov = $('overlay');
     if (S.won || S.lost) {
-      ov.style.display = 'flex'; ov.className = S.won ? 'win' : 'lose';
+      const wasShown = ov.classList.contains('show');
+      ov.className = (S.won ? 'win' : 'lose') + ' show';
+      if (!wasShown) { buzz(S.won ? [20, 40, 20] : [15, 15, 15, 15]); (S.won ? sfx.win : sfx.lose)(); }
       $('ov-title').textContent = S.won ? 'NODE SECURED' : 'CORE BREACHED';
       $('ov-sub').innerHTML = `reached surge ${S.surge}/${S.GOAL_SURGES} &middot; ${S.kills} kills<br>`
         + `pods: ${S.units.map(u => u.type + ' mk' + u.lvl).join(', ') || '—'} &middot; ${S.flocks.length} swarms<br>`
         + `<span style="color:var(--mid)">${EMBED ? (S.won ? 'the intrusion is purged — return to the terminal' : 'they broke through — fall back to the terminal') : 'a fresh node every run — no carry-over'}</span>`;
-    } else ov.style.display = 'none';
+    } else ov.className = '';
   }
 
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (!S.draft) SWARM.tick(S, dt);   // a draft pauses the board
+    const stopped = now < hitStopUntil;   // a big kill briefly freezes the sim so the impact reads
+    if (!S.draft && !stopped) { SWARM.tick(S, dt); sense(now); }   // a draft pauses the board
+    decayJuice(dt);
     if (EMBED && !posted && (S.won || S.lost)) { posted = true; postResult('result'); }   // tell the campaign the moment it resolves
     draw(); ui();
     requestAnimationFrame(frame);

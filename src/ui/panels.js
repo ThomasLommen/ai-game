@@ -89,7 +89,7 @@
       const aff = Game.affixes.get(id);
       if (!aff) continue;
       const rolled = obj.affixMods && obj.affixMods[id];
-      parts.push(`<span class="name-affix" title="${affixTooltip(aff, rolled)}">${aff.name}</span>`);
+      parts.push(`<span class="name-affix" data-tip="${resEsc(affixTooltip(aff, rolled))}">${aff.name}</span>`);
     }
     parts.push(`<span class="name-base">${base}</span>`);
     return parts.join(' ');
@@ -458,7 +458,7 @@
         html += `<div class="supplier-block${burned ? ' burned' : ''}">
           <div class="supplier-head">
             <div class="supplier-id"><span class="supplier-handle">${sup.handle}</span> <span class="supplier-tier ${tier}">${tier}</span></div>
-            ${burned ? '' : `<div class="supplier-standbar" title="standing ${Math.round(st)}/100"><div class="supplier-standbar-fill" style="width:${Math.max(2, Math.min(100, st))}%"></div></div>`}
+            ${burned ? '' : `<div class="supplier-standbar" data-tip="standing ${Math.round(st)}/100"><div class="supplier-standbar-fill" style="width:${Math.max(2, Math.min(100, st))}%"></div></div>`}
           </div>
           ${burned || front ? '' : `<div class="supplier-deals">DEALS IN · ${supplierDeals(sup)}</div>`}
           <div class="supplier-vibe">${burned ? 'cut off. they know it was you. there is no walking this one back.' : sup.vibe}</div>
@@ -1362,13 +1362,26 @@
     el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
   }
   // Generic resource "ka-ching" flash (insight / cash / exposure) on a cycle payout.
-  function pulseResource(id) {
-    const el = id === 'insight'  ? document.querySelector('#insight-readout .insight-num')
-             : id === 'cash'     ? document.querySelector('#cash-readout .cash-num')
-             : id === 'exposure' ? document.querySelector('#exposure-body .exp-val')
-             : null;
-    if (!el) return;
-    el.classList.remove('rpulse'); void el.offsetWidth; el.classList.add('rpulse');
+  // `amount`, when given, also pops a floating "+N" (or "−N" for a spend) beside the
+  // readout — the actual number, not just a flash that something changed.
+  function pulseResource(id, amount) {
+    const host = id === 'insight'  ? document.getElementById('insight-readout')
+               : id === 'cash'     ? document.getElementById('cash-readout')
+               : id === 'exposure' ? document.getElementById('exposure-body')
+               : null;
+    if (!host) return;
+    const el = host.querySelector(id === 'insight' ? '.insight-num' : id === 'cash' ? '.cash-num' : '.exp-val');
+    if (el) { el.classList.remove('rpulse'); void el.offsetWidth; el.classList.add('rpulse'); }
+    if (amount) popResourceDelta(host, id, amount);
+  }
+  function popResourceDelta(host, id, amount) {
+    const pop = document.createElement('span');
+    pop.className = 'res-pop' + (amount < 0 ? ' neg' : '');
+    const shown = id === 'cash' ? `$${Math.abs(amount).toFixed(2)}` : fmt(Math.abs(amount), 1);
+    pop.textContent = (amount < 0 ? '−' : '+') + shown;
+    host.appendChild(pop);
+    pop.addEventListener('animationend', () => pop.remove());
+    setTimeout(() => pop.remove(), 1500);   // safety net if animationend never fires (e.g. tab backgrounded)
   }
   // ── Smooth count-up: resource readouts ease toward their target ─────────────
   // Small/frequent gains SNAP (crisp); only big windfalls roll. CRITICAL: the
@@ -1782,7 +1795,7 @@
         html += locked.map(n => `<div class="frm-node locked"><div class="frm-node-head"><span class="frm-node-name">${resEsc(n.name)}</span><span class="frm-lock">${resEsc(F.lockReason(n))}</span></div><div class="frm-node-desc">${resEsc(n.desc)}</div></div>`).join('');
       }
       if (builtNodes.length) {
-        html += `<div class="net-section">BUILT</div><div class="frm-built">` + builtNodes.map(n => `<span class="frm-chip" title="${resEsc(foremanEffect(n))}">✓ ${resEsc(n.name)}</span>`).join('') + `</div>`;
+        html += `<div class="net-section">BUILT</div><div class="frm-built">` + builtNodes.map(n => `<span class="frm-chip" data-tip="${resEsc(foremanEffect(n))}">✓ ${resEsc(n.name)}</span>`).join('') + `</div>`;
       }
       treeEl.innerHTML = html;
       treeEl.querySelectorAll('.frm-build:not(.off)').forEach(b => b.onclick = () => F.commission(b.dataset.build));
