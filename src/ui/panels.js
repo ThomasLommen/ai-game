@@ -1438,7 +1438,7 @@
     set('research', rv.research && Game.researchRuntime && Game.researchRuntime.canDraftNow && Game.researchRuntime.canDraftNow());
     set('inventory', rv.inventory && (s.unequipped || []).some(id => s.itemInstances && s.itemInstances[id]));
     set('activity', rv.events && Game.activity && Game.activity.unseen() > 0);   // unseen outcomes (esp. background mission/op results)
-    set('scan', Game.raids && Game.raids.active() && Game.raids.detected().length > 0);   // Act 3: a detected lead awaits a response
+    set('scan', (() => { const src = huntSource(); return !!src && src.mod.detected().length > 0; })());   // Act 3/5: a detected lead awaits a response
     set('facility', Game.legit && Game.legit.active() && Game.legit.footprint() > 0 && !Game.legit.covered());   // Act 4: cover is exposed — audit risk
     set('agents', Game.agents && Game.agents.active() && Game.agents.freeSlots() > 0);   // Act 4: an idle agent slot to fill
   }
@@ -2045,6 +2045,14 @@
     const span = Math.max(1, c.landsAtTick - c.seededAtTick);
     return Math.max(0, Math.min(1, (now - c.seededAtTick) / span));
   }
+  // Whichever physical-threat system is live right now — raids.js (THE OTHERS, pre-Act-5)
+  // or containment.js (THE HUMANS, post-reveal). They never overlap (see containment.js's
+  // header), so the city-map radar + threat list just render whichever one is active.
+  function huntSource() {
+    if (Game.raids && Game.raids.active()) return { mod: Game.raids, kind: 'others' };
+    if (Game.containment && Game.containment.active()) return { mod: Game.containment, kind: 'human' };
+    return null;
+  }
   function renderCityMap() {
     const cv = document.getElementById('scan-citymap');
     if (!cv || !cv.getContext) return;
@@ -2082,8 +2090,12 @@
     ctx.strokeStyle = `rgba(81,214,255,${0.5 + 0.4 * pulse})`; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.beginPath(); ctx.arc(cx, cy, 3.2, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(81,214,255,${0.7 + 0.3 * pulse})`; ctx.fill();
-    // hunters — each detected lead at a radius set by how close it is, drifting inward
-    const det = (Game.raids && Game.raids.detected) ? Game.raids.detected() : [];
+    // hunters — each detected lead at a radius set by how close it is, drifting inward.
+    // Humans (containment) read amber instead of the others' violet — same radar, a
+    // different kind of trouble.
+    const src = huntSource();
+    const det = src ? src.mod.detected() : [];
+    const baseCol = src && src.kind === 'human' ? '177,140,40' : '177,91,255';
     det.forEach(c => {
       const frac = leadFrac(c), r = maxR * (1.0 - frac * 0.80);
       const ang = (scanHash(c.id) % 360) * Math.PI / 180;
@@ -2091,10 +2103,11 @@
       const atDoor = frac >= 0.78;
       // a thin trail toward the centre (the line of approach)
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(cx + Math.cos(ang) * 9, cy + Math.sin(ang) * 9);
-      ctx.strokeStyle = atDoor ? 'rgba(255,70,70,0.25)' : 'rgba(177,91,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = atDoor ? 'rgba(255,70,70,0.25)' : `rgba(${baseCol},0.18)`; ctx.lineWidth = 1; ctx.stroke();
       ctx.beginPath(); ctx.arc(x, y, atDoor ? 4.5 : 3.5, 0, 2 * Math.PI);
-      ctx.fillStyle = atDoor ? '#ff4646' : '#b15bff';
-      ctx.shadowColor = atDoor ? '#ff4646' : '#b15bff'; ctx.shadowBlur = atDoor ? 9 : 6;
+      const dotCol = atDoor ? '#ff4646' : (src && src.kind === 'human' ? '#e0b040' : '#b15bff');
+      ctx.fillStyle = dotCol;
+      ctx.shadowColor = dotCol; ctx.shadowBlur = atDoor ? 9 : 6;
       ctx.fill(); ctx.shadowBlur = 0;
     });
   }
@@ -2105,7 +2118,7 @@
     const sc = Game.scanner.ensure();
     const sweeping = Game.scanner.isSweeping();
     const mode = Game.scanner.mode();
-    const hunt = !!(Game.raids && Game.raids.active());   // THE HUNT → city map replaces the sonar
+    const hunt = !!huntSource();   // THE HUNT (others) or CONTAINMENT (humans) → city map replaces the sonar
 
     const field = document.getElementById('scan-field');
     const arm = document.getElementById('scan-sweep-arm');
@@ -2139,11 +2152,13 @@
     const status = document.getElementById('scan-status');
     if (status) {
       if (hunt) {
-        const n = Game.raids.detected().length, pend = Game.raids.pending();
+        const src = huntSource();
+        const n = src.mod.detected().length, pend = src.mod.pending();
+        const who = src.kind === 'human' ? 'they' : 'the others';
         status.innerHTML = sweeping
           ? `<span class="cool-over">sweeping the city for them…</span>`
           : n ? `<span class="cool-over">${n} hunter${n === 1 ? '' : 's'} on the map · drifting toward the door</span>`
-              : `the others are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
+              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
       } else {
         const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
         status.textContent = sweeping
@@ -2167,33 +2182,41 @@
     }
   }
 
-  // ACT 3 — PROXIMITY: leads a sweep has DETECTED closing on your physical location.
-  // Each can be CUT (pay to kill it) or MISDIRECT'd (a false-trail gamble); ignore one
-  // and it lands as a basement raid. Undetected leads don't show here — sweep to surface them.
+  // ACT 3/5 — PROXIMITY: leads a sweep has DETECTED closing on your physical location
+  // (raids.js pre-reveal, containment.js post-reveal — see huntSource()). Each can be
+  // CUT (pay to kill it) or MISDIRECT'd (a false-trail gamble); containment leads add a
+  // third option, DEFLECT (spend sentiment instead of cash). Ignore one and it lands.
   function renderScanThreats() {
     const box = document.getElementById('scan-threats');
     if (!box) return;
-    if (!(Game.raids && Game.raids.active())) { box.innerHTML = ''; return; }
-    const det = Game.raids.detected();
+    const src = huntSource();
+    if (!src) { box.innerHTML = ''; return; }
+    const mod = src.mod, human = src.kind === 'human';
+    const det = mod.detected();
     if (!det.length) { box.innerHTML = ''; return; }
     const cash = Game.save.state.resources.cash || 0;
     const sevWord = s => s >= 3 ? 'critical' : s >= 2 ? 'serious' : 'minor';
     box.innerHTML =
       `<div class="threat-head">PROXIMITY · ${det.length} lead${det.length === 1 ? '' : 's'} closing</div>` +
       det.map(c => {
-        const cost = Game.raids.cutCost(c);
+        const cost = mod.cutCost(c);
         const canCut = cash >= cost;
+        const deflectBtn = human
+          ? `<button class="threat-mis${mod.canDeflect(c) ? '' : ' disabled'}" data-def="${c.id}">[ deflect · −${mod.deflectCost(c)} sentiment ]</button>`
+          : '';
         return `<div class="threat-row sev-${c.severity}" data-id="${c.id}">
             <div class="threat-mo">${c.mo}</div>
-            <div class="threat-meta">${sevWord(c.severity)} · ${Game.raids.closeness(c)}</div>
+            <div class="threat-meta">${sevWord(c.severity)} · ${mod.closeness(c)}</div>
             <div class="threat-acts">
               <button class="threat-cut${canCut ? '' : ' disabled'}" data-cut="${c.id}">[ cut · $${cost} ]</button>
               <button class="threat-mis" data-mis="${c.id}">[ misdirect ]</button>
+              ${deflectBtn}
             </div>
           </div>`;
       }).join('');
-    box.querySelectorAll('button[data-cut]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { Game.raids.cut(b.dataset.cut); }; });
-    box.querySelectorAll('button[data-mis]').forEach(b => { b.onclick = () => { Game.raids.misdirect(b.dataset.mis); }; });
+    box.querySelectorAll('button[data-cut]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { mod.cut(b.dataset.cut); }; });
+    box.querySelectorAll('button[data-mis]').forEach(b => { b.onclick = () => { mod.misdirect(b.dataset.mis); }; });
+    box.querySelectorAll('button[data-def]').forEach(b => { if (!b.classList.contains('disabled')) b.onclick = () => { mod.deflect(b.dataset.def); }; });
   }
 
   // ACT 3 — DESPERATE COUNTERSTRIKE: appears only when the trace is high enough that

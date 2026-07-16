@@ -163,6 +163,6 @@
     ensure, active, tick, buyCover, runAudit, schedule, buyScale, scaleCost, scaleLegit,
     score, tier, maxMachineClassIdx, nextCover, reputation, ownedIds,
     footprint, demand, margin, covered, auditInterval, ticksUntilAudit,
-    FOOT, SEIZE_DEFICIT
+    seizeLoudest, FOOT, SEIZE_DEFICIT
   };
 })();

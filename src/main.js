@@ -178,6 +178,7 @@
       if (Game.scanner) Game.scanner.tick();   // a player-initiated sweep resolves on the tick (non-blocking)
       if (Game.locationTrace) Game.locationTrace.tick();   // Act 3: the others triangulate your physical location
       if (Game.raids) Game.raids.tick();                   // Act 3: leads close in → SCAN/cut/misdirect or eat a raid
+      if (Game.containment) Game.containment.tick();       // Act 5: low sentiment invites the same, now human
       if (Game.changers) Game.changers.tick();                 // run-defining: compound interest + per-tick adaptations
       if (Game.facilityRuntime) Game.facilityRuntime.tick();   // Act 4: refresh the machine market
       if (Game.cooling) Game.cooling.tick();                   // Act 4: warn when the bays out-run facility cooling
