@@ -167,21 +167,13 @@
   Game.subroutines.levelBand = function () { const coh = Game.save.state.resources.insight || 0; let prev = 0; for (const m of MILESTONES) { if (coh < m) return { prev, next: m, coh }; prev = m; } return { prev, next: null, coh }; };
   function drawsTaken(s) { s.flags = s.flags || {}; return s.flags.subDraws | 0; }
   function ownedSet(s) { return (s.installed && s.installed.subroutines) || {}; }
-  // ONE-SHOTS the hand can offer: unowned ROSTER units/exotics (the only unit-unlock source) +
-  // unowned UNIQUE/opening subs (anything draftable that isn't a recurring FAMILY).
+  // ONE-SHOTS the hand can offer: unowned UNIQUE/opening subs (anything draftable that
+  // isn't a recurring FAMILY). (Used to also offer unowned ROSTER units/exotics before
+  // the no-swarm fork removed the roster system.)
   function poolOneShots(s) {
     const owned = ownedSet(s);
-    const subs = Game.subroutines.all().filter(sub => sub.draftable && !sub.fam && !owned[sub.id])
+    return Game.subroutines.all().filter(sub => sub.draftable && !sub.fam && !owned[sub.id])
       .map(sub => ({ pickKind: 'sub', id: sub.id, name: sub.name, desc: sub.description, tag: 'SUBROUTINE', kind: 'exotic' }));
-    let roster = [];
-    if (Game.roster && Game.roster.POOL) {
-      // POD CAP: only offer new POD units when the roster has room (pod count < pod cap).
-      // Swarms + exotics are never pod-capped. ([[pod-cap-roster-gate]])
-      const roomForPod = Game.roster.roomForPod ? Game.roster.roomForPod() : true;
-      roster = Game.roster.POOL.filter(p => !Game.roster.has(p.id) && !(Game.roster.isPod && Game.roster.isPod(p.id) && !roomForPod))
-        .map(p => ({ pickKind: p.kind, id: p.id, name: p.name, desc: p.desc, tag: p.kind === 'exotic' ? 'EXOTIC' : 'UNIT', kind: p.kind === 'exotic' ? 'exotic' : 'unit' }));
-    }
-    return subs.concat(roster);
   }
   // how many of a FAMILY you've already integrated (drives the diminishing roll)
   function ownedFamCount(s, famId) {
@@ -244,7 +236,7 @@
     if (NODRAFT) return;
     if (!Game.draft) return;
     if (Game.draft.active && Game.draft.active()) return;
-    if (Game.battle && Game.battle.active && Game.battle.active()) return;
+    if (Game.standoffRuntime && Game.standoffRuntime.active && Game.standoffRuntime.active()) return;
     if (Game.subroutines.pendingDraws() <= 0) return;
     const i = drawsTaken(s);
     const hand = rollHand(s, i);
@@ -266,8 +258,7 @@
             // on reload (the effects/feed pipelines read it by id). One-shots are already registered.
             if (it.def) { Game.subroutines.register(it.def.id, it.def); s.subInstances = s.subInstances || {}; s.subInstances[it.def.id] = it.def; }
             Game.subroutines.install(it.id);
-          } else if (Game.roster) Game.roster.add(it.id);               // a new UNIT / EXOTIC for the roster
-          else Game.save.persist();
+          } else Game.save.persist();
         } else Game.save.persist();
         // chain: another milestone may already be owed (e.g. on a big jump / load)
         setTimeout(() => Game.subroutines.openNextDraft(), 360);

@@ -149,7 +149,6 @@
     const g = n.grant || {};
     if (g.mod) return 'mod:' + g.mod;
     if (g.changer) return 'chg:' + g.changer;
-    if (g.podCap) return 'podcap';
     if (g.effects && g.effects.length) return 'eff:' + g.effects.map(e => e.target).sort().join('+');
     return 'id:' + n.id;
   }
@@ -309,7 +308,6 @@
       const g = n.grant || {};
       if (g.effects) for (const e of g.effects) { if (e.op === 'more' && e.value) stats[e.target] = (stats[e.target] || 0) + e.value; }
       if (g.mod || g.changer) abilities.push(n.label);
-      if (g.podCap) abilities.push(n.label);
     }
     const lines = Object.keys(stats).map(t => ({
       label: SUMMARY_LABEL[t] || t, pct: Math.round(stats[t] * 100), target: t
@@ -352,7 +350,6 @@
     // `effects` are collected from researched nodes by Game.effects (no-op here).
     if (g.reveal) { const s = Game.save.state; s.revealed = s.revealed || {}; s.revealed[g.reveal] = true; }
     if (g.mod) ensureState().mods[g.mod] = true;
-    if (g.podCap && Game.roster && Game.roster.addPodCap) Game.roster.addPodCap(g.podCap);   // rare nodes raise the campaign POD CAP (+1, ceiling 5)
     // A run-defining CHANGER node hands off to the unified changer system (research as a source).
     if (g.changer && Game.changers) Game.changers.grant(g.changer);
   }
