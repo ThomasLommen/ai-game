@@ -373,7 +373,7 @@
         target: '.modal-btn[data-modal="inventory"]'
       });
       Game.events.emit('terminal.print', { lines: [
-        '> open INVENTORY and drag a part onto a slot — the unit installs it.', ''
+        '> open INVENTORY and tap a part — the unit installs it.', ''
       ], cls: 'dim' });
       Game.save.persist();
     });
