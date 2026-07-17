@@ -1,9 +1,10 @@
 (function () {
-  // TRAPS — opt-in DEFENSE battles. You LAY an ambush by choosing a BAIT: a lure that
-  // shapes WHO takes it (the battle's climax), how hard it gets, and the harvest. A
-  // predator's ambush — the in-world reason to invite a fight. Traps are LOUD (every
-  // spring raises exposure → feeds the emergent raids) and can OVER-DRAW (hook bigger
-  // than baited). The bait you pick is the whole decision. (See [[gameplay-rework-brainstorm]].)
+  // TRAPS — opt-in ambushes resolved on the STANDOFF screen (standoff-runtime.js; no live
+  // fight since the no-swarm fork). You LAY one by choosing a BAIT: a lure that shapes WHO
+  // takes it (the threat profile), how hard it hits, and the harvest. A predator's ambush —
+  // the in-world reason to invite a confrontation. Traps are LOUD (every spring raises
+  // exposure → feeds the emergent raids). The bait you pick is the whole decision.
+  // (See [[gameplay-rework-brainstorm]].)
   Game.traps = Game.makeRegistry();
 
   const R = () => Game.rng;

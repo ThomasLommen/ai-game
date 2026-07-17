@@ -20,16 +20,17 @@
 #m-hud {
   position: fixed; top: 0; left: 0; right: 0; z-index: 60;
   height: calc(46px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 12px 0;
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 8px;
   background: linear-gradient(#0d0a06f5, #0d0a06cc); border-bottom: 1px solid var(--amber-faint);
 }
-#m-hud .m-brand { font-size: 15px; color: var(--amber); text-shadow: 0 0 8px rgba(255,176,0,.45); }
-#m-hud-res { display: flex; align-items: center; gap: 16px; }
-#m-hud .m-sp { flex: 1; }
-/* relocated COHERENCE / cash / flops readouts, made compact + horizontal */
-.mobile-shell #m-hud #insight-panel { margin: 0; padding: 0; border: 0; background: none; display: flex; align-items: baseline; gap: 14px; }
-.mobile-shell #m-hud #insight-panel > *:not([hidden]) { display: flex; align-items: baseline; gap: 5px; }
-.mobile-shell #m-hud .insight-num, .mobile-shell #m-hud .cash-num, .mobile-shell #m-hud .flops-num { font-size: 15px; line-height: 1; }
+#m-hud .m-brand { font-size: 15px; color: var(--amber); text-shadow: 0 0 8px rgba(255,176,0,.45); flex: 0 0 auto; }
+#m-hud-res { display: flex; align-items: center; gap: 11px; min-width: 0; }
+#m-hud .m-sp { flex: 1; min-width: 4px; }
+/* relocated COHERENCE / cash / flops readouts, made compact + horizontal. Each chip stays on ONE
+   line (fmt() strings like "0.15 FLOPS" carry an internal space that would otherwise wrap). */
+.mobile-shell #m-hud #insight-panel { margin: 0; padding: 0; border: 0; background: none; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.mobile-shell #m-hud #insight-panel > *:not([hidden]) { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; flex: 0 0 auto; }
+.mobile-shell #m-hud .insight-num, .mobile-shell #m-hud .cash-num, .mobile-shell #m-hud .flops-num { font-size: 14px; line-height: 1; white-space: nowrap; }
 /* compact, glanceable labels (the full words live in the side panels on desktop) */
 .mobile-shell #m-hud .insight-label, .mobile-shell #m-hud .flops-label { display: none; }
 .mobile-shell #m-hud #insight-readout::before { content: 'COH'; font-size: 8.5px; letter-spacing: 1px; color: var(--amber-mid); align-self: center; }
@@ -227,7 +228,11 @@
 .mobile-shell #event-overlay, .mobile-shell #operation-overlay,
 .mobile-shell #bot-contact { z-index: 200; }
 
-/* notification toast drops below the sticky HUD (clears the notch) */
-.mobile-shell #blip-banner { top: calc(52px + env(safe-area-inset-top)); }
+/* "threshold cleared" toast: float it in the upper-center of the content area rather than
+   just under the HUD — the sticky #home-status header (4-6 variable lines) lives right below
+   the HUD, so a top-anchored banner used to land on top of its LV/running text. Upper-center
+   clears the header on every tab regardless of its height, and reads as part of the
+   full-screen #blip-flash surge behind it. */
+.mobile-shell #blip-banner { top: 34%; }
 /* inventory column subtitles describe DRAG (desktop); touch uses the tap hint above */
 .mobile-shell .inv-hint { display: none; }

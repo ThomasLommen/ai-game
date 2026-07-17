@@ -1410,7 +1410,7 @@ h2 {
 /* ── draft: pick 1 of N (opening roster pick + battle prizes) ── */
 #draft-overlay {
   position: fixed; inset: 0; z-index: 320;
-  background: rgba(2,4,6,0.94); opacity: 0; transition: opacity .3s ease;
+  background: rgba(2,4,6,0.985); opacity: 0; transition: opacity .3s ease;
   display: flex; align-items: flex-start; justify-content: center;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
 }

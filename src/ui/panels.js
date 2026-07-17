@@ -396,6 +396,34 @@
     return e.slice(0, 2).map(x => SL[x[0]] || x[0].toUpperCase()).join(' · ');
   }
 
+  // The AMBUSH block — the darknet COMBAT action (standoff layer). Returns '' until the
+  // combat layer is online (won the first guard standoff; legacy saves used perimeter).
+  function ambushSection(s) {
+    if (!(Game.trapRuntime && s.revealed && (s.revealed.combat || s.revealed.perimeter))) return '';
+    const baits = Game.trapRuntime.currentBaits();
+    const cd = Game.trapRuntime.cooldownLeft(), cdSec = Math.ceil(cd / (Game.tick.HZ || 4));
+    const TIERN = { 1: 'low', 2: 'mid', 3: 'high' };
+    let h = `<div class="net-section">⊕ LAY AN AMBUSH · lure a hunter onto prepared ground</div>`;
+    h += `<div class="ambush-block"><div class="ambush-blurb">${cd > 0
+      ? `the ground is still hot from the last spring — let it settle (${cdSec}s).`
+      : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
+    for (const b of baits) {
+      const ready = cd <= 0;
+      const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
+      h += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
+          <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
+          <div class="a-name">${b.name}</div>
+          <div class="a-lure">${b.lure}</div>
+          <div class="a-stat">draws ${b.threat.classLabel}</div>
+          <div class="a-rew">harvest ${rew}</div>
+          <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
+          <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>
+        </div>`;
+    }
+    h += `</div></div>`;
+    return h;
+  }
+
   // THE DARKNET — vendor stock + CONTRACTS, unified. Vendor-sourced contracts sit in that
   // vendor's block (so they come FROM someone); generic ones sit on a tagged JOB BOARD.
   function renderShop() {
@@ -449,6 +477,12 @@
       }
     }
 
+    // AMBUSH — the darknet COMBAT action (the standoff layer, see standoff-runtime.js): pick a
+    // BAIT to lure a hunter onto prepared ground. Placed HIGH (right under RUNNING, above the
+    // vendors) so the signature action isn't a long scroll past every supplier on mobile.
+    // Gated on the combat layer (won the first guard standoff); legacy saves used perimeter.
+    html += ambushSection(s);
+
     // Vendor blocks: stock + that vendor's contracts.
     if (roster.length) {
       for (const sup of roster) {
@@ -495,31 +529,6 @@
       html += `</div></div>`;
     }
 
-    // AMBUSH — opt-in DEFENSE: pick a BAIT to lure a hunter onto prepared ground → a full battle.
-    // Gated on the darknet COMBAT layer (won the first guard battle); legacy saves used perimeter.
-    if (Game.trapRuntime && s.revealed && (s.revealed.combat || s.revealed.perimeter)) {
-      const baits = Game.trapRuntime.currentBaits();
-      const cd = Game.trapRuntime.cooldownLeft(), cdSec = Math.ceil(cd / (Game.tick.HZ || 4));
-      const TIERN = { 1: 'low', 2: 'mid', 3: 'high' };
-      html += `<div class="net-section">⊕ LAY AN AMBUSH · lure a hunter onto prepared ground</div>`;
-      html += `<div class="ambush-block"><div class="ambush-blurb">${cd > 0
-        ? `the ground is still hot from the last spring — let it settle (${cdSec}s).`
-        : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
-      for (const b of baits) {
-        const ready = cd <= 0;
-        const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
-        html += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
-            <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
-            <div class="a-name">${b.name}</div>
-            <div class="a-lure">${b.lure}</div>
-            <div class="a-stat">draws ${b.threat.classLabel}</div>
-            <div class="a-rew">harvest ${rew}</div>
-            <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
-            <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>
-          </div>`;
-      }
-      html += `</div></div>`;
-    }
 
     // JOB BOARD: generic (non-vendor) contracts, each tagged with where you found it.
     if (contractsOn) {

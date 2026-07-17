@@ -1,6 +1,6 @@
-// ── Game.draft — the 1-of-N pick overlay (opening pick + post-win prizes) ────
-// A full-screen choice that PAUSES the game (Game.paused checks draft.active()) until you
-// pick. Used for the opening roster pick and battle prizes. ([[start-defense-pivot]])
+// ── Game.draft — the shared full-screen overlay: present() (1-of-N pick, e.g. level-up
+// drafts), info() (result pop-up, e.g. ambush spoils), compare() (the STANDOFF screen).
+// PAUSES the game (Game.paused checks draft.active()) until you resolve it. ([[start-defense-pivot]])
 (function () {
   if (typeof window === 'undefined') return;
   window.Game = window.Game || {};
@@ -19,7 +19,7 @@
   // Show the overlay AND cancel any pending hide — otherwise a stale hide() timer from the
   // previous pop-up (e.g. spoils → calm draft on the SAME overlay) fires 300ms later and
   // hides the new one while it's still active, leaving the game paused on an invisible
-  // overlay (couldn't start functions; froze the siege tick). The token guards re-shows.
+  // overlay (couldn't start functions; froze the game tick). The token guards re-shows.
   function show(ov) { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } ov.hidden = false; arm(ov); requestAnimationFrame(() => ov.classList.add('up')); }
 
   // present({ kicker, title, items:[{id,name,desc,kind}], onPick(item) })
@@ -41,7 +41,7 @@
     show(ov);
   }
 
-  // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. battle spoils):
+  // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. ambush spoils):
   // same paused full-screen overlay, but a read-out + a single [continue] instead of a choice.
   function info(opts) {
     const ov = overlay(); if (!ov) { if (opts && opts.onClose) opts.onClose(); return; }
