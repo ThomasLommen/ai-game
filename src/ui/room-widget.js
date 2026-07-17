@@ -43,8 +43,8 @@
   function ctxState() {
     const s = (window.Game && Game.save && Game.save.state) || {};
     const heat = +s.heat || 0;
-    const battle = !!(window.Game && Game.battle && Game.battle.active && Game.battle.active());
-    const danger = Math.max(0, Math.min(1, Math.max(0, (heat - 58) / 42) * 0.7 + (battle ? 0.55 : 0) + Math.min(0.35, (+s.exposure || 0) / 220)));
+    const standoff = !!(window.Game && Game.standoffRuntime && Game.standoffRuntime.active && Game.standoffRuntime.active());
+    const danger = Math.max(0, Math.min(1, Math.max(0, (heat - 58) / 42) * 0.7 + (standoff ? 0.55 : 0) + Math.min(0.35, (+s.exposure || 0) / 220)));
     let bot = 'dormant';
     try {
       if (window.Game && Game.bot) {
@@ -59,7 +59,7 @@
     // which is Act 3 in the reorder — key off the flag, not the act number.
     const front = !!(s.flags && s.flags.act4Begun);
     const racks = (window.Game && Game.facilityRuntime && Game.facilityRuntime.usedSlots) ? Game.facilityRuntime.usedSlots() : 0;
-    return { heat, danger, battle, bot, crates, act, front, racks };
+    return { heat, danger, standoff, bot, crates, act, front, racks };
   }
 
   function reveal() { if (shown) return; shown = true; wrap.hidden = false; last = performance.now(); resize(); }

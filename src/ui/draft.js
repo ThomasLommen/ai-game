@@ -58,5 +58,30 @@
 
   function hide() { const ov = overlay(); activeFlag = false; if (ov) { ov.classList.remove('up'); if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideTimer = null; if (!activeFlag && ov) ov.hidden = true; }, 300); } }
 
-  Game.draft = { present, info, active: () => activeFlag };
+  // compare({ kicker, title, body, rows:[{label,you,them,adv:'you'|'them'}], verdict,
+  // oddsPct, engageLabel, onEngage }) — the build-vs-threat STANDOFF screen (see
+  // standoff-runtime.js): a terminal scan readout, no stat grid, no minigame. Same
+  // paused overlay as present()/info(), a different card layout.
+  function compare(opts) {
+    const ov = overlay(); if (!ov) { if (opts && opts.onEngage) opts.onEngage(); return; }
+    activeFlag = true; cb = null;
+    document.getElementById('draft-kicker').textContent = opts.kicker || 'STANDOFF';
+    document.getElementById('draft-title').textContent = opts.title || '';
+    const cards = document.getElementById('draft-cards');
+    const advTag = adv => adv === 'you' ? '<span class="standoff-adv-you">[ADVANTAGE: YOU]</span>' : '<span class="standoff-adv-them">[ADVANTAGE: THEM]</span>';
+    const rowLine = r => `<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}</div>`;
+    const lines = [`<div class="standoff-line"><span class="standoff-sys">&gt;</span> analyzing target...</div>`];
+    if (opts.body) lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc(opts.body)}</div>`);
+    (opts.rows || []).forEach(r => lines.push(rowLine(r)));
+    lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> resolving odds<span class="standoff-cursor"></span></div>`);
+    cards.innerHTML =
+      `<div class="standoff-scan">${lines.join('')}</div>` +
+      `<div class="standoff-final">${Math.round(opts.oddsPct || 0)}% — ${esc(opts.verdict || '')}</div>` +
+      `<button class="draft-card draft-continue" data-c="1"><span class="draft-card-name">${esc(opts.engageLabel || 'engage')}</span></button>`;
+    let closed = false;
+    cards.querySelector('.draft-continue').onclick = () => { if (!armed() || closed) return; closed = true; hide(); if (opts.onEngage) { try { opts.onEngage(); } catch (e) { console.error('[draft] onEngage threw', e); } } };
+    show(ov);
+  }
+
+  Game.draft = { present, info, compare, active: () => activeFlag };
 })();

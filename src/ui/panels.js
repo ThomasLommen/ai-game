@@ -507,14 +507,13 @@
         : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
       for (const b of baits) {
         const ready = cd <= 0;
-        const climax = b.battle.boss === 'juggernaut' ? 'a titan' : 'a pack';
         const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
         html += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
             <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
             <div class="a-name">${b.name}</div>
             <div class="a-lure">${b.lure}</div>
-            <div class="a-stat">draws ${b.battle.surges} waves → ${climax} at the climax</div>
-            <div class="a-rew">harvest ${rew} + bounty per kill</div>
+            <div class="a-stat">draws ${b.threat.classLabel}</div>
+            <div class="a-rew">harvest ${rew}</div>
             <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
             <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>
           </div>`;
@@ -2682,61 +2681,9 @@
     renderResources, renderHardware, renderVitals, renderSubroutines, renderMarket,
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation, renderPublic, renderPublicEvent,
-    renderActions, renderProcesses, renderFiles, renderHomeStatus, renderSiege, markContractsSeen,
-    renderRoster,
+    renderActions, renderProcesses, renderFiles, renderHomeStatus, markContractsSeen,
     renderDebug, toggleDebug
   };
-
-  // ── ROSTER tab (mobile): pods with persistent run-level + stats, swarms, exotics,
-  //    and the campaign pod cap. ([[roster-tab-podcap-levels]]) ──
-  function titleCase(s) { return String(s || '').replace(/(^|\s)\w/g, c => c.toUpperCase()); }
-  function renderRoster() {
-    const body = document.getElementById('roster-body'), panel = document.getElementById('roster-panel');
-    if (!body) return;
-    const st = Game.save.state, R = Game.roster;
-    const revealed = !!(st.revealed && st.revealed.combat) && R;
-    if (panel) panel.hidden = !revealed;
-    if (!revealed) return;
-
-    const cap = R.podCap(), ids = R.units();
-    const pods = ids.filter(id => R.info(id).kind === 'pod');
-    const swarms = ids.filter(id => R.info(id).kind === 'swarm');
-    const exotics = R.exotics();
-    let html = '';
-    html += `<div class="ros-cap">PODS — field up to <b>${cap}</b> at once` +
-      (cap < R.POD_CAP_MAX ? ` <span class="ros-dim">· raise +1 via rare research or the EXTRA POD BAY policy (ceiling ${R.POD_CAP_MAX})</span>` : ` <span class="ros-dim">· at the ceiling</span>`) + `</div>`;
-
-    html += `<div class="ros-sec">GREATER UNITS · PODS <span class="ros-dim">(${pods.length})</span></div>`;
-    if (!pods.length) html += `<div class="ros-empty">none yet — pods are drafted as battle prizes.</div>`;
-    pods.forEach(id => {
-      const def = R.byId(id) || {}, nfo = R.info(id), s2 = R.leveledStats(id), lvl = s2.lvl;
-      const need = 20 + lvl * 16, xp = R.levelOf(id).xp, pct = Math.max(0, Math.min(100, xp / need * 100));
-      // tags: SUPPORT units (dmg 0) read as support, not "DMG 0"; placeable units note you position them
-      const tags = [];
-      if (nfo.support) tags.push(`<span class="ros-tag support">${nfo.support}</span>`);
-      if (nfo.placeable) tags.push(`<span class="ros-tag">PLACEABLE</span>`);
-      const stat = s2.dmg > 0
-        ? `HP <b>${s2.hp}</b> · DMG <b>${s2.dmg}</b>`
-        : `HP <b>${s2.hp}</b> · <span class="ros-dim">no direct damage — its effect is the weapon</span>`;
-      html += `<div class="ros-row">
-        <div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span><span class="ros-mk">mk${lvl}</span></div>
-        ${tags.length ? `<div class="ros-tags">${tags.join('')}</div>` : ''}
-        <div class="ros-role">${nfo.role}</div>
-        <div class="ros-stats">${stat}</div>
-        <div class="ros-xpbar"><div class="ros-xpfill" style="width:${pct}%"></div></div>
-        <div class="ros-xptext">mk${lvl} · ${Math.round(xp)} / ${need} XP → mk${lvl + 1} <span class="ros-dim">(banked from battle; each rank = +25% damage, +25 HP)</span></div>
-      </div>`;
-    });
-
-    html += `<div class="ros-sec">SWARMS <span class="ros-dim">(${swarms.length})</span></div>`;
-    swarms.forEach(id => { const def = R.byId(id) || {}; html += `<div class="ros-row ros-mini"><div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span></div><div class="ros-role">${R.info(id).role}</div></div>`; });
-
-    if (exotics.length) {
-      html += `<div class="ros-sec">EXOTICS <span class="ros-dim">(${exotics.length})</span></div>`;
-      exotics.forEach(id => { const def = R.byId(id) || {}; html += `<div class="ros-row ros-mini ros-exotic"><div class="ros-top"><span class="ros-name">${def.name || titleCase(id)}</span></div><div class="ros-role">${def.desc || ''}</div></div>`; });
-    }
-    body.innerHTML = html;
-  }
 
   // ── HOME dashboard pinned header (mobile slice 1) — fills the 4 glance lines.
   //    No-ops on desktop (the #home-status element only exists in the mobile shell).
@@ -2807,25 +2754,6 @@
       el.textContent = o;
       if (p < 1) requestAnimationFrame(f); else el.textContent = display;
     })();
-  }
-
-  // The SIEGE meter on the perimeter widget — builds toward the next surge; shows DEFEND
-  // when a surge is inbound. ([[start-defense-pivot]])
-  function renderSiege() {
-    const wrap = document.getElementById('siege');
-    if (!wrap || !Game.siege) return;
-    if (!Game.siege.active()) { wrap.style.display = 'none'; return; }
-    wrap.style.display = '';
-    const ready = Game.siege.ready();
-    const over = (ready && Game.siege.overrunWaves) ? Game.siege.overrunWaves() : 0;
-    const fill = document.getElementById('siege-fill'); if (fill) fill.style.width = (Game.siege.frac() * 100) + '%';
-    const txt = document.getElementById('siege-text');
-    if (txt) txt.textContent = ready
-      ? (over > 0 ? `⚠ OVERRUN +${over} — they're massing` : '⚠ SURGE INBOUND')   // stalling escalates the fight
-      : `wave ${Game.siege.wave() + 1} · siege building`;
-    const btn = document.getElementById('siege-defend'); if (btn) { btn.hidden = !ready; btn.textContent = over > 0 ? `⚠ DEFEND +${over}` : '⚠ DEFEND'; }
-    wrap.classList.toggle('ready', ready);
-    wrap.classList.toggle('overrun', over > 0);
   }
 
   function renderHomeStatus() {

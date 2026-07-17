@@ -5,8 +5,12 @@
   // Coherence is a cumulative score (never spent). Every time it crosses a
   // front-loaded MILESTONE you get a 1-of-3 DRAFT (seeded from the pool below) —
   // a real choice, randomized per run like everything else. The picks are
-  // MEANINGFUL and span BOTH the economy (effects pipeline) AND the battle
-  // feed (boost / opener / loot). ([[start-defense-pivot]],
+  // MEANINGFUL and span BOTH the economy AND the standoff/ambush side — the latter
+  // used to run through a dedicated "battle feed" (boost/opener/loot); after the
+  // no-swarm fork, boost/opener moved onto the standard effects pipeline (targeting
+  // standoff.compute/standoff.stealth) alongside everything else, and only loot (a
+  // pure reward-roll sweetener, read by traps-runtime.js) still uses `feed`.
+  // ([[start-defense-pivot]],
   // [[no-meta-progression-principle]] — power comes from within the run.)
 
   // Front-loaded escalating cadence: the first few come fast (so a new run gets
@@ -27,7 +31,8 @@
 
   // ── UNIQUE one-shot subroutines: rule-changers that should NOT stack ─────────
   const UNIQUE = [
-    { id: 'combat_heuristics', name: 'combat heuristics', description: 'every battle opens on a free make-or-break pick.', draftable: true, unique: true, feed: { opener: true } }
+    { id: 'combat_heuristics', name: 'combat heuristics', description: 'standoffs read +15% compute, +15% stealth.', draftable: true, unique: true,
+      effects: [{ target: 'standoff.compute', op: 'more', value: 0.15 }, { target: 'standoff.stealth', op: 'more', value: 0.15 }] }
   ];
   UNIQUE.forEach(d => Game.subroutines.register(d.id, d));
 
@@ -53,9 +58,9 @@
       desc: p => `power draw ${p}%`, names: ['undervolting', 'dynamic voltage scaling', 'power gating', 'rail tuning', 'idle states', 'DVFS', 'voltage droop control', 'race-to-idle', 'low-power states', 'energy governor'] },
     { id: 'expo', cat: 'relief', target: 'web_scrape.exposure', lo: 0.14, hi: 0.30, neg: true, weight: 8,
       desc: p => `spider exposure ${p}%`, names: ['traffic shaping', 'onion routing', 'jitter injection', 'proxy rotation', 'domain fronting', 'request obfuscation', 'timing randomization', 'cover traffic', 'decoy requests', 'low-and-slow'] },
-    // feed: battle (read by battle.js / trap rewards)
-    { id: 'bst',  cat: 'feed', feed: 'boost', lo: 0.06, hi: 0.14, neg: false, weight: 8,
-      desc: p => `your forces fight +${p}% stronger`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
+    // standoff: compute (effects pipeline) + loot (feed, read by trap rewards)
+    { id: 'bst',  cat: 'econ',   target: 'standoff.compute', lo: 0.06, hi: 0.14, neg: false, weight: 8,
+      desc: p => `standoffs read +${p}% compute`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
     { id: 'loot', cat: 'feed', feed: 'loot', lo: 0.10, hi: 0.22, neg: false, weight: 7,
       desc: p => `ambushes turn up +${p}% better hardware`, names: ['salvage routines', 'scrap heuristics', 'teardown bots', 'parts indexer', 'asset recovery', 'inventory sweep', 'component grader', 'reclaim daemon', 'spoils optimizer', 'haul sorter'] }
   ];
@@ -103,10 +108,13 @@
     return out;
   };
 
-  // ── BATTLE-FEED aggregation ─────────────────────────────────────────────────
-  // Sum the feed contributions of every installed subroutine. battle.js folds in
-  // boost+opener; the trap/combat rewards read loot. (siegeSlow is legacy — the
-  // auto-siege loop is retired; kept harmless for old saves.) ([[start-defense-pivot]])
+  // ── FEED aggregation ────────────────────────────────────────────────────────
+  // Sum the feed contributions of every installed subroutine. Only `loot` is live
+  // (trap rewards read it); `boost`/`opener` are legacy — the no-swarm fork moved
+  // those onto the effects pipeline (standoff.compute/standoff.stealth), but old
+  // saves may still carry persisted subInstances with the old shape, so the fields
+  // stay here harmlessly. (siegeSlow is likewise legacy from the retired auto-siege
+  // loop.) ([[start-defense-pivot]])
   Game.subroutines.feed = function () {
     const s = Game.save.state;
     const out = { boost: 0, opener: false, siegeSlow: 0, loot: 0 };
@@ -167,21 +175,13 @@
   Game.subroutines.levelBand = function () { const coh = Game.save.state.resources.insight || 0; let prev = 0; for (const m of MILESTONES) { if (coh < m) return { prev, next: m, coh }; prev = m; } return { prev, next: null, coh }; };
   function drawsTaken(s) { s.flags = s.flags || {}; return s.flags.subDraws | 0; }
   function ownedSet(s) { return (s.installed && s.installed.subroutines) || {}; }
-  // ONE-SHOTS the hand can offer: unowned ROSTER units/exotics (the only unit-unlock source) +
-  // unowned UNIQUE/opening subs (anything draftable that isn't a recurring FAMILY).
+  // ONE-SHOTS the hand can offer: unowned UNIQUE/opening subs (anything draftable that
+  // isn't a recurring FAMILY). (Used to also offer unowned ROSTER units/exotics before
+  // the no-swarm fork removed the roster system.)
   function poolOneShots(s) {
     const owned = ownedSet(s);
-    const subs = Game.subroutines.all().filter(sub => sub.draftable && !sub.fam && !owned[sub.id])
+    return Game.subroutines.all().filter(sub => sub.draftable && !sub.fam && !owned[sub.id])
       .map(sub => ({ pickKind: 'sub', id: sub.id, name: sub.name, desc: sub.description, tag: 'SUBROUTINE', kind: 'exotic' }));
-    let roster = [];
-    if (Game.roster && Game.roster.POOL) {
-      // POD CAP: only offer new POD units when the roster has room (pod count < pod cap).
-      // Swarms + exotics are never pod-capped. ([[pod-cap-roster-gate]])
-      const roomForPod = Game.roster.roomForPod ? Game.roster.roomForPod() : true;
-      roster = Game.roster.POOL.filter(p => !Game.roster.has(p.id) && !(Game.roster.isPod && Game.roster.isPod(p.id) && !roomForPod))
-        .map(p => ({ pickKind: p.kind, id: p.id, name: p.name, desc: p.desc, tag: p.kind === 'exotic' ? 'EXOTIC' : 'UNIT', kind: p.kind === 'exotic' ? 'exotic' : 'unit' }));
-    }
-    return subs.concat(roster);
   }
   // how many of a FAMILY you've already integrated (drives the diminishing roll)
   function ownedFamCount(s, famId) {
@@ -244,7 +244,7 @@
     if (NODRAFT) return;
     if (!Game.draft) return;
     if (Game.draft.active && Game.draft.active()) return;
-    if (Game.battle && Game.battle.active && Game.battle.active()) return;
+    if (Game.standoffRuntime && Game.standoffRuntime.active && Game.standoffRuntime.active()) return;
     if (Game.subroutines.pendingDraws() <= 0) return;
     const i = drawsTaken(s);
     const hand = rollHand(s, i);
@@ -266,8 +266,7 @@
             // on reload (the effects/feed pipelines read it by id). One-shots are already registered.
             if (it.def) { Game.subroutines.register(it.def.id, it.def); s.subInstances = s.subInstances || {}; s.subInstances[it.def.id] = it.def; }
             Game.subroutines.install(it.id);
-          } else if (Game.roster) Game.roster.add(it.id);               // a new UNIT / EXOTIC for the roster
-          else Game.save.persist();
+          } else Game.save.persist();
         } else Game.save.persist();
         // chain: another milestone may already be owed (e.g. on a big jump / load)
         setTimeout(() => Game.subroutines.openNextDraft(), 360);

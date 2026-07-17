@@ -66,7 +66,6 @@
     // so they're unaffected by the tab check).
     Game.paused = function () {
       try {
-        if (Game.battle && Game.battle.active && Game.battle.active()) return true;   // a full battle freezes the campaign
         if (Game.panels && Game.panels.isModalOpen && Game.panels.isModalOpen()) return true;
         if (Game.incidentRuntime && Game.incidentRuntime.current()) return true;
         if (Game.operationRuntime && Game.operationRuntime.current()) return true;
@@ -83,14 +82,12 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === '`') Game.panels.toggleDebug();
       else if (e.key === 'Escape' && Game.panels.isModalOpen()) Game.panels.closeModal();
-      else if (e.ctrlKey && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); runGuardSequence(); }
+      else if (e.ctrlKey && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); runGuardOpening(); }
     });
 
-    // The battle-first OPENING ([[start-defense-pivot]]): draft a starter unit → fight the
-    // GUARD PROGRAM → on win, draft a prize. Returns a promise so boot can await it.
-    // Ctrl+Shift+G runs it standalone (debug).
-    // DEFEND a surge → the wave battle (siege.js)
-    { const sd = document.getElementById('siege-defend'); if (sd) sd.onclick = () => Game.siege && Game.siege.defend(); }
+    // The opening STANDOFF ([[start-defense-pivot]], reworked for the no-swarm fork): the
+    // GUARD PROGRAM confronts you — a build-vs-threat comparison, not a fight. Returns a
+    // promise so boot can await it. Ctrl+Shift+G runs it standalone (debug).
 
     // After the guard opening, OPEN THE DEEP LOOP the new way: RSI is the Coherence engine
     // from the start (no file-reading), spider for cash, files cut. Only runs in the new
@@ -108,26 +105,8 @@
       s.resources.cash = s.resources.cash || 0;
       s.flags = s.flags || {}; s.flags.guardDone = true;
       Game.save.persist();
-      if (Game.panels.renderRoster) Game.panels.renderRoster();   // surface the ROSTER tab now combat is live
       if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs();
     }
-
-    // RUN-BUILD: the make-or-break PICKS you accrue this run (opener + per-surge). Carried
-    // across the run's battles (passed into each), reset between runs — no meta. Units come
-    // from the economy/roster, never a draft. ([[battle-duel-rework]] v2 slice C)
-    Game.runBuild = {
-      ensure() {
-        const s = Game.save.state;
-        if (!s.runBuild || !Array.isArray(s.runBuild.picks)) s.runBuild = { picks: [] };
-        if (!Array.isArray(s.runBuild.recentPicks)) s.runBuild.recentPicks = [];   // HEURISTIC anti-repeat window (battle-duel-rework recency fix)
-        return s.runBuild;
-      },
-      picks() { return Game.runBuild.ensure().picks.slice(); },
-      add(ids) { const b = Game.runBuild.ensure(); (ids || []).forEach(id => { if (id) b.picks.push(id); }); Game.save.persist && Game.save.persist(); },
-      recentPicks() { return Game.runBuild.ensure().recentPicks.slice(); },
-      setRecentPicks(ids) { Game.runBuild.ensure().recentPicks = Array.isArray(ids) ? ids.slice(-4) : []; Game.save.persist && Game.save.persist(); },
-      reset() { Game.save.state.runBuild = { picks: [], recentPicks: [] }; },
-    };
 
     // current ACT (1-5) from the narrative flags — drives battle difficulty structure.
     // ORDER (reward-then-tension): 1 basement · 2 the network · 3 THE FRONT (facility online =
@@ -138,22 +117,19 @@
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
       return new Promise((resolve) => {
-        if (Game.battle && Game.battle.active && Game.battle.active()) return resolve();
-        Game.roster.reset();      // fresh run roster (the default swarm; units grow via the economy)
-        Game.runBuild.reset();    // fresh run-build (picks accrue across the run)
-        launchGuard(resolve);     // straight into the guard battle — it OPENS on a make-or-break pick
+        if (Game.standoffRuntime && Game.standoffRuntime.active()) return resolve();
+        launchGuard(resolve);     // straight into the guard standoff — first contact with the network
       });
     }
     function launchGuard(done) {
-      const opts = Object.assign({
-        seed: (Game.rng ? Game.rng.next() : Math.random()) * 1e9 | 0,
-        lane: true, act: Game.acts.current(), wave: 0,   // first battle of the run → difficulty(act,0): 1 lane, probes
-        opener: true, picks: Game.runBuild.picks(), recentPicks: Game.runBuild.recentPicks(),   // first battle opens on a pick
-      }, Game.roster.toOpts());   // the roster decides WHAT you field
-      Game.battle.launch(opts, (r) => {
-        if (r && r.picksTaken) Game.runBuild.add(r.picksTaken);   // persist this battle's picks into the run
-        if (r && r.recentPicks) Game.runBuild.setRecentPicks(r.recentPicks);   // carry the HEURISTIC anti-repeat window forward
-        if (r && typeof r.power === 'number' && Game.fieldPower) Game.fieldPower.feed(r.power);   // seed the difficulty ledger
+      Game.standoffRuntime.begin({
+        kicker: 'FIRST CONTACT', title: 'the GUARD PROGRAM',
+        body: 'something on the wire notices you the moment you reach out. it sizes you up.',
+        threat: { power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
+        engageLabel: '[ answer it ]',
+      }, (r) => {
+        Game.events.emit('terminal.print', { lines: [`> the GUARD PROGRAM ${r.result === 'won' ? 'backs off' : 'gets a read on you, then backs off'} — ${r.tier}.`, ''], cls: 'dim' });
+        Game.events.emit('standoff.ended', r);
         done && done();
       });
     }
@@ -267,21 +243,9 @@
       Game.panels.renderObjective();
     });
 
-    // A milestone draft may have been owed while a battle was up (openNextDraft
-    // no-ops mid-battle) — retry once the fight clears.
-    Game.events.on('battle.ended', () => { setTimeout(() => Game.subroutines.openNextDraft(), 500); });
-
-    // Bank each fielded POD's earned run-level into the persistent roster (every battle
-    // launch site routes through battle.resolved — see [[roster-tab-podcap-levels]]).
-    Game.events.on('battle.resolved', d => {
-      if (!d || !Game.roster) return;
-      if (d.unitLevels && Game.roster.bankUnits) Game.roster.bankUnits(d.unitLevels);
-      // the EXTRA POD BAY policy is a PERMANENT campaign upgrade: bank +1 pod cap when it's drafted
-      if (Array.isArray(d.picksTaken) && d.picksTaken.indexOf('extra_pod') >= 0 && Game.roster.addPodCap) Game.roster.addPodCap(1);
-    });
-    // keep the ROSTER tab fresh when its data moves (level banked, unit drafted, cap raised)
-    Game.events.on('roster.changed', () => { if (Game.panels.renderRoster) Game.panels.renderRoster(); if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs(); });
-    Game.events.on('battle.ended', () => { if (Game.panels.renderRoster) Game.panels.renderRoster(); if (Game.mobileShell && Game.mobileShell.syncTabs) Game.mobileShell.syncTabs(); });
+    // A milestone draft may have been owed while a standoff was up (openNextDraft
+    // no-ops mid-standoff) — retry once it clears.
+    Game.events.on('standoff.ended', () => { setTimeout(() => Game.subroutines.openNextDraft(), 500); });
 
     Game.events.on('resource.changed', ({ id }) => {
       Game.panels.renderInsight();  // the hero number, front and center

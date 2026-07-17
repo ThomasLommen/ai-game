@@ -14,7 +14,6 @@
     { id: 'home',   glyph: '⌂', label: 'HOME' },
     { id: 'work',   glyph: '$', label: 'DARKNET' },
     { id: 'build',  glyph: '⊞', label: 'RESEARCH' },
-    { id: 'roster', glyph: '⚔', label: 'ROSTER' },
     { id: 'gear',   glyph: '▦', label: 'GEAR' },
     { id: 'foreman',glyph: '⚒', label: 'FOREMAN' },
     { id: 'sys',    glyph: '◎', label: 'SYS' },
@@ -33,7 +32,6 @@
     home:  ['#actions-panel', '#files-panel', '#terminal-pane', '#trait-panel', '#bot-status', '#room-widget'],
     work:  ['.modal-panel[data-modal="shop"]', '.modal-panel[data-modal="missions"]'],
     build: ['.modal-panel[data-modal="research"]', '.modal-panel[data-modal="market"]', '.modal-panel[data-modal="subroutines"]', '.modal-panel[data-modal="adaptations"]', '.modal-panel[data-modal="facility"]', '.modal-panel[data-modal="agents"]', '#subroutines-mini'],
-    roster: ['#roster-panel'],   // the defense ROSTER: units, persistent run-level, boosts, pod cap
     gear:  ['#hardware-panel', '#vitals-panel', '.modal-panel[data-modal="inventory"]'],   // GEAR carries the rig hardware + DIAGNOSTICS (vitals) + inventory
     foreman: ['.modal-panel[data-modal="foreman"]'],   // the BOT-FOREMAN's facility build-out (front; takes over from GEAR)
     sys:   ['.modal-panel[data-modal="scan"]', '.modal-panel[data-modal="network"]', '.modal-panel[data-modal="others"]', '#resource-panel', '#exposure-panel', '#triangulation-panel', '#legit-panel', '#remote-panel', '#facility-panel'],
@@ -77,15 +75,6 @@
     // the pinned HOME status header (sticky glances: running · recent · voice · objective).
     // Built here so the MOUNT loop below can relocate it into the HOME tab as the first item.
     buildHomeStatus(crt);
-
-    // the ROSTER panel doesn't exist in the desktop DOM — mint it here so the MOUNT loop
-    // can relocate it like any other section. Filled by panels.renderRoster(). Hidden until
-    // combat is revealed (the first guard battle), so the tab stays dark until it matters.
-    if (!document.getElementById('roster-panel')) {
-      const rp = el('section', 'pane'); rp.id = 'roster-panel'; rp.hidden = true;
-      rp.innerHTML = '<h2>ROSTER</h2><div id="roster-body"></div>';
-      crt.appendChild(rp);
-    }
 
     // relocate existing DOM into the shell (IDs preserved → render fns unaffected)
     const hudRes = hud.querySelector('#m-hud-res');
@@ -166,7 +155,6 @@
     document.querySelectorAll('#m-nav .m-navb').forEach(b => b.classList.toggle('on', b.dataset.go === tab));
     const v = document.getElementById('m-view'); if (v) v.scrollTop = 0;
     (MOUNT[tab] || []).forEach(sel => { const m = sel.match(/data-modal="(\w+)"/); if (m && Game.panels && Game.panels.renderModalContent) try { Game.panels.renderModalContent(m[1]); } catch (e) {} });
-    if (tab === 'roster' && Game.panels && Game.panels.renderRoster) try { Game.panels.renderRoster(); } catch (e) {}
     requestAnimationFrame(() => dispatchEvent(new Event('resize')));   // re-measure canvases (scan radar, etc.)
   }
 
@@ -186,7 +174,7 @@
     const rv = (Game.save && Game.save.state && Game.save.state.revealed) || {};
     TABS.forEach(t => {
       const sels = MOUNT[t.id];
-      const avail = (t.id === 'home') || (t.id === 'roster' ? !!rv.combat : sels.some(sel => { const e = document.querySelector(sel); return e && !e.hidden; }));
+      const avail = (t.id === 'home') || sels.some(sel => { const e = document.querySelector(sel); return e && !e.hidden; });
       const nav = document.querySelector(`#m-nav .m-navb[data-go="${t.id}"]`);
       if (nav) nav.hidden = !avail;
       let badge = false;

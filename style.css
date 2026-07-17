@@ -1445,6 +1445,30 @@ h2 {
 .draft-info-row { font-size: var(--fs-lg); line-height: 1.4; }
 .spoil-k { color: var(--green); font-weight: 700; }
 .spoil-d { color: var(--amber-dim); }
+
+/* ── the STANDOFF comparison screen (Game.draft.compare) — a terminal scan readout:
+   lines stagger in like the draft cards do, ending on the odds verdict + engage. ── */
+.standoff-scan { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; font-size: var(--fs-base); }
+.standoff-line {
+  color: var(--amber-dim); line-height: 1.5;
+  opacity: 0; animation: draft-in .3s ease forwards;
+}
+.standoff-scan .standoff-line:nth-child(1) { animation-delay: 0s; }
+.standoff-scan .standoff-line:nth-child(2) { animation-delay: .09s; }
+.standoff-scan .standoff-line:nth-child(3) { animation-delay: .18s; }
+.standoff-scan .standoff-line:nth-child(4) { animation-delay: .27s; }
+.standoff-scan .standoff-line:nth-child(5) { animation-delay: .36s; }
+.standoff-scan .standoff-line:nth-child(6) { animation-delay: .45s; }
+.standoff-sys { color: var(--amber-mid); opacity: .7; }
+.standoff-adv-you { color: var(--amber); font-weight: bold; }
+.standoff-adv-them { color: var(--exotic-border); font-weight: bold; }
+.standoff-cursor { display: inline-block; width: 7px; height: 13px; background: var(--amber); animation: standoff-blink 1s step-end infinite; vertical-align: middle; margin-left: 2px; }
+@keyframes standoff-blink { 50% { opacity: 0; } }
+.standoff-final {
+  margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--amber-faint);
+  font-size: var(--fs-lg); color: var(--amber); text-align: center;
+  opacity: 0; animation: draft-in .3s ease forwards .54s;
+}
 #draft-cards .draft-card.draft-continue { align-items: center; text-align: center; border-left-width: 1px; border-color: var(--amber); }
 #draft-cards .draft-card.draft-continue .draft-card-name { letter-spacing: 2px; }
 
@@ -1756,11 +1780,3 @@ body:not(.mobile-shell) #room-widget {
   position: fixed; right: 14px; bottom: 14px; width: 250px; height: 156px; aspect-ratio: auto; margin: 0; z-index: 6;
 }
 
-/* ─── BATTLE: full-screen intrusion-defense engagement (iframe) ─── */
-#battle-overlay {
-  position: fixed; inset: 0; z-index: 200; background: #05060a;
-  display: flex; opacity: 0; transition: opacity 0.45s ease;
-}
-#battle-overlay.up { opacity: 1; }
-#battle-overlay[hidden] { display: none; }
-#battle-frame { flex: 1; width: 100%; height: 100%; border: 0; display: block; background: #05060a; }
