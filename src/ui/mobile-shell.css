@@ -228,11 +228,23 @@
 .mobile-shell #event-overlay, .mobile-shell #operation-overlay,
 .mobile-shell #bot-contact { z-index: 200; }
 
-/* "threshold cleared" toast: float it in the upper-center of the content area rather than
-   just under the HUD — the sticky #home-status header (4-6 variable lines) lives right below
-   the HUD, so a top-anchored banner used to land on top of its LV/running text. Upper-center
-   clears the header on every tab regardless of its height, and reads as part of the
-   full-screen #blip-flash surge behind it. */
-.mobile-shell #blip-banner { top: 34%; }
+/* "threshold cleared" toast: a slim full-width ribbon flush under the HUD. Full-bleed + opaque
+   so it reads as a system notification row (a momentary HUD extension) rather than a box
+   colliding with the sticky #home-status header text beneath it. One line: kicker + tag inline. */
+.mobile-shell #blip-banner {
+  top: calc(46px + env(safe-area-inset-top)); left: 0; right: 0;
+  transform: none; border: 0; border-bottom: 1px solid var(--amber);
+  background: rgba(20,16,10,0.98); box-shadow: 0 7px 16px -6px rgba(0,0,0,0.8);
+  padding: 7px 16px; display: flex; align-items: baseline; justify-content: center; gap: 10px;
+}
+.mobile-shell #blip-banner .blip-kicker { display: inline; }
+.mobile-shell #blip-banner .blip-tag { display: inline; margin-top: 0; font-size: 14px; }
+.mobile-shell #blip-banner.go { animation: blip-strip 1.9s ease-out; }
+@keyframes blip-strip {
+  0%   { opacity: 0; transform: translateY(-10px); }
+  10%  { opacity: 1; transform: translateY(0); }
+  80%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(0); }
+}
 /* inventory column subtitles describe DRAG (desktop); touch uses the tap hint above */
 .mobile-shell .inv-hint { display: none; }
