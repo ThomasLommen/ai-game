@@ -58,26 +58,25 @@
 
   function hide() { const ov = overlay(); activeFlag = false; if (ov) { ov.classList.remove('up'); if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideTimer = null; if (!activeFlag && ov) ov.hidden = true; }, 300); } }
 
-  // compare({ kicker, title, body, yourRows:[{label,value}], threatRows:[{label,value}],
-  // oddsPct, oddsLine, engageLabel, onEngage }) — the build-vs-threat STANDOFF screen
-  // (see standoff-runtime.js): a legible comparison + a synthesized odds line + one commit,
-  // no minigame. Same paused overlay as present()/info(), a different card layout.
+  // compare({ kicker, title, body, rows:[{label,you,them,adv:'you'|'them'}], verdict,
+  // oddsPct, engageLabel, onEngage }) — the build-vs-threat STANDOFF screen (see
+  // standoff-runtime.js): a terminal scan readout, no stat grid, no minigame. Same
+  // paused overlay as present()/info(), a different card layout.
   function compare(opts) {
     const ov = overlay(); if (!ov) { if (opts && opts.onEngage) opts.onEngage(); return; }
     activeFlag = true; cb = null;
     document.getElementById('draft-kicker').textContent = opts.kicker || 'STANDOFF';
     document.getElementById('draft-title').textContent = opts.title || '';
     const cards = document.getElementById('draft-cards');
-    const rowsHtml = rows => (rows || []).map(r => `<div class="standoff-row"><span class="standoff-row-label">${esc(r.label)}</span><span class="standoff-row-value">${esc(r.value)}</span></div>`).join('');
+    const advTag = adv => adv === 'you' ? '<span class="standoff-adv-you">[ADVANTAGE: YOU]</span>' : '<span class="standoff-adv-them">[ADVANTAGE: THEM]</span>';
+    const rowLine = r => `<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}</div>`;
+    const lines = [`<div class="standoff-line"><span class="standoff-sys">&gt;</span> analyzing target...</div>`];
+    if (opts.body) lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc(opts.body)}</div>`);
+    (opts.rows || []).forEach(r => lines.push(rowLine(r)));
+    lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> resolving odds<span class="standoff-cursor"></span></div>`);
     cards.innerHTML =
-      `<div class="draft-info">` +
-        (opts.body ? `<div class="draft-info-row">${esc(opts.body)}</div>` : '') +
-        `<div class="standoff-cols">` +
-          `<div class="standoff-col"><div class="standoff-col-head">YOU</div>${rowsHtml(opts.yourRows)}</div>` +
-          `<div class="standoff-col"><div class="standoff-col-head">THEM</div>${rowsHtml(opts.threatRows)}</div>` +
-        `</div>` +
-        `<div class="standoff-odds"><b>${Math.round(opts.oddsPct || 0)}%</b> — ${esc(opts.oddsLine || '')}</div>` +
-      `</div>` +
+      `<div class="standoff-scan">${lines.join('')}</div>` +
+      `<div class="standoff-final">${Math.round(opts.oddsPct || 0)}% — ${esc(opts.verdict || '')}</div>` +
       `<button class="draft-card draft-continue" data-c="1"><span class="draft-card-name">${esc(opts.engageLabel || 'engage')}</span></button>`;
     let closed = false;
     cards.querySelector('.draft-continue').onclick = () => { if (!armed() || closed) return; closed = true; hide(); if (opts.onEngage) { try { opts.onEngage(); } catch (e) { console.error('[draft] onEngage threw', e); } } };

@@ -81,7 +81,7 @@ test('computeOdds() clamps to [0.05, 0.95] when both compute and stealth are lop
   assert.equal(weak, 0.05);
 });
 
-test('begin() computes odds from real build state and passes rows/oddsLine/oddsPct into Game.draft.compare', () => {
+test('begin() computes odds from real build state and passes rows/verdict/oddsPct into Game.draft.compare', () => {
   const { runtime, compareCalls } = freshStandoff(7, { threads: 5 });
   runtime.begin({ kicker: 'AMBUSH', title: 'a bait', body: 'lure text', threat: { power: 40, alertness: 20, classLabel: 'x', alertLabel: 'y', numbersLabel: 'z' } }, () => {});
   assert.equal(compareCalls.length, 1);
@@ -89,10 +89,35 @@ test('begin() computes odds from real build state and passes rows/oddsLine/oddsP
   assert.equal(c.kicker, 'AMBUSH');
   assert.equal(c.title, 'a bait');
   assert.equal(c.body, 'lure text');
-  assert.ok(c.yourRows.some(r => r.label === 'compute'));
-  assert.ok(c.threatRows.some(r => r.label === 'class' && r.value === 'x'));
+  assert.ok(c.rows.some(r => r.label === 'compute'));
+  assert.ok(c.rows.some(r => r.label === 'stealth'));
+  assert.ok(c.rows.some(r => r.label === 'adaptations'));
+  assert.ok(c.rows.every(r => r.adv === 'you' || r.adv === 'them'));
   assert.ok(typeof c.oddsPct === 'number' && c.oddsPct >= 5 && c.oddsPct <= 95);
-  assert.ok(typeof c.oddsLine === 'string' && c.oddsLine.length > 0);
+  assert.ok(typeof c.verdict === 'string' && c.verdict.length > 0);
+});
+
+test('compare rows carry real paired you-vs-them values, and adaptations has no threat analog', () => {
+  const { runtime, compareCalls } = freshStandoff(7.5, { threads: 5, adaptations: 3 });
+  runtime.begin({ threat: { power: 40, alertness: 20 } }, () => {});
+  const rows = compareCalls[0].rows;
+  const compute = rows.find(r => r.label === 'compute'), stealth = rows.find(r => r.label === 'stealth'), adapt = rows.find(r => r.label === 'adaptations');
+  assert.equal(compute.you, runtime.yourStrength().compute);
+  assert.equal(compute.them, 40);
+  assert.equal(stealth.them, 20);
+  assert.equal(adapt.you, 3);
+  assert.equal(adapt.them, null);
+  assert.equal(adapt.adv, 'you');   // adaptations > 0 always reads as your edge (no threat counterpart)
+});
+
+test('verdict wording follows the odds bucket: favorable / uncertain / bad', () => {
+  const strong = freshStandoff(20, { threads: 1000 });
+  strong.runtime.begin({ threat: { power: 1, alertness: 1 } }, () => {});
+  assert.match(strong.compareCalls[0].verdict, /favorable/);
+
+  const weak = freshStandoff(21);
+  weak.runtime.begin({ threat: { power: 100000, alertness: 100 } }, () => {});
+  assert.match(weak.compareCalls[0].verdict, /badly/);
 });
 
 test('begin() refuses to open a second standoff while one is already active', () => {

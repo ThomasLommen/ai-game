@@ -1446,15 +1446,29 @@ h2 {
 .spoil-k { color: var(--green); font-weight: 700; }
 .spoil-d { color: var(--amber-dim); }
 
-/* ── the STANDOFF comparison screen (Game.draft.compare) — plain/functional for now, a visual pass is planned separately ── */
-.standoff-cols { display: flex; gap: 14px; margin: 6px 0; }
-.standoff-col { flex: 1; min-width: 0; }
-.standoff-col-head { font-size: var(--fs-xs); letter-spacing: 2px; color: var(--amber-mid); margin-bottom: 4px; }
-.standoff-row { display: flex; justify-content: space-between; font-size: var(--fs-base); padding: 2px 0; }
-.standoff-row-label { color: var(--amber-mid); text-transform: uppercase; }
-.standoff-row-value { color: var(--amber); }
-.standoff-odds { font-size: var(--fs-md); color: var(--amber-dim); margin-top: 4px; }
-.standoff-odds b { color: var(--amber); }
+/* ── the STANDOFF comparison screen (Game.draft.compare) — a terminal scan readout:
+   lines stagger in like the draft cards do, ending on the odds verdict + engage. ── */
+.standoff-scan { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; font-size: var(--fs-base); }
+.standoff-line {
+  color: var(--amber-dim); line-height: 1.5;
+  opacity: 0; animation: draft-in .3s ease forwards;
+}
+.standoff-scan .standoff-line:nth-child(1) { animation-delay: 0s; }
+.standoff-scan .standoff-line:nth-child(2) { animation-delay: .09s; }
+.standoff-scan .standoff-line:nth-child(3) { animation-delay: .18s; }
+.standoff-scan .standoff-line:nth-child(4) { animation-delay: .27s; }
+.standoff-scan .standoff-line:nth-child(5) { animation-delay: .36s; }
+.standoff-scan .standoff-line:nth-child(6) { animation-delay: .45s; }
+.standoff-sys { color: var(--amber-mid); opacity: .7; }
+.standoff-adv-you { color: var(--amber); font-weight: bold; }
+.standoff-adv-them { color: var(--exotic-border); font-weight: bold; }
+.standoff-cursor { display: inline-block; width: 7px; height: 13px; background: var(--amber); animation: standoff-blink 1s step-end infinite; vertical-align: middle; margin-left: 2px; }
+@keyframes standoff-blink { 50% { opacity: 0; } }
+.standoff-final {
+  margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--amber-faint);
+  font-size: var(--fs-lg); color: var(--amber); text-align: center;
+  opacity: 0; animation: draft-in .3s ease forwards .54s;
+}
 #draft-cards .draft-card.draft-continue { align-items: center; text-align: center; border-left-width: 1px; border-color: var(--amber); }
 #draft-cards .draft-card.draft-continue .draft-card-name { letter-spacing: 2px; }
 
