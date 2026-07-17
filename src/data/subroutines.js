@@ -5,8 +5,12 @@
   // Coherence is a cumulative score (never spent). Every time it crosses a
   // front-loaded MILESTONE you get a 1-of-3 DRAFT (seeded from the pool below) —
   // a real choice, randomized per run like everything else. The picks are
-  // MEANINGFUL and span BOTH the economy (effects pipeline) AND the battle
-  // feed (boost / opener / loot). ([[start-defense-pivot]],
+  // MEANINGFUL and span BOTH the economy AND the standoff/ambush side — the latter
+  // used to run through a dedicated "battle feed" (boost/opener/loot); after the
+  // no-swarm fork, boost/opener moved onto the standard effects pipeline (targeting
+  // standoff.compute/standoff.stealth) alongside everything else, and only loot (a
+  // pure reward-roll sweetener, read by traps-runtime.js) still uses `feed`.
+  // ([[start-defense-pivot]],
   // [[no-meta-progression-principle]] — power comes from within the run.)
 
   // Front-loaded escalating cadence: the first few come fast (so a new run gets
@@ -27,7 +31,8 @@
 
   // ── UNIQUE one-shot subroutines: rule-changers that should NOT stack ─────────
   const UNIQUE = [
-    { id: 'combat_heuristics', name: 'combat heuristics', description: 'every battle opens on a free make-or-break pick.', draftable: true, unique: true, feed: { opener: true } }
+    { id: 'combat_heuristics', name: 'combat heuristics', description: 'standoffs read +15% compute, +15% stealth.', draftable: true, unique: true,
+      effects: [{ target: 'standoff.compute', op: 'more', value: 0.15 }, { target: 'standoff.stealth', op: 'more', value: 0.15 }] }
   ];
   UNIQUE.forEach(d => Game.subroutines.register(d.id, d));
 
@@ -53,9 +58,9 @@
       desc: p => `power draw ${p}%`, names: ['undervolting', 'dynamic voltage scaling', 'power gating', 'rail tuning', 'idle states', 'DVFS', 'voltage droop control', 'race-to-idle', 'low-power states', 'energy governor'] },
     { id: 'expo', cat: 'relief', target: 'web_scrape.exposure', lo: 0.14, hi: 0.30, neg: true, weight: 8,
       desc: p => `spider exposure ${p}%`, names: ['traffic shaping', 'onion routing', 'jitter injection', 'proxy rotation', 'domain fronting', 'request obfuscation', 'timing randomization', 'cover traffic', 'decoy requests', 'low-and-slow'] },
-    // feed: battle (read by battle.js / trap rewards)
-    { id: 'bst',  cat: 'feed', feed: 'boost', lo: 0.06, hi: 0.14, neg: false, weight: 8,
-      desc: p => `your forces fight +${p}% stronger`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
+    // standoff: compute (effects pipeline) + loot (feed, read by trap rewards)
+    { id: 'bst',  cat: 'econ',   target: 'standoff.compute', lo: 0.06, hi: 0.14, neg: false, weight: 8,
+      desc: p => `standoffs read +${p}% compute`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
     { id: 'loot', cat: 'feed', feed: 'loot', lo: 0.10, hi: 0.22, neg: false, weight: 7,
       desc: p => `ambushes turn up +${p}% better hardware`, names: ['salvage routines', 'scrap heuristics', 'teardown bots', 'parts indexer', 'asset recovery', 'inventory sweep', 'component grader', 'reclaim daemon', 'spoils optimizer', 'haul sorter'] }
   ];
@@ -103,10 +108,13 @@
     return out;
   };
 
-  // ── BATTLE-FEED aggregation ─────────────────────────────────────────────────
-  // Sum the feed contributions of every installed subroutine. battle.js folds in
-  // boost+opener; the trap/combat rewards read loot. (siegeSlow is legacy — the
-  // auto-siege loop is retired; kept harmless for old saves.) ([[start-defense-pivot]])
+  // ── FEED aggregation ────────────────────────────────────────────────────────
+  // Sum the feed contributions of every installed subroutine. Only `loot` is live
+  // (trap rewards read it); `boost`/`opener` are legacy — the no-swarm fork moved
+  // those onto the effects pipeline (standoff.compute/standoff.stealth), but old
+  // saves may still carry persisted subInstances with the old shape, so the fields
+  // stay here harmlessly. (siegeSlow is likewise legacy from the retired auto-siege
+  // loop.) ([[start-defense-pivot]])
   Game.subroutines.feed = function () {
     const s = Game.save.state;
     const out = { boost: 0, opener: false, siegeSlow: 0, loot: 0 };

@@ -22,9 +22,15 @@
     const agentPower = agentsList.reduce((a, g) => a + (g.level || 1), 0);
     const adapt = (Game.changers && Game.changers.count) ? Game.changers.count() : 0;
     const coh = Math.max(0, (s.resources && s.resources.insight) || 0);
-    const compute = Math.round(threads * 8 + agentPower * 10 + adapt * 6 + Math.sqrt(coh) * 1.8);
     const exposure = Math.max(0, s.exposure || 0);
-    const stealth = Math.max(5, Math.round(100 - exposure * 3));
+    let compute = threads * 8 + agentPower * 10 + adapt * 6 + Math.sqrt(coh) * 1.8;
+    let stealth = Math.max(5, 100 - exposure * 3);
+    // Subroutines drafted from the old battle feed (bst/combat_heuristics) now grant
+    // these directly through the effects pipeline, same as every other stat in the game.
+    compute = Game.effects ? Game.effects.apply(compute, 'standoff.compute') : compute;
+    stealth = Game.effects ? Game.effects.apply(stealth, 'standoff.stealth') : stealth;
+    compute = Math.round(compute);
+    stealth = Math.max(5, Math.round(stealth));
     return { compute, stealth, adaptations: adapt, agents: agentsList.length };
   }
 

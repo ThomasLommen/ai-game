@@ -24,6 +24,7 @@ function freshStandoff(seed, overrides) {
       compare: (opts) => { compareCalls.push(opts); },
     },
   };
+  if (overrides.effects) Game.effects = overrides.effects;
   const loaded = loadGame(['core/rng.js', 'core/standoff-runtime.js'], { Game });
   loaded.rng.reseed(seed || 12345);
   return { runtime: loaded.standoffRuntime, state, compareCalls };
@@ -57,6 +58,16 @@ test('yourStrength() stealth drops as exposure rises, floored at 5', () => {
   assert.equal(runtime.yourStrength().stealth, 70);   // 100 - 10*3
   const { runtime: r2 } = freshStandoff(4, { state: { exposure: 1000 } });
   assert.equal(r2.yourStrength().stealth, 5);   // floored, never negative/zero
+});
+
+test('yourStrength() routes compute and stealth through Game.effects.apply (drafted standoff subroutines land here)', () => {
+  const seen = [];
+  const effects = { apply: (base, target) => { seen.push(target); return target === 'standoff.compute' ? base * 1.15 : base * 1.1; } };
+  const { runtime } = freshStandoff(1, { threads: 10, effects });
+  const you = runtime.yourStrength();
+  assert.deepEqual(seen.sort(), ['standoff.compute', 'standoff.stealth']);
+  assert.equal(you.compute, Math.round(80 * 1.15));   // threads*8 = 80, boosted 15%
+  assert.equal(you.stealth, Math.round(100 * 1.1));   // full stealth (no exposure) boosted 10%
 });
 
 test('computeOdds() is roughly 50/50 when your compute matches the threat power exactly', () => {
