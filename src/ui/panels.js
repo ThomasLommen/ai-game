@@ -1285,9 +1285,63 @@
     settings: 'SETTINGS'
   };
 
+  // ── STATS sheet — the character sheet: YOUR STRENGTH (standoff) with base→bonus→final,
+  // plus every economy/rig channel that carries a bonus, each attributed to its source. Lives
+  // in the MORE tab so the draft cards ("standoffs read +X% compute") have a home to point at
+  // even when no standoff is running. Channels with no active bonus are omitted (self-gating).
+  const STAT_SHEET_GROUPS = [
+    { head: 'ECONOMY', rows: ['introspect.insight', 'cycle.speed', 'income.cash', 'web_scrape.cash', 'fleet.cash', 'fleet.coherence'] },
+    // relief channels — LOWER is better (heat/power/exposure/traces), so a negative net is the good one
+    { head: 'RIG & STEALTH', relief: true, rows: ['rig.heat', 'rig.power', 'web_scrape.exposure', 'hunter.trace', 'location.trace'] },
+  ];
+  const STAT_SHEET_LABELS = Object.assign({}, EFFECT_NAMES, { 'introspect.insight': 'coherence yield', 'income.cash': 'income' });
+  function renderStats() {
+    const body = document.getElementById('stats-body');
+    if (!body) return;
+    const fx = Game.effects, SR = Game.standoffRuntime;
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const pct = v => (v >= 0 ? '+' : '−') + Math.abs(Math.round(v * 100)) + '%';
+    const srcLines = (target) => (fx && fx.collectWithSources ? fx.collectWithSources(target) : [])
+      .map(b => `<div class="stat-bonus">${pct(b.value)} <span class="stat-src">${esc(b.source)}</span></div>`).join('');
+    let html = '';
+
+    if (SR && SR.strengthDetail) {
+      const d = SR.strengthDetail();
+      const comps = [];
+      if (d.parts.threads)     comps.push(`${Math.round(d.parts.threads)} threads`);
+      if (d.parts.agents)      comps.push(`${Math.round(d.parts.agents)} agents`);
+      if (d.parts.adaptations) comps.push(`${Math.round(d.parts.adaptations)} adaptations`);
+      if (d.parts.coherence)   comps.push(`${Math.round(d.parts.coherence)} coherence`);
+      html += `<div class="stat-group"><div class="stat-group-head">YOUR STRENGTH</div><div class="stat-sub">what an ambush weighs you by</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">compute</span><span class="stat-val">${d.compute}</span></div>`
+            + `<div class="stat-base">base ${Math.round(d.computeBase)}${comps.length ? ' · ' + comps.join(' · ') : ' · nothing running yet'}</div>${srcLines('standoff.compute')}</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">stealth</span><span class="stat-val">${d.stealth}</span></div>`
+            + `<div class="stat-base">base ${Math.round(d.stealthBase)} · 100 − exposure (${Math.round(d.exposure)})</div>${srcLines('standoff.stealth')}</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">adaptations</span><span class="stat-val">${d.adaptations}</span></div></div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">agents</span><span class="stat-val">${d.agents}</span></div></div>`;
+      html += `</div>`;
+    }
+
+    for (const g of STAT_SHEET_GROUPS) {
+      const rows = g.rows.map(target => {
+        const mods = fx && fx.collectWithSources ? fx.collectWithSources(target) : [];
+        if (!mods.length) return '';
+        const net = (fx ? fx.apply(1, target) : 1) - 1;
+        const label = STAT_SHEET_LABELS[target] || target;
+        const beneficial = g.relief ? net < 0 : net > 0;   // relief channels: lower is better
+        return `<div class="stat-row"><div class="stat-line"><span class="stat-name">${esc(label)}</span>`
+             + `<span class="stat-val ${beneficial ? 'good' : 'bad'}">${pct(net)}</span></div>${srcLines(target)}</div>`;
+      }).join('');
+      if (rows) html += `<div class="stat-group"><div class="stat-group-head">${g.head}</div>${rows}</div>`;
+    }
+
+    body.innerHTML = html || `<div class="faint" style="font-size:12px">no bonuses yet — level up to draft your first.</div>`;
+  }
+
   // Refresh a panel's content (shared by the desktop modal + the mobile tab shell).
   function renderModalContent(name) {
     switch (name) {
+      case 'stats':       renderStats(); break;
       case 'subroutines': renderSubroutines(); break;
       case 'market':      renderMarket(); break;
       case 'shop':        renderShop(); break;
@@ -2594,6 +2648,7 @@
       agents:      !!rv.agents,   // Act 4: the sub-agent roster (revealed once FLOPS hosts one)
       foreman:     !!(Game.foreman && Game.foreman.active && Game.foreman.active()),   // Act 4: the bot-foreman build-out (front + bot)
       others:      !!rv.others,   // Act 4: turn on the prior iterations (optional, emergent)
+      stats:       !!rv.combat,   // the STATS sheet — comes online with the standoff layer (first contact)
       activity:    !!rv.events,   // the log comes online with dynamic events
       inventory:   !front && !!rv.inventory,   // the parts inventory retires at the front (whole-machine bay now)
       deliveries:  !!rv.deliveries,
@@ -2651,6 +2706,7 @@
     if (s.flags && s.flags.act4Begun) renderFacilityView();
     if (rv.agents)     renderAgents();
     if (rv.others)     renderOthers();
+    if (rv.combat)     renderStats();
   }
 
   function renderDebug() {
@@ -2691,7 +2747,7 @@
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation, renderPublic, renderPublicEvent,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, markContractsSeen,
-    renderDebug, toggleDebug
+    renderStats, renderDebug, toggleDebug
   };
 
   // ── HOME dashboard pinned header (mobile slice 1) — fills the 4 glance lines.

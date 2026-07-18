@@ -61,5 +61,37 @@
     return Game.modifiers.calc(base, target, collect(target));
   }
 
-  Game.effects = { collect, apply };
+  // Like collect(), but tags each contributing effect with the human name of its SOURCE
+  // (subroutine / adaptation / research node / trait / condition / program). Used by the
+  // STATS sheet to show WHERE each bonus came from. Returns [{ op, value, target, source }].
+  function collectWithSources(target) {
+    const s = Game.save.state;
+    const out = [];
+    const take = (effects, source) => { if (effects) for (const e of effects) if (e.target === target) out.push({ op: e.op, value: e.value, target: e.target, source }); };
+
+    const programs = (s.installed && s.installed.programs) || {};
+    for (const id of Object.keys(programs)) { const p = Game.programs && Game.programs.get(id); if (p) take(p.effects, p.name || id); }
+
+    const subs = (s.installed && s.installed.subroutines) || {};
+    for (const id of Object.keys(subs)) { const sub = Game.subroutines && Game.subroutines.get(id); if (sub) take(sub.effects, sub.name || id); }
+
+    const researched = (s.research && s.research.researched) || {};
+    for (const id of Object.keys(researched)) { const node = (Game.research && Game.research.getNode) ? Game.research.getNode(id) : null; if (node && node.grant) take(node.grant.effects, node.label || node.name || id); }
+
+    if (s.boon && Game.boons) { const b = Game.boons.get(s.boon); if (b) take(b.effects, b.name || 'starter trait'); }
+
+    const conds = (s.conditions && Array.isArray(s.conditions)) ? s.conditions : [];
+    for (const c of conds) if (c) take(c.effects, c.name || c.label || 'condition');
+
+    const owned = (s.changers && s.changers.owned) || {};
+    for (const id of Object.keys(owned)) {
+      if (!owned[id]) continue;
+      const def = (Game.changers && Game.changers.get) ? Game.changers.get(id) : (Game.changersData && Game.changersData.get(id));
+      if (def) take(def.effects, def.name || id);
+    }
+
+    return out;
+  }
+
+  Game.effects = { collect, apply, collectWithSources };
 })();

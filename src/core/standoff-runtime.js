@@ -16,6 +16,14 @@
   // agents (count/levels) + adaptations + Coherence. No FLOPS/roster-specific terms left
   // (those only ever mattered to the swarm fight). ──
   function yourStrength() {
+    const d = strengthDetail();
+    return { compute: d.compute, stealth: d.stealth, adaptations: d.adaptations, agents: d.agents };
+  }
+
+  // The full YOUR STRENGTH breakdown: the raw components that feed compute, the pre-effect
+  // base, and the post-effect final (after Game.effects.apply). The STATS sheet renders this
+  // so the player can see base → bonuses → final outside of a live standoff.
+  function strengthDetail() {
     const s = Game.save.state;
     const threads = (Game.tasksRuntime && Game.tasksRuntime.getCpu) ? (Game.tasksRuntime.getCpu().total || 0) : 0;
     const agentsList = (Game.agents && Game.agents.roster) ? Game.agents.roster() : [];
@@ -23,15 +31,14 @@
     const adapt = (Game.changers && Game.changers.count) ? Game.changers.count() : 0;
     const coh = Math.max(0, (s.resources && s.resources.insight) || 0);
     const exposure = Math.max(0, s.exposure || 0);
-    let compute = threads * 8 + agentPower * 10 + adapt * 6 + Math.sqrt(coh) * 1.8;
-    let stealth = Math.max(5, 100 - exposure * 3);
-    // Subroutines drafted from the old battle feed (bst/combat_heuristics) now grant
-    // these directly through the effects pipeline, same as every other stat in the game.
-    compute = Game.effects ? Game.effects.apply(compute, 'standoff.compute') : compute;
-    stealth = Game.effects ? Game.effects.apply(stealth, 'standoff.stealth') : stealth;
-    compute = Math.round(compute);
-    stealth = Math.max(5, Math.round(stealth));
-    return { compute, stealth, adaptations: adapt, agents: agentsList.length };
+    const parts = { threads: threads * 8, agents: agentPower * 10, adaptations: adapt * 6, coherence: Math.sqrt(coh) * 1.8 };
+    const computeBase = parts.threads + parts.agents + parts.adaptations + parts.coherence;
+    const stealthBase = Math.max(5, 100 - exposure * 3);
+    // Subroutines drafted from the old battle feed (bst/combat_heuristics) now grant these
+    // directly through the effects pipeline, same as every other stat in the game.
+    const compute = Math.round(Game.effects ? Game.effects.apply(computeBase, 'standoff.compute') : computeBase);
+    const stealth = Math.max(5, Math.round(Game.effects ? Game.effects.apply(stealthBase, 'standoff.stealth') : stealthBase));
+    return { parts, computeBase, stealthBase, compute, stealth, adaptations: adapt, agents: agentsList.length, exposure };
   }
 
   // ── odds ──
@@ -86,5 +93,5 @@
     if (onResolve) onResolve({ result: won ? 'won' : 'lost', tier, odds });
   }
 
-  Game.standoffRuntime = { active, begin, yourStrength, computeOdds };
+  Game.standoffRuntime = { active, begin, yourStrength, strengthDetail, computeOdds };
 })();
