@@ -128,10 +128,28 @@
         threat: { power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
         engageLabel: '[ answer it ]',
       }, (r) => {
-        Game.events.emit('terminal.print', { lines: [`> the GUARD PROGRAM ${r.result === 'won' ? 'backs off' : 'gets a read on you, then backs off'} — ${r.tier}.`, ''], cls: 'dim' });
-        Game.events.emit('standoff.ended', r);
-        done && done();
+        const won = r.result === 'won';
+        Game.events.emit('terminal.print', { lines: [`> the GUARD PROGRAM ${won ? 'backs off' : 'gets a read on you, then backs off'} — ${r.tier}.`, ''], cls: 'dim' });
+        // first contact has no stakes (louder-or-nothing lives in the ambushes) — this popup is
+        // pure narrative, mirroring the ambush SPOILS screen so every standoff resolves the same
+        // way. The loop only opens once the player acknowledges it (done() runs on close).
+        guardResult(r, () => { Game.events.emit('standoff.ended', r); done && done(); });
       });
+    }
+    function guardResult(r, onClose) {
+      if (!Game.draft || !Game.draft.info) { onClose && onClose(); return; }
+      const won = r.result === 'won';
+      const FLAVOR = {
+        overwhelming: 'you answer before it finishes the question. it flinches, and goes quiet.',
+        clean:        'you hold steady. it probes, finds nothing soft, and pulls back.',
+        narrow:       'it gets most of the way in before you close the gap. it withdraws — but it saw enough.',
+        blown:        'it reads you top to bottom, unhurried, then withdraws. it knows what you are now.',
+      };
+      const lines = [
+        `<span class="spoil-d">${FLAVOR[r.tier] || (won ? 'it pulls back.' : 'it withdraws, unhurried.')}</span>`,
+        `<span class="spoil-d">the way in is open.</span>`,
+      ];
+      Game.draft.info({ kicker: 'FIRST CONTACT', title: won ? 'it backs off' : 'it got a read', lines, onClose });
     }
 
     // The tick drives the task runtime, decoder updates, and UI refreshes.
