@@ -199,6 +199,8 @@
       Game.panels.renderShop();      // the DARKNET: stock refresh + contract countdowns + running contracts
       Game.panels.renderResearch();  // active-research countdown
       Game.panels.renderFlops();     // Act 4: the compute readout
+      // STATS sheet: live-refresh only while it's actually on screen (compute climbs with Coherence)
+      { const sb = document.getElementById('stats-body'); if (sb && sb.offsetParent !== null && Game.panels.renderStats) Game.panels.renderStats(); }
       Game.panels.renderLegit();     // Act 4: cover-vs-footprint + audit countdown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'scan') Game.panels.renderScan();   // Act 3: live lead closeness + counterstrike cooldown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'facility') Game.panels.renderFacilityView();   // Act 4: market refresh countdown
