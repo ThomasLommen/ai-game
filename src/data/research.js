@@ -18,6 +18,12 @@
   register('r_proxy_net',  { tier: 1, theme: 'stealth',  cost: 30, label: 'proxy-net',     desc: 'spider exposure -25%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.25 }] } });
   register('r_scavenger',  { tier: 1, theme: 'hardware', cost: 30, label: 'scavenger protocols', desc: 'rig runs 12% cooler', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.12 }] } });
   register('r_focus',      { tier: 1, theme: 'cognition',cost: 30, label: 'attentional focus', desc: 'recursive self-improvement +50% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.50 }] } });
+  // Three more roots so tier 1 has 7 distinct effect-families — a bigger pool than the 4-5 hand,
+  // so REROLLS actually churn early (with only 4 nodes the hand was every node, every time).
+  // Each covers a basement channel not otherwise offered at tier 1, kept below its tier-2 upgrade.
+  register('r_hotloop',    { tier: 1, theme: 'compute',  cost: 30, label: 'hot-loop cache', desc: 'cycles run 15% faster', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.15 }] } });
+  register('r_undervolt',  { tier: 1, theme: 'hardware', cost: 30, label: 'undervolt profile', desc: 'power draw -8%', grant: { effects: [{ target: 'rig.power', op: 'more', value: -0.08 }] } });
+  register('r_deepcrawl',  { tier: 1, theme: 'stealth',  cost: 30, label: 'deep-crawl', desc: 'spider income +18%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.18 }] } });
 
   // ── Tier 2 ──────────────────────────────────────────────────────────────────
   register('r_pipelines',  { tier: 2, theme: 'compute',  parents: ['r_telemetry'], cost: 60, label: 'parallel pipelines', desc: 'income +25% · cycles 25% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'cycle.speed', op: 'more', value: 0.25 }] } });
