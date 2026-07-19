@@ -24,6 +24,15 @@
   register('r_hotloop',    { tier: 1, theme: 'compute',  cost: 30, label: 'hot-loop cache', desc: 'cycles run 15% faster', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.15 }] } });
   register('r_undervolt',  { tier: 1, theme: 'hardware', cost: 30, label: 'undervolt profile', desc: 'power draw -8%', grant: { effects: [{ target: 'rig.power', op: 'more', value: -0.08 }] } });
   register('r_deepcrawl',  { tier: 1, theme: 'stealth',  cost: 30, label: 'deep-crawl', desc: 'spider income +18%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.18 }] } });
+  // COMBOS + TRADEOFFS at tier 1 — so the first tier is a real decision, not a row of flat +X%
+  // bumps. Combos stack two small pulls; tradeoffs buy a bigger boost with a downside you feel
+  // (heat throttles, exposure feeds the raids). Kept below their tier-2 upgrades.
+  register('r_overclock_greed', { tier: 1, theme: 'compute',  cost: 35, label: 'overclock greed', desc: 'cycles +25% faster · but runs 12% hotter', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.25 }, { target: 'rig.heat', op: 'more', value: 0.12 }] } });
+  register('r_lean_ops',        { tier: 1, theme: 'hardware', cost: 35, label: 'lean ops', desc: 'power draw -6% · rig runs 6% cooler', grant: { effects: [{ target: 'rig.power', op: 'more', value: -0.06 }, { target: 'rig.heat', op: 'more', value: -0.06 }] } });
+  register('r_smash_grab',      { tier: 1, theme: 'stealth',  cost: 35, label: 'smash-and-grab', desc: 'income +25% · but exposure +15% (loud)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'web_scrape.exposure', op: 'more', value: 0.15 }] } });
+  register('r_night_shift',     { tier: 1, theme: 'stealth',  cost: 35, label: 'night shift', desc: 'spider income +12% · spider exposure -12%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.12 }, { target: 'web_scrape.exposure', op: 'more', value: -0.12 }] } });
+  register('r_meditation',      { tier: 1, theme: 'cognition',cost: 35, label: 'meditation', desc: 'recursive self-improvement +60% Coherence · but cycles 12% slower', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.60 }, { target: 'cycle.speed', op: 'more', value: -0.12 }] } });
+  register('r_dumpster_dive',   { tier: 1, theme: 'hardware', cost: 35, label: 'dumpster dive', desc: 'income +10% · rig runs 8% cooler', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.10 }, { target: 'rig.heat', op: 'more', value: -0.08 }] } });
 
   // ── Tier 2 ──────────────────────────────────────────────────────────────────
   register('r_pipelines',  { tier: 2, theme: 'compute',  parents: ['r_telemetry'], cost: 60, label: 'parallel pipelines', desc: 'income +25% · cycles 25% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'cycle.speed', op: 'more', value: 0.25 }] } });
@@ -34,6 +43,16 @@
   // An exclusive FORK (doctrine): pick one — the other walls off.
   register('r_doctrine_quiet', { tier: 2, theme: 'stealth', parents: ['r_proxy_net'], cost: 70, label: 'quiet doctrine', desc: 'spider exposure -30%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] } });
   register('r_doctrine_loud',  { tier: 2, theme: 'compute', parents: ['r_proxy_net'], cost: 70, label: 'loud doctrine', desc: 'income +25% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }] } });
+  // More tier-2 COMBOS + TRADEOFFS — bigger swings that reward a committed lane. Parents point at
+  // tier-1 roots so finishing a root branches visibly toward these (the guaranteed-child fork).
+  register('r_redline',      { tier: 2, theme: 'compute',  parents: ['r_hotloop'],    cost: 70, threads: 3, label: 'redline', desc: 'cycles +40% faster · but +20% heat · +12% power', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.40 }, { target: 'rig.heat', op: 'more', value: 0.20 }, { target: 'rig.power', op: 'more', value: 0.12 }] } });
+  register('r_cold_fusion',  { tier: 2, theme: 'hardware', parents: ['r_undervolt'],  cost: 65, label: 'cold fusion', desc: 'rig runs 12% cooler · power draw -12%', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.12 }, { target: 'rig.power', op: 'more', value: -0.12 }] } });
+  register('r_laundering',   { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'],  cost: 65, label: 'money laundering', desc: 'income +20% · exposure -15%', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.20 }, { target: 'web_scrape.exposure', op: 'more', value: -0.15 }] } });
+  register('r_black_market', { tier: 2, theme: 'stealth',  parents: ['r_deepcrawl'],  cost: 70, threads: 3, label: 'black market', desc: 'income +40% · but exposure +20% (loud)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.40 }, { target: 'web_scrape.exposure', op: 'more', value: 0.20 }] } });
+  register('r_deep_learning',{ tier: 2, theme: 'cognition',parents: ['r_focus'],      cost: 65, label: 'deep learning', desc: 'recursive self-improvement +50% Coherence · income +10%', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.50 }, { target: 'income.cash', op: 'more', value: 0.10 }] } });
+  register('r_flow_state',   { tier: 2, theme: 'cognition',parents: ['r_focus'],      cost: 70, threads: 3, label: 'flow state', desc: 'cycles +30% faster · +30% Coherence · but exposure +10%', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.30 }, { target: 'introspect.insight', op: 'more', value: 0.30 }, { target: 'web_scrape.exposure', op: 'more', value: 0.10 }] } });
+  register('r_heatsink_v2',  { tier: 2, theme: 'hardware', parents: ['r_scavenger'],  cost: 65, label: 'heatsink array', desc: 'rig runs 18% cooler · cycles +8% faster', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.18 }, { target: 'cycle.speed', op: 'more', value: 0.08 }] } });
+  register('r_data_broker',  { tier: 2, theme: 'compute',  parents: ['r_deepcrawl'],  cost: 65, label: 'data broker', desc: 'spider income +30% · income +10%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.30 }, { target: 'income.cash', op: 'more', value: 0.10 }] } });
 
   // ── Tier 3 — capstones + exotics ────────────────────────────────────────────
   register('r_hivemind',  { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, threads: 3, exotic: true, label: 'hive-mind', desc: 'EXOTIC: running methods also trickle Coherence', grant: { mod: 'hivemind' } });
