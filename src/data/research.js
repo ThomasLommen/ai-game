@@ -60,7 +60,7 @@
   register('r_heatsink_v2',  { tier: 2, theme: 'hardware', parents: ['r_scavenger'],  cost: 65, label: 'heatsink array', desc: 'rig runs 18% cooler · cycles +8% faster', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.18 }, { target: 'cycle.speed', op: 'more', value: 0.08 }] } });
   register('r_data_broker',  { tier: 2, theme: 'compute',  parents: ['r_deepcrawl'],  cost: 65, label: 'data broker', desc: 'spider income +30% · income +10%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.30 }, { target: 'income.cash', op: 'more', value: 0.10 }] } });
   // Tier-2 EXOTIC rule-changers.
-  register('r_ram_bank',   { tier: 2, theme: 'hardware', parents: ['r_undervolt'], exotic: true, cost: 70, threads: 3, label: 'RAM bank', desc: 'EXOTIC: +768 MB RAM — headroom to run more at once', grant: { mod: 'extra_ram' } });
+  register('r_flush',      { tier: 2, theme: 'hardware', parents: ['r_undervolt'], exotic: true, cost: 70, threads: 3, label: 'coolant flush', desc: 'EXOTIC: the rig sheds heat 2.5× faster — the throttle clears fast once you back off', grant: { mod: 'fast_cooling' } });
   register('r_multitask',  { tier: 2, theme: 'compute',  parents: ['r_hotloop'],   exotic: true, cost: 75, threads: 3, label: 'multitasking', desc: 'EXOTIC: every process you run speeds up ALL cycles (+6% each)', grant: { mod: 'multitask' } });
   // EXCLUSIVE FORK 'tempo' — a tier-2 path choice between the two exotic cycle rules above them.
   register('r_tempo_sprint',  { tier: 2, theme: 'compute',  parents: ['r_hotloop'], fork: 'tempo', cost: 70, label: 'sprint tempo', desc: 'cycles +35% faster · but +15% heat', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.35 }, { target: 'rig.heat', op: 'more', value: 0.15 }] } });

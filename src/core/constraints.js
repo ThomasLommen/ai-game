@@ -76,7 +76,12 @@
   function updateHeat() {
     const s = Game.save.state;
     if (typeof s.heat !== 'number') s.heat = AMBIENT;
-    s.heat += (heatTarget() - s.heat) * HEAT_APPROACH;
+    const target = heatTarget();
+    let approach = HEAT_APPROACH;
+    // EXOTIC 'fast_cooling': the rig sheds heat far quicker when it's coming DOWN, so the throttle
+    // clears fast after you back off (heat eases very slowly by default — this is felt).
+    if (target < s.heat && Game.researchRuntime && Game.researchRuntime.hasMod('fast_cooling')) approach = Math.min(1, HEAT_APPROACH * 2.5);
+    s.heat += (target - s.heat) * approach;
     if (s.heat < AMBIENT) s.heat = AMBIENT;
     // 'thermal_runaway' (run-defining): the thermal ceiling no longer shuts you down.
     if (!isLockedOut() && s.heat >= HEAT_CRIT && !(Game.researchRuntime && Game.researchRuntime.hasMod('thermal_runaway'))) tripThermal();
