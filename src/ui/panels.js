@@ -939,6 +939,7 @@
       + `<div class="rc-name">${resEsc(n.label)}${exo ? ' ⚡' : ''}</div>`
       + (flavor ? `<div class="rc-flavor">${resEsc(flavor)}</div>` : '')
       + `<div class="rc-desc">${resEsc(n.desc)}</div>`
+      + (n.fork ? `<div class="rc-fork">⑂ a fork — drafting this closes the other path</div>` : '')
       + `<div class="rc-foot"><span class="rc-cost">${cost}</span><button class="rc-draft${cant ? ' off' : ''}" data-draft="${n.id}" style="border-color:${acc};color:${acc}">${cant ? resEsc(why) : '[ DRAFT ]'}</button></div>`
       + `</div>`;
   }

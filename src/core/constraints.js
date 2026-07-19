@@ -91,7 +91,10 @@
     if (h <= warn) return 1;
     if (h >= HEAT_CRIT) return THROTTLE_MIN;
     const f = (h - warn) / (HEAT_CRIT - warn);
-    return 1 - f * (1 - THROTTLE_MIN);
+    let bite = 1 - f * (1 - THROTTLE_MIN);
+    // EXOTIC 'thermal_governor': the throttle bites softer — you keep more of your speed when hot.
+    if (Game.researchRuntime && Game.researchRuntime.hasMod('thermal_governor')) bite = 1 - (1 - bite) * 0.6;
+    return bite;
   }
   // 'speculative' (Overclocker changer): a trip no longer HALTS you — the work was
   // already run ahead, so it commits and rolls on through a brief brownout instead

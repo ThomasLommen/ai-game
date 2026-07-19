@@ -1654,6 +1654,7 @@ h2 {
 .rc-name { font-size: 17px; color: #ffe9b0; margin: 3px 0 2px; }
 .rc-flavor { font-size: var(--fs-sm); color: var(--amber-mid); font-style: italic; opacity: 0.85; margin-bottom: 4px; }
 .rc-desc { font-size: var(--fs-base); color: var(--amber-dim); line-height: 1.35; }
+.rc-fork { font-size: var(--fs-sm); color: var(--exotic-border, #c79bff); margin-top: 5px; letter-spacing: .5px; }
 .rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
 .rc-cost { font-size: var(--fs-sm); color: var(--amber-faint); }
 .rc-draft { font-family: var(--mono); font-size: var(--fs-base); border: 1px solid var(--amber); border-radius: 3px; padding: 3px 14px; background: none; cursor: pointer; }

@@ -117,6 +117,6 @@
 
     getActive() { return Game.save.state.tasks.active.slice(); },
     getCpu() { const RR = Game.researchRuntime; return { total: sumStat('cpu_threads') + ((RR && RR.hasMod('extra_thread')) ? 1 : 0) + ((RR && RR.hasMod('hyperthreading')) ? 2 : 0), allocated: allocated('cpu') }; },
-    getRam() { return { total: sumStat('ram_mb'),      allocated: allocated('ram') }; }
+    getRam() { const RR = Game.researchRuntime; return { total: sumStat('ram_mb') + ((RR && RR.hasMod('extra_ram')) ? 768 : 0), allocated: allocated('ram') }; }
   };
 })();

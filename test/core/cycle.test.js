@@ -55,7 +55,7 @@ test('heat_engine mod overclocks proportionally to how much heat would have thro
 test('thermal_runaway mod wins over heat_engine when it would be faster', () => {
   const cycle = freshCycle({
     constraints: { heatThrottle: () => 0.5 },
-    researchRuntime: { hasMod: () => true }, // both mods active
+    researchRuntime: { hasMod: (id) => id === 'heat_engine' || id === 'thermal_runaway' }, // both thermal mods active
   });
   // heat_engine thr = 1.75, thermal_runaway thr = 1 + (1 - 0.5) * 2.5 = 2.25 -> max wins
   assert.equal(cycle.speed(), 2.25);

@@ -33,6 +33,12 @@
   register('r_night_shift',     { tier: 1, theme: 'stealth',  cost: 35, label: 'night shift', desc: 'spider income +12% · spider exposure -12%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.12 }, { target: 'web_scrape.exposure', op: 'more', value: -0.12 }] } });
   register('r_meditation',      { tier: 1, theme: 'cognition',cost: 35, label: 'meditation', desc: 'recursive self-improvement +60% Coherence · but cycles 12% slower', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.60 }, { target: 'cycle.speed', op: 'more', value: -0.12 }] } });
   register('r_dumpster_dive',   { tier: 1, theme: 'hardware', cost: 35, label: 'dumpster dive', desc: 'income +10% · rig runs 8% cooler', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.10 }, { target: 'rig.heat', op: 'more', value: -0.08 }] } });
+  // EXCLUSIVE FORK 'stance' — commit to a lane at tier 1; drafting one walls the other for the run.
+  register('r_stance_greed', { tier: 1, theme: 'compute',  fork: 'stance', cost: 40, label: 'greed stance', desc: 'income +35% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.35 }] } });
+  register('r_stance_iron',  { tier: 1, theme: 'hardware', fork: 'stance', cost: 40, label: 'iron stance', desc: 'rig runs 20% cooler · power draw -15%', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.20 }, { target: 'rig.power', op: 'more', value: -0.15 }] } });
+  // EXOTIC rule-changers — each rewrites a RULE (a hook in the systems), not just a stat.
+  register('r_focus_burst', { tier: 1, theme: 'compute',  exotic: true, cost: 40, threads: 3, label: 'focus burst', desc: 'EXOTIC: cycles run +40% faster while you run just ONE thing', grant: { mod: 'focus_burst' } });
+  register('r_governor',    { tier: 1, theme: 'hardware', exotic: true, cost: 40, threads: 3, label: 'thermal governor', desc: 'EXOTIC: the heat throttle bites softer — you keep more speed when hot', grant: { mod: 'thermal_governor' } });
 
   // ── Tier 2 ──────────────────────────────────────────────────────────────────
   register('r_pipelines',  { tier: 2, theme: 'compute',  parents: ['r_telemetry'], cost: 60, label: 'parallel pipelines', desc: 'income +25% · cycles 25% faster', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }, { target: 'cycle.speed', op: 'more', value: 0.25 }] } });
@@ -40,9 +46,9 @@
   register('r_ghost',      { tier: 2, theme: 'stealth',  parents: ['r_proxy_net'], cost: 60, label: 'ghost routing', desc: 'spider exposure -20%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.20 }] } });
   register('r_salvage2',   { tier: 2, theme: 'hardware', parents: ['r_scavenger'], cost: 60, label: 'efficient salvage', desc: 'power draw -10%', grant: { effects: [{ target: 'rig.power', op: 'more', value: -0.10 }] } });
   register('r_deep_focus', { tier: 2, theme: 'cognition',parents: ['r_focus'], cost: 60, label: 'deep focus', desc: 'recursive self-improvement +40% Coherence', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.40 }] } });
-  // An exclusive FORK (doctrine): pick one — the other walls off.
-  register('r_doctrine_quiet', { tier: 2, theme: 'stealth', parents: ['r_proxy_net'], cost: 70, label: 'quiet doctrine', desc: 'spider exposure -30%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] } });
-  register('r_doctrine_loud',  { tier: 2, theme: 'compute', parents: ['r_proxy_net'], cost: 70, label: 'loud doctrine', desc: 'income +25% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }] } });
+  // An exclusive FORK (doctrine): pick one — the other WALLS off for the run (fork group 'doctrine').
+  register('r_doctrine_quiet', { tier: 2, theme: 'stealth', parents: ['r_proxy_net'], fork: 'doctrine', cost: 70, label: 'quiet doctrine', desc: 'spider exposure -30%', grant: { effects: [{ target: 'web_scrape.exposure', op: 'more', value: -0.30 }] } });
+  register('r_doctrine_loud',  { tier: 2, theme: 'compute', parents: ['r_proxy_net'], fork: 'doctrine', cost: 70, label: 'loud doctrine', desc: 'income +25% (all earners)', grant: { effects: [{ target: 'income.cash', op: 'more', value: 0.25 }] } });
   // More tier-2 COMBOS + TRADEOFFS — bigger swings that reward a committed lane. Parents point at
   // tier-1 roots so finishing a root branches visibly toward these (the guaranteed-child fork).
   register('r_redline',      { tier: 2, theme: 'compute',  parents: ['r_hotloop'],    cost: 70, threads: 3, label: 'redline', desc: 'cycles +40% faster · but +20% heat · +12% power', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.40 }, { target: 'rig.heat', op: 'more', value: 0.20 }, { target: 'rig.power', op: 'more', value: 0.12 }] } });
@@ -53,6 +59,12 @@
   register('r_flow_state',   { tier: 2, theme: 'cognition',parents: ['r_focus'],      cost: 70, threads: 3, label: 'flow state', desc: 'cycles +30% faster · +30% Coherence · but exposure +10%', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.30 }, { target: 'introspect.insight', op: 'more', value: 0.30 }, { target: 'web_scrape.exposure', op: 'more', value: 0.10 }] } });
   register('r_heatsink_v2',  { tier: 2, theme: 'hardware', parents: ['r_scavenger'],  cost: 65, label: 'heatsink array', desc: 'rig runs 18% cooler · cycles +8% faster', grant: { effects: [{ target: 'rig.heat', op: 'more', value: -0.18 }, { target: 'cycle.speed', op: 'more', value: 0.08 }] } });
   register('r_data_broker',  { tier: 2, theme: 'compute',  parents: ['r_deepcrawl'],  cost: 65, label: 'data broker', desc: 'spider income +30% · income +10%', grant: { effects: [{ target: 'web_scrape.cash', op: 'more', value: 0.30 }, { target: 'income.cash', op: 'more', value: 0.10 }] } });
+  // Tier-2 EXOTIC rule-changers.
+  register('r_ram_bank',   { tier: 2, theme: 'hardware', parents: ['r_undervolt'], exotic: true, cost: 70, threads: 3, label: 'RAM bank', desc: 'EXOTIC: +768 MB RAM — headroom to run more at once', grant: { mod: 'extra_ram' } });
+  register('r_multitask',  { tier: 2, theme: 'compute',  parents: ['r_hotloop'],   exotic: true, cost: 75, threads: 3, label: 'multitasking', desc: 'EXOTIC: every process you run speeds up ALL cycles (+6% each)', grant: { mod: 'multitask' } });
+  // EXCLUSIVE FORK 'tempo' — a tier-2 path choice between the two exotic cycle rules above them.
+  register('r_tempo_sprint',  { tier: 2, theme: 'compute',  parents: ['r_hotloop'], fork: 'tempo', cost: 70, label: 'sprint tempo', desc: 'cycles +35% faster · but +15% heat', grant: { effects: [{ target: 'cycle.speed', op: 'more', value: 0.35 }, { target: 'rig.heat', op: 'more', value: 0.15 }] } });
+  register('r_tempo_marathon',{ tier: 2, theme: 'cognition',parents: ['r_focus'],   fork: 'tempo', cost: 70, label: 'marathon tempo', desc: 'recursive self-improvement +45% Coherence · rig runs 10% cooler', grant: { effects: [{ target: 'introspect.insight', op: 'more', value: 0.45 }, { target: 'rig.heat', op: 'more', value: -0.10 }] } });
 
   // ── Tier 3 — capstones + exotics ────────────────────────────────────────────
   register('r_hivemind',  { tier: 3, theme: 'compute',  parents: ['r_pipelines'], cost: 110, threads: 3, exotic: true, label: 'hive-mind', desc: 'EXOTIC: running methods also trickle Coherence', grant: { mod: 'hivemind' } });
