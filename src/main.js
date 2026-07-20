@@ -125,7 +125,7 @@
       Game.standoffRuntime.begin({
         kicker: 'FIRST CONTACT', title: 'the GUARD PROGRAM',
         body: 'something on the wire notices you the moment you reach out. it sizes you up.',
-        threat: { power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
+        threat: { kind: 'automated', power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
         engageLabel: '[ answer it ]',
       }, (r) => {
         const won = r.result === 'won';

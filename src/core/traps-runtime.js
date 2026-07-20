@@ -23,7 +23,8 @@
 
   function refresh() {
     const st = Game.save.state, t = ensureState();
-    t.baits = Game.traps.all().slice().sort((a, b) => a.tier - b.tier).map(tmpl => Game.traps.rollBait(tmpl, st));
+    // one bait per tier, rolled from that tier's pool → the archetype mix on the board churns each refresh
+    t.baits = Game.traps.rollOffer ? Game.traps.rollOffer(st) : Game.traps.all().slice().sort((a, b) => a.tier - b.tier).map(tmpl => Game.traps.rollBait(tmpl, st));
     t.lastRefreshTick = now();
     Game.events.emit('traps.refreshed', {});
   }

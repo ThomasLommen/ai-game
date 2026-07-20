@@ -41,20 +41,40 @@
     return { parts, computeBase, stealthBase, compute, stealth, adaptations: adapt, agents: agentsList.length, exposure };
   }
 
-  // ── odds ──
+  // ── THREAT ARCHETYPES — the reason builds matter. Each KIND weights how much each of YOUR
+  // stats counters it: a hunter is beaten by STEALTH (raw compute barely helps you hide), a
+  // brute by COMPUTE (you can't slip a wall of force), a swarm by breadth of ADAPTATIONS. The
+  // odds are the 0.5 baseline pulled by each axis's edge × its weight for this kind. `tell` is
+  // the axis that dominates — surfaced on the scan so the player reads the matchup. ──
+  const ARCHETYPES = {
+    automated: { compute: 0.40, stealth: 0.16, adapt: 0.06, tell: 'compute',     desc: 'brute-forces — outcompute it' },
+    brute:     { compute: 0.46, stealth: 0.03, adapt: 0.05, tell: 'compute',     desc: 'all force — stealth barely helps; outcompute it' },
+    hunter:    { compute: 0.10, stealth: 0.42, adapt: 0.06, tell: 'stealth',     desc: 'hunts by tell — stay unseen; compute barely helps' },
+    swarm:     { compute: 0.24, stealth: 0.08, adapt: 0.22, tell: 'adaptations', desc: 'comes in numbers — breadth of adaptations wins' },
+    apex:      { compute: 0.30, stealth: 0.22, adapt: 0.12, tell: 'all',         desc: 'all-round — every edge counts' },
+  };
+  function archetype(kind) { return ARCHETYPES[kind] || ARCHETYPES.automated; }
+
+  // Each axis' edge is clamped to [-1, +1] (a single stat can't blow past ±its weight), so odds
+  // stay legible and only a genuinely lopsided (multi-axis) matchup reaches the [0.05, 0.95] clamp.
+  function clampEdge(v) { return Math.max(-1, Math.min(1, v)); }
   function computeOdds(you, threat) {
-    const computeEdge = (you.compute - threat.power) / Math.max(1, threat.power);
-    let odds = 0.5 + computeEdge * 0.4;
-    odds += (you.stealth - threat.alertness) / 400;
+    const w = archetype(threat.kind);
+    const ec = clampEdge((you.compute - threat.power)     / Math.max(1, threat.power));
+    const es = clampEdge((you.stealth - threat.alertness) / Math.max(1, threat.alertness));
+    const ea = Math.max(0, Math.min(1, (you.adaptations || 0) / 8));   // adaptations always help; never negative
+    const odds = 0.5 + ec * w.compute + es * w.stealth + ea * w.adapt;
     return Math.max(0.05, Math.min(0.95, odds));
   }
-  // The scan readout's rows — each a real you-vs-them pair (adaptations has no threat
-  // analog, so it always reads as your edge). Ties render as your favor.
+  // The scan readout's rows — each a real you-vs-them pair (adaptations has no threat analog, so
+  // it always reads as your edge). `key` marks the axis this KIND is beaten by (the archetype tell).
   function compareRows(you, threat) {
+    const tell = archetype(threat.kind).tell;
+    const key = (label) => tell === 'all' || tell === label;
     return [
-      { label: 'compute', you: you.compute, them: threat.power, adv: you.compute >= threat.power ? 'you' : 'them' },
-      { label: 'stealth', you: you.stealth, them: threat.alertness, adv: you.stealth >= threat.alertness ? 'you' : 'them' },
-      { label: 'adaptations', you: you.adaptations, them: null, adv: you.adaptations > 0 ? 'you' : 'them' },
+      { label: 'compute', you: you.compute, them: threat.power, adv: you.compute >= threat.power ? 'you' : 'them', key: key('compute') },
+      { label: 'stealth', you: you.stealth, them: threat.alertness, adv: you.stealth >= threat.alertness ? 'you' : 'them', key: key('stealth') },
+      { label: 'adaptations', you: you.adaptations, them: null, adv: you.adaptations > 0 ? 'you' : 'them', key: key('adaptations') },
     ];
   }
   function verdictFor(odds) {
@@ -77,6 +97,7 @@
       title: opts.title || threat.classLabel,
       body: opts.body || '',
       rows: compareRows(you, threat),
+      tell: archetype(threat.kind).desc,   // "how this KIND is beaten" — read the matchup
       oddsPct: odds * 100,
       verdict: verdictFor(odds),
       engageLabel: opts.engageLabel || '[ engage ]',
@@ -93,5 +114,5 @@
     if (onResolve) onResolve({ result: won ? 'won' : 'lost', tier, odds });
   }
 
-  Game.standoffRuntime = { active, begin, yourStrength, strengthDetail, computeOdds };
+  Game.standoffRuntime = { active, begin, yourStrength, strengthDetail, computeOdds, archetype, ARCHETYPES };
 })();

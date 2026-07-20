@@ -390,6 +390,7 @@ h2 {
 .a-name { font-size: var(--fs-md); letter-spacing: 1px; color: var(--amber); }
 .a-lure { font-size: 9.5px; color: var(--amber-mid); font-style: italic; line-height: 1.4; min-height: 26px; }
 .a-stat { font-size: 9.5px; color: var(--amber-dim); }
+.a-tell { font-size: 9.5px; color: var(--amber-mid); line-height: 1.3; }
 .a-rew { font-size: var(--fs-sm); color: var(--green); }
 .a-loud { font-size: 8.5px; color: #d9714e; letter-spacing: 0.5px; }
 .a-tag { font-size: var(--fs-sm); color: var(--amber-mid); margin-top: 4px; }
@@ -1462,6 +1463,9 @@ h2 {
 .standoff-sys { color: var(--amber-mid); opacity: .7; }
 .standoff-adv-you { color: var(--amber); font-weight: bold; }
 .standoff-adv-them { color: var(--exotic-border); font-weight: bold; }
+.standoff-read { color: var(--amber-mid); font-style: italic; }
+.standoff-key { color: var(--amber); }
+.standoff-tell-mark { color: var(--amber); font-weight: bold; letter-spacing: .5px; text-shadow: 0 0 6px var(--amber-faint); }
 .standoff-cursor { display: inline-block; width: 7px; height: 13px; background: var(--amber); animation: standoff-blink 1s step-end infinite; vertical-align: middle; margin-left: 2px; }
 @keyframes standoff-blink { 50% { opacity: 0; } }
 .standoff-final {

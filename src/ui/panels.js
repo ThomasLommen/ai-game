@@ -407,14 +407,17 @@
     h += `<div class="ambush-block"><div class="ambush-blurb">${cd > 0
       ? `the ground is still hot from the last spring — let it settle (${cdSec}s).`
       : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
+    const arch = (kind) => (Game.standoffRuntime && Game.standoffRuntime.archetype) ? Game.standoffRuntime.archetype(kind) : null;
     for (const b of baits) {
       const ready = cd <= 0;
       const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
+      const a = arch(b.threat && b.threat.kind);
       h += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
           <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
           <div class="a-name">${b.name}</div>
           <div class="a-lure">${b.lure}</div>
           <div class="a-stat">draws ${b.threat.classLabel}</div>
+          ${a ? `<div class="a-tell">▸ ${a.desc}</div>` : ''}
           <div class="a-rew">harvest ${rew}</div>
           <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
           <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>

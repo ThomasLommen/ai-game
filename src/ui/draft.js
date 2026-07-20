@@ -69,9 +69,12 @@
     document.getElementById('draft-title').textContent = opts.title || '';
     const cards = document.getElementById('draft-cards');
     const advTag = adv => adv === 'you' ? '<span class="standoff-adv-you">[ADVANTAGE: YOU]</span>' : '<span class="standoff-adv-them">[ADVANTAGE: THEM]</span>';
-    const rowLine = r => `<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}</div>`;
+    // `key` rows are the axis this threat KIND is beaten by (the archetype tell) — flag them so the
+    // matchup reads at a glance ("vs a hunter, STEALTH is what counts").
+    const rowLine = r => `<div class="standoff-line${r.key ? ' standoff-key' : ''}"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}${r.key ? ' <span class="standoff-tell-mark">◄ decisive</span>' : ''}</div>`;
     const lines = [`<div class="standoff-line"><span class="standoff-sys">&gt;</span> analyzing target...</div>`];
     if (opts.body) lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc(opts.body)}</div>`);
+    if (opts.tell) lines.push(`<div class="standoff-line standoff-read"><span class="standoff-sys">&gt;</span> read: ${esc(opts.tell)}</div>`);
     (opts.rows || []).forEach(r => lines.push(rowLine(r)));
     lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> resolving odds<span class="standoff-cursor"></span></div>`);
     cards.innerHTML =
