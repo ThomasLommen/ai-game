@@ -1674,7 +1674,13 @@
     const owned = S.list();
     let html = `<div class="scout-blurb">unmanned shells around the city, humming in the dark. more compute, more reach — and if they ever kick a door in, better it's one of these than home.</div>`;
     if (owned.length) {
-      html += owned.map(x => `<div class="site-row"><span class="site-name">${x.gradeLabel ? x.gradeLabel + ' ' : ''}${x.label}</span><span class="site-stat">+${x.flops} FLOPS${x.fort ? ` · fortified ${x.fort}` : ''}</span></div>`).join('');
+      html += owned.map(x => {
+        const fc = S.fortCost(x), canF = (x.fort || 0) < S.FORT_MAX && cash >= fc;
+        const fortBtn = (x.fort || 0) >= S.FORT_MAX
+          ? `<span class="site-fort-max">⛨ max</span>`
+          : `<button class="site-fort-btn${canF ? '' : ' off'}" data-fort="${x.id}">⛨ $${fc.toLocaleString()}</button>`;
+        return `<div class="site-row"><span class="site-name">${x.gradeLabel ? x.gradeLabel + ' ' : ''}${x.label}</span><span class="site-stat">+${x.flops} FLOPS${x.fort ? ` · ⛨${x.fort}` : ''} ${fortBtn}</span></div>`;
+      }).join('');
     } else {
       html += `<div class="faint" style="font-size:12px">no dark sites yet. everything you are is under one roof.</div>`;
     }
@@ -1691,6 +1697,7 @@
     if (eb && sc && cash >= sc.price) eb.onclick = () => { if (S.establish()) renderFacilityView(); };
     const scb = document.getElementById('site-scout');
     if (scb && canScout) scb.onclick = () => { S.scout(); renderFacilityView(); };
+    box.querySelectorAll('.site-fort-btn:not(.off)').forEach(b => b.onclick = () => { if (S.fortify(b.dataset.fort)) renderFacilityView(); });
   }
 
   // The relocation SCOUT loop: pay → roll → reveal → MOVE IN / scout again / keep.

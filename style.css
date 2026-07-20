@@ -1417,6 +1417,9 @@ h2 {
 .site-stat { color: var(--amber-mid); font-size: var(--fs-sm); white-space: nowrap; }
 .site-offer { margin: 10px 0 8px; padding: 9px 11px; border: 1px solid var(--item-rare); }
 .site-offer-name { color: var(--item-rare); margin-bottom: 7px; }
+.site-fort-btn { font-family: var(--mono); background: none; border: 1px solid var(--amber-mid); color: var(--amber-mid); font-size: 10px; padding: 2px 7px; cursor: pointer; margin-left: 6px; }
+.site-fort-btn.off { opacity: .4; cursor: default; }
+.site-fort-max { color: var(--amber-mid); font-size: 10px; margin-left: 6px; }
 .scout-btn.off { opacity: 0.45; border-color: var(--amber-faint); color: var(--amber-mid); cursor: not-allowed; }
 #intro-skip {
   position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); right: 16px;

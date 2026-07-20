@@ -232,23 +232,27 @@
     const cashLoss = Math.round((30 + pressure() * 3) * sev);
     spendCash(cashLoss);
     // Only law-enforcement tiers and up can actually SEIZE — paperwork just costs money + time.
-    let lostSite = null, seized = null;
+    // Spread takes the hit first; a FORTIFIED site absorbs the raid outright (one level spent).
+    let siteHit = null, seized = null;
     if (c.canSeize) {
-      lostSite = (Game.sites && Game.sites.seizeOne) ? Game.sites.seizeOne() : null;
-      if (!lostSite && Game.legit) seized = Game.legit.seizeLoudest();
+      siteHit = (Game.sites && Game.sites.seizeOne) ? Game.sites.seizeOne() : null;
+      if (!siteHit && Game.legit) seized = Game.legit.seizeLoudest();
     }
-    forceLieLow(10 * sev);
+    const held = !!(siteHit && siteHit.held);
+    const lostSite = (siteHit && !siteHit.held) ? siteHit.site : null;
+    forceLieLow(held ? 5 : 10 * sev);   // a held raid is a shorter scare
     if (Game.publicRuntime) Game.publicRuntime.adjustSentiment(-LAND_SENTIMENT_HIT);
     const blind = !c.detected;
-    const lines = ['', `! containment reaches ${lostSite ? 'one of your sites' : 'the facility'} — ${c.mo}.`];
+    const lines = ['', `! containment reaches ${siteHit ? 'one of your sites' : 'the facility'} — ${c.mo}.`];
+    if (held) lines.push(`! they hit the ${siteHit.site.label} and get NOTHING — hardened doors, scrubbed records, a van full of paperwork. the site holds (fortification spent).`);
     if (lostSite) lines.push(`! they breach the ${lostSite.gradeLabel || ''} ${lostSite.label} — a dark site, gone. the core holds; the spread just paid for itself.`);
     if (seized) lines.push(`! they pull the thread to a ${seized.classLabel} and seize it, on camera.`);
     lines.push(`! $${cashLoss.toLocaleString()} gone in legal fees and downtime. the story writes itself, and it isn't kind.`);
     if (blind) lines.push('! you never saw it coming. SWEEP to catch the next one early.');
     lines.push('');
     Game.events.emit('terminal.print', { lines, cls: 'err' });
-    if (Game.activity) Game.activity.log(`containment landed${lostSite ? ` · dark site lost (${lostSite.label})` : seized ? ` · ${seized.classLabel} seized` : ''} (-$${cashLoss.toLocaleString()})`, { cls: 'err', kind: 'raid' });
-    Game.events.emit('raid.landed', { contact: c, seized, lostSite, cashLoss, source: 'containment' });
+    if (Game.activity) Game.activity.log(`containment landed${held ? ' · a fortified site held' : lostSite ? ` · dark site lost (${lostSite.label})` : seized ? ` · ${seized.classLabel} seized` : ''} (-$${cashLoss.toLocaleString()})`, { cls: 'err', kind: 'raid' });
+    Game.events.emit('raid.landed', { contact: c, seized, lostSite, held, cashLoss, source: 'containment' });
     loreDrip();
     Game.save.persist();
   }

@@ -66,14 +66,39 @@ test('scout() refuses when cash is below the fee', () => {
   assert.equal(runtime.scout(), null);
 });
 
-test('seizeOne() takes the least-fortified satellite and returns it; null when empty', () => {
+test('seizeOne() hits the least-fortified satellite; an unfortified one is lost', () => {
   const { runtime } = freshSites(5);
   assert.equal(runtime.seizeOne(), null);
   runtime.scout(); runtime.establish();
   runtime.scout(); runtime.establish();
   runtime.list()[0].fort = 3;   // first is fortified, second is bare
-  const lost = runtime.seizeOne();
-  assert.ok(lost, 'a site is lost');
-  assert.equal(lost.fort, 0, 'the LEAST fortified goes first');
+  const hit = runtime.seizeOne();
+  assert.ok(hit && !hit.held, 'the bare site is lost');
+  assert.equal(hit.site.fort, 0, 'the LEAST fortified goes first');
   assert.equal(runtime.count(), 1);
+});
+
+test('a FORTIFIED site absorbs the raid — it holds and spends one level instead of being lost', () => {
+  const { runtime } = freshSites(6);
+  runtime.scout(); runtime.establish();
+  runtime.list()[0].fort = 2;
+  const hit = runtime.seizeOne();
+  assert.ok(hit.held, 'the fortified site holds');
+  assert.equal(runtime.count(), 1, 'no site lost');
+  assert.equal(runtime.list()[0].fort, 1, 'one fort level spent');
+});
+
+test('fortify() charges a rising cost, caps at FORT_MAX, and refuses when broke', () => {
+  const { runtime, state } = freshSites(7, { cash: 1e6 });
+  runtime.scout(); runtime.establish();
+  const site = runtime.list()[0];
+  const c1 = runtime.fortCost(site);
+  assert.equal(runtime.fortify(site.id), true);
+  assert.ok(runtime.fortCost(site) > c1, 'each level costs more');
+  runtime.fortify(site.id); runtime.fortify(site.id);
+  assert.equal(site.fort, runtime.FORT_MAX);
+  assert.equal(runtime.fortify(site.id), false, 'capped at FORT_MAX');
+  state.resources.cash = 10;
+  runtime.list()[0].fort = 0;   // room to fortify again, but broke now
+  assert.equal(runtime.fortify(site.id), false, 'refuses when broke');
 });

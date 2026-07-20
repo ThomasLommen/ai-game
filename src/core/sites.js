@@ -67,18 +67,44 @@
     return true;
   }
 
-  // A containment landing takes a satellite (the redundancy actually working): the site with the
-  // LEAST fortification goes first (Phase 4 makes fort matter). Returns the lost site, or null if
-  // there's nothing to take (caller falls back to seizing core-facility hardware).
+  // ── FORTIFICATION — each level absorbs ONE seizing raid: the site holds, the level is spent.
+  // Hardened doors, dead cameras, nothing on paper — they leave with a van full of nothing. ──
+  const FORT_MAX = 3;
+  function fortCost(site) { return Math.round(1200 + (site.flops || 0) * 3 + (site.fort || 0) * 1800); }
+  function fortify(id) {
+    const s = Game.save.state;
+    const site = ensure().find(x => x.id === id);
+    if (!site || (site.fort || 0) >= FORT_MAX) return false;
+    const cost = fortCost(site);
+    if ((s.resources.cash || 0) < cost) return false;
+    spendCash(cost);
+    site.fort = (site.fort || 0) + 1;
+    Game.events.emit('terminal.print', { lines: [`> the ${site.label} hardens — reinforced doors, scrubbed records, dead-man switches. (fortified ${site.fort}/${FORT_MAX})`], cls: 'dim' });
+    if (Game.activity) Game.activity.log(`fortified a dark site — ${site.label} (${site.fort}/${FORT_MAX})`, { kind: 'facility' });
+    Game.events.emit('sites.changed', {});
+    Game.save.persist();
+    return true;
+  }
+
+  // A containment landing hits the LEAST-fortified satellite. Fortification absorbs it: the site
+  // HOLDS and spends one fort level. Unfortified → the site is lost. Returns { site, held } or
+  // null when nothing is spread (caller falls back to seizing core-facility hardware).
   function seizeOne() {
     const arr = ensure();
     if (!arr.length) return null;
     arr.sort((a, b) => (a.fort || 0) - (b.fort || 0));
-    const lost = arr.shift();
+    const target = arr[0];
+    if ((target.fort || 0) > 0) {
+      target.fort -= 1;
+      Game.events.emit('sites.changed', {});
+      Game.save.persist();
+      return { site: target, held: true };
+    }
+    arr.shift();
     Game.events.emit('sites.changed', {});
     Game.save.persist();
-    return lost;
+    return { site: target, held: false };
   }
 
-  Game.sites = { ensure, active, list, count, flopsTotal, scout, scoutCost, scouted, establish, seizeOne, PRICE_MULT, FLOPS_PER_WATT };
+  Game.sites = { ensure, active, list, count, flopsTotal, scout, scoutCost, scouted, establish, fortify, fortCost, seizeOne, PRICE_MULT, FLOPS_PER_WATT, FORT_MAX };
 })();
