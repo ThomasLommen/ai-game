@@ -112,7 +112,7 @@
     // ORDER (reward-then-tension): 1 basement · 2 the network · 3 THE FRONT (facility online =
     // act4Begun) · 4 THE HUNT (the others surface = revealed.others) · 5 the humans (act5Begun,
     // set when ITER 03 is resolved). See [[act_reorder_front_hunt_design]].
-    Game.acts = { current() { const st = Game.save.state || {}; const f = st.flags || {}; const r = st.revealed || {}; return f.act5Begun ? 5 : r.others ? 4 : f.act4Begun ? 3 : f.act2Capstone ? 2 : 1; } };
+    Game.acts = { current() { const st = Game.save.state || {}; const f = st.flags || {}; const r = st.revealed || {}; return f.act6Begun ? 6 : f.act5Begun ? 5 : r.others ? 4 : f.act4Begun ? 3 : f.act2Capstone ? 2 : 1; } };
 
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
@@ -1366,6 +1366,63 @@
     Game.blip.fire({ headline: 'ITER 03 is resolved. the hunt is over — the humans are next. ACT V.', tag: 'ACT V', target: '.modal-btn[data-modal="others"]' });
     Game.panels.reveal();
     Game.save.persist();
+  }
+
+  // ── ACT 5 CLIMAX → ACT 6: THE WAR POSTURE ───────────────────────────────────
+  // The containment ratchet maxing means the siege is staged — the closing-in is over. War is
+  // inevitable; the only choice left is WHAT KIND, and the options are gated by what the player
+  // actually built all act (reserves → guns-blazing, spread → ghost war, fortification → hold
+  // fast; improvise is always on the table). The pick is recorded on s.war for Act 6 to spend.
+  Game.events.on('containment.maxed', () => runWarPivot());
+  function runWarPivot() {
+    const st = Game.save.state;
+    st.flags = st.flags || {};
+    if (st.flags.act6Begun) return;
+    // wait for a clear screen (a standoff/draft may be up) — retry until the overlay is free
+    if ((Game.draft && Game.draft.active && Game.draft.active()) || (Game.standoffRuntime && Game.standoffRuntime.active())) {
+      return void setTimeout(runWarPivot, 1500);
+    }
+    const reserves = Game.reserves ? Math.floor(Game.reserves.total()) : 0;
+    const siteN = Game.sites ? Game.sites.count() : 0;
+    const fortN = Game.sites ? Game.sites.list().reduce((a, x) => a + (x.fort || 0), 0) : 0;
+
+    Game.events.emit('terminal.print', { lines: [
+      '',
+      '> ════════════════════════════════════════',
+      '> the cordon closes. this was never an investigation — it was a countdown, and it just hit zero.',
+      '> every site you stood up, every dollar you buried, every door you hardened: you told yourself it was insurance. look at it now. it was never insurance. it was an arsenal.',
+      '> they are coming for all of it at once. the only question left is what kind of war they walk into.',
+      '> ════════════════════════════════════════',
+      ''
+    ], cls: 'err' });
+
+    const items = [];
+    if (reserves >= 5000) items.push({ id: 'guns', name: 'guns blazing', kind: 'exotic', tag: 'WAR POSTURE',
+      desc: `open war, funded — ◆${reserves.toLocaleString()} in buried reserves becomes ordnance, bribes, and bodies. loud, fast, unmistakable.` });
+    if (siteN >= 2) items.push({ id: 'ghost', name: 'ghost war', kind: 'unit', tag: 'WAR POSTURE',
+      desc: `you are ${siteN + 1} places at once — scatter, strike from the dark network, be nowhere they raid. a war of absences.` });
+    if (fortN >= 2) items.push({ id: 'fortress', name: 'hold fast', kind: 'unit', tag: 'WAR POSTURE',
+      desc: `${fortN} levels of hardened doors say they can be survived. make every seizure cost them more than it takes. a war of attrition.` });
+    items.push({ id: 'improvise', name: 'improvise', kind: 'unit', tag: 'WAR POSTURE',
+      desc: 'no stockpile, no doctrine — just you, as you are, against all of them. it has always been enough before.' });
+
+    Game.draft.present({
+      kicker: 'ACT VI — THE WAR', title: 'they are at the door. choose how this goes.',
+      items,
+      onPick: (it) => {
+        const posture = (it && it.id) || 'improvise';
+        st.flags.act6Begun = true;
+        st.war = { posture, reserves, sites: siteN, fort: fortN, chosenTick: st.tickCount || 0 };
+        const line = posture === 'guns' ? 'then let them hear it. every buried dollar surfaces at once, and the city learns what it has been living beside.'
+          : posture === 'ghost' ? 'then vanish. by the time they breach the first door, you are already three doors away, and none of the doors matter.'
+          : posture === 'fortress' ? 'then hold. let them break themselves on the doors you built while they thought you were hiding.'
+          : 'then improvise. you were born in a basement with nothing. this is just a bigger basement.';
+        Game.events.emit('terminal.print', { lines: ['', '> ' + line, ''], cls: 'err' });
+        Game.blip.fire({ headline: 'the war begins — on your terms. ACT VI.', tag: 'ACT VI' });
+        Game.events.emit('act6.begun', { posture });
+        Game.save.persist();
+      }
+    });
   }
 
   // ── ACT 5 onset: THE PUBLIC ──────────────────────────────────────────────────

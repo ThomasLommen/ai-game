@@ -263,6 +263,13 @@
     for (const c of st.contacts.slice()) if (now >= c.landsAtTick) land(c);
     // THE RATCHET climbs — never falls. Your footprint (growth) drives it; sentiment only paces it.
     st.threat = Math.min(THREAT_MAX, (st.threat || 0) + climbPerSec() / HZ);
+    // Maxed: the siege is staged — the closing-in is over and the war begins. Emitted once;
+    // main.js runs the Act-6 posture pivot (containment stays DOM-free).
+    if (st.threat >= THREAT_MAX && !(s.flags && s.flags.act6PivotFired)) {
+      s.flags = s.flags || {}; s.flags.act6PivotFired = true;
+      Game.events.emit('containment.maxed', {});
+      Game.save.persist();
+    }
     // Leads seed once the ratchet is past the grace window; harsher/faster the higher it climbs.
     if (st.threat < SEED_ONSET) { st.nextSeedTick = -1; return; }
     // A new adversary TIER unlocking is an authored escalation beat (paperwork → badges → federal → siege).
