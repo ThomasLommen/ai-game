@@ -1692,7 +1692,23 @@
     }
     const fee = S.scoutCost(), canScout = cash >= fee;
     html += `<button class="scout-btn${canScout ? '' : ' off'}" id="site-scout">${canScout ? `[ scout a dark site · $${fee.toLocaleString()} ]` : `need $${fee.toLocaleString()} to scout`}</button>`;
+    // RESERVES — the raid-proof stash (one-way; secretly the Act-6 war chest).
+    if (Game.reserves && Game.reserves.active()) {
+      const rv = Math.floor(Game.reserves.total());
+      html += `<div class="reserves-block"><div class="reserves-line"><span>RESERVES · untouchable</span><span class="reserves-amt">◆ ${rv.toLocaleString()}</span></div>
+        <div class="scout-blurb">cash they can seize. this they can't — dead drops, prepaid compute, favors banked. one-way: what goes dark stays dark.</div>
+        <div class="reserves-btns">
+          <button class="site-fort-btn${cash >= 1000 ? '' : ' off'}" data-bank="1000">bank $1k</button>
+          <button class="site-fort-btn${cash >= 10000 ? '' : ' off'}" data-bank="10000">bank $10k</button>
+          <button class="site-fort-btn${cash >= 100 ? '' : ' off'}" data-bank="all">bank all</button>
+        </div></div>`;
+    }
     box.innerHTML = html;
+    box.querySelectorAll('[data-bank]:not(.off)').forEach(b => b.onclick = () => {
+      const s2 = Game.save.state;
+      Game.reserves.bank(b.dataset.bank === 'all' ? (s2.resources.cash || 0) : +b.dataset.bank);
+      renderFacilityView();
+    });
     const eb = document.getElementById('site-establish');
     if (eb && sc && cash >= sc.price) eb.onclick = () => { if (S.establish()) renderFacilityView(); };
     const scb = document.getElementById('site-scout');
