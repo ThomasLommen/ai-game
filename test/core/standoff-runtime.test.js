@@ -109,6 +109,32 @@ test('archetype weighting: adaptations swing a swarm matchup far more than a bru
   assert.ok((swarmAdapt - swarmNoAdapt) > (bruteAdapt - bruteNoAdapt) + 0.1, `adaptations should matter more vs a swarm (${swarmAdapt - swarmNoAdapt}) than a brute (${bruteAdapt - bruteNoAdapt})`);
 });
 
+test('threat traits shift the odds on top of the archetype (skittish eases, cornered worsens)', () => {
+  const { runtime } = freshStandoff(6.6);
+  const you = { compute: 100, stealth: 60, adaptations: 1 };
+  const base = { power: 100, alertness: 60, kind: 'automated' };
+  const plain    = runtime.computeOdds(you, base);
+  const skittish = runtime.computeOdds(you, { ...base, trait: 'skittish' });
+  const cornered = runtime.computeOdds(you, { ...base, trait: 'cornered' });
+  assert.ok(skittish > plain + 0.08, `skittish should ease the odds (${skittish} vs ${plain})`);
+  assert.ok(cornered < plain - 0.08, `cornered should worsen the odds (${cornered} vs ${plain})`);
+});
+
+test("the 'swift' trait widens the outcome grading — more overwhelming/blown, fewer clean/narrow", () => {
+  const tally = (traitId) => {
+    const { runtime, compareCalls } = freshStandoff(30, { threads: 12 });   // ~even-ish odds
+    const seen = { extreme: 0, middling: 0 };
+    for (let i = 0; i < 300; i++) {
+      let r = null;
+      runtime.begin({ threat: { power: 100, alertness: 50, kind: 'automated', trait: traitId } }, x => { r = x; });
+      compareCalls[compareCalls.length - 1].onEngage();
+      if (r.tier === 'overwhelming' || r.tier === 'blown') seen.extreme++; else seen.middling++;
+    }
+    return seen.extreme;
+  };
+  assert.ok(tally('swift') > tally(null) + 20, 'swift should produce noticeably more extreme (overwhelming/blown) outcomes');
+});
+
 test('compareRows marks the archetype tell (the axis this kind is beaten by)', () => {
   const { runtime } = freshStandoff(6.3);
   runtime.begin({ threat: { power: 40, alertness: 20, kind: 'hunter' } }, () => {});

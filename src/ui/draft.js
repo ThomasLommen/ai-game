@@ -75,6 +75,7 @@
     const lines = [`<div class="standoff-line"><span class="standoff-sys">&gt;</span> analyzing target...</div>`];
     if (opts.body) lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc(opts.body)}</div>`);
     if (opts.tell) lines.push(`<div class="standoff-line standoff-read"><span class="standoff-sys">&gt;</span> read: ${esc(opts.tell)}</div>`);
+    if (opts.trait) lines.push(`<div class="standoff-line standoff-trait"><span class="standoff-sys">&gt;</span> ${esc(opts.trait)}</div>`);
     (opts.rows || []).forEach(r => lines.push(rowLine(r)));
     lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> resolving odds<span class="standoff-cursor"></span></div>`);
     cards.innerHTML =

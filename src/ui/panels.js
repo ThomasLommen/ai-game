@@ -412,12 +412,14 @@
       const ready = cd <= 0;
       const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
       const a = arch(b.threat && b.threat.kind);
+      const tr = (b.threat && b.threat.trait && Game.standoffRuntime && Game.standoffRuntime.trait) ? Game.standoffRuntime.trait(b.threat.trait) : null;
       h += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
-          <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
+          <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait${tr ? ` · ${tr.name}` : ''}</div>
           <div class="a-name">${b.name}</div>
           <div class="a-lure">${b.lure}</div>
           <div class="a-stat">draws ${b.threat.classLabel}</div>
           ${a ? `<div class="a-tell">▸ ${a.desc}</div>` : ''}
+          ${tr ? `<div class="a-trait">✦ ${tr.note}</div>` : ''}
           <div class="a-rew">harvest ${rew}</div>
           <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
           <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>

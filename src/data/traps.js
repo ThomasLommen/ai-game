@@ -93,10 +93,17 @@
       power: vary(tmpl.threat.power),
       alertness: vary(tmpl.threat.alertness),
     });
+    // ~45% of springs carry a TRAIT — a wrinkle on top of the archetype (see standoff-runtime).
+    // cashMult is baked into the shown payout here so display == payout (honest board).
+    const TR = Game.standoffRuntime && Game.standoffRuntime.TRAITS;
+    if (TR && R().chance(0.45)) threat.trait = R().pick(Object.keys(TR));
+    const traitDef = (threat.trait && Game.standoffRuntime.trait) ? Game.standoffRuntime.trait(threat.trait) : null;
+    let cash = (rw.cashBase || 0) + (rw.cashMult ? Game.rewards.coherenceScaled(st, rw.cashMult, 0.25, 2500) : 0);   // flat floor (early) + Coherence-scaled
+    if (traitDef && traitDef.cashMult) cash = Math.round(cash * traitDef.cashMult);
     return {
       id: tmpl.id, name: tmpl.name, tier: tmpl.tier, lure: tmpl.lure, risk: tmpl.risk,
       threat,
-      cash: (rw.cashBase || 0) + (rw.cashMult ? Game.rewards.coherenceScaled(st, rw.cashMult, 0.25, 2500) : 0),   // flat floor (early) + Coherence-scaled, steeper at scale (deep game)
+      cash,
       insight: rw.insightMult ? Game.rewards.coherenceScaled(st, rw.insightMult, 0.25) : 0,
       itemChance: rw.itemChance || 0,
       exposure: R().int(tmpl.exposure[0], tmpl.exposure[1]),
