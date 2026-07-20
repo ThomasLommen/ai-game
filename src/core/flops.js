@@ -23,8 +23,9 @@
     return raw * thr * fm;
   }
   function absorbedFlops() { return (Game.others && Game.others.absorbedFlops) ? Game.others.absorbedFlops() : 0; }
+  function sitesFlops() { return (Game.sites && Game.sites.flopsTotal) ? Game.sites.flopsTotal() : 0; }   // Act 5: the dark satellite network
   function total() {
-    const base = rigFlops() + facilityFlops() + absorbedFlops();   // +compute taken from absorbed iterations (Act 4 slice 4)
+    const base = rigFlops() + facilityFlops() + absorbedFlops() + sitesFlops();   // +absorbed iterations (Act 4) +dark sites (Act 5)
     return Game.effects ? Game.effects.apply(base, 'flops') : base;   // future research/agents can scale it
   }
   function active() {

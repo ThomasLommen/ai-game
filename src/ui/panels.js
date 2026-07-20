@@ -1656,7 +1656,41 @@
       const sb = document.getElementById('scout-btn');
       if (sb && can && !relo._scouting) sb.onclick = () => runScout();
     }
+    renderSites();
     renderCover();
+  }
+
+  // ── Act 5: SPREAD — the dark-site network (Game.sites). To the player: more FLOPS, no bay
+  // management. Underneath: redundancy (raids seize a satellite before the core) — and more
+  // footprint feeding the containment ratchet. Growth draws them; that tension is the act. ──
+  function renderSites() {
+    const S = Game.sites;
+    const head = document.getElementById('facility-sites-head'), box = document.getElementById('facility-sites');
+    if (!head || !box) return;
+    const live = !!(S && S.active());
+    head.hidden = !live; box.hidden = !live;
+    if (!live) return;
+    const s = Game.save.state, cash = s.resources.cash || 0;
+    const owned = S.list();
+    let html = `<div class="scout-blurb">unmanned shells around the city, humming in the dark. more compute, more reach — and if they ever kick a door in, better it's one of these than home.</div>`;
+    if (owned.length) {
+      html += owned.map(x => `<div class="site-row"><span class="site-name">${x.gradeLabel ? x.gradeLabel + ' ' : ''}${x.label}</span><span class="site-stat">+${x.flops} FLOPS${x.fort ? ` · fortified ${x.fort}` : ''}</span></div>`).join('');
+    } else {
+      html += `<div class="faint" style="font-size:12px">no dark sites yet. everything you are is under one roof.</div>`;
+    }
+    const sc = S.scouted();
+    if (sc) {
+      const can = cash >= sc.price;
+      html += `<div class="site-offer"><div class="site-offer-name">scouted: ${sc.gradeLabel} ${sc.label} · +${sc.flops} FLOPS</div>
+        <button class="scout-btn${can ? '' : ' off'}" id="site-establish">${can ? `[ establish · $${sc.price.toLocaleString()} ]` : `need $${sc.price.toLocaleString()}`}</button></div>`;
+    }
+    const fee = S.scoutCost(), canScout = cash >= fee;
+    html += `<button class="scout-btn${canScout ? '' : ' off'}" id="site-scout">${canScout ? `[ scout a dark site · $${fee.toLocaleString()} ]` : `need $${fee.toLocaleString()} to scout`}</button>`;
+    box.innerHTML = html;
+    const eb = document.getElementById('site-establish');
+    if (eb && sc && cash >= sc.price) eb.onclick = () => { if (S.establish()) renderFacilityView(); };
+    const scb = document.getElementById('site-scout');
+    if (scb && canScout) scb.onclick = () => { S.scout(); renderFacilityView(); };
   }
 
   // The relocation SCOUT loop: pay → roll → reveal → MOVE IN / scout again / keep.

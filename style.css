@@ -1410,6 +1410,13 @@ h2 {
 .scout-blurb { font-size: var(--fs-base); color: var(--amber-mid); line-height: 1.5; margin-bottom: 8px; }
 .scout-btn { font-family: var(--mono); background: var(--bg-pane); border: 1px solid var(--item-rare); color: var(--item-rare); font-size: var(--fs-lg); padding: 9px 16px; cursor: pointer; letter-spacing: 1px; }
 .scout-btn:hover { box-shadow: 0 0 14px -3px rgba(199,155,255,0.5); }
+.scout-btn.off { opacity: .45; cursor: default; }
+/* Act 5: the dark-site network (SPREAD) */
+.site-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--amber-faint); }
+.site-name { color: var(--amber); }
+.site-stat { color: var(--amber-mid); font-size: var(--fs-sm); white-space: nowrap; }
+.site-offer { margin: 10px 0 8px; padding: 9px 11px; border: 1px solid var(--item-rare); }
+.site-offer-name { color: var(--item-rare); margin-bottom: 7px; }
 .scout-btn.off { opacity: 0.45; border-color: var(--amber-faint); color: var(--amber-mid); cursor: not-allowed; }
 #intro-skip {
   position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); right: 16px;

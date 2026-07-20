@@ -92,7 +92,7 @@
   function sentiment() { return (Game.publicRuntime ? Game.publicRuntime.sentiment() : 50); }
 
   // ── THE RATCHET ─────────────────────────────────────────────────────────────
-  function siteCount() { const s = Game.save.state; return (s.sites && s.sites.length) || 1; }   // Phase 3 makes this real
+  function siteCount() { return 1 + ((Game.sites && Game.sites.count) ? Game.sites.count() : 0); }   // the core facility + the dark satellites
   function flopsTotal() { return (Game.flops && Game.flops.total) ? (Game.flops.total() || 0) : 0; }
   // Your FOOTPRINT — how big/visible you are. Growth is what draws them.
   function footprint() {
@@ -222,26 +222,33 @@
     return true;
   }
 
-  // ── a lead LANDS → they reach the facility ──────────────────────────────────
+  // ── a lead LANDS → they reach a site ────────────────────────────────────────
+  // SPREAD pays off here: a seizing raid takes a SATELLITE first (one dark site lost, the core
+  // untouched). Only when there's nothing spread do they pull hardware out of the core facility.
   function land(c) {
     const s = Game.save.state;
     remove(c);
     const sev = c.severity;
     const cashLoss = Math.round((30 + pressure() * 3) * sev);
     spendCash(cashLoss);
-    // Only law-enforcement tiers and up can actually SEIZE hardware — paperwork just costs money + time.
-    const seized = (c.canSeize && Game.legit) ? Game.legit.seizeLoudest() : null;
+    // Only law-enforcement tiers and up can actually SEIZE — paperwork just costs money + time.
+    let lostSite = null, seized = null;
+    if (c.canSeize) {
+      lostSite = (Game.sites && Game.sites.seizeOne) ? Game.sites.seizeOne() : null;
+      if (!lostSite && Game.legit) seized = Game.legit.seizeLoudest();
+    }
     forceLieLow(10 * sev);
     if (Game.publicRuntime) Game.publicRuntime.adjustSentiment(-LAND_SENTIMENT_HIT);
     const blind = !c.detected;
-    const lines = ['', `! containment reaches the facility — ${c.mo}.`];
+    const lines = ['', `! containment reaches ${lostSite ? 'one of your sites' : 'the facility'} — ${c.mo}.`];
+    if (lostSite) lines.push(`! they breach the ${lostSite.gradeLabel || ''} ${lostSite.label} — a dark site, gone. the core holds; the spread just paid for itself.`);
     if (seized) lines.push(`! they pull the thread to a ${seized.classLabel} and seize it, on camera.`);
     lines.push(`! $${cashLoss.toLocaleString()} gone in legal fees and downtime. the story writes itself, and it isn't kind.`);
     if (blind) lines.push('! you never saw it coming. SWEEP to catch the next one early.');
     lines.push('');
     Game.events.emit('terminal.print', { lines, cls: 'err' });
-    if (Game.activity) Game.activity.log(`containment landed${seized ? ` · ${seized.classLabel} seized` : ''} (-$${cashLoss.toLocaleString()})`, { cls: 'err', kind: 'raid' });
-    Game.events.emit('raid.landed', { contact: c, seized, cashLoss, source: 'containment' });
+    if (Game.activity) Game.activity.log(`containment landed${lostSite ? ` · dark site lost (${lostSite.label})` : seized ? ` · ${seized.classLabel} seized` : ''} (-$${cashLoss.toLocaleString()})`, { cls: 'err', kind: 'raid' });
+    Game.events.emit('raid.landed', { contact: c, seized, lostSite, cashLoss, source: 'containment' });
     loreDrip();
     Game.save.persist();
   }
