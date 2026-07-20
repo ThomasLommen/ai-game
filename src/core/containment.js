@@ -1,19 +1,24 @@
 (function(){
   window.Game = window.Game || {};
 
-  // ACT 5: CONTAINMENT — once you're public, the humans can come for the facility
-  // itself. Mirrors raids.js's proven THREAT LOOP shape (seeded leads → detected
-  // contacts → cut/misdirect/land) almost exactly, but the trigger is INVERTED:
-  // raids.js escalates when you're LOUD; this escalates when you're UNPOPULAR.
-  // Low sentiment (Game.publicRuntime) opens the door; it closes again the moment
-  // sentiment recovers — no separate trace gauge, sentiment IS the pressure.
-  // Hands off cleanly from raids.js: location-trace.js's active() explicitly
-  // excludes act5Begun, so THE HUNT (others) and containment (humans) never
-  // overlap — same city-map radar, different era. See [[act_reorder_front_hunt_design]].
+  // ACT 5: CONTAINMENT — "the humans begin closing in." The player thinks they're just
+  // expanding (more sites, more compute, more cash) and staying hidden — but their own GROWTH
+  // is what draws the humans, and the pressure only ever climbs. A one-way THREAT LEVEL ratchet
+  // (0..100) rises off your FOOTPRINT (sites + FLOPS + cash), faster when the public dislikes you
+  // and when you make noise (loud springs/ops bump it). It never falls — sentiment/quiet only
+  // SLOW the climb; you can stall it, never undo it. As it climbs, harsher leads seed. This is the
+  // escalation spine that builds toward Act 6 (open war). Mirrors raids.js's lead→detect→land
+  // loop for the contact handling. location-trace.js's active() excludes act5Begun so THE HUNT
+  // (others) and containment (humans) never overlap. See [[act_reorder_front_hunt_design]].
   const HZ = 4;
-  const FLOOR = 40;               // sentiment must be BELOW this before any lead seeds at all
-  const SEED_GAP_MAX = 220 * HZ;  // ~220s between leads just under the floor
-  const SEED_GAP_MIN = 50  * HZ;  // ~50s between leads at rock-bottom sentiment
+  const THREAT_MAX   = 100;
+  const SEED_ONSET   = 8;         // threat below this = quiet (a grace window as Act 5 opens)
+  const CLIMB_K      = 0.0032;    // footprint → threat/sec (tunable — the ramp's overall pace)
+  const BUMP_AMBUSH  = 2;         // a sprung ambush is loud — nudges the ratchet
+  const BUMP_OP      = 3;         // a heist/operation, louder still
+  const FLOOR = 40;               // pressure ceiling — threat (0..100) maps onto 0..FLOOR for the seed/severity math
+  const SEED_GAP_MAX = 220 * HZ;  // ~220s between leads at low threat
+  const SEED_GAP_MIN = 50  * HZ;  // ~50s between leads at max threat
   const WINDOW_BASE  = 140 * HZ;  // ticks from seed → landing at severity 1
   const WINDOW_STEP  = 30  * HZ;  // each severity step lands ~30s sooner
   const WINDOW_MIN   = 45  * HZ;
@@ -21,6 +26,11 @@
   const MISDIRECT_P  = 0.6;
   const DEFLECT_COST_PER_SEV = 5;   // sentiment spent to deflect a lead outright — taxes the very thing keeping you safe
   const LAND_SENTIMENT_HIT = 6;     // a landed raid deepens the spiral
+  // Coarse bands for the threat gauge (Phase 2 turns these into real adversary tiers).
+  const BANDS = [
+    { at: 0,  label: 'quiet' }, { at: SEED_ONSET, label: 'noticed' }, { at: 25, label: 'compliance' },
+    { at: 45, label: 'regulators' }, { at: 65, label: 'law enforcement' }, { at: 85, label: 'federal' }, { at: 98, label: 'closing in' },
+  ];
 
   const LORE = [
     'the filings are public now. someone in a records office cross-referenced an address.',
@@ -52,6 +62,7 @@
     if (typeof c.seq !== 'number') c.seq = 0;
     if (typeof c.loreIdx !== 'number') c.loreIdx = 0;
     if (typeof c.lastLoreTick !== 'number') c.lastLoreTick = -1e9;
+    if (typeof c.threat !== 'number') c.threat = 0;   // the one-way ratchet
     return c;
   }
   function active() { return !!(Game.save.state.public && Game.save.state.public.revealed); }
@@ -59,7 +70,27 @@
   function detected() { return contacts().filter(c => c.detected); }
   function pending()  { return contacts().length; }
   function sentiment() { return (Game.publicRuntime ? Game.publicRuntime.sentiment() : 50); }
-  function pressure() { return Math.max(0, FLOOR - sentiment()); }   // 0 = safe, up to FLOOR = rock bottom
+
+  // ── THE RATCHET ─────────────────────────────────────────────────────────────
+  function siteCount() { const s = Game.save.state; return (s.sites && s.sites.length) || 1; }   // Phase 3 makes this real
+  function flopsTotal() { return (Game.flops && Game.flops.total) ? (Game.flops.total() || 0) : 0; }
+  // Your FOOTPRINT — how big/visible you are. Growth is what draws them.
+  function footprint() {
+    const s = Game.save.state;
+    return siteCount() * 8 + Math.log10(1 + flopsTotal()) * 6 + Math.log10(1 + (s.resources.cash || 0)) * 4;
+  }
+  // Sentiment only MODULATES the climb rate (0.5x when loved → 1.5x when hated); it can't lower threat.
+  function climbPerSec() {
+    const senti = Math.max(0, Math.min(100, sentiment()));
+    return footprint() * CLIMB_K * (0.5 + (100 - senti) / 100);
+  }
+  function threat() { return ensure().threat || 0; }
+  function threatPct() { return Math.round(threat()); }
+  function band() { let b = BANDS[0]; for (const x of BANDS) if (threat() >= x.at) b = x; return b.label; }
+  // Loud actions shove the ratchet forward (hooked from main.js on springs/ops).
+  function bump(amt) { const st = ensure(); st.threat = Math.min(THREAT_MAX, (st.threat || 0) + (amt || 0)); Game.save.persist(); }
+  // Threat maps onto the legacy 0..FLOOR "pressure" the seed/severity/cost math is tuned around.
+  function pressure() { return threat() * (FLOOR / THREAT_MAX); }
 
   function spendCash(amount) {
     const s = Game.save.state;
@@ -203,8 +234,11 @@
     if (!active()) return;
     const st = ensure(), s = Game.save.state, now = s.tickCount || 0;
     for (const c of st.contacts.slice()) if (now >= c.landsAtTick) land(c);
+    // THE RATCHET climbs — never falls. Your footprint (growth) drives it; sentiment only paces it.
+    st.threat = Math.min(THREAT_MAX, (st.threat || 0) + climbPerSec() / HZ);
+    // Leads seed once the ratchet is past the grace window; harsher/faster the higher it climbs.
+    if (st.threat < SEED_ONSET) { st.nextSeedTick = -1; return; }
     const p = pressure();
-    if (p <= 0) { st.nextSeedTick = -1; return; }   // sentiment recovered — no NEW leads seed (contacts already in motion still land on their own timer)
     if (st.nextSeedTick < 0) { st.nextSeedTick = now + seedGap(p); return; }
     if (now < st.nextSeedTick) return;
     st.nextSeedTick = now + seedGap(p);
@@ -214,6 +248,7 @@
   Game.containment = {
     ensure, active, tick, seedOne, detect, cut, misdirect, deflect, land,
     contacts, detected, pending, closeness, cutCost, deflectCost, canDeflect, pressure, sentiment,
-    FLOOR, MAX_CONTACTS, MISDIRECT_P, HZ
+    threat, threatPct, band, bump, footprint, climbPerSec,
+    THREAT_MAX, SEED_ONSET, BUMP_AMBUSH, BUMP_OP, FLOOR, MAX_CONTACTS, MISDIRECT_P, HZ
   };
 })();

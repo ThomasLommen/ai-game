@@ -455,6 +455,11 @@
     // facility you can claim for free (the second route in, besides saving the cash).
     Game.events.on('operation.resolved', (e) => { if (e && e.networkOp && e.infiltrated) maybeClaimAbandonedFacility(); });
 
+    // Act 5: loud actions shove the containment ratchet forward — being noisy while the humans
+    // are closing in hurries them along (it never falls, so this is a real, permanent cost).
+    Game.events.on('trap.resolved', () => { if (Game.containment && Game.containment.active()) Game.containment.bump(Game.containment.BUMP_AMBUSH); });
+    Game.events.on('operation.resolved', () => { if (Game.containment && Game.containment.active()) Game.containment.bump(Game.containment.BUMP_OP); });
+
     // Act 4: buying/selling/installing a machine → refresh the facility view, FLOPS, badge.
     ['facility.changed', 'machine.installed', 'cooling.changed'].forEach(e => {
       Game.events.on(e, () => {

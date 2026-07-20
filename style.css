@@ -1069,6 +1069,16 @@ h2 {
 .flops-inline { color: #8be9fd; }
 .cool-ok { color: #5a8a96; }
 .cool-over { color: var(--err); text-shadow: 0 0 6px rgba(255,70,70,0.4); }
+/* ── Act 5: the one-way containment THREAT gauge (the humans closing in) ── */
+.cont-threat { margin-bottom: 9px; }
+.cont-threat-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 10px; letter-spacing: 1.5px; color: var(--amber-mid); }
+.cont-threat-pct { color: var(--amber); letter-spacing: .5px; }
+.cont-threat-bar { height: 6px; margin-top: 4px; background: rgba(255,176,0,0.10); border: 1px solid var(--amber-faint); border-radius: 1px; overflow: hidden; }
+.cont-threat-bar i { display: block; height: 100%; background: var(--amber); transition: width .4s ease; }
+.cont-threat.warn .cont-threat-pct, .cont-threat.warn .cont-threat-top { color: #ff9a3c; }
+.cont-threat.warn .cont-threat-bar i { background: #ff9a3c; }
+.cont-threat.crit .cont-threat-pct, .cont-threat.crit .cont-threat-top { color: var(--err); }
+.cont-threat.crit .cont-threat-bar i { background: var(--err); box-shadow: 0 0 8px rgba(255,70,70,.6); }
 /* ACT 4: DARKNET gray-market hardware — ungated, cheap, loud (magenta = illicit). */
 .gray-head { color: var(--exotic); }
 .gray-tag { font-size: var(--fs-xs); letter-spacing: 1px; text-transform: uppercase; color: var(--exotic); border: 1px solid rgba(199,125,255,0.5); padding: 0 4px; }

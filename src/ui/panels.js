@@ -2269,10 +2269,17 @@
         const src = huntSource();
         const n = src.mod.detected().length, pend = src.mod.pending();
         const who = src.kind === 'human' ? 'they' : 'the others';
-        status.innerHTML = sweeping
+        // Act 5: the one-way containment THREAT ratchet — the humans closing in as you grow.
+        let gauge = '';
+        if (src.kind === 'human' && src.mod.threatPct) {
+          const pct = src.mod.threatPct(), bandLbl = src.mod.band ? src.mod.band() : '';
+          const lvl = pct >= 85 ? 'crit' : pct >= 55 ? 'warn' : '';
+          gauge = `<div class="cont-threat ${lvl}"><div class="cont-threat-top"><span>CONTAINMENT THREAT</span><span class="cont-threat-pct">${pct}% · ${bandLbl}</span></div><div class="cont-threat-bar"><i style="width:${Math.max(2, pct)}%"></i></div></div>`;
+        }
+        status.innerHTML = gauge + (sweeping
           ? `<span class="cool-over">sweeping the city for them…</span>`
           : n ? `<span class="cool-over">${n} hunter${n === 1 ? '' : 's'} on the map · drifting toward the door</span>`
-              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
+              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`);
       } else {
         const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
         status.textContent = sweeping

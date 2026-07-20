@@ -33,23 +33,44 @@ test('active() reflects state.public.revealed', () => {
   assert.equal(runtime.active(), false);
 });
 
-test('pressure() is 0 at or above FLOOR sentiment, and rises as sentiment drops below it', () => {
-  const { runtime, state } = freshContainment(1, { sentiment: 60 });
-  assert.equal(runtime.pressure(), 0);
-  state.public.sentiment = 10;
-  assert.equal(runtime.pressure(), runtime.FLOOR - 10);
+test('the threat ratchet only ever climbs — it never falls, even when sentiment recovers', () => {
+  const { runtime, state } = freshContainment(1, { sentiment: 10, cash: 1e6 });
+  for (let i = 0; i < 200; i++) { state.tickCount += 4; runtime.tick(); }
+  const climbed = runtime.threat();
+  assert.ok(climbed > 0, `threat should climb off footprint, got ${climbed}`);
+  state.public.sentiment = 100;   // become beloved
+  for (let i = 0; i < 200; i++) { state.tickCount += 4; runtime.tick(); }
+  assert.ok(runtime.threat() >= climbed, `threat must not fall when sentiment recovers (${runtime.threat()} vs ${climbed})`);
 });
 
-test('tick() seeds no leads while sentiment is at or above FLOOR', () => {
-  const { runtime, state } = freshContainment(2, { sentiment: 40 });
-  for (let i = 0; i < 50; i++) { state.tickCount += 10; runtime.tick(); }
-  assert.equal(runtime.pending(), 0);
+test('threat climbs faster when sentiment is low (hated) than high (loved) — sentiment paces the ramp', () => {
+  const hated = freshContainment(2, { sentiment: 0, cash: 1e6 });
+  const loved = freshContainment(2, { sentiment: 100, cash: 1e6 });
+  assert.ok(hated.runtime.climbPerSec() > loved.runtime.climbPerSec() * 2, 'a hated AI should ratchet far faster than a loved one');
 });
 
-test('tick() seeds leads once sentiment drops below FLOOR, up to MAX_CONTACTS', () => {
-  const { runtime, state } = freshContainment(3, { sentiment: 5 });
+test('bigger footprint (more cash/compute) ratchets faster — growth draws them', () => {
+  const small = freshContainment(3, { sentiment: 50, cash: 1e3 });
+  const big   = freshContainment(3, { sentiment: 50, cash: 1e9 });
+  assert.ok(big.runtime.footprint() > small.runtime.footprint(), 'more cash = bigger footprint');
+  assert.ok(big.runtime.climbPerSec() > small.runtime.climbPerSec(), 'bigger footprint climbs faster');
+});
+
+test('tick() stays quiet below the SEED_ONSET grace window, then seeds up to MAX_CONTACTS as threat climbs', () => {
+  const { runtime, state } = freshContainment(4, { sentiment: 30, cash: 1e6 });
+  runtime.ensure().threat = 2;                       // below onset
+  for (let i = 0; i < 20; i++) { state.tickCount += 5; runtime.tick(); }
+  runtime.ensure().threat = runtime.SEED_ONSET + 5;  // past the grace window
   for (let i = 0; i < 20000 && runtime.pending() < runtime.MAX_CONTACTS; i++) { state.tickCount += 5; runtime.tick(); }
   assert.equal(runtime.pending(), runtime.MAX_CONTACTS);
+});
+
+test('bump() shoves the ratchet forward and is clamped at THREAT_MAX', () => {
+  const { runtime } = freshContainment(5, { sentiment: 50 });
+  runtime.bump(10);
+  assert.ok(Math.abs(runtime.threat() - 10) < 1e-6);
+  runtime.bump(1000);
+  assert.equal(runtime.threat(), runtime.THREAT_MAX);
 });
 
 test('detect() marks all pending contacts detected and only returns the newly-detected ones', () => {
