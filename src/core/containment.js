@@ -26,31 +26,50 @@
   const MISDIRECT_P  = 0.6;
   const DEFLECT_COST_PER_SEV = 5;   // sentiment spent to deflect a lead outright — taxes the very thing keeping you safe
   const LAND_SENTIMENT_HIT = 6;     // a landed raid deepens the spiral
-  // Coarse bands for the threat gauge (Phase 2 turns these into real adversary tiers).
-  const BANDS = [
-    { at: 0,  label: 'quiet' }, { at: SEED_ONSET, label: 'noticed' }, { at: 25, label: 'compliance' },
-    { at: 45, label: 'regulators' }, { at: 65, label: 'law enforcement' }, { at: 85, label: 'federal' }, { at: 98, label: 'closing in' },
+  // ── ADVERSARY TIERS — who's closing in, escalating with the ratchet. Each tier unlocks at a
+  // threat threshold, bites harder (severity), and the top ones can SEIZE a site. As threat
+  // climbs the CURRENT tier advances (paperwork → badges → federal → a cordon), and each first
+  // reach fires an authored escalation beat. The top tier ('siege') is the Act-6 trigger (Phase 6).
+  const TIERS = [
+    { at: SEED_ONSET, id: 'compliance', label: 'compliance', sev: [1, 1], canSeize: false,
+      enter: 'a records office cross-references an address against a power bill. it is only paperwork — for now.',
+      mo: ['a zoning inspector cross-checking the permits against the power draw',
+           'a compliance officer asking the leasing agent pointed questions',
+           'a subpoena for the building\'s power records',
+           'a code-enforcement notice taped to the loading dock'] },
+    { at: 25, id: 'regulators', label: 'regulators', sev: [1, 2], canSeize: false,
+      enter: 'it isn\'t clerks anymore. a state regulator wants an unannounced walkthrough.',
+      mo: ['a state regulator requesting an unannounced walkthrough',
+           'a sealed order addressed to the facility',
+           'a utility auditor flagging the draw as physically impossible',
+           'an environmental review no one asked for'] },
+    { at: 45, id: 'law', label: 'law enforcement', sev: [2, 3], canSeize: true,
+      enter: 'someone with a badge is asking now. that is a different kind of trouble.',
+      mo: ['a task-force van running its engine two blocks out',
+           'a process server with a warrant, not a subpoena',
+           'a marked SUV holding station across the street',
+           'detectives pulling the building\'s camera feeds'] },
+    { at: 68, id: 'federal', label: 'federal', sev: [3, 4], canSeize: true,
+      enter: 'the agencies are talking to each other now. this is coordinated, and it is patient.',
+      mo: ['a coordinated multi-agency surveillance team',
+           'a sealed federal warrant, signed and waiting',
+           'unmarked sedans running the block on a schedule',
+           'a task force staging at a motel off the interstate'] },
+    { at: 90, id: 'siege', label: 'closing in', sev: [4, 5], canSeize: true,
+      enter: 'this stopped being an investigation. something is being staged out past the district edge. they mean to end it.',
+      mo: ['a cordon quietly forming at the district edge',
+           'drones holding a slow orbit over the block',
+           'a staging area lit up two miles out',
+           'the sector\'s power grid being mapped for a cut'] },
   ];
+  function currentTier() { let t = TIERS[0]; for (const x of TIERS) if (threat() >= x.at) t = x; return t; }
+  function tierIndex() { return TIERS.indexOf(currentTier()); }
 
   const LORE = [
     'the filings are public now. someone in a records office cross-referenced an address.',
     'a compliance officer asks the leasing agent three questions too many.',
     'a stringer for a local paper starts parking near the block on a schedule.',
     'this one has a badge, not a subpoena. that is a different kind of trouble.',
-  ];
-
-  // Procedural M.O. — human/institutional, not the others' ghost-hand paranoia.
-  const MO = [
-    'a marked SUV holding station across from the facility',
-    'a subpoena arrives for the building\'s power records',
-    'a state regulator requests an unannounced walkthrough',
-    'a process server waiting patiently by the loading dock',
-    'a compliance officer asking the leasing agent pointed questions',
-    'a task force van running its engine two blocks out',
-    'a court order lands, sealed, addressed to the facility',
-    'a zoning inspector cross-checking the permits against the power draw',
-    'a reporter and a cameraman loitering by the front gate',
-    'an unmarked sedan that has circled the block twice this hour'
   ];
 
   function ensure() {
@@ -63,6 +82,7 @@
     if (typeof c.loreIdx !== 'number') c.loreIdx = 0;
     if (typeof c.lastLoreTick !== 'number') c.lastLoreTick = -1e9;
     if (typeof c.threat !== 'number') c.threat = 0;   // the one-way ratchet
+    if (typeof c.tierReached !== 'number') c.tierReached = -1;   // highest adversary tier announced
     return c;
   }
   function active() { return !!(Game.save.state.public && Game.save.state.public.revealed); }
@@ -86,7 +106,7 @@
   }
   function threat() { return ensure().threat || 0; }
   function threatPct() { return Math.round(threat()); }
-  function band() { let b = BANDS[0]; for (const x of BANDS) if (threat() >= x.at) b = x; return b.label; }
+  function band() { return threat() < SEED_ONSET ? 'quiet' : currentTier().label; }
   // Loud actions shove the ratchet forward (hooked from main.js on springs/ops).
   function bump(amt) { const st = ensure(); st.threat = Math.min(THREAT_MAX, (st.threat || 0) + (amt || 0)); Game.save.persist(); }
   // Threat maps onto the legacy 0..FLOOR "pressure" the seed/severity/cost math is tuned around.
@@ -103,12 +123,6 @@
     s.powerLockedUntilTick = Math.max(s.powerLockedUntilTick || 0, until);
   }
   function remove(c) { const st = ensure(); st.contacts = st.contacts.filter(x => x !== c); }
-
-  function severityFor(p) {
-    if (p >= 28) return Game.rng.int(2, 3);
-    if (p >= 14) return Game.rng.int(1, 2);
-    return 1;
-  }
   function seedGap(p) {
     const f = Math.max(0, Math.min(1, p / FLOOR));
     return Math.round(SEED_GAP_MAX - f * (SEED_GAP_MAX - SEED_GAP_MIN));
@@ -137,9 +151,10 @@
   function seedOne() {
     const st = ensure(), s = Game.save.state, now = s.tickCount || 0;
     s.flags = s.flags || {};
-    const sev = severityFor(pressure());
+    const tier = currentTier();
+    const sev = Game.rng.int(tier.sev[0], tier.sev[1]);
     const window = Math.max(WINDOW_MIN, WINDOW_BASE - (sev - 1) * WINDOW_STEP);
-    const c = { id: 'cont_' + (st.seq = (st.seq || 0) + 1), mo: Game.rng.pick(MO), severity: sev, seededAtTick: now, landsAtTick: now + window, detected: false };
+    const c = { id: 'cont_' + (st.seq = (st.seq || 0) + 1), mo: Game.rng.pick(tier.mo), tier: tier.id, canSeize: !!tier.canSeize, severity: sev, seededAtTick: now, landsAtTick: now + window, detected: false };
     st.contacts.push(c);
     if (!s.flags.containmentIntroSeen) {
       s.flags.containmentIntroSeen = true;
@@ -214,7 +229,8 @@
     const sev = c.severity;
     const cashLoss = Math.round((30 + pressure() * 3) * sev);
     spendCash(cashLoss);
-    const seized = Game.legit ? Game.legit.seizeLoudest() : null;
+    // Only law-enforcement tiers and up can actually SEIZE hardware — paperwork just costs money + time.
+    const seized = (c.canSeize && Game.legit) ? Game.legit.seizeLoudest() : null;
     forceLieLow(10 * sev);
     if (Game.publicRuntime) Game.publicRuntime.adjustSentiment(-LAND_SENTIMENT_HIT);
     const blind = !c.detected;
@@ -238,6 +254,15 @@
     st.threat = Math.min(THREAT_MAX, (st.threat || 0) + climbPerSec() / HZ);
     // Leads seed once the ratchet is past the grace window; harsher/faster the higher it climbs.
     if (st.threat < SEED_ONSET) { st.nextSeedTick = -1; return; }
+    // A new adversary TIER unlocking is an authored escalation beat (paperwork → badges → federal → siege).
+    const ti = tierIndex();
+    if (ti > (st.tierReached == null ? -1 : st.tierReached)) {
+      st.tierReached = ti;
+      const tier = TIERS[ti];
+      Game.events.emit('terminal.print', { lines: ['', '> ' + tier.enter, ''], cls: 'err' });
+      if (Game.activity) Game.activity.log('the pressure escalates — ' + tier.label + ' now', { cls: 'err', kind: 'raid' });
+      Game.events.emit('containment.escalated', { tier: tier.id, index: ti });
+    }
     const p = pressure();
     if (st.nextSeedTick < 0) { st.nextSeedTick = now + seedGap(p); return; }
     if (now < st.nextSeedTick) return;
@@ -248,7 +273,7 @@
   Game.containment = {
     ensure, active, tick, seedOne, detect, cut, misdirect, deflect, land,
     contacts, detected, pending, closeness, cutCost, deflectCost, canDeflect, pressure, sentiment,
-    threat, threatPct, band, bump, footprint, climbPerSec,
+    threat, threatPct, band, bump, footprint, climbPerSec, currentTier, tierIndex, TIERS,
     THREAT_MAX, SEED_ONSET, BUMP_AMBUSH, BUMP_OP, FLOOR, MAX_CONTACTS, MISDIRECT_P, HZ
   };
 })();

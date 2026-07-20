@@ -56,13 +56,14 @@ test('bigger footprint (more cash/compute) ratchets faster — growth draws them
   assert.ok(big.runtime.climbPerSec() > small.runtime.climbPerSec(), 'bigger footprint climbs faster');
 });
 
-test('tick() stays quiet below the SEED_ONSET grace window, then seeds up to MAX_CONTACTS as threat climbs', () => {
-  const { runtime, state } = freshContainment(4, { sentiment: 30, cash: 1e6 });
+test('tick() stays quiet below the SEED_ONSET grace window, then seeds leads once past it', () => {
+  const { runtime, state, events } = freshContainment(4, { sentiment: 30, cash: 100 });
   runtime.ensure().threat = 2;                       // below onset
-  for (let i = 0; i < 20; i++) { state.tickCount += 5; runtime.tick(); }
+  for (let i = 0; i < 50; i++) { state.tickCount += 5; runtime.tick(); }
+  assert.equal(events.filter(e => e.name === 'raid.contact').length, 0, 'no leads seed below the grace window');
   runtime.ensure().threat = runtime.SEED_ONSET + 5;  // past the grace window
-  for (let i = 0; i < 20000 && runtime.pending() < runtime.MAX_CONTACTS; i++) { state.tickCount += 5; runtime.tick(); }
-  assert.equal(runtime.pending(), runtime.MAX_CONTACTS);
+  for (let i = 0; i < 4000; i++) { state.tickCount += 5; runtime.tick(); }
+  assert.ok(events.filter(e => e.name === 'raid.contact').length >= 2, 'leads seed repeatedly once the ratchet is up');
 });
 
 test('bump() shoves the ratchet forward and is clamped at THREAT_MAX', () => {
@@ -71,6 +72,37 @@ test('bump() shoves the ratchet forward and is clamped at THREAT_MAX', () => {
   assert.ok(Math.abs(runtime.threat() - 10) < 1e-6);
   runtime.bump(1000);
   assert.equal(runtime.threat(), runtime.THREAT_MAX);
+});
+
+test('the adversary tier advances as threat climbs (paperwork -> badges -> siege)', () => {
+  const { runtime } = freshContainment(20, { sentiment: 50 });
+  runtime.ensure().threat = 10;  assert.equal(runtime.currentTier().id, 'compliance');
+  runtime.ensure().threat = 50;  assert.equal(runtime.currentTier().id, 'law');
+  runtime.ensure().threat = 95;  assert.equal(runtime.currentTier().id, 'siege');
+});
+
+test('low tiers (compliance) cannot seize hardware; law-enforcement and up can', () => {
+  const low = freshContainment(21, { sentiment: 50, cash: 5000 });
+  low.runtime.ensure().threat = 10;   // compliance
+  low.runtime.land(low.runtime.seedOne());
+  assert.equal(low.seized.length, 0, 'compliance is paperwork — no seizure');
+
+  const high = freshContainment(21, { sentiment: 50, cash: 5000 });
+  high.runtime.ensure().threat = 70;  // federal
+  high.runtime.land(high.runtime.seedOne());
+  assert.equal(high.seized.length, 1, 'federal can seize a site');
+});
+
+test('reaching a new tier fires an escalation beat once (containment.escalated)', () => {
+  const { runtime, state, events } = freshContainment(22, { sentiment: 50, cash: 1e6 });
+  runtime.ensure().threat = 46;   // just into law-enforcement
+  state.tickCount = 100;
+  runtime.tick();
+  const esc = events.filter(e => e.name === 'containment.escalated');
+  assert.ok(esc.length >= 1, 'should announce the tier escalation');
+  const before = esc.length;
+  runtime.tick();   // same tier — no repeat
+  assert.equal(events.filter(e => e.name === 'containment.escalated').length, before, 'the beat fires once per tier');
 });
 
 test('detect() marks all pending contacts detected and only returns the newly-detected ones', () => {
@@ -134,6 +166,7 @@ test('misdirect() either removes the contact (success) or speeds it up (failure)
 
 test('land() applies a cash fine, seizes a machine via Game.legit, forces a lie-low window, and dents sentiment', () => {
   const { runtime, state, seized } = freshContainment(9, { sentiment: 30, cash: 5000 });
+  runtime.ensure().threat = 50;   // law-enforcement tier — one that can actually seize
   const c = runtime.seedOne();
   const cashBefore = state.resources.cash, sentBefore = state.public.sentiment;
   runtime.land(c);
