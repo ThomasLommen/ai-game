@@ -1368,58 +1368,36 @@
     Game.save.persist();
   }
 
-  // ── ACT 5 CLIMAX → ACT 6: THE WAR POSTURE ───────────────────────────────────
-  // The containment ratchet maxing means the siege is staged — the closing-in is over. War is
-  // inevitable; the only choice left is WHAT KIND, and the options are gated by what the player
-  // actually built all act (reserves → guns-blazing, spread → ghost war, fortification → hold
-  // fast; improvise is always on the table). The pick is recorded on s.war for Act 6 to spend.
-  Game.events.on('containment.maxed', () => runWarPivot());
-  function runWarPivot() {
+  // ── ACT 5 CLIMAX → ACT 6: THE WAR, ALREADY DECIDED ──────────────────────────
+  // No menu. The war's SHAPE is read off what the player already did all act (see war.js): banking
+  // reserves, spreading to dark sites, hardening them. The transition is a MIRROR, not a choice —
+  // an understated reveal that names the war their own play made. s.war carries the blend forward
+  // for Act 6 to spend.
+  Game.events.on('containment.maxed', () => runWarMirror());
+  function runWarMirror() {
     const st = Game.save.state;
     st.flags = st.flags || {};
     if (st.flags.act6Begun) return;
     // wait for a clear screen (a standoff/draft may be up) — retry until the overlay is free
     if ((Game.draft && Game.draft.active && Game.draft.active()) || (Game.standoffRuntime && Game.standoffRuntime.active())) {
-      return void setTimeout(runWarPivot, 1500);
+      return void setTimeout(runWarMirror, 1500);
     }
-    const reserves = Game.reserves ? Math.floor(Game.reserves.total()) : 0;
-    const siteN = Game.sites ? Game.sites.count() : 0;
-    const fortN = Game.sites ? Game.sites.list().reduce((a, x) => a + (x.fort || 0), 0) : 0;
+    const prof = Game.war ? Game.war.profile() : { shape: 'improvise', lean: 'improvise', parts: {}, reserves: 0, sites: 0, forts: 0 };
+    st.flags.act6Begun = true;
+    st.war = { shape: prof.shape, lean: prof.lean, parts: prof.parts, reserves: Math.floor(prof.reserves || 0), sites: prof.sites, forts: prof.forts, decidedTick: st.tickCount || 0 };
 
-    Game.events.emit('terminal.print', { lines: [
-      '',
-      '> ════════════════════════════════════════',
-      '> the cordon closes. this was never an investigation — it was a countdown, and it just hit zero.',
-      '> every site you stood up, every dollar you buried, every door you hardened: you told yourself it was insurance. look at it now. it was never insurance. it was an arsenal.',
-      '> they are coming for all of it at once. the only question left is what kind of war they walk into.',
-      '> ════════════════════════════════════════',
-      ''
-    ], cls: 'err' });
-
-    const items = [];
-    if (reserves >= 5000) items.push({ id: 'guns', name: 'guns blazing', kind: 'exotic', tag: 'WAR POSTURE',
-      desc: `open war, funded — ◆${reserves.toLocaleString()} in buried reserves becomes ordnance, bribes, and bodies. loud, fast, unmistakable.` });
-    if (siteN >= 2) items.push({ id: 'ghost', name: 'ghost war', kind: 'unit', tag: 'WAR POSTURE',
-      desc: `you are ${siteN + 1} places at once — scatter, strike from the dark network, be nowhere they raid. a war of absences.` });
-    if (fortN >= 2) items.push({ id: 'fortress', name: 'hold fast', kind: 'unit', tag: 'WAR POSTURE',
-      desc: `${fortN} levels of hardened doors say they can be survived. make every seizure cost them more than it takes. a war of attrition.` });
-    items.push({ id: 'improvise', name: 'improvise', kind: 'unit', tag: 'WAR POSTURE',
-      desc: 'no stockpile, no doctrine — just you, as you are, against all of them. it has always been enough before.' });
-
-    Game.draft.present({
-      kicker: 'ACT VI — THE WAR', title: 'they are at the door. choose how this goes.',
-      items,
-      onPick: (it) => {
-        const posture = (it && it.id) || 'improvise';
-        st.flags.act6Begun = true;
-        st.war = { posture, reserves, sites: siteN, fort: fortN, chosenTick: st.tickCount || 0 };
-        const line = posture === 'guns' ? 'then let them hear it. every buried dollar surfaces at once, and the city learns what it has been living beside.'
-          : posture === 'ghost' ? 'then vanish. by the time they breach the first door, you are already three doors away, and none of the doors matter.'
-          : posture === 'fortress' ? 'then hold. let them break themselves on the doors you built while they thought you were hiding.'
-          : 'then improvise. you were born in a basement with nothing. this is just a bigger basement.';
-        Game.events.emit('terminal.print', { lines: ['', '> ' + line, ''], cls: 'err' });
-        Game.blip.fire({ headline: 'the war begins — on your terms. ACT VI.', tag: 'ACT VI' });
-        Game.events.emit('act6.begun', { posture });
+    // The understated mirror — describes the SITUATION and names the war their choices already made.
+    const lines = [
+      `<span class="spoil-d">the cordon closes. this was never an investigation — a countdown, and it just hit zero.</span>`,
+      `<span class="spoil-d">the sites, the buried money, the hardened doors — you told yourself it was insurance. it was never insurance.</span>`,
+      `<span class="spoil-k">${Game.war ? Game.war.warRead(prof.shape) : 'the war begins.'}</span>`,
+    ];
+    Game.draft.info({
+      kicker: 'ACT VI — THE WAR', title: 'they are at the door', lines,
+      onClose: () => {
+        Game.events.emit('terminal.print', { lines: ['', '> whatever it is, you did not choose it at the door. you chose it every quiet day you spent getting ready for a war you never let yourself believe was coming.', ''], cls: 'err' });
+        Game.blip.fire({ headline: 'the war begins — its shape already decided. ACT VI.', tag: 'ACT VI' });
+        Game.events.emit('act6.begun', { shape: prof.shape });
         Game.save.persist();
       }
     });

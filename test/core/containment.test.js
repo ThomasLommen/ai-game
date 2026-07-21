@@ -105,6 +105,21 @@ test('reaching a new tier fires an escalation beat once (containment.escalated)'
   assert.equal(events.filter(e => e.name === 'containment.escalated').length, before, 'the beat fires once per tier');
 });
 
+test('the LAST QUIET moment: at WARN_ONSET the leads pull back, seeding pauses, and the climb goes fixed-slow to max', () => {
+  const { runtime, state, events } = freshContainment(30, { sentiment: 20, cash: 1e6 });
+  runtime.seedOne(); runtime.seedOne();
+  assert.ok(runtime.pending() >= 1);
+  runtime.ensure().threat = runtime.WARN_ONSET;
+  state.tickCount += 4; runtime.tick();   // crosses WARN_ONSET
+  assert.equal(runtime.pending(), 0, 'the leads withdraw to stage');
+  assert.ok(events.some(e => e.name === 'containment.warned'), 'the quiet is announced');
+  const before = events.filter(e => e.name === 'raid.contact').length;
+  for (let i = 0; i < 400; i++) { state.tickCount += 4; runtime.tick(); }   // ~100s: past the ~90s fixed climb to max
+  assert.equal(events.filter(e => e.name === 'raid.contact').length, before, 'no leads seed during the quiet');
+  assert.ok(runtime.threat() >= runtime.THREAT_MAX - 1e-6, 'the fixed slow climb still reaches max');
+  assert.ok(events.some(e => e.name === 'containment.maxed'), 'the war begins at max');
+});
+
 test('detect() marks all pending contacts detected and only returns the newly-detected ones', () => {
   const { runtime, state } = freshContainment(4, { sentiment: 0 });
   runtime.seedOne(); runtime.seedOne();

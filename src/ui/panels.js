@@ -1673,6 +1673,12 @@
     const s = Game.save.state, cash = s.resources.cash || 0;
     const owned = S.list();
     let html = `<div class="scout-blurb">unmanned shells around the city, humming in the dark. more compute, more reach — and if they ever kick a door in, better it's one of these than home.</div>`;
+    // "your shape" — the emergent lean, understated (never says "war"). A place to see what your
+    // preparations are quietly making you into (see war.js).
+    if (Game.war && Game.war.profile) {
+      const prof = Game.war.profile();
+      html += `<div class="site-shape">▸ your shape: <span>${Game.war.shapeRead(prof.shape)}</span></div>`;
+    }
     if (owned.length) {
       html += owned.map(x => {
         const fc = S.fortCost(x), canF = (x.fort || 0) < S.FORT_MAX && cash >= fc;

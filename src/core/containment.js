@@ -12,6 +12,8 @@
   // (others) and containment (humans) never overlap. See [[act_reorder_front_hunt_design]].
   const HZ = 4;
   const THREAT_MAX   = 100;
+  const WARN_ONSET   = 90;        // the humans withdraw to stage — a bounded LAST QUIET moment before the siege
+  const CALM_CLIMB   = (THREAT_MAX - WARN_ONSET) / 90;   // fixed slow climb to max (~90s) once the quiet begins
   const SEED_ONSET   = 8;         // threat below this = quiet (a grace window as Act 5 opens)
   const CLIMB_K      = 0.0032;    // footprint → threat/sec (tunable — the ramp's overall pace)
   const BUMP_AMBUSH  = 2;         // a sprung ambush is loud — nudges the ratchet
@@ -83,6 +85,7 @@
     if (typeof c.lastLoreTick !== 'number') c.lastLoreTick = -1e9;
     if (typeof c.threat !== 'number') c.threat = 0;   // the one-way ratchet
     if (typeof c.tierReached !== 'number') c.tierReached = -1;   // highest adversary tier announced
+    if (typeof c.warned !== 'boolean') c.warned = false;   // the pre-siege quiet has begun
     return c;
   }
   function active() { return !!(Game.save.state.public && Game.save.state.public.revealed); }
@@ -261,15 +264,31 @@
     if (!active()) return;
     const st = ensure(), s = Game.save.state, now = s.tickCount || 0;
     for (const c of st.contacts.slice()) if (now >= c.landsAtTick) land(c);
-    // THE RATCHET climbs — never falls. Your footprint (growth) drives it; sentiment only paces it.
-    st.threat = Math.min(THREAT_MAX, (st.threat || 0) + climbPerSec() / HZ);
+    // THE RATCHET climbs — never falls. Footprint drives it; but once the pre-siege QUIET begins
+    // it climbs at a fixed slow rate instead, so the last still moment is bounded no matter your size.
+    st.threat = Math.min(THREAT_MAX, (st.threat || 0) + (st.warned ? CALM_CLIMB : climbPerSec()) / HZ);
+    // THE LAST QUIET MOMENT: at WARN_ONSET the humans withdraw to stage the siege. Leads pull back,
+    // the wire goes still — a bounded window to make final moves without knowing it's war.
+    if (!st.warned && st.threat >= WARN_ONSET) {
+      st.warned = true; st.contacts = [];
+      Game.events.emit('terminal.print', { lines: [
+        '',
+        '> the leads go still. the vans pull back, the subpoenas stop, the quiet men stop writing.',
+        '> the wire has gone silent in a way it never has — not safe-silent. staged-silent. whatever is coming, this is the last of the stillness before it. use it.',
+        ''
+      ], cls: 'err' });
+      if (Game.activity) Game.activity.log('the pressure goes still — something is being staged', { cls: 'err', kind: 'raid' });
+      Game.events.emit('containment.warned', {});
+      Game.save.persist();
+    }
     // Maxed: the siege is staged — the closing-in is over and the war begins. Emitted once;
-    // main.js runs the Act-6 posture pivot (containment stays DOM-free).
+    // main.js runs the Act-6 transition MIRROR (containment stays DOM-free).
     if (st.threat >= THREAT_MAX && !(s.flags && s.flags.act6PivotFired)) {
       s.flags = s.flags || {}; s.flags.act6PivotFired = true;
       Game.events.emit('containment.maxed', {});
       Game.save.persist();
     }
+    if (st.warned) return;   // the calm — no new leads seed while they stage
     // Leads seed once the ratchet is past the grace window; harsher/faster the higher it climbs.
     if (st.threat < SEED_ONSET) { st.nextSeedTick = -1; return; }
     // A new adversary TIER unlocking is an authored escalation beat (paperwork → badges → federal → siege).
@@ -292,6 +311,6 @@
     ensure, active, tick, seedOne, detect, cut, misdirect, deflect, land,
     contacts, detected, pending, closeness, cutCost, deflectCost, canDeflect, pressure, sentiment,
     threat, threatPct, band, bump, footprint, climbPerSec, currentTier, tierIndex, TIERS,
-    THREAT_MAX, SEED_ONSET, BUMP_AMBUSH, BUMP_OP, FLOOR, MAX_CONTACTS, MISDIRECT_P, HZ
+    THREAT_MAX, WARN_ONSET, SEED_ONSET, BUMP_AMBUSH, BUMP_OP, FLOOR, MAX_CONTACTS, MISDIRECT_P, HZ
   };
 })();

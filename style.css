@@ -1420,6 +1420,8 @@ h2 {
 .site-fort-btn { font-family: var(--mono); background: none; border: 1px solid var(--amber-mid); color: var(--amber-mid); font-size: 10px; padding: 2px 7px; cursor: pointer; margin-left: 6px; }
 .site-fort-btn.off { opacity: .4; cursor: default; }
 .site-fort-max { color: var(--amber-mid); font-size: 10px; margin-left: 6px; }
+.site-shape { font-size: var(--fs-sm); color: var(--amber-mid); margin: 4px 0 10px; }
+.site-shape span { color: var(--amber); }
 /* Act 5: RESERVES — the raid-proof stash */
 .reserves-block { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--amber-faint); }
 .reserves-line { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-xs); letter-spacing: 2px; color: var(--amber-mid); margin-bottom: 6px; }
