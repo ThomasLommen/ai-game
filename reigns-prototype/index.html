@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Reigns Prototype</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="topbar">
+    <span class="eyebrow mono">REIGNS PROTOTYPE</span>
+    <span id="counter" class="mono">01 / ~19</span>
+  </div>
+  <div id="stats"></div>
+
+  <div id="stage">
+    <div class="card-slot" id="card-slot"></div>
+    <div class="choices" id="choices"></div>
+  </div>
+
+  <div id="ending">
+    <span class="eyebrow mono">— arc closed —</span>
+    <h2 id="end-title" class="serif"></h2>
+    <p id="end-body"></p>
+    <div id="end-extra"></div>
+    <div id="path-log" class="mono"></div>
+    <button id="restart" type="button">play again</button>
+  </div>
+
+  <footer>drag the card, or tap a strip below it &middot; no death meters, just what you built</footer>
+
+  <script src="cards.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
