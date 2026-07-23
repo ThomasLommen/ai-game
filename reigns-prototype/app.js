@@ -61,28 +61,123 @@
   }
   function poolsTotal(pools) { return pools.open.length + pools.mid.length + pools.close.length; }
 
-  const initialPools = buildPools('trunk');
-  const state = {
-    attrs: Object.assign({}, window.START_ATTRS),
-    footprint: 0,
-    lastGrowthStage: 'derelict',
-    shopTierUnlocked: 0,
-    tags: new Set(),
-    items: new Set(),
-    ledgerUsesThisAct: 0,
-    ledgerMaxUses: 1,
-    questQueue: [],
-    missionsUsed: new Set(),
-    missionResults: {},
-    phasesDone: 0, // 0-3: trunk/branch/close complete — drives overall progress, always reaches 100%
-    history: [],
-    phase: 'trunk',
-    pools: initialPools,
-    phaseTotal: poolsTotal(initialPools),
-    branch: null,
-    current: null,
-    committing: false,
-  };
+  function freshState() {
+    const initialPools = buildPools('trunk');
+    return {
+      attrs: Object.assign({}, window.START_ATTRS),
+      footprint: 0,
+      lastGrowthStage: 'derelict',
+      shopTierUnlocked: 0,
+      tags: new Set(),
+      items: new Set(),
+      ledgerUsesThisAct: 0,
+      ledgerMaxUses: 1,
+      questQueue: [],
+      missionsUsed: new Set(),
+      missionResults: {},
+      phasesDone: 0, // 0-3: trunk/branch/close complete — drives overall progress, always reaches 100%
+      history: [],
+      phase: 'trunk',
+      pools: initialPools,
+      phaseTotal: poolsTotal(initialPools),
+      branch: null,
+      current: null,
+      committing: false,
+    };
+  }
+
+  // --- persistence -----------------------------------------------------
+  // Cards carry functions (cond) so they can't round-trip through JSON —
+  // pools/questQueue/current are saved as id arrays and rebuilt via
+  // findCardById on load. Everything else here is already JSON-safe.
+  const SAVE_KEY = 'reigns_act1_save';
+  const SAVE_VERSION = 1;
+
+  function findCardById(id) {
+    const tables = [window.CARDS, window.OPENERS, window.CLOSERS, window.QUESTS];
+    for (const table of tables) {
+      if (!table) continue;
+      for (const key in table) {
+        const found = table[key].find(c => c.id === id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function serializeState() {
+    return {
+      v: SAVE_VERSION,
+      attrs: state.attrs,
+      footprint: state.footprint,
+      lastGrowthStage: state.lastGrowthStage,
+      shopTierUnlocked: state.shopTierUnlocked,
+      tags: [...state.tags],
+      items: [...state.items],
+      ledgerUsesThisAct: state.ledgerUsesThisAct,
+      ledgerMaxUses: state.ledgerMaxUses,
+      questQueue: state.questQueue.map(c => c.id),
+      missionsUsed: [...state.missionsUsed],
+      missionResults: state.missionResults,
+      phasesDone: state.phasesDone,
+      history: state.history,
+      phase: state.phase,
+      pools: { open: state.pools.open.map(c => c.id), mid: state.pools.mid.map(c => c.id), close: state.pools.close.map(c => c.id) },
+      phaseTotal: state.phaseTotal,
+      branch: state.branch,
+      current: state.current ? state.current.id : null,
+    };
+  }
+
+  function tryDeserialize(saved) {
+    try {
+      const rebuild = (ids) => ids.map(findCardById).filter(Boolean);
+      if (saved.current && !findCardById(saved.current)) return null; // stale/corrupt save — start fresh instead
+      return {
+        attrs: Object.assign({}, saved.attrs),
+        footprint: saved.footprint,
+        lastGrowthStage: saved.lastGrowthStage,
+        shopTierUnlocked: saved.shopTierUnlocked,
+        tags: new Set(saved.tags),
+        items: new Set(saved.items),
+        ledgerUsesThisAct: saved.ledgerUsesThisAct,
+        ledgerMaxUses: saved.ledgerMaxUses,
+        questQueue: rebuild(saved.questQueue),
+        missionsUsed: new Set(saved.missionsUsed),
+        missionResults: Object.assign({}, saved.missionResults),
+        phasesDone: saved.phasesDone,
+        history: saved.history.slice(),
+        phase: saved.phase,
+        pools: { open: rebuild(saved.pools.open), mid: rebuild(saved.pools.mid), close: rebuild(saved.pools.close) },
+        phaseTotal: saved.phaseTotal,
+        branch: saved.branch,
+        current: saved.current ? findCardById(saved.current) : null,
+        committing: false,
+      };
+    } catch (e) { return null; }
+  }
+
+  function loadSaved() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.v !== SAVE_VERSION) return null;
+      return parsed;
+    } catch (e) { return null; }
+  }
+
+  function persistNow() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(serializeState())); } catch (e) { /* storage unavailable — play on without saving */ }
+  }
+
+  function clearSaved() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  }
+
+  const savedRaw = loadSaved();
+  const restored = savedRaw && tryDeserialize(savedRaw);
+  let state = restored || freshState();
 
   const $stage = document.getElementById('stage');
   const $cardSlot = document.getElementById('card-slot');
@@ -346,6 +441,7 @@
 
     wireCard();
     wireStrips();
+    persistNow();
   }
 
   function wireStrips() {
@@ -583,6 +679,9 @@
   function buyGood(id) {
     const good = window.SHOP.find(g => g.id === id);
     if (!good || goodOwned(good) || !goodApplicable(good) || !goodAffordable(good)) return;
+    // snapshot before the cost is deducted — "lowest attribute" should mean
+    // your actual weakest stat, not partially refund the attribute you just spent
+    const preAttrs = Object.assign({}, state.attrs);
     state.attrs[good.cost.attr] -= good.cost.amount;
     if (good.grantItem) {
       state.items.add(good.grantItem);
@@ -592,12 +691,8 @@
     if (good.effect === 'clear_scrutiny') state.tags.delete('scrutiny');
     if (good.effect === 'grow_small') state.footprint = Math.max(0, state.footprint + 2);
     if (good.effect === 'grow_big') state.footprint = Math.max(0, state.footprint + 4);
-    if (good.effect === 'rebalance') {
-      const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (state.attrs[b] < state.attrs[a] ? b : a));
-      state.attrs[lowest] += 2;
-    }
-    if (good.effect === 'founders_cache') {
-      const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (state.attrs[b] < state.attrs[a] ? b : a));
+    if (good.effect === 'rebalance' || good.effect === 'founders_cache') {
+      const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (preAttrs[b] < preAttrs[a] ? b : a));
       state.attrs[lowest] += 2;
     }
     // growth bought here is silent (no interrupt reveal) — just keep the stage tracker in sync
@@ -606,6 +701,7 @@
     renderGrowth();
     renderTray();
     renderShopContents();
+    persistNow();
   }
 
   $shopBtn.addEventListener('click', () => { renderShopContents(); $shopModal.classList.add('show'); });
@@ -685,6 +781,7 @@
     renderGrowth();
     renderTray();
     renderMissionsContents();
+    persistNow();
   }
 
   $missionsBtn.addEventListener('click', () => { renderMissionsContents(); $missionsModal.classList.add('show'); });
@@ -734,6 +831,7 @@
   }
 
   function showActClose() {
+    state.current = null;
     $stage.style.display = 'none';
     const e = computeActClose();
     document.querySelector('#ending .eyebrow').textContent = '— ACT I CLOSE —';
@@ -742,14 +840,37 @@
     document.getElementById('end-extra').innerHTML = e.extras.map(x => `<p>${x}</p>`).join('');
     document.getElementById('path-log').innerHTML = state.history.map(h => `<div class="row">${h.title} <span>&rarr; ${h.choice}${h.gate ? ` (${h.gate})` : ''}</span></div>`).join('');
     $ending.classList.add('show');
+    persistNow();
   }
 
   window.__reignsState = state; // debug/test hook
-  $restart.addEventListener('click', () => window.location.reload());
+  window.__reignsDebug = {
+    // exposed for automated testing, not used by the UI itself
+    buildPools, poolsTotal, stageFor, stageIndex, dominantAttr, effectiveMin, applyFootprintDelta,
+    eligible, drawFromPool, applyChoice, applyTagTicks, missionGateMet, missionAffordable,
+    missionAvailable, missionChance, attemptMission, buyGood, computeActClose, nextStep, advancePhase,
+    findCardById, serializeState, tryDeserialize, loadSaved, persistNow, clearSaved,
+  };
+
+  // Two-tap confirm instead of window.confirm(): native dialogs can be
+  // silently blocked in a sandboxed iframe (e.g. the phone artifact host).
+  let restartArmed = false;
+  $restart.addEventListener('click', () => {
+    if (!restartArmed) {
+      restartArmed = true;
+      $restart.textContent = 'tap again to confirm — clears your save';
+      setTimeout(() => { restartArmed = false; $restart.textContent = 'play again'; }, 3000);
+      return;
+    }
+    clearSaved();
+    window.location.reload();
+  });
   renderStats();
   renderGrowth();
   renderTray();
   renderShopButton();
   renderOverallProgress();
-  nextStep();
+  if (restored && state.current) renderCard(state.current);
+  else if (restored && state.phasesDone >= 3) showActClose();
+  else nextStep();
 })();
