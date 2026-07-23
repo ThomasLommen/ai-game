@@ -417,6 +417,17 @@ body {
   cursor: pointer;
 }
 #restart:hover { border-color: var(--ink-dim); }
+#continue-act2 {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--item);
+  color: var(--item);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#continue-act2:hover { background: color-mix(in srgb, var(--item) 12%, var(--surface)); }
 
 footer {
   width: 100%;

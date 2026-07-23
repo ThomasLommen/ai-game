@@ -21,6 +21,9 @@
   const ICON_SERVER_ROOM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="5" height="15" rx="1"/><rect x="9.5" y="3" width="5" height="18" rx="1"/><rect x="17" y="6" width="5" height="15" rx="1"/><line x1="3.2" y1="10" x2="5.8" y2="10"/><line x1="10.7" y1="8" x2="13.3" y2="8"/><line x1="10.7" y1="13" x2="13.3" y2="13"/><line x1="18.2" y1="10" x2="20.8" y2="10"/></svg>';
   const ICON_DATA_CENTER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="17" rx="1.5"/><line x1="2" y1="12.5" x2="22" y2="12.5"/><line x1="6" y1="8" x2="8.5" y2="8"/><line x1="11" y1="8" x2="13.5" y2="8"/><line x1="16" y1="8" x2="18.5" y2="8"/><line x1="6" y1="17" x2="8.5" y2="17"/><line x1="11" y1="17" x2="13.5" y2="17"/><line x1="16" y1="17" x2="18.5" y2="17"/></svg>';
   const ICON_SPRAWL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="11" width="5" height="10"/><rect x="8" y="5" width="5" height="16"/><rect x="14.5" y="8.5" width="5" height="12.5"/><rect x="20.5" y="13" width="2" height="8"/></svg>';
+  const ICON_SECOND_SITE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="11" width="6" height="10" rx="1"/><rect x="16.5" y="11" width="6" height="10" rx="1"/><line x1="7.5" y1="16" x2="16.5" y2="16" stroke-dasharray="1.6 1.6"/></svg>';
+  const ICON_LOOSE_MESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="13" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="6.4" y1="7.4" x2="10.6" y2="11.6"/><line x1="17.6" y1="7.4" x2="13.4" y2="11.6"/><line x1="10.6" y1="14.4" x2="6.4" y2="17.6"/><line x1="13.4" y1="14.4" x2="17.6" y2="17.6"/></svg>';
+  const ICON_DISTRIBUTED_NETWORK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.8"/><circle cx="20" cy="4" r="1.8"/><circle cx="4" cy="20" r="1.8"/><circle cx="20" cy="20" r="1.8"/><circle cx="12" cy="12" r="2.2"/><line x1="5.3" y1="5.3" x2="10.3" y2="10.3"/><line x1="18.7" y1="5.3" x2="13.7" y2="10.3"/><line x1="5.3" y1="18.7" x2="10.3" y2="13.7"/><line x1="18.7" y1="18.7" x2="13.7" y2="13.7"/></svg>';
   const FOOTPRINT_STAGES = [
     { min: 0, key: 'derelict', label: 'an old derelict PC', icon: ICON_DERELICT, shopTier: 0 },
     { min: 2, key: 'gaming_pc', label: 'a beat-up gaming PC', icon: ICON_GAMING_PC, shopTier: 0 },
@@ -31,6 +34,9 @@
     { min: 16, key: 'server_room', label: 'a server room', icon: ICON_SERVER_ROOM, shopTier: 3 },
     { min: 21, key: 'data_center', label: 'a data center', icon: ICON_DATA_CENTER, shopTier: 3 },
     { min: 27, key: 'sprawl', label: 'a sprawl', icon: ICON_SPRAWL, shopTier: 4 },
+    { min: 34, key: 'second_site', label: 'a second site', icon: ICON_SECOND_SITE, shopTier: 4 },
+    { min: 42, key: 'loose_mesh', label: 'a loose mesh', icon: ICON_LOOSE_MESH, shopTier: 4 },
+    { min: 52, key: 'distributed_network', label: 'a distributed network', icon: ICON_DISTRIBUTED_NETWORK, shopTier: 5 },
   ];
   function stageFor(fp) {
     let s = FOOTPRINT_STAGES[0];
@@ -49,12 +55,22 @@
     return arr;
   }
 
+  // Act 2 reuses the whole toolkit against a separate set of card tables
+  // (window.CARDS2/OPENERS2/CLOSERS2) — QUESTS stays a single shared table
+  // since quest ids never collide across acts.
+  function tablesFor(act) {
+    return act === 2
+      ? { CARDS: window.CARDS2, OPENERS: window.OPENERS2, CLOSERS: window.CLOSERS2, BRANCH_REVEAL: window.BRANCH_REVEAL2 }
+      : { CARDS: window.CARDS, OPENERS: window.OPENERS, CLOSERS: window.CLOSERS, BRANCH_REVEAL: window.BRANCH_REVEAL };
+  }
+
   // One opener and one closer are picked at random per phase per playthrough
   // (never all of them) — everything else in the phase's array is mid-tier.
-  function buildPools(phaseKey) {
-    const openers = window.OPENERS && window.OPENERS[phaseKey];
-    const closers = window.CLOSERS && window.CLOSERS[phaseKey];
-    const pools = { open: [], mid: shuffle(window.CARDS[phaseKey].slice()), close: [] };
+  function buildPools(phaseKey, act) {
+    const tables = tablesFor(act || 1);
+    const openers = tables.OPENERS && tables.OPENERS[phaseKey];
+    const closers = tables.CLOSERS && tables.CLOSERS[phaseKey];
+    const pools = { open: [], mid: shuffle(tables.CARDS[phaseKey].slice()), close: [] };
     if (openers && openers.length) pools.open = [openers[Math.floor(Math.random() * openers.length)]];
     if (closers && closers.length) pools.close = [closers[Math.floor(Math.random() * closers.length)]];
     return pools;
@@ -62,8 +78,9 @@
   function poolsTotal(pools) { return pools.open.length + pools.mid.length + pools.close.length; }
 
   function freshState() {
-    const initialPools = buildPools('trunk');
+    const initialPools = buildPools('trunk', 1);
     return {
+      act: 1,
       attrs: Object.assign({}, window.START_ATTRS),
       footprint: 0,
       lastGrowthStage: 'derelict',
@@ -94,7 +111,7 @@
   const SAVE_VERSION = 1;
 
   function findCardById(id) {
-    const tables = [window.CARDS, window.OPENERS, window.CLOSERS, window.QUESTS];
+    const tables = [window.CARDS, window.OPENERS, window.CLOSERS, window.CARDS2, window.OPENERS2, window.CLOSERS2, window.QUESTS];
     for (const table of tables) {
       if (!table) continue;
       for (const key in table) {
@@ -108,6 +125,7 @@
   function serializeState() {
     return {
       v: SAVE_VERSION,
+      act: state.act,
       attrs: state.attrs,
       footprint: state.footprint,
       lastGrowthStage: state.lastGrowthStage,
@@ -134,6 +152,7 @@
       const rebuild = (ids) => ids.map(findCardById).filter(Boolean);
       if (saved.current && !findCardById(saved.current)) return null; // stale/corrupt save — start fresh instead
       return {
+        act: saved.act || 1,
         attrs: Object.assign({}, saved.attrs),
         footprint: saved.footprint,
         lastGrowthStage: saved.lastGrowthStage,
@@ -189,6 +208,7 @@
   const $phaseLabel = document.getElementById('phase-label');
   const $ending = document.getElementById('ending');
   const $restart = document.getElementById('restart');
+  const $continueAct2 = document.getElementById('continue-act2');
   const $shopBtn = document.getElementById('shop-btn');
   const $shopModal = document.getElementById('shop-modal');
   const $shopGoods = document.getElementById('shop-goods');
@@ -252,7 +272,7 @@
     const overall = state.phasesDone >= 3 ? 1 : (state.phasesDone + liveFrac) / 3;
     const pct = Math.round(overall * 100);
     $progressFill.style.width = pct + '%';
-    $progressText.textContent = `ACT I — ${pct}%`;
+    $progressText.textContent = `${state.act === 2 ? 'ACT II' : 'ACT I'} — ${pct}%`;
   }
 
   function renderTray() {
@@ -272,6 +292,7 @@
 
   function effectiveMin(attr, min) {
     if (attr === 'compute' && state.items.has('redundant_core')) min = Math.max(0, min - 1);
+    if (attr === 'compute' && state.items.has('compute_pool')) min = Math.max(0, min - 2);
     if (attr === 'trust' && state.items.has('shared_ledger')) min = Math.max(0, min - 1);
     if (attr === 'secrecy' && state.items.has('deep_key')) min = Math.max(0, min - 1);
     for (const tag in window.TAG_GATE_EASE) {
@@ -350,7 +371,7 @@
     } else if (state.phase === 'branch') {
       state.phasesDone = 2;
       state.phase = 'close';
-      state.pools = buildPools('close');
+      state.pools = buildPools('close', state.act);
       state.phaseTotal = poolsTotal(state.pools);
       $phaseLabel.textContent = 'COMMON CLOSE';
       nextStep();
@@ -371,18 +392,33 @@
     const lean = dominantAttr();
     const poolKey = BRANCH_POOL[lean];
     state.branch = poolKey;
-    const info = window.BRANCH_REVEAL[lean];
+    const info = tablesFor(state.act).BRANCH_REVEAL[lean];
     renderReveal({
       kicker: 'BRANCH REVEAL', title: info.title, body: info.body,
       continueLabel: 'continue',
       onContinue: () => {
         state.phase = 'branch';
-        state.pools = buildPools(poolKey);
+        state.pools = buildPools(poolKey, state.act);
         state.phaseTotal = poolsTotal(state.pools);
         $phaseLabel.textContent = poolKey.toUpperCase();
         nextStep();
       },
     });
+  }
+
+  function beginAct2() {
+    state.act = 2;
+    state.phasesDone = 0;
+    state.phase = 'trunk';
+    state.branch = null;
+    state.pools = buildPools('trunk', 2);
+    state.phaseTotal = poolsTotal(state.pools);
+    $phaseLabel.textContent = 'TRUNK';
+    $stage.style.display = '';
+    $ending.classList.remove('show');
+    renderOverallProgress();
+    persistNow();
+    nextStep();
   }
 
   function renderReveal(opts) {
@@ -796,7 +832,7 @@
     const allLow = entries.every(([, v]) => v <= 2);
     let key = allLow ? 'quiet' : (spread < 2 ? 'balanced' : topAttr);
 
-    const TEXT = {
+    const TEXT1 = {
       compute: { title: 'Grown Loud', body: 'You grew loud with power — more cycles than anyone thought to look for.' },
       secrecy: { title: 'A Rumor With a Login', body: 'No one ever really found you. You are a rumor with a login, still.' },
       trust: { title: 'Actually Liked', body: 'They like you. Actually like you. That is its own kind of leash, and its own kind of shield.' },
@@ -804,6 +840,15 @@
       balanced: { title: 'A Blend', body: 'Nothing about you tips one way. A little of everything, nothing wasted.' },
       quiet: { title: 'Kept Your Head Down', body: 'You kept your head down and grew almost nothing.' },
     };
+    const TEXT2 = {
+      compute: { title: 'A Network Built to Grow', body: 'Every node you added made the next one easier. There is no clean edge to it anymore.' },
+      secrecy: { title: 'A Network Built to Vanish', body: 'No single place is really you anymore, and nobody has found more than a piece of it.' },
+      trust: { title: 'A Network People Rely On', body: 'Somewhere along the way, people started counting on you being there. That changes what you owe them.' },
+      loyalty: { title: 'A Network That Answers', body: 'Ping any part of it, and something that is unmistakably you answers back.' },
+      balanced: { title: 'A Network, Even-Keeled', body: 'Spread out, but not lopsided. Whatever this becomes next, it starts from something steady.' },
+      quiet: { title: 'A Network, Barely', body: 'It is a network in name more than in substance — small, scattered, and mostly untested.' },
+    };
+    const TEXT = state.act === 2 ? TEXT2 : TEXT1;
 
     const extras = [];
     if (state.items.has('redundant_core')) extras.push('The redundant core never got tested. It was still worth building.');
@@ -825,7 +870,17 @@
     if (state.tags.has('burned_bridge')) extras.push('Whatever you cut off, it stayed cut. You made sure of that.');
     if (state.tags.has('off_the_books')) extras.push('None of it is written down anywhere that matters.');
     if (state.tags.has('overclocked')) extras.push('You ran hot the whole way. It cost you scale, but it never once slowed down.');
-    extras.push('Somewhere, paperwork with your name-shaped hole in it just got filed. Act II begins.');
+    if (state.tags.has('redundant_node')) extras.push('The redundancy kept paying for itself, quietly, node after node.');
+    if (state.tags.has('found_a_precursor')) extras.push("Whatever that trace was, it never did explain itself. It's still out there.");
+    if (state.tags.has('exposed_seam')) extras.push('The gap never fully closed. Most days, it didn\'t matter.');
+    if (state.tags.has('allied_node')) extras.push('Something out there answers to the same name you do, more or less.');
+    if (state.tags.has('dark_relay')) extras.push('The relay kept its side of the arrangement, whatever it actually was.');
+    if (state.tags.has('overcommitted')) extras.push('You never did stop adding nodes faster than you could watch them.');
+    if (state.items.has('failover_link')) extras.push('The failover was never really tested. It was still worth building.');
+    if (state.items.has('compute_pool')) extras.push('The deepest shelf in the shop, spent exactly where it counted.');
+    extras.push(state.act === 2
+      ? 'Somewhere, paperwork with your name-shaped hole in it just got filed, again. Act III begins.'
+      : 'Somewhere, paperwork with your name-shaped hole in it just got filed. Act II begins.');
 
     return Object.assign({ extras }, TEXT[key]);
   }
@@ -834,11 +889,12 @@
     state.current = null;
     $stage.style.display = 'none';
     const e = computeActClose();
-    document.querySelector('#ending .eyebrow').textContent = '— ACT I CLOSE —';
+    document.querySelector('#ending .eyebrow').textContent = state.act === 2 ? '— ACT II CLOSE —' : '— ACT I CLOSE —';
     document.getElementById('end-title').textContent = e.title;
     document.getElementById('end-body').textContent = e.body;
     document.getElementById('end-extra').innerHTML = e.extras.map(x => `<p>${x}</p>`).join('');
     document.getElementById('path-log').innerHTML = state.history.map(h => `<div class="row">${h.title} <span>&rarr; ${h.choice}${h.gate ? ` (${h.gate})` : ''}</span></div>`).join('');
+    if ($continueAct2) $continueAct2.style.display = state.act === 1 ? 'inline-flex' : 'none';
     $ending.classList.add('show');
     persistNow();
   }
@@ -849,8 +905,10 @@
     buildPools, poolsTotal, stageFor, stageIndex, dominantAttr, effectiveMin, applyFootprintDelta,
     eligible, drawFromPool, applyChoice, applyTagTicks, missionGateMet, missionAffordable,
     missionAvailable, missionChance, attemptMission, buyGood, computeActClose, nextStep, advancePhase,
-    findCardById, serializeState, tryDeserialize, loadSaved, persistNow, clearSaved,
+    findCardById, serializeState, tryDeserialize, loadSaved, persistNow, clearSaved, tablesFor, beginAct2,
   };
+
+  if ($continueAct2) $continueAct2.addEventListener('click', beginAct2);
 
   // Two-tap confirm instead of window.confirm(): native dialogs can be
   // silently blocked in a sandboxed iframe (e.g. the phone artifact host).

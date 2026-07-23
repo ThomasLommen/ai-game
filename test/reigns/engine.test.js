@@ -3,10 +3,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadReigns } = require('../helpers/load-reigns');
 
-test('data integrity: card ids are unique across CARDS/OPENERS/CLOSERS/QUESTS', () => {
+test('data integrity: card ids are unique across CARDS/OPENERS/CLOSERS/QUESTS (both acts)', () => {
   const { window } = loadReigns();
   const ids = [];
-  for (const table of [window.CARDS, window.OPENERS, window.CLOSERS, window.QUESTS]) {
+  for (const table of [window.CARDS, window.OPENERS, window.CLOSERS, window.CARDS2, window.OPENERS2, window.CLOSERS2, window.QUESTS]) {
     for (const key in table) for (const c of table[key]) ids.push(c.id);
   }
   const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
@@ -27,7 +27,7 @@ test('data integrity: every grantItem/tagsSet/tagsClear/reqTag/requiresTag refer
     if (ch.requires && !attrs.has(ch.requires.attr)) problems.push(`${where}: bad requires.attr ${ch.requires.attr}`);
     checkChoice(where + '.fail', ch.fail);
   }
-  for (const table of [window.CARDS, window.OPENERS, window.CLOSERS, window.QUESTS]) {
+  for (const table of [window.CARDS, window.OPENERS, window.CLOSERS, window.CARDS2, window.OPENERS2, window.CLOSERS2, window.QUESTS]) {
     for (const key in table) for (const c of table[key]) {
       checkChoice(c.id + '.L', c.L);
       checkChoice(c.id + '.R', c.R);
@@ -442,4 +442,110 @@ test('a save from Act I Close resumes straight to the ending, not a fresh card',
   assert.equal(s2.current, null);
   assert.equal(s2.phasesDone, 3);
   assert.ok(second.window.document.getElementById('ending').classList.contains('show'), 'showActClose() actually ran on resume');
+});
+
+// --- Act 2: THE NETWORK -------------------------------------------------
+
+test('tablesFor: act 1 resolves to CARDS/OPENERS/CLOSERS, act 2 to CARDS2/OPENERS2/CLOSERS2', () => {
+  const { window } = loadReigns();
+  const t1 = window.__reignsDebug.tablesFor(1);
+  const t2 = window.__reignsDebug.tablesFor(2);
+  assert.equal(t1.CARDS, window.CARDS);
+  assert.equal(t2.CARDS, window.CARDS2);
+  assert.equal(t2.OPENERS, window.OPENERS2);
+  assert.equal(t2.CLOSERS, window.CLOSERS2);
+  assert.equal(t2.BRANCH_REVEAL, window.BRANCH_REVEAL2);
+});
+
+test('buildPools(phase, 2) draws from the Act 2 tables, not Act 1', () => {
+  const { window } = loadReigns();
+  const pools = window.__reignsDebug.buildPools('trunk', 2);
+  assert.equal(pools.mid.length, window.CARDS2.trunk.length);
+  const allIds = [...pools.open, ...pools.mid, ...pools.close].map(c => c.id);
+  allIds.forEach(id => assert.ok(id.startsWith('NT'), `expected an Act 2 trunk id, got ${id}`));
+});
+
+test('findCardById also finds Act 2 cards and the mesh_quest quest', () => {
+  const { window } = loadReigns();
+  assert.equal(window.__reignsDebug.findCardById('NB3').id, 'NB3');
+  assert.equal(window.__reignsDebug.findCardById('NG9').id, 'NG9');
+  assert.equal(window.__reignsDebug.findCardById('MQ2').id, 'MQ2');
+  assert.equal(window.__reignsDebug.findCardById('nonexistent'), null);
+});
+
+test('beginAct2: carries attrs/tags/items/footprint forward, resets phase machinery', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  s.attrs = { compute: 12, secrecy: 5, trust: 3, loyalty: 7 };
+  s.footprint = 20;
+  s.tags.add('hardened');
+  s.items.add('deep_key');
+  s.phasesDone = 3;
+  s.phase = 'close';
+  s.branch = 'builder';
+
+  window.__reignsDebug.beginAct2();
+
+  assert.equal(s.act, 2);
+  assert.equal(s.phasesDone, 0);
+  assert.equal(s.phase, 'trunk');
+  assert.equal(s.branch, null);
+  assert.deepEqual(s.attrs, { compute: 12, secrecy: 5, trust: 3, loyalty: 7 }, 'attrs carry forward');
+  assert.equal(s.footprint, 20, 'footprint (scale) carries forward, not reset');
+  assert.ok(s.tags.has('hardened'), 'tags carry forward');
+  assert.ok(s.items.has('deep_key'), 'items carry forward');
+  assert.ok(s.current, 'a new Act 2 card is drawn immediately');
+  assert.ok(s.current.id.startsWith('NT'), 'drawn from Act 2 trunk tables');
+});
+
+test('showBranchReveal renders BRANCH_REVEAL2 text (not Act 1\'s) once in Act 2', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  s.act = 2;
+  s.attrs = { compute: 10, secrecy: 1, trust: 1, loyalty: 1 };
+  window.__reignsDebug.advancePhase(); // phase is 'trunk' at load time -> triggers the branch reveal
+  assert.equal(s.phasesDone, 1);
+  assert.equal(window.__reignsDebug.dominantAttr(), 'compute');
+  const rendered = window.document.getElementById('card-slot').innerHTML;
+  assert.ok(rendered.includes(window.BRANCH_REVEAL2.compute.title), 'Act 2 branch reveal text was rendered');
+  assert.ok(!rendered.includes(window.BRANCH_REVEAL.compute.title), 'Act 1 branch reveal text should not appear');
+});
+
+test('computeActClose is act-aware: different endings and closing line per act', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  s.attrs = { compute: 10, secrecy: 1, trust: 1, loyalty: 1 };
+  const e1 = window.__reignsDebug.computeActClose();
+  assert.equal(e1.title, 'Grown Loud');
+  assert.ok(e1.extras[e1.extras.length - 1].includes('Act II begins'));
+
+  s.act = 2;
+  const e2 = window.__reignsDebug.computeActClose();
+  assert.equal(e2.title, 'A Network Built to Grow');
+  assert.ok(e2.extras[e2.extras.length - 1].includes('Act III begins'));
+});
+
+test('growth ladder extends into Act 2 stages (second_site / loose_mesh / distributed_network)', () => {
+  const { window } = loadReigns();
+  const dbg = window.__reignsDebug;
+  assert.equal(dbg.stageFor(34).key, 'second_site');
+  assert.equal(dbg.stageFor(42).key, 'loose_mesh');
+  assert.equal(dbg.stageFor(52).key, 'distributed_network');
+  assert.equal(dbg.stageFor(52).shopTier, 5, 'distributed_network unlocks the deepest shop shelf');
+});
+
+test('persistence: act carries through a serialize/deserialize round trip', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  s.act = 2;
+  const saved = JSON.parse(JSON.stringify(window.__reignsDebug.serializeState()));
+  const restored = window.__reignsDebug.tryDeserialize(saved);
+  assert.equal(restored.act, 2);
+});
+
+test('effectiveMin: compute_pool item eases a COMPUTE gate by 2', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  s.items.add('compute_pool');
+  assert.equal(window.__reignsDebug.effectiveMin('compute', 10), 8);
 });

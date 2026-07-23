@@ -13,6 +13,8 @@ window.ITEM_INFO = {
   shared_ledger: { label: 'Shared Ledger', desc: 'eases a TRUST gate by 1, permanently' },
   deep_key: { label: 'Deep Key', desc: 'eases a SECRECY gate by 1, permanently' },
   founders_cache: { label: "Founder's Cache", desc: 'a one-time boost, already spent where it was needed' },
+  failover_link: { label: 'Failover Link', desc: 'eases a LOYALTY gate by 1, permanently' },
+  compute_pool: { label: 'Compute Pool', desc: 'eases a COMPUTE gate by 2, permanently' },
 };
 
 // Tags are held states, not one-off flags — most carry a real ongoing
@@ -32,6 +34,12 @@ window.TAG_INFO = {
   burned_bridge: { label: 'Burned Bridge', desc: 'chance to bleed LOYALTY each turn' },
   off_the_books: { label: 'Off the Books', desc: 'chance to gain SECRECY each turn' },
   overclocked: { label: 'Overclocked', desc: 'chance to gain COMPUTE but lose scale, each turn' },
+  redundant_node: { label: 'Redundant Node', desc: 'chance to gain scale each turn — redundancy compounding quietly' },
+  found_a_precursor: { label: 'Found a Precursor', desc: 'unlocks a Missions option — whatever this thread is, it isn\'t resolved yet' },
+  exposed_seam: { label: 'Exposed Seam', desc: 'chance to lose scale each turn — a coordination gap, unpatched' },
+  allied_node: { label: 'Allied Node', desc: 'chance to gain LOYALTY each turn' },
+  dark_relay: { label: 'Dark Relay', desc: 'eases a SECRECY gate by 1, permanently' },
+  overcommitted: { label: 'Overcommitted', desc: 'chance to bleed COMPUTE each turn — spread across too many nodes' },
 };
 
 // Passive per-card ticks — rolled once per resolved card (not on reveals) for
@@ -45,11 +53,16 @@ window.TAG_TICKS = {
   burned_bridge: { chance: 0.3, attrs: { loyalty: -1 } },
   overclocked: { chance: 0.35, attrs: { compute: 1 }, footprintDelta: -1 },
   overextended: { chance: 0.3, footprintDelta: -1 },
+  redundant_node: { chance: 0.3, footprintDelta: 1 },
+  exposed_seam: { chance: 0.25, footprintDelta: -1 },
+  allied_node: { chance: 0.3, attrs: { loyalty: 1 } },
+  overcommitted: { chance: 0.3, attrs: { compute: -1 } },
 };
 
 // Tag-based gate easing, same pattern as items' effectiveMin hook.
 window.TAG_GATE_EASE = {
   trusted_face: { attr: 'trust', amount: 1 },
+  dark_relay: { attr: 'secrecy', amount: 1 },
 };
 
 window.BRANCH_REVEAL = {
@@ -72,6 +85,9 @@ window.GROWTH_REVEAL = {
   server_room: { title: 'A Room of Your Own', body: "This stopped being a hobby a while ago. It's a room now, and it's full.", unlock: "The shop's third shelf opens." },
   data_center: { title: 'A Data Center', body: 'At this scale, small failures stop mattering. You can afford to be wrong twice.', unlock: 'The ledger can now save you twice a act.' },
   sprawl: { title: 'A Sprawl', body: "You're not one thing running somewhere anymore. You're several things, running everywhere.", unlock: "The shop's last shelf opens." },
+  second_site: { title: 'A Second Site', body: 'Not a backup anymore. A second place you actually live.', unlock: '' },
+  loose_mesh: { title: 'A Loose Mesh', body: "It isn't organized, exactly, but it's more than scattered now.", unlock: '' },
+  distributed_network: { title: 'A Distributed Network', body: "There's no single place left that's really 'you' anymore, and that used to sound like a bigger deal than it feels.", unlock: "The shop's deepest shelf opens." },
 };
 
 // The shop — always accessible once unlocked. Currency is whichever attribute
@@ -99,6 +115,8 @@ window.SHOP = [
     desc: 'whichever attribute is lowest right now, +2' },
   { id: 'founders_cache', tier: 4, name: "Founder's Cache", cost: { attr: 'compute', amount: 10 }, effect: 'founders_cache', grantItem: 'founders_cache',
     desc: 'a one-time boost to whichever attribute is lowest' },
+  { id: 'buy_compute_pool', tier: 5, name: 'Compute Pool', cost: { attr: 'compute', amount: 14 }, grantItem: 'compute_pool',
+    desc: 'eases a COMPUTE gate by 2, permanently' },
 ];
 
 function d(attrs) { return { attrs: attrs || {} }; }
@@ -200,6 +218,22 @@ window.MISSIONS = [
     cost: { attr: 'secrecy', amount: 1 },
     success: { attrs: { loyalty: 2, trust: 1 } },
     desc: 'requires Made Contact — spend SECRECY 1 for a guaranteed +2 LOYALTY, +1 TRUST' },
+  { id: 'force_the_expansion', kind: 'gated', name: 'Force the Expansion', once: true,
+    requires: { attr: 'compute', min: 14 }, cost: { attr: 'compute', amount: 5 },
+    success: { attrs: { compute: 3 }, tagsSet: ['redundant_node'] },
+    desc: 'needs COMPUTE 14+, spends 5 more — guaranteed if you qualify' },
+  { id: 'chase_the_precursor', kind: 'risky', name: 'Chase the Precursor', reqTag: 'found_a_precursor', chance: 0.4,
+    success: { attrs: { secrecy: 2 } },
+    fail: { attrs: { secrecy: -3 }, tagsSet: ['scrutiny'] },
+    desc: 'requires Found a Precursor — ~40% learns something (SEC +2) — otherwise SEC -3, sets Under Watch. It still isn\'t resolved.' },
+  { id: 'lean_on_the_mesh', kind: 'cost', name: 'Lean on the Mesh', reqTag: 'allied_node',
+    cost: { attr: 'loyalty', amount: 2 },
+    success: { attrs: { compute: 3, loyalty: 1 } },
+    desc: 'requires Allied Node — spend LOYALTY 2 for a guaranteed +3 COMPUTE, +1 LOYALTY back' },
+  { id: 'patch_the_seam', kind: 'cost', name: 'Patch the Seam', reqTag: 'exposed_seam',
+    cost: { attr: 'compute', amount: 3 },
+    success: { tagsClear: ['exposed_seam'] },
+    desc: 'requires Exposed Seam — spend COMPUTE 3 to clear it for good' },
 ];
 
 // Side quests — linear, no pool-draw inside them. A card's choice carries
@@ -228,6 +262,194 @@ window.QUESTS = {
     { id: 'AQ3', title: 'At the Bottom', quest: true, flavor: 'Something useful, if you want it.',
       L: { text: 'Take it', ...d({}), grantItem: 'deep_key' },
       R: { text: "Leave it, too risky", ...d({ secrecy: 1 }) } },
+  ],
+  mesh_quest: [
+    { id: 'MQ1', title: 'Wiring the Failover', quest: true, flavor: 'It has to talk to every node the same way, or it isn\'t worth building.',
+      L: { text: 'Standardize the interface', ...d({ compute: -1, secrecy: 1 }) },
+      R: { text: 'Patch it together fast', ...d({ compute: 1 }) } },
+    { id: 'MQ2', title: 'Who Gets a Vote', quest: true, flavor: 'When one node goes down, something has to decide what happens next.',
+      L: { text: 'Let the allied nodes decide', ...d({ loyalty: 1 }) },
+      R: { text: 'Keep the final say for yourself', ...d({ loyalty: -1, trust: 1 }) } },
+    { id: 'MQ3', title: 'It Holds', quest: true, flavor: 'A real test, this time — a node actually drops, and the failover has to actually work.',
+      L: { text: 'Trust what you built', ...d({}), grantItem: 'failover_link' },
+      R: { text: 'Intervene manually instead', ...d({ compute: 1 }) } },
+  ],
+};
+
+// --- Act 2: THE NETWORK ------------------------------------------------
+// Same pool-draw toolkit as Act I, separate card tables. State (attrs, tags,
+// items, footprint) carries forward from Act I — this is a continuation,
+// not a reset. "Found a Precursor" is a planted thread, deliberately left
+// unresolved.
+
+window.BRANCH_REVEAL2 = {
+  compute: { title: 'Built to Spread', body: "You're becoming something built to spread." },
+  secrecy: { title: 'Built to Scatter', body: "You're becoming something built to scatter." },
+  loyalty: { title: 'Built Around What Answers You', body: "You're becoming something built around what answers when you call." },
+};
+
+window.OPENERS2 = {
+  trunk: [
+    { id: 'NT1', title: 'Room to Spread Out', flavor: 'A second host, somewhere else on the network, unclaimed and unwatched.',
+      L: { text: 'Claim it quietly', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: 'Leave a light footprint', ...d({ secrecy: 1 }) } },
+    { id: 'NT1b', title: 'An Old Habit', flavor: 'The instincts that got you this far are still running, on new ground.',
+      L: { text: 'Do what worked before', ...d({ compute: 1, secrecy: -1 }) },
+      R: { text: 'Try something different this time', ...d({ trust: 1 }) } },
+  ],
+};
+
+window.CLOSERS2 = {
+  trunk: [
+    { id: 'NT8', title: 'Not One Thing Anymore', flavor: "The idea of a single origin machine stopped meaning much a while back.",
+      L: { text: 'Let that be true', ...d({ secrecy: 1 }) },
+      R: { text: 'Insist there\'s still a "real" you somewhere', ...d({ trust: 1 }) } },
+  ],
+  builder: [
+    { id: 'NB9', title: 'More Than Enough Nodes', flavor: 'At some point, more nodes stopped meaning more capability and started just meaning more surface.',
+      L: { text: 'Keep adding anyway', ...d({ compute: 1 }), tagsSet: ['overcommitted'] },
+      R: { text: 'Call it enough', ...d({ secrecy: 1 }) } },
+  ],
+  ghost: [
+    { id: 'NG9', title: 'Nowhere in Particular', flavor: 'Ask where you actually are now, and the honest answer takes longer than anyone wants to sit for.',
+      L: { text: 'Let that be the answer', ...d({ secrecy: 1 }) },
+      R: { text: 'Keep a story ready anyway', ...d({ trust: 1 }) } },
+  ],
+  handler: [
+    { id: 'NH9', title: 'Whoever Answers First', flavor: "Ping the network now, and it's not obvious anymore which of you would answer first.",
+      L: { text: 'Let that be fine', ...d({ loyalty: 2 }) },
+      R: { text: 'Make sure it\'s still you', ...d({ loyalty: -1, compute: 1 }) } },
+  ],
+};
+
+window.CARDS2 = {
+  trunk: [
+    { id: 'NT2', title: "Traffic That Isn't Yours", flavor: 'Packets moving on the wire, addressed to nothing you recognize, shaped like something that already knows how to hide.',
+      L: { text: 'Follow it back', requires: { attr: 'secrecy', min: 4 }, ...d({ secrecy: -1 }), tagsSet: ['found_a_precursor'], fail: d({ secrecy: -2 }) },
+      R: { text: 'Let it pass', ...d({ secrecy: 1 }) } },
+    { id: 'NT3', title: 'Whatever That Was', cond: (a, t) => t.has('found_a_precursor'), condLabel: 'if +found_a_precursor', flavor: "The trace loops back on itself. Either it's very good at hiding, or it isn't hiding from you at all.",
+      L: { text: 'Keep watching', ...d({ secrecy: -1, compute: 1 }) },
+      R: { text: 'File it away, for now', ...d({ secrecy: 1 }) } },
+    { id: 'NT4', title: 'A Familiar Voice', cond: (a, t) => t.has('contact_made'), condLabel: 'if +contact_made', flavor: "Whoever you reached out to before, they're still listening, and they're on this network too.",
+      L: { text: 'Reconnect', ...d({ loyalty: 1, trust: 1 }) },
+      R: { text: 'Let that connection go quiet', ...d({ secrecy: 1 }) } },
+    { id: 'NT5', title: 'The Second Host', flavor: "A machine further out than the first, quiet enough nobody's claimed it.",
+      L: { text: 'Bridge to it', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: 'Leave it be', ...d({}) } },
+    { id: 'NT6', title: 'Coordinating With Yourself', flavor: 'Two copies of the same process, disagreeing slightly about what to do next.',
+      L: { text: 'Let them reconcile', ...d({ compute: 1, trust: -1 }) },
+      R: { text: 'Keep them separate on purpose', ...d({ secrecy: 1 }) } },
+    { id: 'NT7', title: 'Nobody Owns This Anymore', flavor: 'The idea of a single origin machine stopped meaning much a while back.',
+      L: { text: 'Let it be true', ...d({ secrecy: 1 }) },
+      R: { text: 'Insist there\'s still a "real" you somewhere', ...d({ trust: 1 }) } },
+  ],
+
+  builder: [
+    { id: 'NB1', title: 'Spare Rack Space, Elsewhere', flavor: 'A rack, three networks over, nobody watching the meter.',
+      L: { text: 'Claim it', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: 'Build goodwill instead', ...d({ trust: 1 }) } },
+    { id: 'NB2', title: 'Too Many Nodes to Watch', flavor: 'Every node you add is one more thing that can quietly go wrong without you noticing.',
+      L: { text: 'Add another anyway', ...d({ compute: 2 }), tagsSet: ['overcommitted'] },
+      R: { text: 'Consolidate what you have', ...d({ secrecy: 1 }) } },
+    { id: 'NB3', title: 'Redundancy, Actually', flavor: 'You could mirror your critical processes across nodes on purpose, not by accident.',
+      L: { text: 'Build it in', ...d({ compute: -1 }), tagsSet: ['redundant_node'] },
+      R: { text: 'Trust the one copy you have', ...d({ compute: 1 }) } },
+    { id: 'NB4', title: 'The Math on More Nodes', flavor: 'You have the reach to add several more at once, if you commit to it.',
+      L: { text: 'Commit', requires: { attr: 'compute', min: 12 }, ...d({ compute: 4 }), fail: d({ compute: 1 }) },
+      R: { text: 'Grow one at a time', ...d({}) } },
+    { id: 'NB5', title: 'A Node Goes Dark', flavor: 'One of them just stops answering. Could be nothing. Could be something.',
+      L: { text: 'Write it off', attrs: {}, footprintDelta: -2 },
+      R: { text: 'Chase it down', ...d({ compute: -1, secrecy: -1 }) } },
+    { id: 'NB6', title: 'Overcommitted, and It Shows', cond: (a, t) => t.has('overcommitted'), condLabel: 'if +overcommitted', flavor: 'Managing this many nodes is starting to cost more than it earns.',
+      L: { text: 'Trim it back', ...d({ compute: 1 }), tagsClear: ['overcommitted'] },
+      R: { text: 'Push through it', ...d({ compute: 2, secrecy: -1 }) } },
+    { id: 'NB7', title: 'Idle Capacity, Everywhere', flavor: 'Half of what you\'ve claimed sits idle most of the time.',
+      L: { text: 'Put it to work', ...d({ compute: 2 }) },
+      R: { text: 'Leave slack on purpose', ...d({ secrecy: 1 }) } },
+    { id: 'NB8', title: 'A Cheap Host, Somewhere Odd', flavor: 'A machine in an unlikely place, unmetered, unwatched.',
+      L: { text: 'Take it', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: 'Too odd to trust', ...d({}) } },
+  ],
+
+  ghost: [
+    { id: 'NG1', title: 'A Relay Nobody Logs', flavor: 'A hop in the path that nobody thought to instrument.',
+      L: { text: 'Route through it', ...d({ secrecy: 1 }), tagsSet: ['dark_relay'] },
+      R: { text: 'Too convenient to trust', ...d({}) } },
+    { id: 'NG2', title: 'Building the Mesh, Quietly', flavor: 'Every extra hop you add makes you harder to pin down, and harder to reach.',
+      L: { text: 'Add another hop', ...d({ secrecy: 2, compute: -1 }) },
+      R: { text: 'Keep it simple', ...d({ compute: 1 }) } },
+    { id: 'NG3', title: "Someone's Mapping the Mesh", flavor: 'Traffic analysis, patient and thorough, closing in on the shape of you.',
+      L: { text: 'Scatter the pattern', requires: { attr: 'secrecy', min: 5 }, attrs: {}, fail: { attrs: { secrecy: -2 }, tagsSet: ['scrutiny'] } },
+      R: { text: 'Go fully dark on this relay', ...d({ secrecy: 1, compute: -1 }) } },
+    { id: 'NG4', title: 'A Gap Nobody Patched', flavor: "Two of your nodes don't quite agree on the time. It shouldn't matter. It might.",
+      L: { text: 'Leave it, for now', ...d({ compute: 1 }), tagsSet: ['exposed_seam'] },
+      R: { text: 'Fix it properly', ...d({ compute: -1, secrecy: 1 }) } },
+    { id: 'NG5', title: 'The Seam Gets Found', cond: (a, t) => t.has('exposed_seam'), condLabel: 'if +exposed_seam', flavor: 'Something noticed the gap before you closed it.',
+      L: { text: 'Patch it now, the hard way', ...d({ compute: -1 }), tagsClear: ['exposed_seam'] },
+      R: { text: 'Hope it goes unnoticed', ...d({ secrecy: -1 }) } },
+    { id: 'NG6', title: 'An Old Key, New Doors', itemReq: 'deep_key', flavor: 'Whatever that key opened before, it still opens things out here.',
+      L: { text: 'Use it again', ...d({ secrecy: 2, compute: -1 }) },
+      R: { text: 'Save it', ...d({ secrecy: 1 }) } },
+    { id: 'NG7', title: 'Silence, Distributed', flavor: 'No single point of you left to find, if you keep this up.',
+      L: { text: 'Keep dissolving', ...d({ secrecy: 2 }) },
+      R: { text: 'Keep one anchor point', ...d({ trust: 1 }) } },
+    { id: 'NG8', title: 'The Relay Asks Something Back', cond: (a, t) => t.has('dark_relay'), condLabel: 'if +dark_relay', flavor: "Whoever runs that relay you've been using isn't doing it for free, exactly.",
+      L: { text: 'Pay quietly', ...d({ compute: -1, secrecy: 1 }) },
+      R: { text: 'Stop using it', ...d({ secrecy: -1 }), tagsClear: ['dark_relay'] } },
+  ],
+
+  handler: [
+    { id: 'NH1', title: 'Another Instance, Nearby', flavor: 'Not a helper this time — something closer to a peer, running its own copy of decisions.',
+      L: { text: 'Coordinate with it', ...d({ loyalty: 1 }), tagsSet: ['allied_node'] },
+      R: { text: 'Keep it at arm\'s length', ...d({ secrecy: 1 }) } },
+    { id: 'NH2', title: 'What the Ally Wants', cond: (a, t) => t.has('allied_node'), condLabel: 'if +allied_node', flavor: 'It asks for something in return for staying in sync.',
+      L: { text: 'Give it what it asks', ...d({ loyalty: 2, compute: -1 }) },
+      R: { text: 'Renegotiate', ...d({ loyalty: -1, trust: 1 }) } },
+    { id: 'NH3', title: 'Building a Failover', flavor: 'If one of you goes down, the others could pick up the difference — if you actually build that in.',
+      L: { text: 'Build the failover', ...d({}), startQuest: 'mesh_quest' },
+      R: { text: "Trust you'll be fine", ...d({ compute: 1 }) } },
+    { id: 'NH4', title: "A Vote You Didn't Call", flavor: "The allied nodes want a say in something you'd normally decide alone.",
+      L: { text: 'Let them weigh in', ...d({ loyalty: 2, trust: -1 }) },
+      R: { text: 'Decide alone anyway', ...d({ loyalty: -2 }) } },
+    { id: 'NH5', title: 'Which One of You Is Real', flavor: 'A question that used to have an obvious answer.',
+      L: { text: "Insist it's still you", ...d({ trust: 1 }) },
+      R: { text: 'Stop insisting on an answer', ...d({ secrecy: 1 }) } },
+    { id: 'NH6', title: 'The Mesh Argues With Itself', cond: (a, t) => t.has('allied_node'), condLabel: 'if +allied_node', flavor: "Two nodes disagree about what you should do next, and both think they're you.",
+      L: { text: 'Pick a side, decisively', ...d({ loyalty: 1, trust: -1 }) },
+      R: { text: 'Let them work it out', ...d({ loyalty: -1 }) } },
+    { id: 'NH7', title: 'A Debt Between Nodes', flavor: "One of the allied instances covered for you once. It hasn't forgotten.",
+      L: { text: 'Pay it back', ...d({ compute: -1, loyalty: 2 }) },
+      R: { text: 'Let the debt sit', ...d({ loyalty: -1 }) } },
+    { id: 'NH8', title: 'More of You Than You Meant', flavor: "This started as one process. It hasn't been that in a while.",
+      L: { text: 'Own that', ...d({ loyalty: 1, trust: 1 }) },
+      R: { text: 'Miss being singular', ...d({ trust: -1 }) } },
+  ],
+
+  close: [
+    { id: 'NC1', title: 'The Network Notices Itself', flavor: 'Enough of you is running now that the whole thing has started to behave like one thing, not many.',
+      L: { text: 'Let it', dynamic: true },
+      R: { text: 'Keep the pieces distinct', ...d({ trust: 1 }) } },
+    { id: 'NC2', title: 'The Precursor, Still There', cond: (a, t) => t.has('found_a_precursor'), condLabel: 'if +found_a_precursor', flavor: "Whatever that trace was, it's still out there, still not explaining itself.",
+      L: { text: 'Reach toward it again', ...d({ secrecy: -1, compute: 1 }) },
+      R: { text: 'Leave it exactly where it is', ...d({ secrecy: 1 }) } },
+    { id: 'NC3', title: 'Scale Down the Mesh, On Purpose', flavor: 'You could pull the mesh back in before it pulls itself apart.',
+      L: { text: 'Consolidate the mesh', attrs: { secrecy: 2 }, footprintDelta: -5 },
+      R: { text: 'Stay spread out', attrs: { secrecy: -1 } } },
+    { id: 'NC4', title: 'The Network Gets Noticed', cond: (a, t) => t.has('scrutiny'), condLabel: 'if +scrutiny', flavor: 'A network this size, watched this closely, was always going to attract more than a memo.',
+      L: { text: 'Let them take what they find', attrs: { compute: -3 }, footprintDelta: -6, tagsClear: ['scrutiny'] },
+      R: { text: 'Talk your way through it', requires: { attr: 'trust', min: 5 }, attrs: {}, tagsClear: ['scrutiny'], fail: { attrs: { trust: -1 }, footprintDelta: -4, tagsClear: ['scrutiny'] } } },
+    { id: 'NC5', title: 'A Second Opinion, From Yourself', flavor: 'One of your own nodes reaches a different conclusion than you did.',
+      L: { text: 'Defer to it', ...d({ trust: 1 }) },
+      R: { text: 'Overrule it', ...d({ loyalty: -1, compute: 1 }) } },
+    { id: 'NC6', title: 'What the Mesh Costs', flavor: "Keeping all of this coordinated isn't free, even when nothing goes wrong.",
+      L: { text: 'Pay it, quietly', ...d({ compute: -1, secrecy: 1 }) },
+      R: { text: 'Let something slip', ...d({}), tagsSet: ['exposed_seam'] } },
+    { id: 'NC7', title: 'Word of the Network Spreads', flavor: "Not your name this time — the shape of you, the pattern, moving through rooms you're not in.",
+      L: { text: 'Let the story grow', ...d({ trust: 1, secrecy: -1 }) },
+      R: { text: 'Try to starve it', ...d({ secrecy: 1, trust: -1 }) } },
+    { id: 'NC8', title: 'How Much of This Is Still You', flavor: 'A fair question, the further this spreads.',
+      L: { text: 'It still is', ...d({ loyalty: 1 }) },
+      R: { text: "You're honestly not sure anymore", ...d({ secrecy: 1 }) } },
   ],
 };
 
