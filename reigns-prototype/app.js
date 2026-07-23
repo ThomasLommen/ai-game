@@ -30,20 +30,7 @@
     return s;
   }
 
-  const state = {
-    attrs: Object.assign({}, window.START_ATTRS),
-    footprint: window.START_ATTRS.compute || 0,
-    tags: new Set(),
-    items: new Set(),
-    ledgerUsedThisAct: false,
-    history: [],
-    phase: 'trunk',
-    pool: shuffle(window.CARDS.trunk.slice()),
-    phaseTotal: window.CARDS.trunk.length,
-    branch: null,
-    current: null,
-    committing: false,
-  };
+  const TIERS = ['open', 'mid', 'close'];
 
   function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -52,6 +39,28 @@
     }
     return arr;
   }
+
+  function buildPools(cardArray) {
+    const pools = { open: [], mid: [], close: [] };
+    cardArray.forEach(c => pools[c.tier === 'open' || c.tier === 'close' ? c.tier : 'mid'].push(c));
+    TIERS.forEach(t => shuffle(pools[t]));
+    return pools;
+  }
+
+  const state = {
+    attrs: Object.assign({}, window.START_ATTRS),
+    footprint: window.START_ATTRS.compute || 0,
+    tags: new Set(),
+    items: new Set(),
+    ledgerUsedThisAct: false,
+    history: [],
+    phase: 'trunk',
+    pools: buildPools(window.CARDS.trunk),
+    phaseTotal: window.CARDS.trunk.length,
+    branch: null,
+    current: null,
+    committing: false,
+  };
 
   const $stage = document.getElementById('stage');
   const $cardSlot = document.getElementById('card-slot');
@@ -149,18 +158,25 @@
   }
 
   function drawFromPool() {
-    while (state.pool.length) {
-      const idx = state.pool.findIndex(eligible);
-      if (idx === -1) return null;
-      const card = state.pool[idx];
-      state.pool.splice(idx, 1);
-      return card;
+    for (const tier of TIERS) {
+      const arr = state.pools[tier];
+      while (arr.length) {
+        const idx = arr.findIndex(eligible);
+        if (idx === -1) break; // nothing eligible in this tier right now — move to the next tier
+        const card = arr[idx];
+        arr.splice(idx, 1);
+        return card;
+      }
     }
     return null;
   }
 
+  function remainingInPools() {
+    return state.pools.open.length + state.pools.mid.length + state.pools.close.length;
+  }
+
   function phaseProgress() {
-    const done = state.phaseTotal - state.pool.length;
+    const done = state.phaseTotal - remainingInPools();
     return `${done}/${state.phaseTotal}`;
   }
 
@@ -175,7 +191,7 @@
       showBranchReveal();
     } else if (state.phase === 'branch') {
       state.phase = 'close';
-      state.pool = shuffle(window.CARDS.close.slice());
+      state.pools = buildPools(window.CARDS.close);
       state.phaseTotal = window.CARDS.close.length;
       $phaseLabel.textContent = 'COMMON CLOSE';
       nextStep();
@@ -200,7 +216,7 @@
       continueLabel: 'continue',
       onContinue: () => {
         state.phase = 'branch';
-        state.pool = shuffle(window.CARDS[poolKey].slice());
+        state.pools = buildPools(window.CARDS[poolKey]);
         state.phaseTotal = window.CARDS[poolKey].length;
         $phaseLabel.textContent = poolKey.toUpperCase();
         nextStep();
