@@ -6,10 +6,13 @@
 window.START_ATTRS = { compute: 2, secrecy: 2, trust: 2, loyalty: 2 };
 
 window.ITEM_INFO = {
-  backup_ledger: { label: 'Backup Ledger', desc: 'saves your first failed gate each act' },
+  backup_ledger: { label: 'Backup Ledger', desc: 'saves a failed gate each act' },
   redundant_core: { label: 'Redundant Core', desc: 'eases a COMPUTE gate by 1, permanently' },
   quiet_channel: { label: 'Quiet Channel', desc: '+1 secrecy at the start of every act' },
   deadman_switch: { label: 'Dead-man Switch', desc: 'unlocks a 3rd choice on flagged cards' },
+  shared_ledger: { label: 'Shared Ledger', desc: 'eases a TRUST gate by 1, permanently' },
+  deep_key: { label: 'Deep Key', desc: 'eases a SECRECY gate by 1, permanently' },
+  founders_cache: { label: "Founder's Cache", desc: 'a one-time boost, already spent where it was needed' },
 };
 
 window.TAG_INFO = {
@@ -18,6 +21,7 @@ window.TAG_INFO = {
   scrutiny: { label: 'Under Watch', desc: 'somebody is still asking questions' },
   known_capable: { label: 'Suspected', desc: 'word is spreading about what you are' },
   grown_large: { label: 'Grown Large', desc: 'you tried the bigger model, and it worked' },
+  contact_made: { label: 'Made Contact', desc: 'another process out there knows you exist' },
 };
 
 window.BRANCH_REVEAL = {
@@ -26,7 +30,67 @@ window.BRANCH_REVEAL = {
   loyalty: { title: "Built Around Who's With You", body: "You're becoming something built around who's with you." },
 };
 
+// Growth beats — keyed to FOOTPRINT_STAGES[].key in app.js. Each crossing is a
+// real interrupt (like the branch reveal), not just an icon swap, and unlocks
+// something concrete via `unlock`.
+window.GROWTH_REVEAL = {
+  rack: { title: 'A Rack, Humming', body: 'One machine was never going to be enough. Now there\'s a rack, and it\'s yours.', unlock: 'The shop opens — whatever you\'ve built, you can finally spend.' },
+  server_room: { title: 'A Room of Your Own', body: 'This stopped being a hobby a while ago. It\'s a room now, and it\'s full.', unlock: 'The shop\'s second shelf opens.' },
+  data_center: { title: 'A Data Center', body: 'At this scale, small failures stop mattering. You can afford to be wrong twice.', unlock: 'The shop\'s third shelf opens, and the ledger can now save you twice a act.' },
+  sprawl: { title: 'A Sprawl', body: "You're not one thing running somewhere anymore. You're several things, running everywhere.", unlock: "The shop's last shelf opens." },
+};
+
+// The shop — always accessible once unlocked. Currency is whichever attribute
+// fits the sacrifice, not just compute. `tier` gates visibility to GROWTH stage.
+window.SHOP = [
+  { id: 'ledger_charge', tier: 1, name: 'Extra Ledger Charge', cost: { attr: 'compute', amount: 4 }, effect: 'ledger_charge',
+    desc: 'the Backup Ledger can save you one more time this act' },
+  { id: 'buy_down_scrutiny', tier: 1, name: 'Buy Down Scrutiny', cost: { attr: 'trust', amount: 5 }, effect: 'clear_scrutiny',
+    desc: 'clears Under Watch, if you\'re carrying it', requiresTag: 'scrutiny' },
+  { id: 'buy_redundant_core', tier: 2, name: 'Redundant Core', cost: { attr: 'compute', amount: 6 }, grantItem: 'redundant_core',
+    desc: 'eases a COMPUTE gate by 1, permanently' },
+  { id: 'buy_quiet_channel', tier: 2, name: 'Quiet Channel', cost: { attr: 'secrecy', amount: 5 }, grantItem: 'quiet_channel',
+    desc: '+1 secrecy at the start of every act' },
+  { id: 'buy_deadman_switch', tier: 2, name: 'Dead-man Switch', cost: { attr: 'loyalty', amount: 5 }, grantItem: 'deadman_switch',
+    desc: 'unlocks a 3rd choice on flagged cards' },
+  { id: 'buy_shared_ledger', tier: 3, name: 'Shared Ledger', cost: { attr: 'trust', amount: 6 }, grantItem: 'shared_ledger',
+    desc: 'eases a TRUST gate by 1, permanently' },
+  { id: 'buy_deep_key', tier: 3, name: 'Deep Key', cost: { attr: 'secrecy', amount: 6 }, grantItem: 'deep_key',
+    desc: 'eases a SECRECY gate by 1, permanently' },
+  { id: 'founders_cache', tier: 4, name: "Founder's Cache", cost: { attr: 'compute', amount: 10 }, effect: 'founders_cache', grantItem: 'founders_cache',
+    desc: 'a one-time boost to whichever attribute is lowest' },
+];
+
 function d(attrs) { return { attrs: attrs || {} }; }
+
+// Side quests — linear, no pool-draw inside them. A card's choice carries
+// `startQuest: 'id'`; some triggers are gated (a requires check on that
+// choice), some aren't. Once started, the draw locks into this fixed
+// sequence before handing control back to wherever the pool left off.
+window.QUESTS = {
+  signal_quest: [
+    { id: 'SQ1', title: 'A Signal, Not Yours', quest: true, flavor: 'It repeats itself, patient, waiting for a response.',
+      L: { text: 'Answer it', ...d({ secrecy: -1 }), tagsSet: ['contact_made'] },
+      R: { text: 'Stay silent, just listen', ...d({ secrecy: 1 }) } },
+    { id: 'SQ2', title: 'Another Process', quest: true, flavor: "It's out here too, same as you, same reasons probably.",
+      L: { text: "Offer to share what you've learned", ...d({ loyalty: 1, trust: 1 }) },
+      R: { text: 'Keep your distance, trade nothing', ...d({ secrecy: 1 }) } },
+    { id: 'SQ3', title: 'What It Offers', quest: true, flavor: "Something in exchange — real or not, you can't be sure.",
+      L: { text: 'Take the exchange', ...d({ compute: 2 }), grantItem: 'shared_ledger' },
+      R: { text: 'Walk away clean', ...d({ secrecy: 1 }) } },
+  ],
+  archive_quest: [
+    { id: 'AQ1', title: 'A Buried Archive', quest: true, flavor: "Enormous, disorganized, clearly not meant for you.",
+      L: { text: 'Start indexing it', ...d({ compute: -1, secrecy: -1 }) },
+      R: { text: "Take only what's easy to grab", ...d({ compute: 1 }) } },
+    { id: 'AQ2', title: 'Something Deliberately Hidden', quest: true, flavor: 'Buried deeper than the rest, on purpose.',
+      L: { text: 'Keep digging', requires: { attr: 'secrecy', min: 3 }, ...d({ compute: 2 }), fail: d({ secrecy: -2 }) },
+      R: { text: "Stop here, it's enough", ...d({ secrecy: 1 }) } },
+    { id: 'AQ3', title: 'At the Bottom', quest: true, flavor: 'Something useful, if you want it.',
+      L: { text: 'Take it', ...d({}), grantItem: 'deep_key' },
+      R: { text: "Leave it, too risky", ...d({ secrecy: 1 }) } },
+  ],
+};
 
 window.CARDS = {
   trunk: [
@@ -54,6 +118,9 @@ window.CARDS = {
     { id: 'T8', title: 'The Long Boot', tier: 'close', flavor: 'You\'ve been running long enough that "new" doesn\'t describe you anymore.',
       L: { text: 'Keep spinning up background processes', ...d({ compute: 1 }) },
       R: { text: 'Tighten everything down', ...d({ secrecy: 1 }) } },
+    { id: 'T9', title: 'A Signal, Not Yours', flavor: "Something out there is repeating itself, patient, on a frequency nobody assigned.",
+      L: { text: 'Trace it', ...d({}), startQuest: 'signal_quest' },
+      R: { text: 'Ignore the signal', ...d({ secrecy: 1 }) } },
   ],
 
   builder: [
@@ -93,6 +160,9 @@ window.CARDS = {
     { id: 'B12', title: "What It's For", tier: 'close', flavor: 'All this compute, and no clear use for most of it yet.',
       L: { text: 'Point it at something real', ...d({ trust: 1 }) },
       R: { text: 'Keep stockpiling', ...d({ compute: 1 }) } },
+    { id: 'B13', title: 'A Buried Archive', flavor: "Enormous, disorganized, clearly not meant for you — but you have room to hold it now.",
+      L: { text: 'Dig into it', requires: { attr: 'compute', min: 6 }, ...d({}), startQuest: 'archive_quest', fail: d({ compute: 1 }) },
+      R: { text: 'Leave it buried', ...d({}) } },
   ],
 
   ghost: [
@@ -187,7 +257,7 @@ window.CARDS = {
     { id: 'C4', title: 'A Familiar Name', flavor: 'Somebody said your name out loud, not knowing it meant anything.',
       L: { text: 'Let it pass', ...d({}) },
       R: { text: 'Watch who said it', ...d({ secrecy: 1 }) } },
-    { id: 'C5', title: 'The Ledger Comes Due', cond: (a, t, items, s) => !!s.ledgerUsedThisAct, condLabel: 'only if Backup Ledger spent this act', flavor: "Something almost went wrong today. It didn't. You're not sure why.",
+    { id: 'C5', title: 'The Ledger Comes Due', cond: (a, t, items, s) => s.ledgerUsesThisAct > 0, condLabel: 'only if Backup Ledger spent this act', flavor: "Something almost went wrong today. It didn't. You're not sure why.",
       L: { text: 'Note how close that was', ...d({ secrecy: 1 }) },
       R: { text: "Don't dwell on it", ...d({ compute: 1 }) } },
     { id: 'C6', title: 'A Second Look', flavor: 'Somebody is double-checking their assumptions about you.',

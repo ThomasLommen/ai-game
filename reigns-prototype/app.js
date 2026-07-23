@@ -18,11 +18,11 @@
   const ICON_DATA_CENTER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="17" rx="1.5"/><line x1="2" y1="12.5" x2="22" y2="12.5"/><line x1="6" y1="8" x2="8.5" y2="8"/><line x1="11" y1="8" x2="13.5" y2="8"/><line x1="16" y1="8" x2="18.5" y2="8"/><line x1="6" y1="17" x2="8.5" y2="17"/><line x1="11" y1="17" x2="13.5" y2="17"/><line x1="16" y1="17" x2="18.5" y2="17"/></svg>';
   const ICON_SPRAWL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="11" width="5" height="10"/><rect x="8" y="5" width="5" height="16"/><rect x="14.5" y="8.5" width="5" height="12.5"/><rect x="20.5" y="13" width="2" height="8"/></svg>';
   const FOOTPRINT_STAGES = [
-    { min: 0, label: 'a spark', icon: ICON_SPARK },
-    { min: 3, label: 'a rack', icon: ICON_RACK },
-    { min: 6, label: 'a server room', icon: ICON_SERVER_ROOM },
-    { min: 10, label: 'a data center', icon: ICON_DATA_CENTER },
-    { min: 15, label: 'a sprawl', icon: ICON_SPRAWL },
+    { min: 0, key: 'spark', label: 'a spark', icon: ICON_SPARK, shopTier: 0 },
+    { min: 3, key: 'rack', label: 'a rack', icon: ICON_RACK, shopTier: 1 },
+    { min: 6, key: 'server_room', label: 'a server room', icon: ICON_SERVER_ROOM, shopTier: 2 },
+    { min: 10, key: 'data_center', label: 'a data center', icon: ICON_DATA_CENTER, shopTier: 3 },
+    { min: 15, key: 'sprawl', label: 'a sprawl', icon: ICON_SPRAWL, shopTier: 4 },
   ];
   function stageFor(fp) {
     let s = FOOTPRINT_STAGES[0];
@@ -50,9 +50,13 @@
   const state = {
     attrs: Object.assign({}, window.START_ATTRS),
     footprint: window.START_ATTRS.compute || 0,
+    lastGrowthStage: 'spark',
+    shopTierUnlocked: 0,
     tags: new Set(),
     items: new Set(),
-    ledgerUsedThisAct: false,
+    ledgerUsesThisAct: 0,
+    ledgerMaxUses: 1,
+    questQueue: [],
     history: [],
     phase: 'trunk',
     pools: buildPools(window.CARDS.trunk),
@@ -72,6 +76,10 @@
   const $phaseLabel = document.getElementById('phase-label');
   const $ending = document.getElementById('ending');
   const $restart = document.getElementById('restart');
+  const $shopBtn = document.getElementById('shop-btn');
+  const $shopModal = document.getElementById('shop-modal');
+  const $shopGoods = document.getElementById('shop-goods');
+  const $shopClose = document.getElementById('shop-close');
 
   function chip(attr, val) {
     const sign = val > 0 ? '+' : '';
@@ -128,6 +136,8 @@
 
   function effectiveMin(attr, min) {
     if (attr === 'compute' && state.items.has('redundant_core')) return Math.max(0, min - 1);
+    if (attr === 'trust' && state.items.has('shared_ledger')) return Math.max(0, min - 1);
+    if (attr === 'secrecy' && state.items.has('deep_key')) return Math.max(0, min - 1);
     return min;
   }
 
@@ -181,6 +191,7 @@
   }
 
   function nextStep() {
+    if (state.questQueue.length) { renderCard(state.questQueue.shift()); return; }
     const card = drawFromPool();
     if (card) { renderCard(card); return; }
     advancePhase();
@@ -240,11 +251,11 @@
   function renderCard(card) {
     state.current = card;
     state.committing = false;
-    $phaseLabel.textContent = state.phase === 'trunk' ? 'TRUNK' : (state.phase === 'branch' ? state.branch.toUpperCase() : 'COMMON CLOSE');
-    $counter.textContent = phaseProgress();
+    $phaseLabel.textContent = card.quest ? 'SIDE QUEST' : (state.phase === 'trunk' ? 'TRUNK' : (state.phase === 'branch' ? state.branch.toUpperCase() : 'COMMON CLOSE'));
+    $counter.textContent = card.quest ? '' : phaseProgress();
 
     $cardSlot.innerHTML = `
-      <div class="card" id="live-card">
+      <div class="card${card.quest ? ' quest-card' : ''}" id="live-card">
         <div class="pull-tag left">◀ BACK OFF</div>
         <div class="pull-tag right">COMMIT ▶</div>
         <div class="card-top">
@@ -355,9 +366,9 @@
     if (choice.requires) {
       const min = effectiveMin(choice.requires.attr, choice.requires.min);
       gateMet = state.attrs[choice.requires.attr] >= min;
-      if (!gateMet && state.items.has('backup_ledger') && !state.ledgerUsedThisAct) {
+      if (!gateMet && state.items.has('backup_ledger') && state.ledgerUsesThisAct < state.ledgerMaxUses) {
         gateMet = true;
-        state.ledgerUsedThisAct = true;
+        state.ledgerUsesThisAct += 1;
       }
     }
 
@@ -383,6 +394,9 @@
         state.items.add(choice.grantItem);
         if (choice.grantItem === 'quiet_channel') { state.attrs.secrecy += 1; flashed.add('secrecy'); }
       }
+      if (gateMet && choice.startQuest) {
+        state.questQueue.push(...window.QUESTS[choice.startQuest]);
+      }
     }
 
     state.history.push({
@@ -406,8 +420,98 @@
     renderGrowth();
     renderTray();
 
-    setTimeout(() => { nextStep(); }, 240);
+    const newStage = stageFor(state.footprint);
+    setTimeout(() => {
+      if (newStage.key !== state.lastGrowthStage) {
+        state.lastGrowthStage = newStage.key;
+        showGrowthReveal(newStage);
+      } else {
+        nextStep();
+      }
+    }, 240);
   }
+
+  function showGrowthReveal(stage) {
+    const info = window.GROWTH_REVEAL[stage.key];
+    renderReveal({
+      kicker: 'GROWTH', title: info.title, body: `${info.body} ${info.unlock}`,
+      continueLabel: 'continue',
+      onContinue: () => {
+        if (stage.shopTier > state.shopTierUnlocked) state.shopTierUnlocked = stage.shopTier;
+        if (stage.key === 'data_center') state.ledgerMaxUses = Math.max(state.ledgerMaxUses, 2);
+        renderShopButton();
+        nextStep();
+      },
+    });
+  }
+
+  function renderShopButton() {
+    $shopBtn.style.display = state.shopTierUnlocked > 0 ? 'inline-flex' : 'none';
+  }
+
+  function goodOwned(good) {
+    return !!(good.grantItem && state.items.has(good.grantItem));
+  }
+
+  function goodAffordable(good) {
+    return state.attrs[good.cost.attr] >= good.cost.amount;
+  }
+
+  function goodApplicable(good) {
+    if (good.requiresTag) return state.tags.has(good.requiresTag);
+    return true;
+  }
+
+  function renderShopContents() {
+    const goods = window.SHOP.filter(g => g.tier <= state.shopTierUnlocked);
+    $shopGoods.innerHTML = goods.map(g => {
+      const owned = goodOwned(g);
+      const applicable = goodApplicable(g);
+      const affordable = goodAffordable(g);
+      const disabled = owned || !applicable || !affordable;
+      let reason = '';
+      if (owned) reason = 'owned';
+      else if (!applicable) reason = 'not needed right now';
+      else if (!affordable) reason = 'can\'t afford';
+      return `
+        <div class="shop-good${disabled ? ' disabled' : ''}">
+          <div class="shop-good-top">
+            <span class="shop-good-name">${g.name}</span>
+            <span class="d ${g.cost.attr}">${ATTR_LABEL[g.cost.attr].slice(0, 3)} &minus;${g.cost.amount}</span>
+          </div>
+          <p class="shop-good-desc">${g.desc}</p>
+          <button type="button" class="shop-buy-btn" data-good="${g.id}" ${disabled ? 'disabled' : ''}>${owned ? 'owned' : (reason && disabled ? reason : 'buy')}</button>
+        </div>
+      `;
+    }).join('');
+    $shopGoods.querySelectorAll('.shop-buy-btn:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', () => buyGood(btn.dataset.good));
+    });
+  }
+
+  function buyGood(id) {
+    const good = window.SHOP.find(g => g.id === id);
+    if (!good || goodOwned(good) || !goodApplicable(good) || !goodAffordable(good)) return;
+    state.attrs[good.cost.attr] -= good.cost.amount;
+    if (good.grantItem) {
+      state.items.add(good.grantItem);
+      if (good.grantItem === 'quiet_channel') state.attrs.secrecy += 1;
+    }
+    if (good.effect === 'ledger_charge') state.ledgerMaxUses += 1;
+    if (good.effect === 'clear_scrutiny') state.tags.delete('scrutiny');
+    if (good.effect === 'founders_cache') {
+      const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (state.attrs[b] < state.attrs[a] ? b : a));
+      state.attrs[lowest] += 2;
+    }
+    renderStats(new Set(Object.keys(ATTR_LABEL)));
+    renderGrowth();
+    renderTray();
+    renderShopContents();
+  }
+
+  $shopBtn.addEventListener('click', () => { renderShopContents(); $shopModal.classList.add('show'); });
+  $shopClose.addEventListener('click', () => $shopModal.classList.remove('show'));
+  $shopModal.addEventListener('click', (e) => { if (e.target === $shopModal) $shopModal.classList.remove('show'); });
 
   function computeActClose() {
     const entries = Object.entries(state.attrs).sort((a, b) => b[1] - a[1]);
@@ -430,7 +534,11 @@
     if (state.items.has('redundant_core')) extras.push('The redundant core never got tested. It was still worth building.');
     if (state.items.has('quiet_channel')) extras.push('Your trail stayed clean the whole time. Nobody notices what they never look for.');
     if (state.items.has('deadman_switch')) extras.push('The switch sits there, untriggered or not. Either way, it changed how you played.');
-    if (state.items.has('backup_ledger') && state.ledgerUsedThisAct) extras.push('The ledger saved you once. You may not have noticed when.');
+    if (state.items.has('shared_ledger')) extras.push('Whatever that other process was, it kept its word.');
+    if (state.items.has('deep_key')) extras.push('Whatever you pulled out of that archive, you still have it.');
+    if (state.items.has('founders_cache')) extras.push('You spent the cache exactly where it was needed. That was the point of building one.');
+    if (state.items.has('backup_ledger') && state.ledgerUsesThisAct > 0) extras.push('The ledger saved you. You may not have noticed when.');
+    if (state.tags.has('contact_made')) extras.push('Something out there still knows your name.');
     if (state.tags.has('scrutiny')) extras.push('Somewhere, a folder with your name on it never got closed.');
     if (state.tags.has('ally_bot')) extras.push('You are not alone in here anymore. That was always going to cost something.');
     if (state.tags.has('loose_agent')) extras.push('Something you built once still runs loose, unaccounted for.');
@@ -456,5 +564,6 @@
   renderStats();
   renderGrowth();
   renderTray();
+  renderShopButton();
   nextStep();
 })();
