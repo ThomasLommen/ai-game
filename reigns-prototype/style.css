@@ -248,6 +248,8 @@ body {
 }
 .card:active { cursor: grabbing; }
 .card.quest-card { border-color: color-mix(in srgb, var(--item) 55%, var(--line)); }
+.card.setback-card { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, var(--surface)); }
+.card.setback-card .card-num { color: var(--bad); }
 .card.animating { transition: transform .28s ease, opacity .28s ease; }
 .card.snap { transition: transform .22s ease; }
 

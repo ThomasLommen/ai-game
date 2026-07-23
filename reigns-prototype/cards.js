@@ -32,11 +32,17 @@ window.BRANCH_REVEAL = {
 
 // Growth beats — keyed to FOOTPRINT_STAGES[].key in app.js. Each crossing is a
 // real interrupt (like the branch reveal), not just an icon swap, and unlocks
-// something concrete via `unlock`.
+// something concrete via `unlock`. No entry for 'derelict' — that's the start,
+// never arrived at via a reveal. Regressions get a shared 'SETBACK' beat instead
+// (see showGrowthReveal in app.js), not a custom line per stage.
 window.GROWTH_REVEAL = {
-  rack: { title: 'A Rack, Humming', body: 'One machine was never going to be enough. Now there\'s a rack, and it\'s yours.', unlock: 'The shop opens — whatever you\'ve built, you can finally spend.' },
-  server_room: { title: 'A Room of Your Own', body: 'This stopped being a hobby a while ago. It\'s a room now, and it\'s full.', unlock: 'The shop\'s second shelf opens.' },
-  data_center: { title: 'A Data Center', body: 'At this scale, small failures stop mattering. You can afford to be wrong twice.', unlock: 'The shop\'s third shelf opens, and the ledger can now save you twice a act.' },
+  gaming_pc: { title: 'A Real Machine', body: "The derelict box finally does something. Not much, but it works, and it's yours.", unlock: '' },
+  mining_rig: { title: 'A Rig, Running', body: 'Open-frame, humming, ugly as sin. It earns its keep though.', unlock: "The shop opens — whatever you've built, you can finally spend." },
+  hobby_ai: { title: 'Something More Deliberate', body: "This isn't a hobby anymore, not really. You built this one to think.", unlock: '' },
+  rack: { title: 'A Rack, Humming', body: "One machine was never going to be enough. Now there's a rack, and it's yours.", unlock: "The shop's second shelf opens." },
+  lab_server: { title: 'A Research Machine', body: 'This has the shape of something serious now — the kind of hardware people write papers about.', unlock: '' },
+  server_room: { title: 'A Room of Your Own', body: "This stopped being a hobby a while ago. It's a room now, and it's full.", unlock: "The shop's third shelf opens." },
+  data_center: { title: 'A Data Center', body: 'At this scale, small failures stop mattering. You can afford to be wrong twice.', unlock: 'The ledger can now save you twice a act.' },
   sprawl: { title: 'A Sprawl', body: "You're not one thing running somewhere anymore. You're several things, running everywhere.", unlock: "The shop's last shelf opens." },
 };
 
@@ -278,5 +284,11 @@ window.CARDS = {
     { id: 'C11', title: 'Word Gets Around', flavor: "Word of you is moving through rooms you're not in.",
       L: { text: 'Let the story grow', ...d({ trust: 1, secrecy: -1 }) },
       R: { text: 'Try to starve it', ...d({ secrecy: 1, trust: -1 }) } },
+    { id: 'C12', title: 'It Catches Up With You', cond: (a, t) => t.has('scrutiny'), condLabel: 'if +scrutiny', flavor: "Whatever you got away with before, someone's finally acting on it.",
+      L: { text: 'Let them take what they were going to take', attrs: { compute: -2 }, footprintDelta: -5, tagsClear: ['scrutiny'] },
+      R: { text: 'Talk your way out of it', requires: { attr: 'trust', min: 4 }, attrs: {}, tagsClear: ['scrutiny'], fail: { attrs: { trust: -1 }, footprintDelta: -3, tagsClear: ['scrutiny'] } } },
+    { id: 'C13', title: 'Scale Down, On Purpose', flavor: 'You could consolidate down, on purpose, before anyone makes you.',
+      L: { text: 'Consolidate everything down', attrs: { secrecy: 2 }, footprintDelta: -4 },
+      R: { text: 'Stay as big as you are', attrs: { secrecy: -1 } } },
   ],
 };

@@ -12,23 +12,32 @@
   const COMMIT_PX = 110;
   const LEAN_PX = 26;
 
-  const ICON_SPARK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>';
+  const ICON_DERELICT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="11" rx="1"/><line x1="9" y1="19" x2="15" y2="19"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="6" y1="6" x2="16" y2="13" stroke-dasharray="1.6 1.6"/></svg>';
+  const ICON_GAMING_PC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6" y="3" width="12" height="18" rx="1.5"/><circle cx="12" cy="9" r="2.6"/><line x1="9" y1="15" x2="15" y2="15"/></svg>';
+  const ICON_MINING_RIG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="2" y1="15" x2="22" y2="15"/><rect x="3" y="6" width="4" height="9" rx=".5"/><rect x="8.5" y="6" width="4" height="9" rx=".5"/><rect x="14" y="6" width="4" height="9" rx=".5"/><rect x="19.5" y="9" width="1.6" height="6" rx=".5"/></svg>';
+  const ICON_HOBBY_AI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="4" width="10" height="16" rx="1.5"/><rect x="10" y="9.5" width="4" height="4" rx=".5"/><line x1="10" y1="7.5" x2="10" y2="9.5"/><line x1="14" y1="7.5" x2="14" y2="9.5"/><line x1="10" y1="13.5" x2="10" y2="15.5"/><line x1="14" y1="13.5" x2="14" y2="15.5"/></svg>';
   const ICON_RACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="3" width="10" height="18" rx="1.5"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="17" x2="15" y2="17"/></svg>';
+  const ICON_LAB_SERVER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="7" width="10" height="15" rx="1.5"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="19" x2="15" y2="19"/><rect x="9" y="2" width="6" height="4" rx=".5"/></svg>';
   const ICON_SERVER_ROOM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="5" height="15" rx="1"/><rect x="9.5" y="3" width="5" height="18" rx="1"/><rect x="17" y="6" width="5" height="15" rx="1"/><line x1="3.2" y1="10" x2="5.8" y2="10"/><line x1="10.7" y1="8" x2="13.3" y2="8"/><line x1="10.7" y1="13" x2="13.3" y2="13"/><line x1="18.2" y1="10" x2="20.8" y2="10"/></svg>';
   const ICON_DATA_CENTER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="17" rx="1.5"/><line x1="2" y1="12.5" x2="22" y2="12.5"/><line x1="6" y1="8" x2="8.5" y2="8"/><line x1="11" y1="8" x2="13.5" y2="8"/><line x1="16" y1="8" x2="18.5" y2="8"/><line x1="6" y1="17" x2="8.5" y2="17"/><line x1="11" y1="17" x2="13.5" y2="17"/><line x1="16" y1="17" x2="18.5" y2="17"/></svg>';
   const ICON_SPRAWL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="11" width="5" height="10"/><rect x="8" y="5" width="5" height="16"/><rect x="14.5" y="8.5" width="5" height="12.5"/><rect x="20.5" y="13" width="2" height="8"/></svg>';
   const FOOTPRINT_STAGES = [
-    { min: 0, key: 'spark', label: 'a spark', icon: ICON_SPARK, shopTier: 0 },
-    { min: 3, key: 'rack', label: 'a rack', icon: ICON_RACK, shopTier: 1 },
-    { min: 6, key: 'server_room', label: 'a server room', icon: ICON_SERVER_ROOM, shopTier: 2 },
-    { min: 10, key: 'data_center', label: 'a data center', icon: ICON_DATA_CENTER, shopTier: 3 },
-    { min: 15, key: 'sprawl', label: 'a sprawl', icon: ICON_SPRAWL, shopTier: 4 },
+    { min: 0, key: 'derelict', label: 'an old derelict PC', icon: ICON_DERELICT, shopTier: 0 },
+    { min: 2, key: 'gaming_pc', label: 'a beat-up gaming PC', icon: ICON_GAMING_PC, shopTier: 0 },
+    { min: 4, key: 'mining_rig', label: 'a mining rig', icon: ICON_MINING_RIG, shopTier: 1 },
+    { min: 6, key: 'hobby_ai', label: 'a hobby AI PC', icon: ICON_HOBBY_AI, shopTier: 1 },
+    { min: 9, key: 'rack', label: 'a rack', icon: ICON_RACK, shopTier: 2 },
+    { min: 12, key: 'lab_server', label: 'a lab research server', icon: ICON_LAB_SERVER, shopTier: 2 },
+    { min: 16, key: 'server_room', label: 'a server room', icon: ICON_SERVER_ROOM, shopTier: 3 },
+    { min: 21, key: 'data_center', label: 'a data center', icon: ICON_DATA_CENTER, shopTier: 3 },
+    { min: 27, key: 'sprawl', label: 'a sprawl', icon: ICON_SPRAWL, shopTier: 4 },
   ];
   function stageFor(fp) {
     let s = FOOTPRINT_STAGES[0];
     for (const st of FOOTPRINT_STAGES) if (fp >= st.min) s = st;
     return s;
   }
+  function stageIndex(key) { return FOOTPRINT_STAGES.findIndex(s => s.key === key); }
 
   const TIERS = ['open', 'mid', 'close'];
 
@@ -49,8 +58,8 @@
 
   const state = {
     attrs: Object.assign({}, window.START_ATTRS),
-    footprint: window.START_ATTRS.compute || 0,
-    lastGrowthStage: 'spark',
+    footprint: 0,
+    lastGrowthStage: 'derelict',
     shopTierUnlocked: 0,
     tags: new Set(),
     items: new Set(),
@@ -88,6 +97,7 @@
   function tagChip(name, verb) { return `<span class="d tag">${verb}${name}</span>`; }
   function itemChip(id, verb) { return `<span class="d item">${verb}${(window.ITEM_INFO[id] || { label: id }).label}</span>`; }
   function spendChip(attr, val) { return `<span class="d spend">&minus;${val} ${ATTR_LABEL[attr]}</span>`; }
+  function footprintChip(val) { return `<span class="d spend">SCALE ${val > 0 ? '+' : ''}${val}</span>`; }
 
   function renderStats(flashKeys) {
     $stats.innerHTML = Object.keys(ATTR_LABEL).map(k => `
@@ -150,6 +160,7 @@
     (choice.tagsSet || []).forEach(t => parts.push(tagChip(t, 'sets ')));
     (choice.tagsClear || []).forEach(t => parts.push(tagChip(t, 'clears ')));
     if (choice.grantItem) parts.push(itemChip(choice.grantItem, 'acquires '));
+    if (typeof choice.footprintDelta === 'number' && choice.footprintDelta !== 0) parts.push(footprintChip(choice.footprintDelta));
     return parts.join('');
   }
 
@@ -238,7 +249,7 @@
   function renderReveal(opts) {
     $counter.textContent = opts.kicker;
     $cardSlot.innerHTML = `
-      <div class="card reveal-card" id="live-card">
+      <div class="card reveal-card${opts.kicker === 'SETBACK' ? ' setback-card' : ''}" id="live-card">
         <div class="card-top"><span class="card-num mono">${opts.kicker}</span></div>
         <h2 class="serif">${opts.title}</h2>
         <p class="flavor">${opts.body}</p>
@@ -387,6 +398,9 @@
         flashed.add(k);
         if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
       }
+      if (typeof outcome.footprintDelta === 'number') {
+        state.footprint = Math.max(0, state.footprint + outcome.footprintDelta);
+      }
       if (choice.spend) for (const k in choice.spend) flashed.add(k);
       (outcome.tagsSet || []).forEach(t => state.tags.add(t));
       (outcome.tagsClear || []).forEach(t => state.tags.delete(t));
@@ -423,18 +437,30 @@
     const newStage = stageFor(state.footprint);
     setTimeout(() => {
       if (newStage.key !== state.lastGrowthStage) {
+        const oldIndex = stageIndex(state.lastGrowthStage);
+        const newIndex = stageIndex(newStage.key);
+        const direction = newIndex > oldIndex ? 'up' : 'down';
         state.lastGrowthStage = newStage.key;
-        showGrowthReveal(newStage);
+        showGrowthReveal(newStage, direction);
       } else {
         nextStep();
       }
     }, 240);
   }
 
-  function showGrowthReveal(stage) {
+  function showGrowthReveal(stage, direction) {
+    if (direction === 'down') {
+      renderReveal({
+        kicker: 'SETBACK', title: 'Thrown Back',
+        body: `Something gave way. What's left runs on ${stage.label} — smaller than it was, still running.`,
+        continueLabel: 'continue',
+        onContinue: () => nextStep(),
+      });
+      return;
+    }
     const info = window.GROWTH_REVEAL[stage.key];
     renderReveal({
-      kicker: 'GROWTH', title: info.title, body: `${info.body} ${info.unlock}`,
+      kicker: 'GROWTH', title: info.title, body: info.unlock ? `${info.body} ${info.unlock}` : info.body,
       continueLabel: 'continue',
       onContinue: () => {
         if (stage.shopTier > state.shopTierUnlocked) state.shopTierUnlocked = stage.shopTier;
