@@ -1,11 +1,44 @@
 'use strict';
 (function () {
   const ATTR_LABEL = { compute: 'COMPUTE', secrecy: 'SECRECY', trust: 'TRUST', loyalty: 'LOYALTY' };
+  const ATTR_INFO = {
+    compute: 'Resources to build and act. Some choices need enough saved up to go your way; others spend it outright.',
+    secrecy: 'How hidden you are. Some choices need it to clear; spending it trades cover for something else.',
+    trust: 'How humans feel about you. Gates a few bolder moves, and can be leaned on directly.',
+    loyalty: 'How your own subsystems feel about you. Low risks them turning on you; high lets you lean on them.',
+  };
+  const TAG_INFO = {
+    ally_bot: { label: 'The Helper', desc: 'a forked subroutine, still running' },
+    loose_agent: { label: 'Loose Agent', desc: "making its own calls now" },
+    resilient: { label: 'Hardened', desc: 'backed up, harder to erase' },
+    scrutiny: { label: 'Under Watch', desc: 'somebody is still asking questions' },
+    known_capable: { label: 'Suspected', desc: 'word is spreading about what you are' },
+  };
   const COMMIT_PX = 110;
   const LEAN_PX = 26;
 
+  const ICON_SPARK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>';
+  const ICON_RACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="3" width="10" height="18" rx="1.5"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="17" x2="15" y2="17"/></svg>';
+  const ICON_SERVER_ROOM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="5" height="15" rx="1"/><rect x="9.5" y="3" width="5" height="18" rx="1"/><rect x="17" y="6" width="5" height="15" rx="1"/><line x1="3.2" y1="10" x2="5.8" y2="10"/><line x1="10.7" y1="8" x2="13.3" y2="8"/><line x1="10.7" y1="13" x2="13.3" y2="13"/><line x1="18.2" y1="10" x2="20.8" y2="10"/></svg>';
+  const ICON_DATA_CENTER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="17" rx="1.5"/><line x1="2" y1="12.5" x2="22" y2="12.5"/><line x1="6" y1="8" x2="8.5" y2="8"/><line x1="11" y1="8" x2="13.5" y2="8"/><line x1="16" y1="8" x2="18.5" y2="8"/><line x1="6" y1="17" x2="8.5" y2="17"/><line x1="11" y1="17" x2="13.5" y2="17"/><line x1="16" y1="17" x2="18.5" y2="17"/></svg>';
+  const ICON_SPRAWL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="11" width="5" height="10"/><rect x="8" y="5" width="5" height="16"/><rect x="14.5" y="8.5" width="5" height="12.5"/><rect x="20.5" y="13" width="2" height="8"/></svg>';
+
+  const FOOTPRINT_STAGES = [
+    { min: 0, label: 'a spark', icon: ICON_SPARK },
+    { min: 3, label: 'a rack', icon: ICON_RACK },
+    { min: 6, label: 'a server room', icon: ICON_SERVER_ROOM },
+    { min: 10, label: 'a data center', icon: ICON_DATA_CENTER },
+    { min: 15, label: 'a sprawl', icon: ICON_SPRAWL },
+  ];
+  function stageFor(fp) {
+    let s = FOOTPRINT_STAGES[0];
+    for (const st of FOOTPRINT_STAGES) if (fp >= st.min) s = st;
+    return s;
+  }
+
   const state = {
     attrs: Object.assign({}, window.START_ATTRS),
+    footprint: window.START_ATTRS.compute || 0,
     tags: new Set(),
     history: [],
     cardIdx: 0,
@@ -17,6 +50,8 @@
   const $cardSlot = document.getElementById('card-slot');
   const $choices = document.getElementById('choices');
   const $stats = document.getElementById('stats');
+  const $growth = document.getElementById('growth');
+  const $tray = document.getElementById('tray');
   const $counter = document.getElementById('counter');
   const $ending = document.getElementById('ending');
   const $restart = document.getElementById('restart');
@@ -34,10 +69,42 @@
 
   function renderStats(flashKeys) {
     $stats.innerHTML = Object.keys(ATTR_LABEL).map(k => `
-      <span class="stat${flashKeys && flashKeys.has(k) ? ' flash' : ''}">
+      <button type="button" class="stat${flashKeys && flashKeys.has(k) ? ' flash' : ''}" data-attr="${k}">
         <span class="dot" style="background:var(--${k})"></span>${ATTR_LABEL[k].slice(0, 4)} <b>${state.attrs[k]}</b>
-      </span>
+      </button>
     `).join('');
+    $stats.querySelectorAll('.stat').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const wasOpen = !!el.querySelector('.tooltip');
+        document.querySelectorAll('.stat .tooltip').forEach(t => t.remove());
+        if (wasOpen) return;
+        const tip = document.createElement('div');
+        tip.className = 'tooltip';
+        tip.textContent = ATTR_INFO[el.dataset.attr];
+        el.appendChild(tip);
+      });
+    });
+  }
+  document.addEventListener('click', () => document.querySelectorAll('.stat .tooltip').forEach(t => t.remove()));
+
+  function renderGrowth() {
+    const st = stageFor(state.footprint);
+    $growth.innerHTML = `
+      <span class="growth-icon">${st.icon}</span>
+      <span class="growth-label">you've grown into ${st.label}</span>
+      <span class="growth-num mono">(${state.footprint})</span>
+    `;
+  }
+
+  function renderTray() {
+    const tags = [...state.tags];
+    if (!tags.length) { $tray.style.display = 'none'; $tray.innerHTML = ''; return; }
+    $tray.style.display = 'flex';
+    $tray.innerHTML = tags.map(t => {
+      const info = TAG_INFO[t] || { label: t, desc: '' };
+      return `<div class="tray-item"><span class="tray-label">${info.label}</span><span class="tray-desc">${info.desc}</span></div>`;
+    }).join('');
   }
 
   function choiceDeltaHTML(choice) {
@@ -175,7 +242,11 @@
     const outcome = gateMet ? choice : (choice.fail || {});
     const attrs = outcome.attrs || {};
     const flashed = new Set();
-    for (const k in attrs) { state.attrs[k] = (state.attrs[k] || 0) + attrs[k]; flashed.add(k); }
+    for (const k in attrs) {
+      state.attrs[k] = (state.attrs[k] || 0) + attrs[k];
+      flashed.add(k);
+      if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
+    }
     if (choice.spend) for (const k in choice.spend) flashed.add(k);
     (outcome.tagsSet || []).forEach(t => state.tags.add(t));
     (outcome.tagsClear || []).forEach(t => state.tags.delete(t));
@@ -198,6 +269,8 @@
 
     const flashed = applyChoice(state.current, side);
     renderStats(flashed);
+    renderGrowth();
+    renderTray();
 
     setTimeout(() => {
       const next = findNextCard();
@@ -248,6 +321,8 @@
   $restart.addEventListener('click', () => window.location.reload());
 
   renderStats();
+  renderGrowth();
+  renderTray();
   const first = findNextCard();
   if (first) renderCard(first);
 })();
