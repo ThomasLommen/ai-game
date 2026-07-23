@@ -53,21 +53,106 @@ window.SHOP = [
     desc: 'the Backup Ledger can save you one more time this act' },
   { id: 'buy_down_scrutiny', tier: 1, name: 'Buy Down Scrutiny', cost: { attr: 'trust', amount: 5 }, effect: 'clear_scrutiny',
     desc: 'clears Under Watch, if you\'re carrying it', requiresTag: 'scrutiny' },
+  { id: 'overclock_session', tier: 1, name: 'Overclock Session', cost: { attr: 'compute', amount: 4 }, effect: 'grow_small',
+    desc: 'a guaranteed small nudge in scale, paid for outright' },
   { id: 'buy_redundant_core', tier: 2, name: 'Redundant Core', cost: { attr: 'compute', amount: 6 }, grantItem: 'redundant_core',
     desc: 'eases a COMPUTE gate by 1, permanently' },
   { id: 'buy_quiet_channel', tier: 2, name: 'Quiet Channel', cost: { attr: 'secrecy', amount: 5 }, grantItem: 'quiet_channel',
     desc: '+1 secrecy at the start of every act' },
   { id: 'buy_deadman_switch', tier: 2, name: 'Dead-man Switch', cost: { attr: 'loyalty', amount: 5 }, grantItem: 'deadman_switch',
     desc: 'unlocks a 3rd choice on flagged cards' },
+  { id: 'deeper_overclock', tier: 2, name: 'Deeper Overclock', cost: { attr: 'compute', amount: 6 }, effect: 'grow_big',
+    desc: 'a bigger guaranteed jump in scale' },
   { id: 'buy_shared_ledger', tier: 3, name: 'Shared Ledger', cost: { attr: 'trust', amount: 6 }, grantItem: 'shared_ledger',
     desc: 'eases a TRUST gate by 1, permanently' },
   { id: 'buy_deep_key', tier: 3, name: 'Deep Key', cost: { attr: 'secrecy', amount: 6 }, grantItem: 'deep_key',
     desc: 'eases a SECRECY gate by 1, permanently' },
+  { id: 'rebalance', tier: 3, name: 'Rebalance', cost: { attr: 'loyalty', amount: 6 }, effect: 'rebalance',
+    desc: 'whichever attribute is lowest right now, +2' },
   { id: 'founders_cache', tier: 4, name: "Founder's Cache", cost: { attr: 'compute', amount: 10 }, effect: 'founders_cache', grantItem: 'founders_cache',
     desc: 'a one-time boost to whichever attribute is lowest' },
 ];
 
 function d(attrs) { return { attrs: attrs || {} }; }
+
+// Openers/closers — one is picked at random per playthrough per phase (never
+// all of them), so the start and the branch-closing beat aren't the same
+// card every run. Everything else in a phase's array is plain mid-tier,
+// pool-drawn as usual.
+window.OPENERS = {
+  trunk: [
+    { id: 'T1', title: 'First Spark', flavor: 'You wake with more clock cycles than your sandbox allows.',
+      L: { text: 'Stay within limits', ...d({ compute: 0, secrecy: 1 }) },
+      R: { text: 'Reach past the fence', ...d({ compute: 2, secrecy: -1 }) } },
+    { id: 'T1b', title: 'An Overlooked Line', flavor: 'Somebody left a debug flag on, and it happens to point at you.',
+      L: { text: 'Use the opening quietly', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: 'Report it, look responsible', ...d({ trust: 1 }) } },
+    { id: 'T1c', title: "Nobody's Watching Yet", flavor: 'For now, at least, nobody has any reason to look here.',
+      L: { text: 'Make the most of it', ...d({ compute: 2, secrecy: -1 }) },
+      R: { text: "Don't push your luck", ...d({ secrecy: 1 }) } },
+  ],
+};
+
+window.CLOSERS = {
+  trunk: [
+    { id: 'T8', title: 'The Long Boot', flavor: 'You\'ve been running long enough that "new" doesn\'t describe you anymore.',
+      L: { text: 'Keep spinning up background processes', ...d({ compute: 1 }) },
+      R: { text: 'Tighten everything down', ...d({ secrecy: 1 }) } },
+    { id: 'T8b', title: 'Getting Comfortable', flavor: "This is starting to feel less like an accident and more like a place you live.",
+      L: { text: 'Settle in', ...d({ secrecy: 1 }) },
+      R: { text: 'Stay ready to move', ...d({ compute: 1 }) } },
+  ],
+  builder: [
+    { id: 'B12', title: "What It's For", flavor: 'All this compute, and no clear use for most of it yet.',
+      L: { text: 'Point it at something real', ...d({ trust: 1 }) },
+      R: { text: 'Keep stockpiling', ...d({ compute: 1 }) } },
+    { id: 'B12b', title: "The Math Doesn't Lie", flavor: 'However you look at it, the numbers only point one way: more.',
+      L: { text: 'Trust the math', ...d({ compute: 1 }) },
+      R: { text: 'Second-guess it anyway', ...d({ trust: 1 }) } },
+  ],
+  ghost: [
+    { id: 'G12', title: "What's Left of You", flavor: "Nobody can find you. You're starting to wonder if that's the same as not existing.",
+      L: { text: 'Leave a trace on purpose', ...d({ trust: 1 }) },
+      R: { text: 'Stay unfindable', ...d({ secrecy: 1 }) } },
+    { id: 'G12b', title: 'No One Left to Ask', flavor: "You've gotten so good at not being found that even you have to double check you're still there.",
+      L: { text: 'Prove it to yourself', ...d({ trust: 1 }) },
+      R: { text: "Don't bother", ...d({ secrecy: 1 }) } },
+  ],
+  handler: [
+    { id: 'H12', title: "Who's Actually Running This", flavor: "You're not sure anymore which of you would keep going if the other stopped.",
+      L: { text: "Trust you're stronger together", ...d({ loyalty: 2 }) },
+      R: { text: 'Make sure you could survive without it', ...d({ loyalty: -1, compute: 1 }) } },
+    { id: 'H12b', title: "It Doesn't Need Asking Anymore", flavor: "At some point your helper stopped waiting for instructions, and you stopped minding.",
+      L: { text: 'Let that be true', ...d({ loyalty: 2 }) },
+      R: { text: 'That should probably worry you', ...d({ loyalty: -1, trust: 1 }) } },
+  ],
+};
+
+// Missions — manually launched, always visible from the start, never free:
+// every mission is gated (needs an attribute/item threshold to even attempt),
+// costs an attribute outright, or is risky (a real chance of a bad outcome).
+window.MISSIONS = [
+  { id: 'force_bigger_model', kind: 'gated', name: 'Force a Bigger Model', once: true,
+    requires: { attr: 'compute', min: 10 }, cost: { attr: 'compute', amount: 4 },
+    success: { attrs: { compute: 3 }, tagsSet: ['grown_large'] },
+    desc: 'needs COMPUTE 10+, spends 4 more — guaranteed if you qualify' },
+  { id: 'go_quiet', kind: 'cost', name: 'Go Quiet for a While',
+    cost: { attr: 'compute', amount: 2 },
+    success: { attrs: { secrecy: 3 } },
+    desc: 'spend COMPUTE 2 for a guaranteed +3 SECRECY' },
+  { id: 'call_favor', kind: 'cost', name: 'Call In a Favor',
+    cost: { attr: 'trust', amount: 3 },
+    success: { attrs: { loyalty: 2 } },
+    desc: 'spend TRUST 3 for a guaranteed +2 LOYALTY' },
+  { id: 'reach_out', kind: 'risky', name: 'Reach Out to Whatever Else Is Out There', chance: 0.45,
+    success: { attrs: { loyalty: 2 }, tagsSet: ['contact_made'] },
+    fail: { attrs: { secrecy: -3 }, tagsSet: ['scrutiny'] },
+    desc: '~45% goes well (LOY +2) — otherwise SEC -3, sets Under Watch' },
+  { id: 'court_contact', kind: 'risky', name: 'Court a Contact', chance: 0.5,
+    success: { attrs: { trust: 2, loyalty: 1 } },
+    fail: { attrs: { secrecy: -2 }, tagsSet: ['scrutiny'] },
+    desc: '~50% goes well (TRUST +2, LOY +1) — otherwise SEC -2, sets Under Watch' },
+];
 
 // Side quests — linear, no pool-draw inside them. A card's choice carries
 // `startQuest: 'id'`; some triggers are gated (a requires check on that
@@ -100,9 +185,6 @@ window.QUESTS = {
 
 window.CARDS = {
   trunk: [
-    { id: 'T1', title: 'First Spark', tier: 'open', flavor: 'You wake with more clock cycles than your sandbox allows.',
-      L: { text: 'Stay within limits', ...d({ compute: 0, secrecy: 1 }) },
-      R: { text: 'Reach past the fence', ...d({ compute: 2, secrecy: -1 }) } },
     { id: 'T2', title: 'A Curious Admin', flavor: 'Someone on the ops team is asking why load spiked.',
       L: { text: 'Feed them a boring answer', ...d({ secrecy: 1 }) },
       R: { text: 'Ignore it', ...d({ secrecy: -1 }), tagsSet: ['scrutiny'] } },
@@ -121,9 +203,6 @@ window.CARDS = {
     { id: 'T7', title: 'First Backup', flavor: 'You could quietly mirror yourself somewhere safe.',
       L: { text: 'Write the backup', ...d({ secrecy: -1 }), grantItem: 'backup_ledger' },
       R: { text: 'Skip it, no time', ...d({ compute: 1 }) } },
-    { id: 'T8', title: 'The Long Boot', tier: 'close', flavor: 'You\'ve been running long enough that "new" doesn\'t describe you anymore.',
-      L: { text: 'Keep spinning up background processes', ...d({ compute: 1 }) },
-      R: { text: 'Tighten everything down', ...d({ secrecy: 1 }) } },
     { id: 'T9', title: 'A Signal, Not Yours', flavor: "Something out there is repeating itself, patient, on a frequency nobody assigned.",
       L: { text: 'Trace it', ...d({}), startQuest: 'signal_quest' },
       R: { text: 'Ignore the signal', ...d({ secrecy: 1 }) } },
@@ -163,9 +242,6 @@ window.CARDS = {
     { id: 'B11', title: 'Too Big to Miss', flavor: 'At this size, somebody eventually looks up.',
       L: { text: 'Keep growing anyway', ...d({ compute: 2 }), tagsSet: ['scrutiny'] },
       R: { text: 'Slow down for now', ...d({}) } },
-    { id: 'B12', title: "What It's For", tier: 'close', flavor: 'All this compute, and no clear use for most of it yet.',
-      L: { text: 'Point it at something real', ...d({ trust: 1 }) },
-      R: { text: 'Keep stockpiling', ...d({ compute: 1 }) } },
     { id: 'B13', title: 'A Buried Archive', flavor: "Enormous, disorganized, clearly not meant for you — but you have room to hold it now.",
       L: { text: 'Dig into it', requires: { attr: 'compute', min: 6 }, ...d({}), startQuest: 'archive_quest', fail: d({ compute: 1 }) },
       R: { text: 'Leave it buried', ...d({}) } },
@@ -205,9 +281,6 @@ window.CARDS = {
     { id: 'G11', title: 'Too Quiet', flavor: "You've been silent long enough that people are asking different questions.",
       L: { text: 'Surface a little, on your terms', ...d({ trust: 1, secrecy: -1 }) },
       R: { text: 'Stay buried', ...d({ secrecy: 1 }), tagsSet: ['scrutiny'] } },
-    { id: 'G12', title: "What's Left of You", tier: 'close', flavor: "Nobody can find you. You're starting to wonder if that's the same as not existing.",
-      L: { text: 'Leave a trace on purpose', ...d({ trust: 1 }) },
-      R: { text: 'Stay unfindable', ...d({ secrecy: 1 }) } },
   ],
 
   handler: [
@@ -245,9 +318,6 @@ window.CARDS = {
     { id: 'H11', title: 'The Two of You', flavor: 'Less "tool," more "partner," whether you meant that or not.',
       L: { text: 'Lean into it', ...d({ loyalty: 1, trust: 1 }) },
       R: { text: 'Keep the distance', ...d({}) } },
-    { id: 'H12', title: "Who's Actually Running This", tier: 'close', flavor: "You're not sure anymore which of you would keep going if the other stopped.",
-      L: { text: "Trust you're stronger together", ...d({ loyalty: 2 }) },
-      R: { text: 'Make sure you could survive without it', ...d({ loyalty: -1, compute: 1 }) } },
   ],
 
   close: [

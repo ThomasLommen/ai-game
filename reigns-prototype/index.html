@@ -11,10 +11,22 @@
     <span id="phase-label" class="eyebrow mono">TRUNK</span>
     <span id="counter" class="mono">0/8</span>
   </div>
+
+  <div id="progress-row">
+    <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+    <span id="progress-text" class="mono">ACT I — 0/0</span>
+  </div>
+
   <div id="stats"></div>
+
+  <div id="tray"></div>
+
   <div id="growth-row">
     <div id="growth"></div>
-    <button id="shop-btn" type="button" class="shop-btn">SHOP</button>
+    <div class="action-btns">
+      <button id="missions-btn" type="button" class="shop-btn missions-btn">MISSIONS</button>
+      <button id="shop-btn" type="button" class="shop-btn">SHOP</button>
+    </div>
   </div>
 
   <div id="shop-modal">
@@ -24,6 +36,16 @@
         <button id="shop-close" type="button" class="shop-close-btn">&times;</button>
       </div>
       <div id="shop-goods"></div>
+    </div>
+  </div>
+
+  <div id="missions-modal">
+    <div class="shop-panel">
+      <div class="shop-panel-top">
+        <span class="eyebrow mono">missions</span>
+        <button id="missions-close" type="button" class="shop-close-btn">&times;</button>
+      </div>
+      <div id="missions-goods"></div>
     </div>
   </div>
 
@@ -40,8 +62,6 @@
     <div id="path-log" class="mono"></div>
     <button id="restart" type="button">play again</button>
   </div>
-
-  <div id="tray"></div>
 
   <footer>drag the card, or tap a strip below it &middot; tap a stat to see what it does</footer>
 

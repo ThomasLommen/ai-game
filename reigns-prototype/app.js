@@ -49,13 +49,19 @@
     return arr;
   }
 
-  function buildPools(cardArray) {
-    const pools = { open: [], mid: [], close: [] };
-    cardArray.forEach(c => pools[c.tier === 'open' || c.tier === 'close' ? c.tier : 'mid'].push(c));
-    TIERS.forEach(t => shuffle(pools[t]));
+  // One opener and one closer are picked at random per phase per playthrough
+  // (never all of them) — everything else in the phase's array is mid-tier.
+  function buildPools(phaseKey) {
+    const openers = window.OPENERS && window.OPENERS[phaseKey];
+    const closers = window.CLOSERS && window.CLOSERS[phaseKey];
+    const pools = { open: [], mid: shuffle(window.CARDS[phaseKey].slice()), close: [] };
+    if (openers && openers.length) pools.open = [openers[Math.floor(Math.random() * openers.length)]];
+    if (closers && closers.length) pools.close = [closers[Math.floor(Math.random() * closers.length)]];
     return pools;
   }
+  function poolsTotal(pools) { return pools.open.length + pools.mid.length + pools.close.length; }
 
+  const initialPools = buildPools('trunk');
   const state = {
     attrs: Object.assign({}, window.START_ATTRS),
     footprint: 0,
@@ -66,10 +72,13 @@
     ledgerUsesThisAct: 0,
     ledgerMaxUses: 1,
     questQueue: [],
+    missionsUsed: new Set(),
+    missionResults: {},
+    phasesDone: 0, // 0-3: trunk/branch/close complete — drives overall progress, always reaches 100%
     history: [],
     phase: 'trunk',
-    pools: buildPools(window.CARDS.trunk),
-    phaseTotal: window.CARDS.trunk.length,
+    pools: initialPools,
+    phaseTotal: poolsTotal(initialPools),
     branch: null,
     current: null,
     committing: false,
@@ -89,6 +98,12 @@
   const $shopModal = document.getElementById('shop-modal');
   const $shopGoods = document.getElementById('shop-goods');
   const $shopClose = document.getElementById('shop-close');
+  const $missionsBtn = document.getElementById('missions-btn');
+  const $missionsModal = document.getElementById('missions-modal');
+  const $missionsGoods = document.getElementById('missions-goods');
+  const $missionsClose = document.getElementById('missions-close');
+  const $progressFill = document.getElementById('progress-fill');
+  const $progressText = document.getElementById('progress-text');
 
   function chip(attr, val) {
     const sign = val > 0 ? '+' : '';
@@ -124,9 +139,25 @@
     const st = stageFor(state.footprint);
     $growth.innerHTML = `
       <span class="growth-icon">${st.icon}</span>
-      <span class="growth-label">you've grown into ${st.label}</span>
-      <span class="growth-num mono">(${state.footprint})</span>
+      <span class="growth-label">${st.label}</span>
+      <span class="growth-num mono">SCALE ${state.footprint}</span>
     `;
+  }
+
+  function renderOverallProgress() {
+    // Phase-weighted, not card-count-weighted: some cards are conditional and
+    // may never become eligible in a given run, so counting exact cards drawn
+    // could stall short of 100%. Each of the 3 phases is worth a third; a
+    // phase locks to "full" the moment it's actually finished.
+    let liveFrac = 0;
+    if (state.phasesDone < 3 && state.phaseTotal) {
+      const done = state.phaseTotal - remainingInPools();
+      liveFrac = Math.max(0, Math.min(1, done / state.phaseTotal));
+    }
+    const overall = state.phasesDone >= 3 ? 1 : (state.phasesDone + liveFrac) / 3;
+    const pct = Math.round(overall * 100);
+    $progressFill.style.width = pct + '%';
+    $progressText.textContent = `ACT I — ${pct}%`;
   }
 
   function renderTray() {
@@ -204,20 +235,24 @@
   function nextStep() {
     if (state.questQueue.length) { renderCard(state.questQueue.shift()); return; }
     const card = drawFromPool();
-    if (card) { renderCard(card); return; }
+    if (card) { renderOverallProgress(); renderCard(card); return; }
     advancePhase();
   }
 
   function advancePhase() {
     if (state.phase === 'trunk') {
+      state.phasesDone = 1;
       showBranchReveal();
     } else if (state.phase === 'branch') {
+      state.phasesDone = 2;
       state.phase = 'close';
-      state.pools = buildPools(window.CARDS.close);
-      state.phaseTotal = window.CARDS.close.length;
+      state.pools = buildPools('close');
+      state.phaseTotal = poolsTotal(state.pools);
       $phaseLabel.textContent = 'COMMON CLOSE';
       nextStep();
     } else {
+      state.phasesDone = 3;
+      renderOverallProgress();
       showActClose();
     }
   }
@@ -238,8 +273,8 @@
       continueLabel: 'continue',
       onContinue: () => {
         state.phase = 'branch';
-        state.pools = buildPools(window.CARDS[poolKey]);
-        state.phaseTotal = window.CARDS[poolKey].length;
+        state.pools = buildPools(poolKey);
+        state.phaseTotal = poolsTotal(state.pools);
         $phaseLabel.textContent = poolKey.toUpperCase();
         nextStep();
       },
@@ -525,10 +560,18 @@
     }
     if (good.effect === 'ledger_charge') state.ledgerMaxUses += 1;
     if (good.effect === 'clear_scrutiny') state.tags.delete('scrutiny');
+    if (good.effect === 'grow_small') state.footprint = Math.max(0, state.footprint + 2);
+    if (good.effect === 'grow_big') state.footprint = Math.max(0, state.footprint + 4);
+    if (good.effect === 'rebalance') {
+      const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (state.attrs[b] < state.attrs[a] ? b : a));
+      state.attrs[lowest] += 2;
+    }
     if (good.effect === 'founders_cache') {
       const lowest = Object.keys(ATTR_LABEL).reduce((a, b) => (state.attrs[b] < state.attrs[a] ? b : a));
       state.attrs[lowest] += 2;
     }
+    // growth bought here is silent (no interrupt reveal) — just keep the stage tracker in sync
+    state.lastGrowthStage = stageFor(state.footprint).key;
     renderStats(new Set(Object.keys(ATTR_LABEL)));
     renderGrowth();
     renderTray();
@@ -538,6 +581,69 @@
   $shopBtn.addEventListener('click', () => { renderShopContents(); $shopModal.classList.add('show'); });
   $shopClose.addEventListener('click', () => $shopModal.classList.remove('show'));
   $shopModal.addEventListener('click', (e) => { if (e.target === $shopModal) $shopModal.classList.remove('show'); });
+
+  function missionGateMet(m) { return !m.requires || state.attrs[m.requires.attr] >= m.requires.min; }
+  function missionAffordable(m) { return !m.cost || state.attrs[m.cost.attr] >= m.cost.amount; }
+  function missionAvailable(m) { return !(m.once && state.missionsUsed.has(m.id)); }
+
+  function renderMissionsContents() {
+    $missionsGoods.innerHTML = window.MISSIONS.map(m => {
+      const gateOk = missionGateMet(m);
+      const afford = missionAffordable(m);
+      const avail = missionAvailable(m);
+      const disabled = !gateOk || !afford || !avail;
+      let label = m.kind === 'risky' ? 'attempt' : 'launch';
+      if (!avail) label = 'used';
+      else if (!gateOk) label = 'gate not met';
+      else if (!afford) label = "can't afford";
+      const reqChip = m.requires ? `<span class="gate ${gateOk ? 'met' : 'unmet'}">needs ${ATTR_LABEL[m.requires.attr]} ${m.requires.min}+</span>` : '';
+      const costChip = m.cost ? `<span class="d spend">&minus;${m.cost.amount} ${ATTR_LABEL[m.cost.attr]}</span>` : '';
+      const result = state.missionResults[m.id];
+      return `
+        <div class="shop-good${disabled ? ' disabled' : ''}">
+          <div class="shop-good-top">
+            <span class="shop-good-name">${m.name}</span>
+            <span class="mission-badge ${m.kind}">${m.kind}</span>
+          </div>
+          ${reqChip}
+          <p class="shop-good-desc">${m.desc}</p>
+          <div class="deltas">${costChip}</div>
+          <button type="button" class="shop-buy-btn" data-mission="${m.id}" ${disabled ? 'disabled' : ''}>${label}</button>
+          ${result ? `<p class="mission-result">${result}</p>` : ''}
+        </div>
+      `;
+    }).join('');
+    $missionsGoods.querySelectorAll('.shop-buy-btn:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', () => attemptMission(btn.dataset.mission));
+    });
+  }
+
+  function attemptMission(id) {
+    const m = window.MISSIONS.find(x => x.id === id);
+    if (!m || !missionGateMet(m) || !missionAffordable(m) || !missionAvailable(m)) return;
+    if (m.cost) state.attrs[m.cost.attr] -= m.cost.amount;
+    let ok = true;
+    if (m.kind === 'risky') ok = Math.random() < m.chance;
+    const outcome = ok ? m.success : (m.fail || {});
+    const attrs = outcome.attrs || {};
+    for (const k in attrs) {
+      state.attrs[k] = (state.attrs[k] || 0) + attrs[k];
+      if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
+    }
+    (outcome.tagsSet || []).forEach(t => state.tags.add(t));
+    (outcome.tagsClear || []).forEach(t => state.tags.delete(t));
+    if (m.once) state.missionsUsed.add(id);
+    state.missionResults[id] = ok ? 'It went well.' : 'It went badly.';
+    state.lastGrowthStage = stageFor(state.footprint).key;
+    renderStats(new Set(Object.keys(ATTR_LABEL)));
+    renderGrowth();
+    renderTray();
+    renderMissionsContents();
+  }
+
+  $missionsBtn.addEventListener('click', () => { renderMissionsContents(); $missionsModal.classList.add('show'); });
+  $missionsClose.addEventListener('click', () => $missionsModal.classList.remove('show'));
+  $missionsModal.addEventListener('click', (e) => { if (e.target === $missionsModal) $missionsModal.classList.remove('show'); });
 
   function computeActClose() {
     const entries = Object.entries(state.attrs).sort((a, b) => b[1] - a[1]);
@@ -591,5 +697,6 @@
   renderGrowth();
   renderTray();
   renderShopButton();
+  renderOverallProgress();
   nextStep();
 })();

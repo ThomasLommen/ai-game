@@ -50,6 +50,32 @@ body {
   color: var(--tag);
 }
 #counter { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* overall act progress */
+#progress-row {
+  width: 100%;
+  max-width: 480px;
+  padding: 0 18px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progress-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--compute);
+  transition: width .3s ease;
+}
+#progress-text { font-size: 10.5px; color: var(--muted); flex: none; }
+
 #stats {
   width: 100%;
   max-width: 480px;
@@ -113,8 +139,10 @@ body {
 }
 .growth-icon { width: 22px; height: 22px; flex: none; color: var(--compute); }
 .growth-icon svg { width: 100%; height: 100%; display: block; }
-.growth-label { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.growth-label { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .growth-num { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+
+.action-btns { display: flex; gap: 8px; flex: none; }
 
 /* shop */
 .shop-btn {
@@ -132,8 +160,10 @@ body {
   cursor: pointer;
 }
 .shop-btn:hover { background: color-mix(in srgb, var(--item) 12%, var(--surface)); }
+.missions-btn { display: inline-flex; border-color: var(--secrecy); color: var(--secrecy); }
+.missions-btn:hover { background: color-mix(in srgb, var(--secrecy) 12%, var(--surface)); }
 
-#shop-modal {
+#shop-modal, #missions-modal {
   display: none;
   position: fixed;
   inset: 0;
@@ -142,7 +172,7 @@ body {
   align-items: flex-end;
   justify-content: center;
 }
-#shop-modal.show { display: flex; }
+#shop-modal.show, #missions-modal.show { display: flex; }
 .shop-panel {
   width: 100%;
   max-width: 480px;
@@ -193,6 +223,20 @@ body {
   cursor: pointer;
 }
 .shop-buy-btn:disabled { border-color: var(--line); color: var(--muted); cursor: default; }
+
+.mission-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 2px 7px;
+  flex: none;
+}
+.mission-badge.gated { color: var(--compute); border: 1px solid color-mix(in srgb, var(--compute) 45%, transparent); }
+.mission-badge.cost { color: var(--trust); border: 1px solid color-mix(in srgb, var(--trust) 45%, transparent); }
+.mission-badge.risky { color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+.mission-result { font-size: 11.5px; color: var(--ink-dim); font-style: italic; margin: 2px 0 0; }
 
 /* acquired tray */
 #tray {
@@ -315,9 +359,9 @@ body {
 .choice-strip:hover { border-color: color-mix(in srgb, var(--ink) 25%, var(--line)); }
 .choice-strip.armed { transform: translateY(-2px); border-color: var(--ink-dim); }
 .choice-strip .ctext { font-size: 13px; }
-.choice-strip .gate { font-size: 10.5px; color: var(--muted); }
-.choice-strip .gate.met { color: var(--tag); }
-.choice-strip .gate.unmet { color: var(--bad); }
+.gate { font-size: 10.5px; color: var(--muted); display: inline-block; }
+.gate.met { color: var(--tag); }
+.gate.unmet { color: var(--bad); }
 .deltas { display: flex; flex-wrap: wrap; gap: 5px; }
 .d {
   font-size: 10.5px;
