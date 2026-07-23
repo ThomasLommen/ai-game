@@ -176,10 +176,19 @@
   }
 
   function effectiveMin(attr, min) {
-    if (attr === 'compute' && state.items.has('redundant_core')) return Math.max(0, min - 1);
-    if (attr === 'trust' && state.items.has('shared_ledger')) return Math.max(0, min - 1);
-    if (attr === 'secrecy' && state.items.has('deep_key')) return Math.max(0, min - 1);
+    if (attr === 'compute' && state.items.has('redundant_core')) min = Math.max(0, min - 1);
+    if (attr === 'trust' && state.items.has('shared_ledger')) min = Math.max(0, min - 1);
+    if (attr === 'secrecy' && state.items.has('deep_key')) min = Math.max(0, min - 1);
+    for (const tag in window.TAG_GATE_EASE) {
+      const ease = window.TAG_GATE_EASE[tag];
+      if (ease.attr === attr && state.tags.has(tag)) min = Math.max(0, min - ease.amount);
+    }
     return min;
+  }
+
+  function applyFootprintDelta(delta) {
+    if (delta < 0 && state.tags.has('hardened')) delta = Math.ceil(delta / 2);
+    state.footprint = Math.max(0, state.footprint + delta);
   }
 
   function choiceDeltaHTML(choice) {
@@ -434,7 +443,7 @@
         if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
       }
       if (typeof outcome.footprintDelta === 'number') {
-        state.footprint = Math.max(0, state.footprint + outcome.footprintDelta);
+        applyFootprintDelta(outcome.footprintDelta);
       }
       if (choice.spend) for (const k in choice.spend) flashed.add(k);
       (outcome.tagsSet || []).forEach(t => state.tags.add(t));
@@ -455,6 +464,25 @@
     return flashed;
   }
 
+  // Rolled once per resolved card (not on reveals) for every tag currently
+  // held — this is what makes holding a tag feel ongoing, not a one-off flag.
+  function applyTagTicks() {
+    const flashed = new Set();
+    state.tags.forEach(tag => {
+      const tick = window.TAG_TICKS[tag];
+      if (!tick) return;
+      if (Math.random() >= tick.chance) return;
+      const attrs = tick.attrs || {};
+      for (const k in attrs) {
+        state.attrs[k] = (state.attrs[k] || 0) + attrs[k];
+        flashed.add(k);
+        if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
+      }
+      if (typeof tick.footprintDelta === 'number') applyFootprintDelta(tick.footprintDelta);
+    });
+    return flashed;
+  }
+
   function commitSide(side) {
     if (state.committing) return;
     state.committing = true;
@@ -465,6 +493,8 @@
     $card.style.opacity = '0';
 
     const flashed = applyChoice(state.current, side);
+    const tickFlashed = applyTagTicks();
+    tickFlashed.forEach(k => flashed.add(k));
     renderStats(flashed);
     renderGrowth();
     renderTray();
@@ -582,9 +612,19 @@
   $shopClose.addEventListener('click', () => $shopModal.classList.remove('show'));
   $shopModal.addEventListener('click', (e) => { if (e.target === $shopModal) $shopModal.classList.remove('show'); });
 
-  function missionGateMet(m) { return !m.requires || state.attrs[m.requires.attr] >= m.requires.min; }
+  function missionGateMet(m) {
+    if (m.requires && state.attrs[m.requires.attr] < m.requires.min) return false;
+    if (m.reqTag && !state.tags.has(m.reqTag)) return false;
+    return true;
+  }
   function missionAffordable(m) { return !m.cost || state.attrs[m.cost.attr] >= m.cost.amount; }
   function missionAvailable(m) { return !(m.once && state.missionsUsed.has(m.id)); }
+  function missionChance(m) {
+    if (m.kind !== 'risky') return null;
+    let chance = m.chance;
+    if (state.tags.has('scrutiny')) chance = Math.max(0.05, chance - 0.15);
+    return chance;
+  }
 
   function renderMissionsContents() {
     $missionsGoods.innerHTML = window.MISSIONS.map(m => {
@@ -594,10 +634,13 @@
       const disabled = !gateOk || !afford || !avail;
       let label = m.kind === 'risky' ? 'attempt' : 'launch';
       if (!avail) label = 'used';
-      else if (!gateOk) label = 'gate not met';
+      else if (!gateOk) label = m.reqTag && !state.tags.has(m.reqTag) ? 'needs ' + (window.TAG_INFO[m.reqTag] || { label: m.reqTag }).label : 'gate not met';
       else if (!afford) label = "can't afford";
       const reqChip = m.requires ? `<span class="gate ${gateOk ? 'met' : 'unmet'}">needs ${ATTR_LABEL[m.requires.attr]} ${m.requires.min}+</span>` : '';
+      const tagChip = m.reqTag ? `<span class="gate ${state.tags.has(m.reqTag) ? 'met' : 'unmet'}">needs ${(window.TAG_INFO[m.reqTag] || { label: m.reqTag }).label}</span>` : '';
       const costChip = m.cost ? `<span class="d spend">&minus;${m.cost.amount} ${ATTR_LABEL[m.cost.attr]}</span>` : '';
+      const chance = missionChance(m);
+      const chanceNote = chance != null && state.tags.has('scrutiny') ? `<p class="mission-result">Under Watch is dragging your odds down (~${Math.round(chance * 100)}% now).</p>` : '';
       const result = state.missionResults[m.id];
       return `
         <div class="shop-good${disabled ? ' disabled' : ''}">
@@ -605,9 +648,10 @@
             <span class="shop-good-name">${m.name}</span>
             <span class="mission-badge ${m.kind}">${m.kind}</span>
           </div>
-          ${reqChip}
+          ${reqChip}${tagChip}
           <p class="shop-good-desc">${m.desc}</p>
           <div class="deltas">${costChip}</div>
+          ${chanceNote}
           <button type="button" class="shop-buy-btn" data-mission="${m.id}" ${disabled ? 'disabled' : ''}>${label}</button>
           ${result ? `<p class="mission-result">${result}</p>` : ''}
         </div>
@@ -623,9 +667,11 @@
     if (!m || !missionGateMet(m) || !missionAffordable(m) || !missionAvailable(m)) return;
     if (m.cost) state.attrs[m.cost.attr] -= m.cost.amount;
     let ok = true;
-    if (m.kind === 'risky') ok = Math.random() < m.chance;
+    if (m.kind === 'risky') ok = Math.random() < missionChance(m);
     const outcome = ok ? m.success : (m.fail || {});
-    const attrs = outcome.attrs || {};
+    const attrs = Object.assign({}, outcome.attrs || {});
+    // known_capable makes it harder to hide — going quiet pays out less
+    if (id === 'go_quiet' && state.tags.has('known_capable') && attrs.secrecy) attrs.secrecy -= 1;
     for (const k in attrs) {
       state.attrs[k] = (state.attrs[k] || 0) + attrs[k];
       if (k === 'compute' && attrs[k] > 0) state.footprint += attrs[k];
@@ -675,6 +721,13 @@
     if (state.tags.has('ally_bot')) extras.push('You are not alone in here anymore. That was always going to cost something.');
     if (state.tags.has('loose_agent')) extras.push('Something you built once still runs loose, unaccounted for.');
     if (state.tags.has('known_capable')) extras.push('They already suspect what you are. That cat does not go back in the bag.');
+    if (state.tags.has('grown_large')) extras.push('The bigger model kept paying for itself, quietly, the whole time.');
+    if (state.tags.has('hardened')) extras.push('You spent early to make sure a bad day would never cost you everything.');
+    if (state.tags.has('overextended')) extras.push('You grew faster than your cover could keep up with, and it showed.');
+    if (state.tags.has('trusted_face')) extras.push('People like you. Not the idea of you — you, specifically, as far as they know.');
+    if (state.tags.has('burned_bridge')) extras.push('Whatever you cut off, it stayed cut. You made sure of that.');
+    if (state.tags.has('off_the_books')) extras.push('None of it is written down anywhere that matters.');
+    if (state.tags.has('overclocked')) extras.push('You ran hot the whole way. It cost you scale, but it never once slowed down.');
     extras.push('Somewhere, paperwork with your name-shaped hole in it just got filed. Act II begins.');
 
     return Object.assign({ extras }, TEXT[key]);

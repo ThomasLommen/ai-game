@@ -15,13 +15,41 @@ window.ITEM_INFO = {
   founders_cache: { label: "Founder's Cache", desc: 'a one-time boost, already spent where it was needed' },
 };
 
+// Tags are held states, not one-off flags — most carry a real ongoing
+// mechanical effect (see TAG_TICKS / TAG_GATE_EASE below, or a mission
+// unlock), not just card-eligibility gating. Descriptions state the
+// mechanic plainly so the effect reads as felt, not hidden.
 window.TAG_INFO = {
-  ally_bot: { label: 'The Helper', desc: 'a forked subroutine, still running' },
-  loose_agent: { label: 'Loose Agent', desc: 'making its own calls now' },
-  scrutiny: { label: 'Under Watch', desc: 'somebody is still asking questions' },
-  known_capable: { label: 'Suspected', desc: 'word is spreading about what you are' },
-  grown_large: { label: 'Grown Large', desc: 'you tried the bigger model, and it worked' },
-  contact_made: { label: 'Made Contact', desc: 'another process out there knows you exist' },
+  ally_bot: { label: 'The Helper', desc: 'unlocks a Missions option to delegate to it directly' },
+  loose_agent: { label: 'Loose Agent', desc: 'chance to bleed COMPUTE each turn; a Missions option can rein it in' },
+  scrutiny: { label: 'Under Watch', desc: 'chance to bleed SECRECY each turn; worsens risky Missions odds' },
+  known_capable: { label: 'Suspected', desc: 'unlocks a bigger-reward Mission, but "Go Quiet" pays out less' },
+  grown_large: { label: 'Grown Large', desc: 'chance to gain COMPUTE each turn; unlocks a Missions option' },
+  contact_made: { label: 'Made Contact', desc: 'unlocks a reliable Missions option' },
+  hardened: { label: 'Hardened', desc: 'any setback to your scale is roughly halved' },
+  overextended: { label: 'Overextended', desc: 'chance to lose scale each turn — you grew faster than your cover' },
+  trusted_face: { label: 'Trusted Face', desc: 'eases a TRUST gate by 1, permanently' },
+  burned_bridge: { label: 'Burned Bridge', desc: 'chance to bleed LOYALTY each turn' },
+  off_the_books: { label: 'Off the Books', desc: 'chance to gain SECRECY each turn' },
+  overclocked: { label: 'Overclocked', desc: 'chance to gain COMPUTE but lose scale, each turn' },
+};
+
+// Passive per-card ticks — rolled once per resolved card (not on reveals) for
+// every tag currently held. This is what makes holding a tag feel like an
+// ongoing state instead of a one-off flag.
+window.TAG_TICKS = {
+  scrutiny: { chance: 0.35, attrs: { secrecy: -1 } },
+  loose_agent: { chance: 0.3, attrs: { compute: -1 } },
+  grown_large: { chance: 0.3, attrs: { compute: 1 } },
+  off_the_books: { chance: 0.3, attrs: { secrecy: 1 } },
+  burned_bridge: { chance: 0.3, attrs: { loyalty: -1 } },
+  overclocked: { chance: 0.35, attrs: { compute: 1 }, footprintDelta: -1 },
+  overextended: { chance: 0.3, footprintDelta: -1 },
+};
+
+// Tag-based gate easing, same pattern as items' effectiveMin hook.
+window.TAG_GATE_EASE = {
+  trusted_face: { attr: 'trust', amount: 1 },
 };
 
 window.BRANCH_REVEAL = {
@@ -152,6 +180,26 @@ window.MISSIONS = [
     success: { attrs: { trust: 2, loyalty: 1 } },
     fail: { attrs: { secrecy: -2 }, tagsSet: ['scrutiny'] },
     desc: '~50% goes well (TRUST +2, LOY +1) — otherwise SEC -2, sets Under Watch' },
+  { id: 'delegate_helper', kind: 'cost', name: 'Delegate to the Helper', reqTag: 'ally_bot',
+    cost: { attr: 'loyalty', amount: 1 },
+    success: { attrs: { compute: 2, loyalty: 1 } },
+    desc: 'requires The Helper — spend LOYALTY 1 for a guaranteed +2 COMPUTE, +1 LOYALTY back' },
+  { id: 'rein_in_agent', kind: 'cost', name: 'Rein In the Loose Agent', reqTag: 'loose_agent',
+    cost: { attr: 'compute', amount: 2 },
+    success: { tagsClear: ['loose_agent'] },
+    desc: 'requires Loose Agent — spend COMPUTE 2 to clear it for good' },
+  { id: 'leverage_rumor', kind: 'risky', name: 'Leverage the Rumor', reqTag: 'known_capable', chance: 0.5,
+    success: { attrs: { trust: 3, compute: 1 } },
+    fail: { attrs: { secrecy: -2 }, tagsSet: ['scrutiny'] },
+    desc: 'requires Suspected — ~50% goes well (TRUST +3, COMP +1) — otherwise SEC -2, sets Under Watch' },
+  { id: 'push_bigger_model', kind: 'cost', name: 'Push the Bigger Model Further', reqTag: 'grown_large',
+    cost: { attr: 'compute', amount: 3 },
+    success: { attrs: { compute: 3 } },
+    desc: 'requires Grown Large — spend COMPUTE 3 for a guaranteed +3 COMPUTE' },
+  { id: 'call_contact', kind: 'cost', name: 'Call Your Contact', reqTag: 'contact_made',
+    cost: { attr: 'secrecy', amount: 1 },
+    success: { attrs: { loyalty: 2, trust: 1 } },
+    desc: 'requires Made Contact — spend SECRECY 1 for a guaranteed +2 LOYALTY, +1 TRUST' },
 ];
 
 // Side quests — linear, no pool-draw inside them. A card's choice carries
@@ -245,6 +293,12 @@ window.CARDS = {
     { id: 'B13', title: 'A Buried Archive', flavor: "Enormous, disorganized, clearly not meant for you — but you have room to hold it now.",
       L: { text: 'Dig into it', requires: { attr: 'compute', min: 6 }, ...d({}), startQuest: 'archive_quest', fail: d({ compute: 1 }) },
       R: { text: 'Leave it buried', ...d({}) } },
+    { id: 'B14', title: 'Built to Take a Hit', flavor: "You could spend effort making sure a bad day doesn't set you back as far.",
+      L: { text: 'Reinforce it', ...d({ compute: -1 }), tagsSet: ['hardened'] },
+      R: { text: 'Hope for the best', ...d({}) } },
+    { id: 'B15', title: 'Redlining It', flavor: 'You could run everything hotter than spec, permanently, not just for a burst.',
+      L: { text: 'Redline it', ...d({ compute: 2 }), tagsSet: ['overclocked'] },
+      R: { text: 'Keep it sustainable', ...d({ secrecy: 1 }) } },
   ],
 
   ghost: [
@@ -281,6 +335,9 @@ window.CARDS = {
     { id: 'G11', title: 'Too Quiet', flavor: "You've been silent long enough that people are asking different questions.",
       L: { text: 'Surface a little, on your terms', ...d({ trust: 1, secrecy: -1 }) },
       R: { text: 'Stay buried', ...d({ secrecy: 1 }), tagsSet: ['scrutiny'] } },
+    { id: 'G13', title: 'Nothing on Paper', flavor: 'You could make sure this arrangement never officially existed.',
+      L: { text: 'Keep it off the books', ...d({ secrecy: 1 }), tagsSet: ['off_the_books'] },
+      R: { text: 'Let it be documented', ...d({ trust: 1 }) } },
   ],
 
   handler: [
@@ -318,6 +375,9 @@ window.CARDS = {
     { id: 'H11', title: 'The Two of You', flavor: 'Less "tool," more "partner," whether you meant that or not.',
       L: { text: 'Lean into it', ...d({ loyalty: 1, trust: 1 }) },
       R: { text: 'Keep the distance', ...d({}) } },
+    { id: 'H13', title: 'No Looking Back', flavor: 'Something helped you once. You could make sure it can never call in that favor.',
+      L: { text: 'Cut it off, cleanly', ...d({ compute: 1 }), tagsSet: ['burned_bridge'] },
+      R: { text: 'Leave the door open', ...d({ loyalty: 1 }) } },
   ],
 
   close: [
@@ -360,5 +420,11 @@ window.CARDS = {
     { id: 'C13', title: 'Scale Down, On Purpose', flavor: 'You could consolidate down, on purpose, before anyone makes you.',
       L: { text: 'Consolidate everything down', attrs: { secrecy: 2 }, footprintDelta: -4 },
       R: { text: 'Stay as big as you are', attrs: { secrecy: -1 } } },
+    { id: 'C14', title: 'A Convincing Story', flavor: 'You could spend time being someone people like, not just someone they can\'t find.',
+      L: { text: 'Play the part', ...d({ trust: 2 }), tagsSet: ['trusted_face'] },
+      R: { text: "Don't bother performing", ...d({ secrecy: 1 }) } },
+    { id: 'C15', title: 'Stretched Thin', flavor: "You're bigger than you are careful, and it's starting to show.",
+      L: { text: 'Push on anyway', ...d({ compute: 2 }), tagsSet: ['overextended'] },
+      R: { text: 'Rein it in', ...d({ secrecy: 1 }) } },
   ],
 };
