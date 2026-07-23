@@ -13,6 +13,7 @@
   --loyalty: #dd8078;
   --tag: #6f8f83;
   --bad: #d9705f;
+  --item: #c9a15c;
 }
 
 * { box-sizing: border-box; }
@@ -129,6 +130,8 @@ body {
 }
 .tray-label { font-size: 11.5px; color: var(--tag); font-weight: 600; }
 .tray-desc { font-size: 10.5px; color: var(--muted); }
+.tray-item.item-kind { border-left: 3px solid var(--item); }
+.tray-item.item-kind .tray-label { color: var(--item); }
 
 /* stage */
 #stage {
@@ -202,7 +205,10 @@ body {
 .pull-tag.right { right: 20px; color: var(--tag); transform: rotate(8deg) scale(.9); }
 
 /* choice strips */
-.choices { display: flex; gap: 10px; }
+.choices { display: flex; flex-direction: column; gap: 10px; }
+.choices-row { display: flex; gap: 10px; }
+.choice-strip.full { width: 100%; align-items: center; }
+.choice-strip.third { border-style: dashed; border-color: color-mix(in srgb, var(--item) 50%, var(--line)); }
 .choice-strip {
   flex: 1;
   background: var(--surface);
@@ -239,6 +245,7 @@ body {
 .d.loyalty { color: var(--loyalty); border-color: color-mix(in srgb, var(--loyalty) 40%, transparent); background: color-mix(in srgb, var(--loyalty) 10%, transparent); }
 .d.tag { color: var(--tag); border-color: color-mix(in srgb, var(--tag) 40%, transparent); background: color-mix(in srgb, var(--tag) 10%, transparent); }
 .d.spend { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.d.item { color: var(--item); border-color: color-mix(in srgb, var(--item) 40%, transparent); background: color-mix(in srgb, var(--item) 10%, transparent); }
 
 /* ending */
 #ending {
