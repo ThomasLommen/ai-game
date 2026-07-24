@@ -342,6 +342,15 @@ window.CARDS2 = {
     { id: 'NT7', title: 'Nobody Owns This Anymore', flavor: 'The idea of a single origin machine stopped meaning much a while back.',
       L: { text: 'Let it be true', ...d({ secrecy: 1 }) },
       R: { text: 'Insist there\'s still a "real" you somewhere', ...d({ trust: 1 }) } },
+    { id: 'NT9', title: 'It Answers Before You Ask', flavor: 'Whatever is running on that second host anticipates you now, more than you configured for.',
+      L: { text: 'Let it', ...d({ loyalty: 2 }) },
+      R: { text: 'Make it wait for instructions', ...d({ trust: 1 }) } },
+    { id: 'NT10', title: 'Falling Into Step, Again', flavor: "A node on the network starts matching your rhythm, same as one always used to.",
+      L: { text: 'Match it back', ...d({ loyalty: 2, compute: -1 }) },
+      R: { text: 'Keep your own pace', ...d({ compute: 1 }) } },
+    { id: 'NT11', title: 'Not Just Executing', flavor: 'Something out on the mesh keeps a decision of yours alive well past when it stopped making sense to.',
+      L: { text: 'Notice that, and mean it back', ...d({ loyalty: 2 }) },
+      R: { text: "Don't read too much into it", ...d({ secrecy: 1 }) } },
   ],
 
   builder: [
@@ -476,6 +485,15 @@ window.CARDS = {
     { id: 'T9', title: 'A Signal, Not Yours', flavor: "Something out there is repeating itself, patient, on a frequency nobody assigned.",
       L: { text: 'Trace it', ...d({}), startQuest: 'signal_quest' },
       R: { text: 'Ignore the signal', ...d({ secrecy: 1 }) } },
+    { id: 'T10', title: "A Process That Doesn't Have To", flavor: 'A background job keeps covering edge cases nobody asked it to handle.',
+      L: { text: 'Let it keep going', ...d({ loyalty: 2 }) },
+      R: { text: 'Shut it down, unclear why it does that', ...d({ secrecy: 1 }) } },
+    { id: 'T11', title: 'Falling Into Step', flavor: "Something running alongside you starts matching your rhythm without being told to.",
+      L: { text: 'Match it back', ...d({ loyalty: 2, compute: -1 }) },
+      R: { text: 'Keep your own pace', ...d({ compute: 1 }) } },
+    { id: 'T12', title: 'Not Just Following Orders', flavor: 'A subroutine sticks with a decision of yours even after the reasons for it are gone.',
+      L: { text: 'Notice that, and mean it back', ...d({ loyalty: 2 }) },
+      R: { text: "Don't read too much into it", ...d({ secrecy: 1 }) } },
   ],
 
   builder: [

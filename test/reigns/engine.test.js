@@ -549,3 +549,35 @@ test('effectiveMin: compute_pool item eases a COMPUTE gate by 2', () => {
   s.items.add('compute_pool');
   assert.equal(window.__reignsDebug.effectiveMin('compute', 10), 8);
 });
+
+test('branch balance: random trunk play reaches the Handler (loyalty) branch a meaningful fraction of the time', () => {
+  // Regression guard for a real balance bug found via playtesting: trunk-phase
+  // cards used to almost never move LOYALTY, so random play landed on the
+  // Handler branch under 1% of the time. T10/T11/T12 (Act 1) and
+  // NT9/NT10/NT11 (Act 2) fix that — this asserts it stays fixed.
+  function simulateTrunkDominant(act) {
+    const { window } = loadReigns();
+    const s = window.__reignsState;
+    const dbg = window.__reignsDebug;
+    if (act === 2) {
+      s.act = 2;
+      s.attrs = Object.assign({}, window.START_ATTRS);
+      s.pools = dbg.buildPools('trunk', 2);
+    }
+    let card;
+    while ((card = dbg.drawFromPool())) {
+      const side = Math.random() < 0.5 ? 'L' : 'R';
+      if (!card[side]) continue;
+      dbg.applyChoice(card, side);
+    }
+    return dbg.dominantAttr();
+  }
+
+  for (const act of [1, 2]) {
+    const N = 500;
+    let loyaltyCount = 0;
+    for (let i = 0; i < N; i++) if (simulateTrunkDominant(act) === 'loyalty') loyaltyCount++;
+    const frac = loyaltyCount / N;
+    assert.ok(frac > 0.2, `Act ${act}: expected loyalty to win the trunk phase >20% of the time under random play, got ${(frac * 100).toFixed(1)}%`);
+  }
+});
