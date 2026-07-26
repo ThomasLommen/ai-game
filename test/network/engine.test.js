@@ -176,12 +176,11 @@ test('sweeping cannot reveal the map: discovery follows territory, not sight', (
   const d = window.__netDebug;
   const total = d.state.hosts.length;
 
-  let swept = 0;
   for (let i = 0; i < 60; i++) {
     d.state.res.insight = 999;          // money must not be the thing limiting this
     if (d.sweepBlocked() === 'nothing') break;
+    if (d.state.ap <= 0) { d.actEndTurn(); continue; }  // budget, not sight, is the other limiter
     d.actScan();
-    swept++;
   }
   const discovered = d.state.hosts.filter(h => h.discovered).length;
   assert.equal(d.owned().length, 1, 'still holding only the origin');
@@ -348,6 +347,160 @@ test('every stat and action shown to the player has an explanation', () => {
   });
 });
 
+// --- action points ------------------------------------------------------
+// A turn is a budget you spend, not a synonym for one action. This is what
+// makes the turn boundary mean something.
+
+test('actions spend the budget without advancing the turn', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 1) { h.discovered = true; h.owned = true; } });
+  s.res.insight = 80;
+
+  assert.equal(s.ap, window.AP.base, 'the turn opens with a full budget');
+  const turn = s.turn;
+
+  d.actScan();
+  assert.equal(s.ap, window.AP.base - 1, 'one action spent');
+  assert.equal(s.turn, turn, 'and the clock did not move');
+
+  while (s.ap > 0) d.actScan();
+  const spentTurn = s.turn;
+  d.actScan();
+  assert.equal(s.ap, 0, 'you cannot overdraw');
+  assert.equal(s.turn, spentTurn, 'and a refused action does not advance the turn');
+});
+
+test('ending the turn runs the world and refills the budget', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 1) h.owned = true; });
+  s.ap = 0;
+  const before = { turn: s.turn, insight: s.res.insight };
+
+  d.actEndTurn();
+  assert.equal(s.turn, before.turn + 1, 'the clock moved exactly once');
+  assert.equal(s.ap, d.maxAP(), 'the budget refilled');
+  assert.ok(s.res.insight > before.insight, 'the network produced during the world phase');
+});
+
+test('production is once per turn, not once per action', () => {
+  // the old model paid out on every action, which is what made spamming the
+  // cheapest turn-ender the optimal strategy
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 1) { h.discovered = true; h.owned = true; } });
+  s.res.insight = 80;
+
+  const start = s.res.insight;
+  const spentOnSweeps = window.AP.base * window.SWEEP_COST;
+  while (s.ap > 0) d.actScan();
+  assert.equal(s.res.insight, start - spentOnSweeps, 'acting alone never pays out');
+
+  d.actEndTurn();
+  assert.ok(s.res.insight > start - spentOnSweeps, 'only the world phase pays');
+});
+
+test('lying low costs the entire turn, not one action of it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 1) h.owned = true; });
+  s.heat = 20;
+  const turn = s.turn;
+
+  d.actLieLow();
+  assert.equal(s.turn, turn + 1, 'going dark ends the turn there and then');
+  assert.ok(s.heat < 20, 'and it did cut heat');
+});
+
+test('capabilities move the action budget in both directions', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 2) { h.discovered = true; h.owned = true; } });
+  s.res.insight = 1000;
+
+  const base = d.maxAP();
+  d.buyCap('parallel_ops');
+  assert.equal(d.maxAP(), base + 1, 'parallel operations buy you tempo');
+
+  const powerBefore = d.power();
+  d.buyCap('deep_root');
+  assert.equal(d.maxAP(), base, 'deep root costs a permanent action');
+  assert.ok(d.power() > powerBefore, 'and pays for it in force');
+});
+
+test('a capability can never strand you with no actions at all', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 2) { h.discovered = true; h.owned = true; } });
+  s.res.insight = 5000;
+
+  // buy every action-costing capability we can; the floor must hold
+  for (let i = 0; i < 12; i++) {
+    window.CAPABILITIES.filter(c => (c.apDelta || 0) < 0).forEach(c => d.buyCap(c.id));
+  }
+  assert.ok(d.maxAP() >= window.AP.min, `budget fell to ${d.maxAP()}`);
+  assert.equal(d.maxAP(), window.AP.min, 'and it bottoms out exactly at the floor');
+});
+
+test('repeatable capabilities respect their cap and escalate in price', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 100000;
+  const c = d.capById('parallel_ops');
+
+  const first = d.capCost(c);
+  d.buyCap('parallel_ops');
+  assert.ok(d.capCost(c) > first, 'the next one costs more');
+
+  for (let i = 0; i < 10; i++) d.buyCap('parallel_ops');
+  assert.equal(d.capCount('parallel_ops'), c.max, 'it stops at its maximum');
+});
+
+test('persistence: the budget and everything bought survive a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.res.insight = 1000;
+  d.state.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
+  d.buyCap('parallel_ops');
+  d.state.ap = 1;
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.ap, 1);
+  assert.equal(round.caps.parallel_ops, 1);
+});
+
+test('data integrity: capabilities are well formed and honestly priced', () => {
+  const { window } = loadNetwork();
+  const ids = window.CAPABILITIES.map(c => c.id);
+  assert.equal(ids.filter((id, i) => ids.indexOf(id) !== i).length, 0, 'capability ids are unique');
+
+  window.CAPABILITIES.forEach(c => {
+    assert.ok(c.name && c.desc, `${c.id} is described to the player`);
+    assert.ok(typeof c.cond === 'function', `${c.id} has an availability rule`);
+    if (c.repeatable) {
+      assert.ok(Array.isArray(c.costs) && c.costs.length, `${c.id} has a cost table`);
+      assert.ok(c.max >= 1, `${c.id} has a maximum`);
+      for (let i = 1; i < c.costs.length; i++) {
+        assert.ok(c.costs[i] > c.costs[i - 1], `${c.id} costs must escalate`);
+      }
+    } else {
+      assert.ok(typeof c.cost === 'number', `${c.id} has a cost`);
+    }
+    // anything that takes an action away must give something real back
+    if ((c.apDelta || 0) < 0) {
+      assert.ok(c.effect && Object.keys(c.effect).length, `${c.id} costs tempo but grants nothing`);
+    }
+  });
+});
+
 // --- time must never be free -------------------------------------------
 // Three separate exploits shared one root cause: any action that ended a turn
 // granted production, so the best play was to spam the cheapest turn-ender.
@@ -497,7 +650,7 @@ test('shoring up spends insight and restores stability', () => {
   s.res.insight = 10;
 
   d.actShore(h.id);
-  assert.equal(s.res.insight, 8 + (window.HOST_TYPES[h.type].yield.insight || 0) + 1, 'cost 2, then the turn produced');
+  assert.equal(s.res.insight, 8, 'it costs 2, and acting alone does not pay out');
   assert.ok(h.stability > 0.5, 'stability restored');
 });
 

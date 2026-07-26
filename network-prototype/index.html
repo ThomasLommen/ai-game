@@ -9,6 +9,7 @@
 <body>
   <div id="topbar">
     <span id="turn" class="eyebrow mono">TURN 1</span>
+    <span id="ap-pips" class="ap-pips"></span>
     <span id="held-count" class="mono">1 held</span>
   </div>
 
@@ -45,8 +46,24 @@
 
   <div id="panel"></div>
 
+  <div id="turn-row">
+    <button id="caps-btn" type="button" class="caps-btn">capabilities</button>
+    <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
+  </div>
+
+  <div id="caps-modal">
+    <div class="caps-panel">
+      <div class="caps-panel-top">
+        <span class="eyebrow mono">capabilities</span>
+        <button id="caps-close" type="button" class="caps-close-btn">&times;</button>
+      </div>
+      <p class="caps-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>
+      <div id="caps-goods"></div>
+    </div>
+  </div>
+
   <footer>
-    tap a node to act · tap a stat to see what it does · every action costs a turn
+    tap a node to act · tap a stat to see what it does · you act, then the network does
     <span class="build mono">build __BUILD__</span>
     <button id="restart" type="button">restart</button>
   </footer>

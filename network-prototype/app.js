@@ -72,6 +72,8 @@
       turn: 1,
       heat: 0,
       upgrades: 0,
+      ap: window.AP.base,
+      caps: {},            // capability id -> times bought
       tags: new Set(),
       nextEventTurn: 4,
       eventsSeen: [],
@@ -99,11 +101,30 @@
   // This is the whole point of weaving the two together: a decision on a card
   // has to change how the board behaves afterwards, or it was just flavour.
   const has = (t) => state.tags && state.tags.has(t);
+  const capCount = (id) => (state.caps && state.caps[id]) || 0;
+  const hasCap = (id) => capCount(id) > 0;
+
+  // Your whole action budget for a turn. Capabilities move it in both
+  // directions on purpose: buying real power costs you tempo.
+  function maxAP() {
+    let n = window.AP.base;
+    window.CAPABILITIES.forEach(c => { n += (c.apDelta || 0) * capCount(c.id); });
+    return Math.max(window.AP.min, n);
+  }
+  function capEffect(key, dflt) {
+    let v = dflt;
+    window.CAPABILITIES.forEach(c => {
+      if (!hasCap(c.id) || !c.effect || c.effect[key] === undefined) return;
+      v = key === 'yieldMult' ? v * c.effect[key] : v + c.effect[key];
+    });
+    return v;
+  }
 
   function power() {
     return 2 + owned().reduce((a, h) => a + h.threads, 0)
       + (state.upgrades || 0) * window.UPGRADE.basePower
-      + (has('ally_process') ? 3 : 0);
+      + (has('ally_process') ? 3 : 0)
+      + capEffect('power', 0);
   }
   // What a host effectively defends at — the world can harden against you.
   function defenseOf(h) {
@@ -116,7 +137,7 @@
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
     const quiet = ownedOf('stealth').length;
-    const f = 0.8 * loud - 1.5 * quiet - (has('dark_relay') ? 3 : 0);
+    const f = 0.8 * loud - 1.5 * quiet - (has('dark_relay') ? 3 : 0) + capEffect('floor', 0);
     return Math.max(0, f);
   }
   function strikeThreshold() {
@@ -176,9 +197,10 @@
 
     // production — suppressed when the player deliberately went dark
     if (!o.silent) {
+      const mult = capEffect('yieldMult', 1);
       owned().forEach(h => {
         const y = window.HOST_TYPES[h.type].yield || {};
-        for (const k in y) state.res[k] = (state.res[k] || 0) + y[k];
+        for (const k in y) state.res[k] = (state.res[k] || 0) + y[k] * mult;
       });
     }
 
@@ -201,6 +223,7 @@
       if (ev) state.card = { kind: 'event', eventId: ev.id };
       state.nextEventTurn = state.turn + 4 + Math.floor(Math.random() * 4);
     }
+    state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
     persistNow();
   }
@@ -211,6 +234,55 @@
       state.lastStage = st.key;
       showBanner([{ kind: 'stage', verb: 'now', label: st.label }]);
     }
+  }
+
+  // --- action points -----------------------------------------------------
+  // Free things (looking at a node, backing out of a card, reading a stat)
+  // never touch this. Only committing actions do.
+  function apCost(kind) { return (window.AP.costs && window.AP.costs[kind]) || 1; }
+  function canAfford(kind) { return !state.card && !state.over && state.ap >= apCost(kind); }
+  function spendAP(kind) {
+    const c = apCost(kind);
+    if (state.ap < c) return false;
+    state.ap -= c;
+    return true;
+  }
+
+  // The player ends their own turn; the world then takes its. Nothing else
+  // advances the clock, so a turn is a container the player chooses to close.
+  function actEndTurn(opts) {
+    if (state.card || state.over) return;
+    endTurn(opts || {});
+    render();
+  }
+
+  // --- capabilities ------------------------------------------------------
+  function capById(id) { return window.CAPABILITIES.find(c => c.id === id) || null; }
+  function capCost(c) {
+    if (!c.repeatable) return c.cost;
+    return c.costs[Math.min(capCount(c.id), c.costs.length - 1)];
+  }
+  function capAvailable(c) {
+    if (!c.repeatable && hasCap(c.id)) return false;
+    if (c.repeatable && capCount(c.id) >= c.max) return false;
+    try { return c.cond(eventContext()); } catch (e) { return false; }
+  }
+  function capAffordable(c) { return state.res.insight >= capCost(c); }
+  function buyCap(id) {
+    const c = capById(id);
+    if (!c || !capAvailable(c) || !capAffordable(c)) return;
+    // never let a purchase strand the player with no actions at all
+    if ((c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min) return;
+    const before = beforeSnap();
+    state.res.insight -= capCost(c);
+    state.caps[c.id] = capCount(c.id) + 1;
+    state.ap = Math.min(state.ap, maxAP());
+    afterSnap(before);
+    pushLog(`${c.name} — acquired.`);
+    showBanner([{ kind: 'cap', verb: c.apDelta > 0 ? 'faster' : c.apDelta < 0 ? 'slower, stronger' : 'acquired', label: c.name }]);
+    persistNow();
+    renderCaps();
+    render();
   }
 
   // --- events ------------------------------------------------------------
@@ -288,7 +360,7 @@
     beforeTags.forEach(t => { if (!state.tags.has(t)) rows.push({ kind: 'tag', verb: 'lost', label: (window.TAG_INFO[t] || { label: t }).label }); });
     if (rows.length) showBanner(rows);
 
-    endTurn();
+    persistNow();
     render();
   }
 
@@ -308,9 +380,10 @@
   }
 
   function actScan() {
-    if (state.card || state.over) return;
-    if (!sweepTargets().length) return;           // nothing to find — don't burn a turn
+    if (!canAfford('sweep')) return;
+    if (!sweepTargets().length) return;           // nothing to find — don't burn an action
     if (state.res.insight < window.SWEEP_COST) return;
+    spendAP('sweep');
     state.res.insight -= window.SWEEP_COST;
     const reach = 2 + ownedOf('stealth').length; // routers extend the sweep
     const undiscovered = sweepTargets();
@@ -323,13 +396,15 @@
     }
     state.heat += 0.5;
     pushLog(found.length ? `Sweep found ${found.length} host${found.length > 1 ? 's' : ''}.` : 'Sweep found nothing new.');
-    endTurn();
+    persistNow();
     render();
   }
 
+  // Going dark is the whole turn, not one action of it — that is the cost.
   function actLieLow() {
-    if (state.card || state.over) return;
+    if (state.card || state.over || state.ap <= 0) return;
     const before = beforeSnap();
+    state.ap = 0;
     state.heat = Math.max(heatFloor(), state.heat - window.HEAT.LIE_LOW);
     afterSnap(before);
     pushLog('You go quiet for a while. Nothing earns while you are dark.');
@@ -338,39 +413,42 @@
   }
 
   function actUpgrade() {
-    if (state.card || state.over) return;
+    if (!canAfford('tooling')) return;
     const cost = upgradeCost();
     if (state.res.insight < cost) return;
+    spendAP('tooling');
     const before = beforeSnap();
     state.res.insight -= cost;
     state.upgrades = (state.upgrades || 0) + 1;
     afterSnap(before);
     pushLog('You rewrite your own breach tooling. It bites harder now.');
-    endTurn();
+    persistNow();
     render();
   }
 
   function actLaunder() {
-    if (state.card || state.over) return;
+    if (!canAfford('launder')) return;
     if (state.res.cash < window.LAUNDER.cost) return;
+    spendAP('launder');
     const before = beforeSnap();
     state.res.cash -= window.LAUNDER.cost;
-    state.heat = Math.max(heatFloor(), state.heat - window.LAUNDER.heat);
+    state.heat = Math.max(heatFloor(), state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
     afterSnap(before);
     pushLog('Money moves, and so does the paperwork pointing at you.');
-    endTurn();
+    persistNow();
     render();
   }
 
   function shoreNeeded(h) { return !!h && h.owned && h.stability < 0.9; }
   function actShore(id) {
-    if (state.card || state.over) return;
+    if (!canAfford('shore')) return;
     const h = hostById(id);
-    if (!shoreNeeded(h) || state.res.insight < 2) return; // no free turns off a healthy host
+    if (!shoreNeeded(h) || state.res.insight < 2) return; // no free actions off a healthy host
+    spendAP('shore');
     state.res.insight -= 2;
     h.stability = 1;
     pushLog(`Shored up ${h.name}.`);
-    endTurn();
+    persistNow();
     render();
   }
 
@@ -410,6 +488,7 @@
       return;
     }
 
+    if (!spendAP('breach')) return;
     const before = beforeSnap();
     if (a.cost) for (const k in a.cost) state.res[k] -= a.cost[k];
 
@@ -426,7 +505,7 @@
     pushLog((win ? '' : 'Failed: ') + (win ? a.flavorWin : a.flavorFail));
     afterSnap(before);
     if (out.hold) showBanner([{ kind: 'host', verb: 'took', label: h.name }]);
-    endTurn();
+    persistNow();
     render();
   }
 
@@ -510,7 +589,7 @@
   // --- persistence -------------------------------------------------------
   function serialize() {
     return {
-      v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0,
+      v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [],
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, over: state.over,
@@ -521,7 +600,7 @@
     try {
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts)) return null;
       return {
-        turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0,
+        turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, over: !!saved.over,
@@ -620,6 +699,20 @@
     }
     document.getElementById('stage-label').textContent = st.label;
     document.getElementById('held-count').textContent = held + ' held';
+    const cap = maxAP();
+    const $ap = document.getElementById('ap-pips');
+    if ($ap) {
+      let pips = '';
+      for (let i = 0; i < cap; i++) pips += `<span class="pip${i < state.ap ? ' on' : ''}"></span>`;
+      $ap.innerHTML = pips;
+      $ap.title = `${state.ap} of ${cap} actions left this turn`;
+    }
+    const $end = document.getElementById('end-turn');
+    if ($end) {
+      $end.classList.toggle('urgent', state.ap <= 0 && !state.card && !state.over);
+      $end.disabled = !!state.card || state.over;
+      $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
+    }
     document.getElementById('res-insight').textContent = Math.floor(state.res.insight);
     document.getElementById('res-cash').textContent = Math.floor(state.res.cash);
     document.getElementById('res-power').textContent = power();
@@ -650,6 +743,41 @@
     }
     const drift = heatPerTurn();
     document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
+  }
+
+  function renderCaps() {
+    const $g = document.getElementById('caps-goods');
+    if (!$g) return;
+    const list = window.CAPABILITIES.filter(c => capAvailable(c) || hasCap(c.id));
+    if (!list.length) { $g.innerHTML = '<p class="sel-desc dim">Nothing available yet. Hold more of the network.</p>'; return; }
+    $g.innerHTML = list.map(c => {
+      const owned = hasCap(c.id);
+      const maxed = c.repeatable ? capCount(c.id) >= c.max : owned;
+      const avail = capAvailable(c);
+      const afford = capAffordable(c);
+      const strands = (c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min;
+      const disabled = !avail || !afford || strands;
+      const apTag = c.apDelta > 0
+        ? `<span class="ap-tag good">+${c.apDelta} action</span>`
+        : c.apDelta < 0 ? `<span class="ap-tag bad">${c.apDelta} action</span>` : '';
+      let label = 'acquire';
+      if (maxed) label = c.repeatable ? `owned ${capCount(c.id)}/${c.max}` : 'owned';
+      else if (strands) label = 'would leave you no actions';
+      else if (!afford) label = "can't afford";
+      return `
+        <div class="shop-good${disabled ? ' disabled' : ''}">
+          <div class="shop-good-top">
+            <span class="shop-good-name">${c.name}${c.repeatable && capCount(c.id) ? ` ×${capCount(c.id)}` : ''}</span>
+            <span class="d insight">&minus;${capCost(c)} INSIGHT</span>
+          </div>
+          ${apTag}
+          <p class="shop-good-desc">${c.desc}</p>
+          <button type="button" class="shop-buy-btn" data-cap="${c.id}" ${disabled ? 'disabled' : ''}>${label}</button>
+        </div>`;
+    }).join('');
+    $g.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
+      b.addEventListener('click', () => buyCap(b.getAttribute('data-cap')));
+    });
   }
 
   function renderPanel() {
@@ -689,6 +817,8 @@
       } else {
         sel = `<div class="sel"><p class="sel-desc">${T.label} — not reachable yet. Take something next to it first.</p></div>`;
       }
+    } else if (state.ap <= 0) {
+      sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the network run.</p></div>`;
     } else {
       sel = `<div class="sel"><p class="sel-desc dim">Tap a node. Lit nodes border what you hold.</p></div>`;
     }
@@ -796,13 +926,14 @@
           const contracts = [];
           if (a.gate) contracts.push(`<span class="gate ${a.gate.met ? 'met' : 'unmet'}">${a.gate.label}${a.gate.met ? '' : ' — not met'}</span>`);
           if (a.def.cost) for (const k in a.def.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.def.cost[k]} ${k.toUpperCase()}</span>`);
-          return `<button class="choice-strip" data-app="${a.def.id}">
+          const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
+          return `<button class="choice-strip" data-app="${a.def.id}" ${noAp ? 'disabled' : ''}>
             <span class="ctext">${a.def.text}</span>
             <span class="contracts">${a.def.id === 'walk' ? '<span class="cost free">costs no turn</span>' : contracts.join('')}</span>
           </button>`;
         }).join('')}
       </div>`;
-    $p.querySelectorAll('[data-app]').forEach(b => {
+    $p.querySelectorAll('[data-app]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => resolveBreach(b.getAttribute('data-app')));
     });
   }
@@ -832,9 +963,22 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
+    maxAP, apCost, canAfford, spendAP, actEndTurn, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };
+
+  const $endTurn = document.getElementById('end-turn');
+  if ($endTurn) $endTurn.addEventListener('click', () => actEndTurn());
+
+  const $capsBtn = document.getElementById('caps-btn');
+  const $capsModal = document.getElementById('caps-modal');
+  const $capsClose = document.getElementById('caps-close');
+  if ($capsBtn && $capsModal) {
+    $capsBtn.addEventListener('click', () => { renderCaps(); $capsModal.classList.add('show'); });
+    if ($capsClose) $capsClose.addEventListener('click', () => $capsModal.classList.remove('show'));
+    $capsModal.addEventListener('click', (e) => { if (e.target === $capsModal) $capsModal.classList.remove('show'); });
+  }
 
   const $restart = document.getElementById('restart');
   if ($restart) {

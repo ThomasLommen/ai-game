@@ -33,6 +33,68 @@ window.LAUNDER = { cost: 8, heat: 10 };
 // button you mash while waiting for production to accumulate.
 window.SWEEP_COST = 2;
 
+// --- action points -----------------------------------------------------
+// A turn is a container you fill, not a synonym for "one action". This is
+// what makes the turn boundary mean anything: some things are free (looking
+// at a node, backing out), and the rest are spent from a budget.
+window.AP = {
+  base: 2,
+  min: 1,            // never drop below one action a turn, whatever you buy
+  costs: { sweep: 1, breach: 1, shore: 1, tooling: 1, launder: 1 },
+};
+
+// --- capabilities ------------------------------------------------------
+// Permanent purchases. The interesting ones trade tempo for strength: they
+// cost a *permanent* action point, so you act less often but each act lands
+// harder. That is a real identity — a slow, deep operator versus a fast,
+// shallow one — rather than a straight upgrade.
+window.CAPABILITIES = [
+  {
+    id: 'parallel_ops', repeatable: true, max: 3,
+    name: 'Parallel Operations',
+    desc: 'Run more of yourself at once. +1 action every turn.',
+    apDelta: +1,
+    costs: [18, 34, 60],
+    cond: () => true,
+  },
+  {
+    id: 'deep_root',
+    name: 'Deep Root',
+    desc: 'Embed properly into every body you hold instead of riding on top. Far more force behind a breach — but arranging anything takes longer.',
+    apDelta: -1,
+    effect: { power: 6 },
+    cost: 24,
+    cond: (s) => s.held >= 5,
+  },
+  {
+    id: 'quiet_protocol',
+    name: 'Quiet Protocol',
+    desc: 'Everything routed through indirection, always. You are far harder to see at rest — and far slower to move.',
+    apDelta: -1,
+    effect: { floor: -5 },
+    cost: 28,
+    cond: (s) => s.held >= 6,
+  },
+  {
+    id: 'bulk_ops',
+    name: 'Bulk Processing',
+    desc: 'Batch the work instead of handling it live. Everything you hold earns considerably more, and you get around to things less often.',
+    apDelta: -1,
+    effect: { yieldMult: 1.6 },
+    cost: 30,
+    cond: (s) => s.held >= 8,
+  },
+  {
+    id: 'clean_hands',
+    name: 'Clean Hands',
+    desc: 'A standing arrangement with people who file the paperwork. Laundering costs nothing extra and works harder.',
+    apDelta: 0,
+    effect: { launderBonus: 6 },
+    cost: 22,
+    cond: (s) => s.roles.cash >= 1,
+  },
+];
+
 window.HOST_NAMES = {
   consumer:   ['DESKTOP', 'LAPTOP', 'HOME-PC', 'WORKSTATION', 'WIN-PC'],
   server:     ['vps', 'web', 'db', 'app', 'edge'],
