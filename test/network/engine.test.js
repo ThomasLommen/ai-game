@@ -937,3 +937,295 @@ test('persistence: the rival and its territory survive a round trip', () => {
   assert.equal(round.rival.buildings.length, 1);
   assert.equal(round.rival.seen, true);
 });
+
+// --- the country ---------------------------------------------------------
+// The layer above the city. The city map is not replaced by it: a defended
+// city on the national map *is* the building game, and a finished one collapses
+// into a single number that keeps paying.
+
+// Hold a city up to its consolidate bar without playing it out building by
+// building — the country tests are about what happens above the streets.
+function holdToGoal(d) {
+  const goal = d.cityGoal();
+  let n = 0;
+  for (const b of d.state.buildings) {
+    if (n >= goal) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  return n;
+}
+
+test('country: every region is on the map, and every city is walkable from home', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const co = d.state.country;
+
+  assert.ok(co.cities.length >= 12, `only ${co.cities.length} cities`);
+  window.REGIONS.forEach(R => {
+    const here = co.cities.filter(c => c.region === R.id);
+    assert.ok(here.length, `region ${R.id} has no cities`);
+    if (R.faction) {
+      assert.equal(here.filter(c => c.kind === 'root').length, 1, `${R.id} needs exactly one seat`);
+    }
+  });
+
+  // reach only travels through *defended* cities you took — folding a town in
+  // from a distance must not open the road onward
+  const taken = new Set([co.homeId]);
+  for (let step = 0; step < 60; step++) {
+    const front = co.cities.filter(c => !taken.has(c.id) && d.cityRoads(c.id).some(id => {
+      const n = d.cityById(id);
+      return taken.has(id) && n && window.CITY_KINDS[n.kind].contest;
+    }));
+    if (!front.length) break;
+    front.forEach(c => taken.add(c.id));
+  }
+  assert.equal(taken.size, co.cities.length,
+    `${co.cities.length - taken.size} cities cannot be reached from home`);
+
+  const names = co.cities.map(c => c.name);
+  assert.equal(new Set(names).size, names.length, 'two cities share a name');
+});
+
+test('country: a town folds in from a distance, a defended city has to be walked', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  holdToGoal(d);
+  s.ap = 9;
+  assert.equal(d.actConsolidate(), true, 'the home city folds in once you hold enough');
+  assert.equal(s.scope, 'country', 'and puts you on the national map');
+
+  const front = d.countryFrontier();
+  assert.ok(front.length, 'consolidating opens a frontier');
+
+  const town = front.find(c => c.kind === 'fold');
+  if (town) {
+    const before = s.country.presence;
+    s.ap = 9;
+    d.actReach(town.id);
+    assert.equal(s.scope, 'country', 'a town never drops you into a city map');
+    assert.ok(s.country.presence > before, 'and pays presence straight away');
+    assert.equal(d.cityById(town.id).consolidated, true);
+  }
+
+  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  assert.ok(hard, 'there is somewhere defended to go');
+  s.ap = 9;
+  d.actReach(hard.id);
+  assert.equal(s.scope, 'city', 'a defended city drops you into the streets');
+  assert.equal(d.currentCity().id, hard.id);
+  assert.ok(s.buildings.length > 8, 'with a real map to walk');
+  assert.equal(d.heldHere(), 1, 'and a single foothold, same as the first city');
+});
+
+test('country: reach never jumps to somewhere no road runs to', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+
+  const far = s.country.cities.find(c => !d.cityReachable(c) && !c.taken);
+  assert.ok(far, 'most of the country is out of reach at the start');
+  s.ap = 9;
+  assert.equal(d.actReach(far.id), false, 'and cannot be moved on');
+  assert.equal(d.cityById(far.id).taken, false);
+});
+
+test('country: a city you finish stops being streets and becomes presence', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  holdToGoal(d);
+  const powerBefore = d.power();
+  const heldBefore = d.owned().length;
+  assert.ok(heldBefore > 5, 'you were holding real ground');
+
+  s.ap = 9;
+  d.actConsolidate();
+
+  assert.equal(d.owned().length, 0, 'the streets are released — you hold the city now');
+  assert.ok(s.country.presence > 0, 'and it converted into presence');
+  // Winning must not gut you. Presence buys back most of the power the
+  // streets were giving — you trade some depth for reach and standing income,
+  // but never so much that the next region becomes unplayable.
+  assert.ok(d.power() >= powerBefore * 0.6,
+    `power collapsed from ${powerBefore} to ${d.power()} on consolidating`);
+  assert.ok(d.heatFloor() > 0, 'a national operation cannot hide completely');
+});
+
+test('country: presence pays every turn, whether or not you are standing there', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+
+  const y = d.presenceYield();
+  assert.ok(y.insight > 0 && y.cash > 0, 'presence yields something');
+
+  const before = { insight: s.res.insight, cash: s.res.cash };
+  d.endTurn();
+  assert.ok(s.res.insight > before.insight, 'insight arrives from the country');
+  assert.ok(s.res.cash > before.cash, 'so does cash');
+});
+
+test('country: heat is regional — it waits where you left it, and cools while you are away', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+
+  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  s.ap = 9;
+  d.actReach(hard.id);
+  const away = s.region;
+  assert.notEqual(away, 'home', 'you went somewhere else');
+
+  s.heat = 30;
+  s.ap = 9;
+  d.actTravel(s.country.homeId);
+  assert.equal(s.region, 'home', 'you are back in the home region');
+  assert.ok(s.heat < 30, 'and not carrying the other region\'s heat with you');
+  assert.equal(s.country.regionHeat[away], 30, 'which is still waiting where you left it');
+
+  d.coolRegionsAway();
+  d.coolRegionsAway();
+  assert.ok(s.country.regionHeat[away] < 30, 'though it cools while you are elsewhere');
+  assert.ok(s.country.regionHeat[away] > 20, 'slowly enough that leaving is not a reset');
+});
+
+test('country: the campaign carries across cities — tooling, capabilities, resources', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  s.upgrades = 4;
+  s.caps = { parallel_ops: 2 };
+  s.tags.add('clean_room');
+  s.res.insight = 50;
+  const apCap = d.maxAP();
+
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  s.ap = 9;
+  d.actReach(hard.id);
+
+  assert.equal(s.upgrades, 4, 'tooling carried');
+  assert.equal(s.caps.parallel_ops, 2, 'capabilities carried');
+  assert.equal(s.tags.has('clean_room'), true, 'tags carried');
+  assert.equal(s.res.insight, 50, 'resources carried');
+  assert.equal(d.maxAP(), apCap, 'and so did the action budget they bought');
+});
+
+test('country: cities out in the regions are harder than the one you started in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const homeAvg = s.hosts.reduce((a, h) => a + h.defense, 0) / s.hosts.length;
+
+  const far = s.country.cities.find(c => c.regionTier >= 3 && window.CITY_KINDS[c.kind].contest);
+  assert.ok(far, 'the country has deep regions');
+  d.enterCity(far.id);
+  const farAvg = s.hosts.reduce((a, h) => a + h.defense, 0) / s.hosts.length;
+  assert.ok(farAvg > homeAvg * 1.5,
+    `${far.region} averages ${farAvg.toFixed(1)} against home's ${homeAvg.toFixed(1)}`);
+});
+
+test('country: an unfinished city is still there when you come back to it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+
+  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  s.ap = 9;
+  d.actReach(hard.id);
+  // take a couple of buildings and walk away without finishing
+  const took = s.buildings.slice(0, 3).map(b => d.hostsIn(b)[0]);
+  took.forEach(h => { h.owned = true; h.discovered = true; });
+  const heldThere = d.heldHere();
+  const names = s.hosts.map(h => h.name).join('|');
+
+  s.ap = 9;
+  d.actTravel(s.country.homeId);
+  s.ap = 9;
+  d.actTravel(hard.id);
+
+  assert.equal(d.currentCity().id, hard.id, 'you went back');
+  assert.equal(s.hosts.map(h => h.name).join('|'), names, 'to the same city, not a new one');
+  assert.equal(d.heldHere(), heldThere, 'still holding what you held');
+});
+
+test('country: taking a faction seat finishes the faction', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const f = window.FACTIONS[0];
+
+  s.country.presence = f.wakes;
+  d.checkFactions();
+  assert.equal(d.factionAwake(f.id), true, 'presence wakes them');
+
+  d.breakFactionAt(s.country.factions[f.id].rootId);
+  assert.equal(d.factionAwake(f.id), false, 'taking their seat ends them');
+  assert.equal(s.country.factions[f.id].broken, true);
+});
+
+test('persistence: the country survives a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+  s.country.presence = 26;
+  d.checkFactions();
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(round, 'the save is accepted');
+  assert.equal(round.scope, 'country');
+  assert.equal(round.country.presence, 26);
+  assert.equal(round.country.cities.length, s.country.cities.length);
+  assert.equal(round.region, s.region);
+  assert.equal(round.country.factions.quiet_hours.awake, true, 'woken factions stay woken');
+  assert.equal(round.country.cities.find(c => c.id === round.country.homeId).consolidated, true);
+});
+
+test('country: a city you walk away from is frozen, not running in the background', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+
+  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  s.ap = 9;
+  d.actReach(hard.id);
+  s.buildings.slice(0, 4).forEach(b => { const h = d.hostsIn(b)[0]; h.owned = true; h.discovered = true; });
+  const heldThere = d.owned().length;
+  assert.ok(heldThere >= 4, 'you took some of it');
+
+  s.ap = 9;
+  d.actTravel(s.country.homeId);
+  assert.equal(d.owned().length, 0,
+    'standing in another region, the streets you left are not still yours to run');
+  assert.equal(s.buildings.length, 0, 'and the city you left is not loaded');
+
+  s.ap = 9;
+  d.actTravel(hard.id);
+  assert.equal(d.owned().length, heldThere, 'and it is all still there when you go back');
+});

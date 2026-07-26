@@ -88,7 +88,7 @@ body {
 .res.power b { color: var(--power); }
 .res.cover b { color: var(--cover); }
 
-#stage-row { margin-top: 10px; }
+#stage-row { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
 .stage-label { font-family: ui-serif, Georgia, serif; font-size: 17px; color: var(--ink); }
 
 /* the graph — your territory is the progress bar */
@@ -485,6 +485,61 @@ footer .build { opacity: .55; font-size: 10px; }
   color: var(--ink-dim); border-radius: 8px;
   padding: 6px 10px; font-size: 11px; cursor: pointer;
 }
+
+/* --- the country ----------------------------------------------------- */
+.band { fill: #0d1210; stroke: none; opacity: .55; }
+.band.known { fill: #101614; opacity: 1; }
+.band-tag {
+  fill: var(--muted); font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.road { stroke: #1b2320; stroke-width: 2; stroke-dasharray: 5 4; }
+.road.live { stroke: color-mix(in srgb, var(--cover) 55%, transparent); stroke-dasharray: none; stroke-width: 2.4; }
+
+.cnode { cursor: pointer; }
+.cnode .hit { fill: transparent; }
+.cnode .dot { fill: #1a2320; stroke: #37443f; stroke-width: 1.6; }
+.cnode .ctag {
+  fill: var(--ink-dim); font-size: 9px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.cnode .cworth { fill: var(--insight); font-size: 8px; text-anchor: middle; }
+.cnode .ring { fill: none; stroke: var(--ink); stroke-width: 1.4; opacity: .8; }
+
+.cnode.open .dot   { stroke: var(--ink-dim); stroke-dasharray: 3 2; }
+.cnode.held .dot   { stroke: var(--item); fill: #16211d; }
+.cnode.folded .dot { stroke: var(--insight); fill: color-mix(in srgb, var(--insight) 22%, #16211d); }
+.cnode.folded .ctag { fill: var(--ink); }
+.cnode.seat .dot   { stroke-width: 2.2; }
+.cnode.seat.folded .dot { stroke: var(--insight); }
+.cnode.seat:not(.folded) .dot { stroke: var(--power); }
+.cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
+.cnode.home .dot   { stroke: var(--cover); }
+
+.scope-btn {
+  margin-left: auto;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.scope-btn.up { border-color: color-mix(in srgb, var(--insight) 40%, var(--line)); color: var(--insight); }
+.scope-btn[disabled] { opacity: .4; cursor: default; }
+
+.country-meta {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 2px 2px; font-size: 12px; color: var(--ink-dim);
+}
+.country-meta b { color: var(--insight); font-size: 15px; }
+
+.fac-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0 4px; }
+.fac-pill {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--power); border: 1px solid color-mix(in srgb, var(--power) 45%, transparent);
+  border-radius: 999px; padding: 2px 8px;
+}
+
+.act-btn.consolidate { margin-top: 6px; }
 
 /* the rival: something else taking the same city */
 .bldg.rival .body { stroke: var(--power); fill: color-mix(in srgb, var(--power) 14%, #131a17); stroke-dasharray: 3 2; }

@@ -86,7 +86,7 @@ function loadNetwork(preload = {}) {
     delete sandbox.__vmMath;
   }
 
-  for (const file of ['data.js', 'app.js']) {
+  for (const file of ['data.js', 'country.js', 'app.js']) {
     const full = path.join(ROOT, file);
     vm.runInContext(fs.readFileSync(full, 'utf8'), context, { filename: full });
   }

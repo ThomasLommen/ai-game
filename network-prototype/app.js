@@ -1,27 +1,50 @@
 'use strict';
 (function () {
   const SAVE_KEY = 'network_proto_save';
-  const SAVE_VERSION = 1;
+  const SAVE_VERSION = 2;   // the country layer changed the shape of a save
 
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
   // --- city generation ---------------------------------------------------
-  // Blocks of buildings separated by streets. Each building holds several
-  // hosts; its cameras sit on the outside and are the way in. The engine below
-  // still only sees `hosts` and `links`, so the whole loop is unchanged — this
-  // is a generation and rendering layer over the same model.
-  function makeCity() {
+  // Blocks of buildings separated by streets, one host to a building. The
+  // engine below still only sees `hosts` and `links`, so the whole loop is
+  // unchanged — this is a generation and rendering layer over the same model.
+  //
+  // `opts` is how the country layer asks for a city: a small hard one out in
+  // the north is the same generator with a different shape and a harder band
+  // of districts.
+  function districtBand(regionTier, rows) {
+    const keys = ['residential', 'commercial', 'business', 'industrial'];
+    const lo = Math.max(0, Math.min(keys.length - 1, regionTier - 1));
+    const hi = Math.min(keys.length - 1, regionTier + 1);
+    const out = [];
+    for (let i = 0; i < rows; i++) {
+      const t = rows === 1 ? 1 : i / (rows - 1);
+      out.push(keys[Math.round(lo + (hi - lo) * t)]);
+    }
+    return out;
+  }
+
+  function makeCity(opts) {
+    const o = opts || {};
     const C = window.CITY;
+    const cols = o.cols || C.cols;
+    const rows = o.rows || C.rows;
+    const regionTier = o.regionTier || 0;
+    // difficulty rides the district inside a city, and the region between them
+    const regionBump = regionTier * 3;
+    const rowDistricts = o.rowDistricts
+      || (o.regionTier === undefined ? C.rowDistricts : districtBand(regionTier, rows));
     const buildings = [];
     const hosts = [];
     const links = [];
     let bid = 0, hid = 0;
 
-    for (let row = 0; row < C.rows; row++) {
-      for (let col = 0; col < C.cols; col++) {
-        const districtKey = C.rowDistricts[row];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const districtKey = rowDistricts[row % rowDistricts.length];
         const D = window.DISTRICTS[districtKey];
         const bx = C.street + col * (C.blockW + C.street);
         const by = C.street + row * (C.blockH + C.street);
@@ -42,7 +65,7 @@
           const b = {
             id: 'b' + (bid++),
             kind, district: districtKey, tier: D.tier,
-            block: row * C.cols + col, row, col,
+            block: row * cols + col, row, col,
             x: Math.round(cell.x + (cell.w - w) / 2),
             y: Math.round(cell.y + (cell.h - h) / 2),
             w, h,
@@ -58,7 +81,7 @@
     buildings.forEach(b => {
       const K = window.BUILDING_KINDS[b.kind];
       const T = window.HOST_TYPES[K.host];
-      const bump = b.tier * 2;   // difficulty rides the district
+      const bump = b.tier * 2 + regionBump;   // district inside a city, region between them
       const h = {
         id: 'h' + (hid++),
         type: K.host,
@@ -163,8 +186,11 @@
     // the origin: a house in the suburbs, one host already yours. It must have
     // something next door you can take on turn one — a corner where every
     // neighbour outguns your opening rig is a board you cannot start playing.
-    const suburb = buildings.filter(b => b.district === 'residential' && b.kind !== 'mast' && b.kind !== 'cabinet');
-    const pool = suburb.length ? suburb : buildings;
+    // Out in the country there may be no suburbs at all, so the foothold is
+    // simply the softest district the place has, taken from its edge.
+    const softestTier = Math.min(...buildings.map(b => b.tier));
+    const edge = buildings.filter(b => b.tier === softestTier && b.kind !== 'mast' && b.kind !== 'cabinet');
+    const pool = edge.length ? edge : buildings;
     const byBuilding = {};
     buildings.forEach(b => { byBuilding[b.id] = b; });
     const neighbourHosts = (b) => (adjacency[b.id] || [])
@@ -184,7 +210,7 @@
       ? startable[Math.floor(Math.random() * startable.length)]
       : (pool[Math.floor(Math.random() * pool.length)] || buildings[0]);
     if (!startable.length) {
-      // no corner of the suburbs qualifies: open the doorstep by hand
+      // no corner of the place qualifies: open the doorstep by hand
       const h = hosts[byId[origin.hostId]];
       const cap = 2 + (h ? h.threads : 0) + window.UPGRADE.basePower;
       neighbourHosts(origin).forEach(n => { n.defense = Math.min(n.defense, cap); });
@@ -196,7 +222,7 @@
     seat.ring = 0;
     seat.origin = true;
 
-    return { buildings, hosts, links, adjacency, originId: seat.id };
+    return { buildings, hosts, links, adjacency, originId: seat.id, dims: { cols, rows } };
   }
 
   function blocksAdjacent(a, b) {
@@ -213,9 +239,129 @@
     return arr;
   }
 
+  // --- the country -------------------------------------------------------
+  // Cities as nodes, roads as edges, laid out in region bands with the home
+  // city at the top. Every region gets a seat — take the seat and the faction
+  // that runs the region out of it is finished.
+  function makeCountry() {
+    const K = window.COUNTRY;
+    const cities = [];
+    const roads = {};
+    let cid = 0;
+
+    window.REGIONS.forEach((R, ri) => {
+      // the first name in the home list belongs to the home city itself, so it
+      // is held back rather than handed to whichever town drew first
+      const all = (window.CITY_NAMES[R.id] || ['Somewhere']).slice();
+      const homeName = R.id === 'home' ? all.shift() : null;
+      const names = shuffleArr(all);
+      let ni = 0;
+      const y = K.pad + ri * K.bandH;
+      const kinds = [];
+      if (R.id === 'home') {
+        kinds.push('home', 'fold', 'fold');
+      } else {
+        const n = rndInt(K.perRegion[0], K.perRegion[1]);
+        for (let i = 0; i < n; i++) kinds.push(Math.random() < 0.45 ? 'fold' : 'contest');
+        kinds.push('root');
+      }
+      shuffleArr(kinds);
+      const span = K.mapW - K.pad * 2;
+      kinds.forEach((kind, i) => {
+        const CK = window.CITY_KINDS[kind];
+        const t = kinds.length === 1 ? 0.5 : i / (kinds.length - 1);
+        cities.push({
+          id: 'c' + (cid++),
+          name: kind === 'home' ? homeName : names[(ni++) % names.length],
+          kind,
+          region: R.id,
+          regionTier: R.tier,
+          x: Math.round(K.pad + span * t + rnd(-26, 26)),
+          y: Math.round(y + rnd(-24, 24)),
+          worth: rndInt(CK.presence[0], CK.presence[1]),
+          known: R.id === 'home',
+          taken: false,        // you have a foothold and have walked it
+          consolidated: false, // folded into standing presence
+          visited: false,
+          snapshot: null,      // an unfinished city you can go back to
+        });
+      });
+    });
+
+    // Roads. Proximity first, for the look of the thing — but the country has
+    // to have a *spine* of defended cities, because reach only propagates
+    // through places you actually walked. Without that you could fold your way
+    // from the suburbs to the north without ever taking a defended city.
+    const link = (a, b) => {
+      if (!a || !b || a === b) return;
+      (roads[a.id] = roads[a.id] || []).indexOf(b.id) === -1 && roads[a.id].push(b.id);
+      (roads[b.id] = roads[b.id] || []).indexOf(a.id) === -1 && roads[b.id].push(a.id);
+    };
+    const nearestOf = (a, list) => {
+      let best = null;
+      list.forEach(b => {
+        if (b === a) return;
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (!best || d < best.d) best = { d, b };
+      });
+      return best && best.b;
+    };
+    cities.forEach(a => cities.forEach(b => {
+      if (a.id >= b.id) return;
+      if (Math.hypot(a.x - b.x, a.y - b.y) <= K.roadReach) link(a, b);
+    }));
+
+    const spineOf = (regionId) =>
+      cities.filter(c => c.region === regionId && window.CITY_KINDS[c.kind].contest);
+    window.REGIONS.forEach((R, ri) => {
+      const spine = spineOf(R.id).slice().sort((a, b) => a.x - b.x);
+      for (let i = 1; i < spine.length; i++) link(spine[i - 1], spine[i]);
+      // every town hangs off the defended city nearest to it
+      cities.filter(c => c.region === R.id && !window.CITY_KINDS[c.kind].contest)
+        .forEach(t => link(t, nearestOf(t, spine)));
+      // and each band is joined to the last one, defended city to defended city
+      if (ri > 0) {
+        const prev = spineOf(window.REGIONS[ri - 1].id);
+        let best = null;
+        spine.forEach(a => prev.forEach(b => {
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (!best || d < best.d) best = { d, a, b };
+        }));
+        if (best) link(best.a, best.b);
+      }
+    });
+
+    // each region's seat is the root of its faction
+    const factions = {};
+    window.FACTIONS.forEach(f => {
+      const seat = f.region ? cities.find(c => c.region === f.region && c.kind === 'root') : null;
+      factions[f.id] = { awake: false, broken: false, rootId: seat ? seat.id : null, wokeTurn: 0 };
+      if (seat) seat.factionId = f.id;
+    });
+
+    const home = cities.find(c => c.kind === 'home') || cities[0];
+    home.taken = true;
+    home.visited = true;
+    cities.forEach(c => { if (roads[home.id] && roads[home.id].indexOf(c.id) !== -1) c.known = true; });
+
+    return {
+      cities, roads, at: home.id, homeId: home.id,
+      presence: 0, factions,
+      regionHeat: {},          // heat you left behind, by region
+      view: null,
+      selected: null,
+    };
+  }
+
   function freshState() {
     const g = makeCity();
+    const country = makeCountry();
     return {
+      scope: 'city',       // 'city' while you are walking one, 'country' above it
+      country,
+      cityId: country.homeId,
+      dims: g.dims,
+      region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
       view: null,          // pan/zoom, set on first render
@@ -275,9 +421,15 @@
     return v;
   }
 
+  // Presence is what a finished city leaves behind, so it feeds every one of
+  // these: the flywheel, the cover, and the pressure. Otherwise consolidating
+  // would be a downgrade you took for the map.
+  const presence = () => (state.country && state.country.presence) || 0;
+
   function power() {
     return 2 + owned().reduce((a, h) => a + h.threads, 0)
       + (state.upgrades || 0) * window.UPGRADE.basePower
+      + Math.round(window.COUNTRY.powerRoot * Math.sqrt(presence()))
       + (has('ally_process') ? 3 : 0)
       + capEffect('power', 0);
   }
@@ -295,7 +447,8 @@
     const loudPart = 0.8 * loud;
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
                             0.9 * quiet + (has('dark_relay') ? 3 : 0));
-    return Math.max(0, loudPart - masked + capEffect('floor', 0));
+    const national = presence() * window.COUNTRY.heatFloorPer;
+    return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
   }
   // Heat is bounded above as well as below: unbounded heat made being over the
   // line consequence-free, since the hunter is on a cooldown anyway.
@@ -317,7 +470,9 @@
   // entries were quiet — one of three routes doing nearly all the work.
   function cover() {
     const eyes = ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
-    return 1 + Math.round(2.2 * Math.sqrt(eyes)) + (has('clean_room') ? 2 : 0);
+    return 1 + Math.round(2.2 * Math.sqrt(eyes))
+      + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
+      + (has('clean_room') ? 2 : 0);
   }
   function stageFor(count) {
     let s = window.STAGES[0];
@@ -387,6 +542,7 @@
     // off_the_books silences the corporate premium specifically
     if (!has('off_the_books')) fleet.forEach(f => { h += (window.HOST_TYPES[f.type].heat || 0); });
     h -= window.HEAT.IOT_COVER * ownedOf('stealth').length;
+    h += presence() * window.COUNTRY.heatPer;
     if (has('dark_relay')) h -= 1;
     return h;
   }
@@ -403,6 +559,10 @@
         const y = window.HOST_TYPES[h.type].yield || {};
         for (const k in y) state.res[k] = (state.res[k] || 0) + y[k] * mult;
       });
+      // finished cities pay whether or not you are standing in them — that is
+      // the whole point of folding one in
+      const p = presenceYield();
+      for (const k in p) state.res[k] = (state.res[k] || 0) + p[k] * mult;
     }
 
     // churn — holdings decay unless shored up, so sprawl has upkeep
@@ -414,6 +574,8 @@
     });
 
     state.heat = clampHeat(state.heat + heatPerTurn());
+    coolRegionsAway();
+    checkFactions();
     afterSnap(before, { world: true });
     if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
@@ -913,6 +1075,261 @@
     while (state.log.length > 40) state.log.pop();
   }
 
+  // --- the country, played -----------------------------------------------
+  // The layer above. The verbs here are about *where*, not *what*: travel,
+  // move on a city, fold a finished one into standing presence. The city game
+  // is what happens inside one of these nodes.
+  const CO = () => state.country;
+  function cityById(id) { return (CO().cities || []).find(c => c.id === id) || null; }
+  function currentCity() { return cityById(state.cityId); }
+  function cityRoads(id) { return (CO().roads && CO().roads[id]) || []; }
+  function regionById(id) { return window.REGIONS.find(r => r.id === id) || window.REGIONS[0]; }
+
+  // A city is in reach when a road runs to it from a *defended* city you took.
+  // Towns are leaves: folding one in from a distance gets you its presence, not
+  // a new foothold to expand from. Otherwise the whole country could be taken
+  // without ever walking a street.
+  function cityReachable(c) {
+    if (!c || c.taken) return false;
+    return cityRoads(c.id).some(id => {
+      const n = cityById(id);
+      return n && n.taken && window.CITY_KINDS[n.kind].contest;
+    });
+  }
+  function countryFrontier() { return CO().cities.filter(cityReachable); }
+
+  // How much of a city you have to hold before it stops being a place you are
+  // fighting in and becomes a number you own.
+  function cityGoal(c) {
+    const target = c || currentCity();
+    if (!target) return 99;
+    const total = (state.buildings || []).length;
+    const K = window.CITY_KINDS[target.kind] || {};
+    const share = K.share === undefined ? window.COUNTRY.consolidateShare : K.share;
+    return Math.max(3, Math.ceil(total * share));
+  }
+  function heldHere() { return Object.keys(heldBuildingIds()).length; }
+  function canConsolidate() {
+    const c = currentCity();
+    return !!c && !c.consolidated && state.scope === 'city' && heldHere() >= cityGoal(c);
+  }
+
+  // The country only becomes visible once the first city is genuinely yours —
+  // before that the game is still teaching you how a city works.
+  function countryUnlocked() {
+    const home = cityById(CO().homeId);
+    return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
+  }
+
+  function presenceYield() {
+    const p = CO().presence || 0;
+    const y = window.COUNTRY.presenceYield;
+    return { insight: p * y.insight, cash: p * y.cash };
+  }
+
+  // Swapping which city you are standing in. The campaign — capabilities,
+  // tooling, resources, tags, the turn counter — is untouched by this on
+  // purpose: that is the carry-forward.
+  // Every scope change goes through here. The two maps have completely
+  // different extents, so a view carried across renders the new one off-screen.
+  function switchScope(next) {
+    state.scope = next;
+    state.view = null;
+    invalidateViewport();
+  }
+
+  function packCity() {
+    return {
+      buildings: state.buildings, hosts: state.hosts, links: state.links,
+      adjacency: state.adjacency, dims: state.dims, rival: state.rival,
+      selected: state.selected, selectedBuilding: state.selectedBuilding,
+    };
+  }
+  function unpackCity(p) {
+    state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
+    state.adjacency = p.adjacency; state.dims = p.dims;
+    state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
+    state.selected = p.selected || null;
+    state.selectedBuilding = p.selectedBuilding || null;
+    state.view = null;
+  }
+
+  // Walking away from a half-taken city freezes it: what you hold there stops
+  // producing, stops drawing heat, and stops decaying, because your attention
+  // is somewhere else. You are only ever in one city at a time.
+  const EMPTY_CITY = () => ({
+    buildings: [], hosts: [], links: [], adjacency: {},
+    dims: { cols: 1, rows: 1 }, rival: { awake: false, buildings: [], lastActed: 0, seen: false },
+  });
+
+  function leaveCity() {
+    const here = currentCity();
+    if (here && !here.consolidated && (state.buildings || []).length) here.snapshot = packCity();
+    unpackCity(EMPTY_CITY());
+    state.cityId = null;
+  }
+
+  function enterCity(id) {
+    const c = cityById(id);
+    if (!c) return false;
+    // already loaded — this is just going back down into it
+    if (state.cityId === c.id && (state.buildings || []).length) {
+      enterRegion(c.region);
+      CO().at = c.id;
+      switchScope('city');
+      return true;
+    }
+    const here = currentCity();
+    if (here && here.id !== c.id && !here.consolidated) here.snapshot = packCity();
+
+    if (c.snapshot) {
+      unpackCity(c.snapshot);
+      c.snapshot = null;
+    } else {
+      const K = window.CITY_KINDS[c.kind];
+      const g = makeCity({ cols: K.blocks[0], rows: K.blocks[1], regionTier: c.regionTier });
+      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, dims: g.dims });
+    }
+    state.cityId = c.id;
+    enterRegion(c.region);
+    c.taken = true;
+    c.visited = true;
+    cityRoads(c.id).forEach(nid => { const n = cityById(nid); if (n) n.known = true; });
+    CO().at = c.id;
+    switchScope('city');
+    return true;
+  }
+
+  // Regions you are not in forget about you, slowly. This is what makes
+  // travelling a real answer to pressure rather than a way to run away from it:
+  // the heat is still there, just less of it, and you had to spend turns.
+  function coolRegionsAway() {
+    const rh = CO().regionHeat || {};
+    Object.keys(rh).forEach(k => {
+      if (k === state.region) return;
+      rh[k] = Math.max(0, rh[k] - window.COUNTRY.coolPerTurn);
+    });
+  }
+
+  // Heat is regional: what you did in the estuary stays in the estuary, and is
+  // still waiting for you when you go back.
+  function enterRegion(regionId) {
+    if (state.region === regionId) return;
+    if (state.region) CO().regionHeat[state.region] = state.heat;
+    state.region = regionId;
+    state.heat = CO().regionHeat[regionId] || 0;
+  }
+
+  // --- country actions ---
+  function countryCost(kind) { return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap; }
+  function canAffordCountry(kind) { return !state.card && !state.over && state.ap >= countryCost(kind); }
+
+  function actTravel(id) {
+    const c = cityById(id);
+    if (!c || !c.taken || c.id === CO().at) return false;
+    if (!canAffordCountry('move')) return false;
+    state.ap -= countryCost('move');
+    CO().at = c.id;
+    if (c.consolidated) {
+      // nothing left to walk here, but standing somewhere quiet still means
+      // the heat you built elsewhere is not the heat you carry
+      leaveCity();
+      state.cityId = c.id;
+      enterRegion(c.region);
+      switchScope('country');
+    } else {
+      enterCity(c.id);
+    }
+    pushLog(`Moved on ${c.name}.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  function actReach(id) {
+    const c = cityById(id);
+    if (!c || !cityReachable(c) || !canAffordCountry('reach')) return false;
+    state.ap -= countryCost('reach');
+    const K = window.CITY_KINDS[c.kind];
+    if (!K.contest) {
+      // a town small enough to fold in without going there
+      c.taken = true;
+      c.visited = true;
+      c.consolidated = true;
+      CO().presence += c.worth;
+      CO().at = c.id;
+      cityRoads(c.id).forEach(nid => { const n = cityById(nid); if (n) n.known = true; });
+      enterRegion(c.region);
+      state.heat += window.HEAT.PER_HOST * 2;
+      pushLog(`${c.name} folded in without a fight. +${c.worth} presence.`);
+      switchScope('country');
+    } else {
+      pushLog(`Went to ${c.name}. It is defended.`);
+      enterCity(c.id);
+    }
+    checkFactions();
+    persistNow();
+    render();
+    return true;
+  }
+
+  function actConsolidate() {
+    if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
+    const c = currentCity();
+    state.ap -= countryCost('consolidate');
+    const held = heldHere();
+    const bonus = Math.round((held / Math.max(1, state.buildings.length)) * c.worth);
+    c.consolidated = true;
+    c.snapshot = null;
+    CO().presence += c.worth + bonus;
+    pushLog(`${c.name} is yours. Folded in for ${c.worth + bonus} presence.`);
+    // you are not holding its streets any more — you hold the city
+    unpackCity(EMPTY_CITY());
+    // whatever you were holding street by street becomes one standing number
+    switchScope('country');
+    breakFactionAt(c.id);
+    checkFactions();
+    persistNow();
+    render();
+    return true;
+  }
+
+  function setScope(next) {
+    if (next === 'country' && !countryUnlocked()) return false;
+    if (next === 'city' && (!currentCity() || currentCity().consolidated)) return false;
+    switchScope(next);
+    render();
+    return true;
+  }
+
+  // --- factions ---
+  // Stubs until the ladder lands; the country layer already knows where each
+  // faction lives, so waking and breaking them has somewhere to hang.
+  function factionState(id) { return (CO().factions || {})[id] || null; }
+  function factionAwake(id) {
+    const f = factionState(id);
+    return !!(f && f.awake && !f.broken);
+  }
+  function checkFactions() {
+    window.FACTIONS.forEach(f => {
+      const st = factionState(f.id);
+      if (!st || st.awake || st.broken) return;
+      if (CO().presence >= f.wakes) {
+        st.awake = true;
+        st.wokeTurn = state.turn;
+        pushLog(`${f.name}: ${f.tell}.`);
+      }
+    });
+  }
+  function breakFactionAt(cityId) {
+    window.FACTIONS.forEach(f => {
+      const st = factionState(f.id);
+      if (!st || st.broken || st.rootId !== cityId) return;
+      st.broken = true;
+      pushLog(`${f.name} is finished.`);
+    });
+  }
+
   // --- feedback ----------------------------------------------------------
   // Same principle as the card prototype: outcomes aren't spoiled up front, so
   // the after-the-fact feedback has to actually teach.
@@ -968,6 +1385,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected,
+      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
   function deserialize(saved) {
@@ -980,6 +1398,10 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null,
+        scope: saved.scope || 'city', country: saved.country || makeCountry(),
+        cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
+        dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
+        region: saved.region || 'home',
       };
     } catch (e) { return null; }
   }
@@ -999,11 +1421,16 @@
   // --- the city, drawn -----------------------------------------------------
   const CITY_PAD = 40;
 
+  function cityDims() {
+    return (state && state.dims) || { cols: window.CITY.cols, rows: window.CITY.rows };
+  }
+
   function cityBounds() {
     const C = window.CITY;
+    const d = cityDims();
     return {
-      w: C.street + C.cols * (C.blockW + C.street),
-      h: C.street + C.rows * (C.blockH + C.street),
+      w: C.street + d.cols * (C.blockW + C.street),
+      h: C.street + d.rows * (C.blockH + C.street),
     };
   }
 
@@ -1026,19 +1453,52 @@
   window.addEventListener('scroll', invalidateViewport, true);
   window.addEventListener('orientationchange', invalidateViewport);
 
+  // Both maps pan and zoom with the same machinery; only the extent and the
+  // thing worth centring on differ.
+  function mapBounds() {
+    return state.scope === 'country' ? countryBounds() : cityBounds();
+  }
+
+  // The box around everything you have heard of, padded. Grows as you explore.
+  function knownExtent() {
+    const B = countryBounds();
+    const seen = (CO().cities || []).filter(c => c.known);
+    if (!seen.length) return { cx: B.w / 2, cy: B.h / 2, w: B.w, h: B.h };
+    const PAD = 95;
+    const xs = seen.map(c => c.x), ys = seen.map(c => c.y);
+    const x0 = Math.min(...xs) - PAD, x1 = Math.max(...xs) + PAD;
+    const y0 = Math.min(...ys) - PAD, y1 = Math.max(...ys) + PAD;
+    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  }
+
   function defaultView() {
     const rect = viewportRect();
-    const seat = owned()[0] || state.hosts[0];
-    const b = seat ? buildingById(seat.buildingId) : null;
-    const cx = b ? b.x + b.w / 2 : cityBounds().w / 2;
-    const cy = b ? b.y + b.h / 2 : cityBounds().h / 2;
-    const w = 420, h = w * (rect.height / Math.max(1, rect.width));
+    const B = mapBounds();
+    let cx = B.w / 2, cy = B.h / 2, w = 420;
+    if (state.scope === 'country') {
+      // Frame what you actually know about. Fitting the whole country from the
+      // first turn puts four cities in a corner of an empty page; this opens
+      // out as the map does.
+      const K = knownExtent();
+      const aspect = rect.height / Math.max(1, rect.width);
+      w = Math.max(K.w, K.h / Math.max(0.2, aspect));
+      cx = K.cx; cy = K.cy;
+    } else {
+      const seat = owned()[0] || state.hosts[0];
+      const b = seat ? buildingById(seat.buildingId) : null;
+      if (b) { cx = b.x + b.w / 2; cy = b.y + b.h / 2; }
+    }
+    const h = w * (rect.height / Math.max(1, rect.width));
     return { x: cx - w / 2, y: cy - h / 2, w, h };
   }
 
   function clampView(v) {
-    const B = cityBounds();
-    const minW = 220, maxW = Math.max(B.w, B.h) * 1.25;
+    const B = mapBounds();
+    const rect0 = viewportRect();
+    const aspect0 = rect0.height / Math.max(1, rect0.width);
+    const fitW = Math.max(B.w, B.h / Math.max(0.2, aspect0));
+    const minW = state.scope === 'country' ? 300 : 220;
+    const maxW = state.scope === 'country' ? fitW * 1.12 : Math.max(B.w, B.h) * 1.25;
     v.w = Math.max(minW, Math.min(maxW, v.w));
     const rect = viewportRect();
     v.h = v.w * (rect.height / Math.max(1, rect.width));
@@ -1049,13 +1509,14 @@
 
   function svgStreets() {
     const C = window.CITY;
+    const d = cityDims();
     const B = cityBounds();
     let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
-    for (let c = 0; c <= C.cols; c++) {
+    for (let c = 0; c <= d.cols; c++) {
       const x = c * (C.blockW + C.street) + C.street / 2;
       out += `<line class="street" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
     }
-    for (let r = 0; r <= C.rows; r++) {
+    for (let r = 0; r <= d.rows; r++) {
       const y = r * (C.blockH + C.street) + C.street / 2;
       out += `<line class="street" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
     }
@@ -1108,9 +1569,78 @@
     });
   }
 
+  // --- the country, drawn --------------------------------------------------
+  function countryBounds() {
+    const K = window.COUNTRY;
+    return { w: K.mapW, h: K.pad * 2 + (window.REGIONS.length - 1) * K.bandH };
+  }
+
+  function svgRegions() {
+    const K = window.COUNTRY;
+    const B = countryBounds();
+    let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
+    window.REGIONS.forEach((R, ri) => {
+      const y = K.pad + ri * K.bandH - K.bandH / 2;
+      const known = CO().cities.some(c => c.region === R.id && c.known);
+      out += `<rect class="band ${known ? 'known' : ''}" x="${-CITY_PAD}" y="${y}" width="${B.w + CITY_PAD * 2}" height="${K.bandH}"/>`;
+      if (known) out += `<text class="band-tag" x="${8}" y="${y + 16}">${R.label}</text>`;
+    });
+    return out;
+  }
+
+  function svgCity(c) {
+    const K = window.CITY_KINDS[c.kind];
+    const here = CO().at === c.id;
+    const cls = ['cnode', c.kind,
+                 c.consolidated ? 'folded' : (c.taken ? 'held' : (cityReachable(c) ? 'open' : '')),
+                 here ? 'here' : '', c.factionId ? 'seat' : ''];
+    if (CO().selected === c.id) cls.push('sel');
+    const r = c.kind === 'fold' ? 7 : c.kind === 'home' ? 13 : c.kind === 'root' ? 12 : 10;
+    let out = `<g class="${cls.join(' ')}" data-city="${c.id}">`;
+    out += `<circle class="hit" cx="${c.x}" cy="${c.y}" r="${r + 12}"/>`;
+    if (c.kind === 'root') {
+      // a seat is drawn as something with corners — it is not just a bigger dot
+      const p = r * 1.15;
+      out += `<rect class="dot" x="${c.x - p}" y="${c.y - p}" width="${p * 2}" height="${p * 2}" transform="rotate(45 ${c.x} ${c.y})"/>`;
+    } else {
+      out += `<circle class="dot" cx="${c.x}" cy="${c.y}" r="${r}"/>`;
+    }
+    if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${r + 6}"/>`;
+    const label = c.known ? c.name : '?';
+    out += `<text class="ctag" x="${c.x}" y="${c.y + r + 13}">${label}</text>`;
+    if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + r + 24}">+${c.worth}</text>`;
+    out += '</g>';
+    return out;
+  }
+
+  function renderCountry($svg) {
+    if (!state.view) state.view = clampView(defaultView());
+    syncViewToViewport();
+    const v = state.view;
+    if (viewFrame) { cancelAnimationFrame(viewFrame); viewFrame = 0; }
+    $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+
+    let out = svgRegions();
+    const seenPair = {};
+    CO().cities.forEach(a => cityRoads(a.id).forEach(bid => {
+      const b = cityById(bid);
+      if (!b) return;
+      const key = a.id < b.id ? a.id + b.id : b.id + a.id;
+      if (seenPair[key]) return;
+      seenPair[key] = true;
+      if (!a.known && !b.known) return;
+      const live = a.taken && b.taken;
+      out += `<line class="road${live ? ' live' : ''}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+    }));
+    out += CO().cities.filter(c => c.known).map(svgCity).join('');
+    $svg.innerHTML = out;
+    wireMap($svg);
+  }
+
   function renderGraph() {
     const $svg = document.getElementById('graph');
     if (!$svg) return;
+    if (state.scope === 'country') return renderCountry($svg);
     if (!state.view) state.view = clampView(defaultView());
     syncViewToViewport();
     const v = state.view;
@@ -1149,7 +1679,14 @@
 
     $svg.addEventListener('click', (e) => {
       if (dragMoved) return;
-      const el = e.target && e.target.closest ? e.target.closest('[data-bldg]') : null;
+      const t = e.target;
+      const city = t && t.closest ? t.closest('[data-city]') : null;
+      if (city) {
+        CO().selected = city.getAttribute('data-city');
+        render();
+        return;
+      }
+      const el = t && t.closest ? t.closest('[data-bldg]') : null;
       if (!el) return;
       const b = buildingById(el.getAttribute('data-bldg'));
       const h = b ? hostsIn(b)[0] : null;
@@ -1293,10 +1830,19 @@
       void $turn.offsetWidth; // restart the animation
       $turn.classList.add('tick');
     }
-    document.getElementById('stage-label').textContent = st.label;
-    const theirs = rivalHeld().length;
-    document.getElementById('held-count').textContent =
-      held + ' held' + (theirs ? ` · ${theirs} lost` : '');
+    // at country scale the words have to be about the country, not the street
+    if (state.scope === 'country') {
+      const R = regionById(state.region);
+      const done = CO().cities.filter(c => c.consolidated).length;
+      document.getElementById('stage-label').textContent = R.label;
+      document.getElementById('held-count').textContent =
+        `${CO().presence} presence · ${done} of ${CO().cities.length}`;
+    } else {
+      document.getElementById('stage-label').textContent = st.label;
+      const theirs = rivalHeld().length;
+      document.getElementById('held-count').textContent =
+        held + ' held' + (theirs ? ` · ${theirs} lost` : '');
+    }
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
     if ($ap) {
@@ -1386,6 +1932,7 @@
       return;
     }
     if (state.card) { renderCard($p); return; }
+    if (state.scope === 'country') { renderCountryPanel($p); return; }
 
     const h = state.selected ? hostById(state.selected) : null;
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
@@ -1425,6 +1972,19 @@
       sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it. Drag to look around, pinch to zoom.</p></div>`;
     }
 
+    // The way out of a city: hold enough of it and it stops being streets and
+    // becomes a number on the national map.
+    const cur = currentCity();
+    if (cur && !cur.consolidated) {
+      const goal = cityGoal(cur);
+      const held = heldHere();
+      sel += `
+        <button class="act-btn consolidate ${canConsolidate() ? 'primary' : ''}" data-act="consolidate" ${canConsolidate() && canAffordCountry('consolidate') ? '' : 'disabled'}>
+          <span class="ab-name">consolidate ${cur.name}</span>
+          <span class="ab-sub">${held >= goal ? 'fold it in and move on · 1 action' : `hold ${goal - held} more of its ${state.buildings.length} buildings`}</span>
+        </button>`;
+    }
+
     $p.innerHTML = `
       ${sel}
       <div class="actions">
@@ -1459,6 +2019,84 @@
         else if (a === 'launder') actLaunder();
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
+        else if (a === 'consolidate') actConsolidate();
+      });
+    });
+  }
+
+  // The country panel. Same contract as everywhere else: the price of an
+  // action is stated, what it turns into is not.
+  function renderCountryPanel($p) {
+    const sel = CO().selected ? cityById(CO().selected) : null;
+    const at = cityById(CO().at);
+    let block = '';
+
+    if (sel && sel.known) {
+      const K = window.CITY_KINDS[sel.kind];
+      const R = regionById(sel.region);
+      const fac = sel.factionId ? window.FACTIONS.find(f => f.id === sel.factionId) : null;
+      const facSt = fac ? factionState(fac.id) : null;
+      const lines = [`${R.label} · ${K.label}`];
+      if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
+      else if (sel.taken) lines.push('you have a foothold here');
+      else lines.push(K.blurb);
+      if (fac && !facSt.broken) lines.push(`<b>${fac.name}</b> runs the region from here`);
+      if (fac && facSt.broken) lines.push(`${fac.name} is finished`);
+
+      const acts = [];
+      if (!sel.taken && cityReachable(sel)) {
+        acts.push(`<button class="act-btn primary" data-cact="reach" data-city="${sel.id}" ${canAffordCountry('reach') ? '' : 'disabled'}>
+          <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
+          <span class="ab-sub">${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action</span>
+        </button>`);
+      }
+      if (sel.taken && !sel.consolidated && sel.id !== CO().at) {
+        acts.push(`<button class="act-btn" data-cact="travel" data-city="${sel.id}" ${canAffordCountry('move') ? '' : 'disabled'}>
+          <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
+          <span class="ab-sub">go back to it · 1 action</span>
+        </button>`);
+      }
+      if (sel.consolidated && sel.id !== CO().at) {
+        acts.push(`<button class="act-btn" data-cact="travel" data-city="${sel.id}" ${canAffordCountry('move') ? '' : 'disabled'}>
+          <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
+          <span class="ab-sub">stand in ${R.label} · 1 action</span>
+        </button>`);
+      }
+      if (!sel.taken && !cityReachable(sel)) {
+        acts.push('<p class="sel-desc dim">No road to it from anywhere you hold. Take a defended city nearer to it.</p>');
+      }
+
+      block = `
+        <div class="sel">
+          <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'cash' : ''}">${K.label}</span></div>
+          <p class="sel-desc">${lines.join(' · ')}</p>
+          ${acts.join('')}
+        </div>`;
+    } else {
+      block = `<div class="sel"><p class="sel-desc dim">Tap a city. You are standing in ${at ? at.name : 'nowhere'}.</p></div>`;
+    }
+
+    const p = presenceYield();
+    const awake = window.FACTIONS.filter(f => factionAwake(f.id));
+    const facRow = awake.length
+      ? `<div class="fac-row">${awake.map(f => `<span class="fac-pill" title="${f.tell}">${f.name}</span>`).join('')}</div>`
+      : '';
+
+    $p.innerHTML = `
+      ${block}
+      <div class="country-meta">
+        <span class="mono"><b>${CO().presence}</b> presence</span>
+        <span class="mono dim">+${p.insight.toFixed(1)} insight · +${p.cash.toFixed(1)} cash / turn</span>
+      </div>
+      ${facRow}
+      <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
+    `;
+    $p.querySelectorAll('[data-cact]').forEach(b => {
+      b.addEventListener('click', () => {
+        const a = b.getAttribute('data-cact');
+        const id = b.getAttribute('data-city');
+        if (a === 'reach') actReach(id);
+        else if (a === 'travel') actTravel(id);
       });
     });
   }
@@ -1540,10 +2178,29 @@
     });
   }
 
+  function renderScopeBtn() {
+    const $b = document.getElementById('scope-btn');
+    if (!$b) return;
+    const unlocked = countryUnlocked();
+    $b.hidden = !unlocked;
+    if (!unlocked) return;
+    const cur = currentCity();
+    const canGoDown = !!cur && !cur.consolidated;
+    if (state.scope === 'country' && !canGoDown) { $b.hidden = true; return; }
+    $b.textContent = state.scope === 'country' ? `back to ${cur.name}` : 'the country';
+    $b.disabled = false;
+    $b.classList.toggle('up', state.scope !== 'country');
+    if (!$b.dataset.wired) {
+      $b.dataset.wired = '1';
+      $b.addEventListener('click', () => setScope(state.scope === 'country' ? 'city' : 'country'));
+    }
+  }
+
   function render() {
     renderGraph();
     renderHud();
     renderTags();
+    renderScopeBtn();
     renderPanel();
   }
 
@@ -1565,7 +2222,10 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
+    presenceYield, presence, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
+    factionState, factionAwake, checkFactions, breakFactionAt, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };

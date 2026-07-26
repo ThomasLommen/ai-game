@@ -146,16 +146,16 @@ window.BUILDING_KINDS = {
   datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter' },
 };
 
-// One building is one host now, so a block of four buildings is four things to
-// take rather than a dozen. The city is correspondingly wider — a 4x5 grid ran
-// out of ground long before a game was over.
+// One building is one host, so a block of four buildings is four things to take
+// rather than a dozen. The home city was widened when it *was* the game; with a
+// country above it, chapter one is a chapter again.
 window.CITY = {
-  cols: 6, rows: 7,
+  cols: 5, rows: 5,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
   // districts by block row, suburbs nearest the origin
-  rowDistricts: ['residential', 'residential', 'commercial', 'commercial', 'business', 'business', 'industrial'],
+  rowDistricts: ['residential', 'residential', 'commercial', 'business', 'industrial'],
   cameraVision: 160,   // a held camera reveals buildings within this radius
 };
 
