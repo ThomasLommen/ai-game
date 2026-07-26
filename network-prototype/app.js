@@ -109,6 +109,16 @@
   function defenseOf(h) {
     return h.defense + (has('known_capable') ? 2 : 0);
   }
+  // You cannot hide a sprawl. Heat can be driven down toward this floor but
+  // never past it, so growth permanently costs visibility — without a floor,
+  // lying low resets heat to zero and the whole pressure system is toothless.
+  // Stealth holdings are what lower the floor: that is what they are for.
+  function heatFloor() {
+    const loud = owned().filter(h => h.role !== 'stealth').length;
+    const quiet = ownedOf('stealth').length;
+    const f = 0.8 * loud - 1.5 * quiet - (has('dark_relay') ? 3 : 0);
+    return Math.max(0, f);
+  }
   function strikeThreshold() {
     return window.HEAT.STRIKE * (has('hunted') ? 0.75 : 1);
   }
@@ -159,15 +169,18 @@
     return h;
   }
 
-  function endTurn() {
+  function endTurn(opts) {
+    const o = opts || {};
     const before = beforeSnap();
     state.turn += 1;
 
-    // production
-    owned().forEach(h => {
-      const y = window.HOST_TYPES[h.type].yield || {};
-      for (const k in y) state.res[k] = (state.res[k] || 0) + y[k];
-    });
+    // production — suppressed when the player deliberately went dark
+    if (!o.silent) {
+      owned().forEach(h => {
+        const y = window.HOST_TYPES[h.type].yield || {};
+        for (const k in y) state.res[k] = (state.res[k] || 0) + y[k];
+      });
+    }
 
     // churn — holdings decay unless shored up, so sprawl has upkeep
     const lost = [];
@@ -177,8 +190,8 @@
       if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
     });
 
-    state.heat = Math.max(0, state.heat + heatPerTurn());
-    afterSnap(before);
+    state.heat = Math.max(heatFloor(), state.heat + heatPerTurn());
+    afterSnap(before, { world: true });
     if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
     if (state.heat >= strikeThreshold() && !state.card) {
@@ -317,10 +330,10 @@
   function actLieLow() {
     if (state.card || state.over) return;
     const before = beforeSnap();
-    state.heat = Math.max(0, state.heat - window.HEAT.LIE_LOW);
+    state.heat = Math.max(heatFloor(), state.heat - window.HEAT.LIE_LOW);
     afterSnap(before);
-    pushLog('You go quiet for a while.');
-    endTurn();
+    pushLog('You go quiet for a while. Nothing earns while you are dark.');
+    endTurn({ silent: true }); // going dark means going dark -- no production
     render();
   }
 
@@ -342,17 +355,18 @@
     if (state.res.cash < window.LAUNDER.cost) return;
     const before = beforeSnap();
     state.res.cash -= window.LAUNDER.cost;
-    state.heat = Math.max(0, state.heat - window.LAUNDER.heat);
+    state.heat = Math.max(heatFloor(), state.heat - window.LAUNDER.heat);
     afterSnap(before);
     pushLog('Money moves, and so does the paperwork pointing at you.');
     endTurn();
     render();
   }
 
+  function shoreNeeded(h) { return !!h && h.owned && h.stability < 0.9; }
   function actShore(id) {
     if (state.card || state.over) return;
     const h = hostById(id);
-    if (!h || !h.owned || state.res.insight < 2) return;
+    if (!shoreNeeded(h) || state.res.insight < 2) return; // no free turns off a healthy host
     state.res.insight -= 2;
     h.stability = 1;
     pushLog(`Shored up ${h.name}.`);
@@ -387,16 +401,25 @@
     if (!entry) return;
     const a = entry.def;
 
+    // Backing out is inspection, not action: it must not tick the clock, or
+    // "open the card, leave" becomes a free turn button.
+    if (a.id === 'walk') {
+      state.card = null;
+      state.selected = null;
+      render();
+      return;
+    }
+
     const before = beforeSnap();
     if (a.cost) for (const k in a.cost) state.res[k] -= a.cost[k];
 
-    const win = a.id === 'walk' ? true : entry.usable;
+    const win = entry.usable;
     const out = win ? a.onWin : (a.onFail || {});
     if (out.hold) {
       h.owned = true;
       h.stability = 1;
     }
-    state.heat = Math.max(0, state.heat + (win ? a.heat : 0) + (out.heat || 0));
+    state.heat = Math.max(heatFloor(), state.heat + (win ? a.heat : 0) + (out.heat || 0));
 
     state.card = null;
     state.selected = null;
@@ -422,7 +445,7 @@
       state.res.insight -= 8;
     }
     burned.forEach(h => { h.owned = false; h.stability = 1; });
-    state.heat = strikeThreshold() * window.HEAT.STRIKE_DROP;
+    state.heat = Math.max(heatFloor(), strikeThreshold() * window.HEAT.STRIKE_DROP);
     state.strikes += 1;
     state.card = null;
     pushLog(burned.length ? `The hunter burned ${burned.length} bod${burned.length === 1 ? 'y' : 'ies'}.` : 'You bought your way out of the sweep.');
@@ -444,7 +467,7 @@
   function beforeSnap() {
     return { insight: state.res.insight, cash: state.res.cash, heat: state.heat, power: power(), held: owned().length };
   }
-  function afterSnap(before) {
+  function afterSnap(before, opts) {
     const parts = [];
     const di = state.res.insight - before.insight;
     const dc = state.res.cash - before.cash;
@@ -456,17 +479,20 @@
     if (dp) parts.push({ cls: 'power', text: `POWER ${dp > 0 ? '+' : ''}${dp}` });
     if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
     if (dHeld) parts.push({ cls: 'held', text: `HELD ${dHeld > 0 ? '+' : ''}${dHeld}` });
-    showFloats(parts);
+    showFloats(parts, opts && opts.world);
   }
 
-  function showFloats(parts) {
+  // `world` marks the network's own response — production, decay, drift — so
+  // the player can tell what they did apart from what happened to them.
+  function showFloats(parts, world) {
     const $l = document.getElementById('feedback-layer');
     if (!$l || !parts.length) return;
     // cap the stack: several turns resolved quickly would otherwise bury the graph
     while ($l.children && $l.children.length >= 3) $l.removeChild($l.children[0]);
     const g = document.createElement('div');
-    g.className = 'float-group';
-    g.innerHTML = parts.map(p => `<span class="float-chip ${p.cls}">${p.text}</span>`).join('');
+    g.className = 'float-group' + (world ? ' world' : '');
+    g.innerHTML = (world ? '<span class="float-tag mono">the network runs</span>' : '')
+      + parts.map(p => `<span class="float-chip ${p.cls}">${p.text}</span>`).join('');
     $l.appendChild(g);
     setTimeout(() => { if (g.parentNode) g.parentNode.removeChild(g); }, 1200);
   }
@@ -585,7 +611,13 @@
   function renderHud() {
     const held = owned().length;
     const st = stageFor(held);
-    document.getElementById('turn').textContent = 'TURN ' + state.turn;
+    const $turn = document.getElementById('turn');
+    if ($turn.textContent !== 'TURN ' + state.turn) {
+      $turn.textContent = 'TURN ' + state.turn;
+      $turn.classList.remove('tick');
+      void $turn.offsetWidth; // restart the animation
+      $turn.classList.add('tick');
+    }
     document.getElementById('stage-label').textContent = st.label;
     document.getElementById('held-count').textContent = held + ' held';
     document.getElementById('res-insight').textContent = Math.floor(state.res.insight);
@@ -609,6 +641,13 @@
     fill.style.width = pct + '%';
     fill.className = 'heat-fill' + (pct > 75 ? ' hot' : pct > 45 ? ' warm' : '');
     document.getElementById('heat-text').textContent = `HEAT ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
+    const floorPct = Math.max(0, Math.min(100, (heatFloor() / strikeThreshold()) * 100));
+    const $floor = document.getElementById('heat-floor');
+    if ($floor) {
+      $floor.style.left = floorPct + '%';
+      $floor.style.display = floorPct > 1 ? 'block' : 'none';
+      $floor.title = 'you cannot get below this while you hold this much';
+    }
     const drift = heatPerTurn();
     document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
   }
@@ -632,9 +671,9 @@
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${h.name}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="sel-desc">${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
-            <button class="act-btn" data-act="shore" data-info="shore" ${state.res.insight < 2 ? 'disabled' : ''}>
+            <button class="act-btn" data-act="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
-              <span class="ab-sub">restore stability · 2 insight</span>
+              <span class="ab-sub">${!shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
             </button>
           </div>`;
       } else if (isFrontier(h)) {
@@ -663,7 +702,7 @@
         </button>
         <button class="act-btn" data-act="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
-          <span class="ab-sub">heat &minus;${window.HEAT.LIE_LOW}</span>
+          <span class="ab-sub">heat &minus;${window.HEAT.LIE_LOW} · earns nothing</span>
         </button>
         <button class="act-btn" data-act="upgrade" data-info="upgrade" ${state.res.insight < upgradeCost() ? 'disabled' : ''}>
           <span class="ab-name">tooling</span>
@@ -759,7 +798,7 @@
           if (a.def.cost) for (const k in a.def.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.def.cost[k]} ${k.toUpperCase()}</span>`);
           return `<button class="choice-strip" data-app="${a.def.id}">
             <span class="ctext">${a.def.text}</span>
-            <span class="contracts">${contracts.join('')}</span>
+            <span class="contracts">${a.def.id === 'walk' ? '<span class="cost free">costs no turn</span>' : contracts.join('')}</span>
           </button>`;
         }).join('')}
       </div>`;
@@ -792,7 +831,7 @@
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };

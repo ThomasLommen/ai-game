@@ -165,20 +165,8 @@ test('breach: a met gate takes the host and grows your power', () => {
   assert.equal(d.power(), before + 6, 'its threads join the flywheel');
 });
 
-test('breach: walking away costs the turn but changes nothing else', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = d.neighbours(s.hosts[0])[0];
-  target.discovered = true;
-  const heldBefore = d.owned().length;
-  const turnBefore = s.turn;
-
-  d.openBreach(target.id);
-  d.resolveBreach('walk');
-  assert.equal(d.owned().length, heldBefore, 'nothing gained');
-  assert.ok(s.turn > turnBefore, 'but the turn is spent');
-});
+// (walking away is covered by "backing out of a breach costs no turn" below —
+// it used to spend a turn, which made "open the card, leave" a free turn button.)
 
 test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
   // regression guard for a real exploit — discovery used to spread from any
@@ -358,6 +346,91 @@ test('every stat and action shown to the player has an explanation', () => {
   ['sweep', 'lielow', 'upgrade', 'launder', 'shore'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
+});
+
+// --- time must never be free -------------------------------------------
+// Three separate exploits shared one root cause: any action that ended a turn
+// granted production, so the best play was to spam the cheapest turn-ender.
+
+test('lying low earns nothing — hiding costs you the turn', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
+  s.heat = 20;
+  const before = s.res.insight;
+
+  for (let i = 0; i < 10; i++) { s.card = null; d.actLieLow(); }
+  assert.equal(s.res.insight, before, 'ten turns dark produced nothing');
+  assert.ok(s.heat < 20, 'but it did cut heat');
+});
+
+test('backing out of a breach costs no turn and yields nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = d.neighbours(s.hosts[0])[0];
+  target.discovered = true;
+  const before = { insight: s.res.insight, cash: s.res.cash, turn: s.turn, heat: s.heat };
+
+  for (let i = 0; i < 15; i++) { d.openBreach(target.id); d.resolveBreach('walk'); }
+
+  assert.equal(s.turn, before.turn, 'walking away never ticks the clock');
+  assert.equal(s.res.insight, before.insight, 'and never pays out');
+  assert.equal(s.heat, before.heat);
+  assert.equal(s.card, null, 'the card is closed');
+});
+
+test('a healthy holding cannot be shored for a free turn', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts.find(x => x.ring === 1);
+  h.owned = true;
+  h.stability = 1;
+  s.res.insight = 100;
+  const before = { insight: s.res.insight, turn: s.turn };
+
+  assert.equal(d.shoreNeeded(h), false, 'nothing to shore on a healthy host');
+  for (let i = 0; i < 10; i++) d.actShore(h.id);
+  assert.equal(s.turn, before.turn, 'no turn was spent');
+  assert.equal(s.res.insight, before.insight, 'and no insight cycled into production');
+
+  h.stability = 0.4;
+  assert.equal(d.shoreNeeded(h), true, 'a decayed host can be shored');
+});
+
+test('heat has a floor that scales with holdings, so a sprawl cannot hide', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = false; });
+  s.tags.clear();
+  assert.equal(d.heatFloor(), 0, 'holding nothing, you are invisible');
+
+  const loud = s.hosts.filter(h => h.role !== 'stealth').slice(0, 10);
+  loud.forEach(h => { h.owned = true; });
+  const loudFloor = d.heatFloor();
+  assert.ok(loudFloor > 0, 'a loud network can never be fully hidden');
+
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 4).forEach(h => { h.owned = true; });
+  assert.ok(d.heatFloor() < loudFloor, 'routers lower the floor — that is what stealth buys');
+
+  s.tags.add('dark_relay');
+  assert.ok(d.heatFloor() < loudFloor, 'and a dark relay lowers it further');
+});
+
+test('lying low cannot drive heat below the floor', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.filter(h => h.role !== 'stealth').slice(0, 12).forEach(h => { h.owned = true; });
+  const floor = d.heatFloor();
+  assert.ok(floor > 0, 'test needs a real floor to be meaningful');
+
+  s.heat = floor + 20;
+  for (let i = 0; i < 40; i++) { s.card = null; d.actLieLow(); }
+  assert.ok(s.heat >= d.heatFloor() - 0.001, `heat ${s.heat} fell below the floor ${d.heatFloor()}`);
 });
 
 test('the hunter fires once heat crosses the threshold', () => {
