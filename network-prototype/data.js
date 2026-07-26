@@ -96,6 +96,24 @@ window.CAPABILITIES = [
   },
 ];
 
+// --- the rival ---------------------------------------------------------
+// Something else is taking this city. It is not a hunter and it is not a
+// threat meter: it is another process doing exactly what you are doing, from
+// the other side of the map, and every building it takes is one you cannot.
+// It wakes only once you are established, so the opening stays yours.
+window.RIVAL = {
+  wakesAtHeld: 10,         // buildings you hold before it stirs
+  actEvery: 5,             // it takes a building roughly this often, in turns
+  accelerateAt: 22,        // once you are this big it moves faster
+  fastEvery: 3,
+  // It is a competitor, not a tide. Measured at a three-turn cadence it
+  // out-took the player in four of five strategies; capped, it races you for
+  // the city instead of eating it.
+  maxShareOfCity: 0.38,
+  contestWindow: 140,      // how near your territory counts as contested
+  name: 'ITER',
+};
+
 // --- the city ----------------------------------------------------------
 // The map is a real place: blocks of buildings separated by streets. Districts
 // replace the old concentric rings as the difficulty curve — you start in the

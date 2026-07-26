@@ -257,6 +257,7 @@
       lastStage: 'foothold',
       strikes: 0,
       lastStrikeTurn: -99,
+      rival: { awake: false, buildings: [], lastActed: 0, seen: false },
       over: false,
     };
   }
@@ -405,6 +406,7 @@
 
   function isFrontier(h) {
     if (!h.discovered || h.owned) return false;
+    if (rivalBlocks(h)) return false;              // somebody else got there first
     const held = heldBuildingIds();
     if (held[h.buildingId]) return true;              // already inside
     if (!h.exterior) return false;                    // no way through a wall
@@ -469,11 +471,114 @@
       if (ev) { state.card = { kind: 'event', eventId: ev.id }; noteEventDrawn(ev.id); }
       state.nextEventTurn = state.turn + 4 + Math.floor(Math.random() * 4);
     }
+    const rivalMove = rivalStep();
+    if (rivalMove) announceRival(rivalMove);
     cameraVision();       // held cameras reveal what is near them
     repopulatePeople();   // the city moves when the world does
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
     persistNow();
+  }
+
+  // --- the rival ---------------------------------------------------------
+  // It spreads from the far corner of the map, taking whole buildings. It only
+  // takes what you have not taken, so it never steals from under you — it just
+  // gets there first, and the city stops being infinite.
+  function rivalHome() {
+    const bs = state.buildings || [];
+    if (!bs.length) return null;
+    const seat = owned()[0];
+    const home = seat ? buildingById(seat.buildingId) : null;
+    if (!home) return bs[bs.length - 1];
+    // the industrial edge, as far from your suburb as the map allows
+    let best = null;
+    bs.forEach(b => {
+      const d = Math.hypot(b.x - home.x, b.y - home.y) + (b.district === 'industrial' ? 260 : 0);
+      if (!best || d > best.d) best = { d, b };
+    });
+    return best.b;
+  }
+
+  function rivalHeld() { return (state.rival && state.rival.buildings) || []; }
+  function rivalHolds(bid) { return rivalHeld().indexOf(bid) !== -1; }
+
+  function rivalTakeableFrom() {
+    const held = rivalHeld();
+    if (!held.length) return [];
+    const out = [];
+    held.forEach(id => {
+      buildingNeighbours(id).forEach(n => {
+        if (rivalHolds(n)) return;
+        const b = buildingById(n);
+        if (!b) return;
+        if (hostsIn(b).some(h => h.owned)) return;   // never takes what is yours
+        if (out.indexOf(n) === -1) out.push(n);
+      });
+    });
+    return out;
+  }
+
+  function rivalStep() {
+    const r = state.rival;
+    if (!r) return null;
+    const heldCount = Object.keys(heldBuildingIds()).length;
+
+    if (!r.awake) {
+      if (heldCount < window.RIVAL.wakesAtHeld) return null;
+      const home = rivalHome();
+      if (!home) return null;
+      r.awake = true;
+      r.buildings = [home.id];
+      r.lastActed = state.turn;
+      return { kind: 'woke', building: home };
+    }
+
+    // it will not swallow the whole map
+    const cap = Math.floor((state.buildings || []).length * window.RIVAL.maxShareOfCity);
+    if (r.buildings.length >= cap) return null;
+
+    const cadence = heldCount >= window.RIVAL.accelerateAt ? window.RIVAL.fastEvery : window.RIVAL.actEvery;
+    if (state.turn - r.lastActed < cadence) return null;
+    r.lastActed = state.turn;
+
+    const options = rivalTakeableFrom();
+    if (!options.length) return null;
+    // it prefers to grow toward you
+    const seat = owned()[0];
+    const home = seat ? buildingById(seat.buildingId) : null;
+    options.sort((a, b) => {
+      const ba = buildingById(a), bb = buildingById(b);
+      if (!home || !ba || !bb) return 0;
+      return Math.hypot(ba.x - home.x, ba.y - home.y) - Math.hypot(bb.x - home.x, bb.y - home.y);
+    });
+    const takenId = options[0];
+    r.buildings.push(takenId);
+    return { kind: 'took', building: buildingById(takenId) };
+  }
+
+  // A building the rival holds cannot be taken by you — the city is finite now.
+  function rivalBlocks(h) {
+    return !!h && rivalHolds(h.buildingId);
+  }
+
+  // You only learn about the rival where you can see. Its first appearance is
+  // an event, not a stat change — it should land as "something else is here".
+  function announceRival(move) {
+    const r = state.rival;
+    const b = move.building;
+    const visible = b && b.discovered;
+    if (move.kind === 'woke') {
+      pushLog('Something else has started taking this city.');
+      if (!r.seen) {
+        r.seen = true;
+        showBanner([{ kind: 'rival', verb: 'contact', label: 'You are not the only one' }]);
+      }
+      return;
+    }
+    if (visible) {
+      pushLog(`${window.RIVAL.name} took ${window.BUILDING_KINDS[b.kind].label} before you could.`);
+      showBanner([{ kind: 'rival', verb: 'lost to ' + window.RIVAL.name, label: window.BUILDING_KINDS[b.kind].label }]);
+    }
   }
 
   function checkStage() {
@@ -908,7 +1013,7 @@
       buildings: state.buildings, adjacency: state.adjacency, people: state.people || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
-      lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, over: state.over,
+      lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected,
     };
   }
@@ -920,7 +1025,7 @@
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, people: saved.people || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
-        lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), over: !!saved.over,
+        lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null,
       };
     } catch (e) { return null; }
@@ -996,7 +1101,8 @@
   function svgBuilding(b) {
     const hosts = hostsIn(b);
     const held = hosts.filter(h => h.owned).length;
-    const cls = ['bldg', b.kind, held ? (held === hosts.length ? 'all-held' : 'part-held') : ''];
+    const theirs = rivalHolds(b.id);
+    const cls = ['bldg', b.kind, theirs ? 'rival' : (held ? (held === hosts.length ? 'all-held' : 'part-held') : '')];
     if (state.selectedBuilding === b.id) cls.push('sel');
     const roof = Math.min(10, b.h * 0.28);
     let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}">`;
@@ -1013,7 +1119,8 @@
         out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
       }
     }
-    out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${window.BUILDING_KINDS[b.kind].label}${hosts.length > 1 ? ` · ${held}/${hosts.length}` : ''}</text>`;
+    const tag = theirs ? window.RIVAL.name : `${window.BUILDING_KINDS[b.kind].label}${hosts.length > 1 ? ` · ${held}/${hosts.length}` : ''}`;
+    out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${tag}</text>`;
     out += '</g>';
     return out;
   }
@@ -1214,7 +1321,9 @@
       $turn.classList.add('tick');
     }
     document.getElementById('stage-label').textContent = st.label;
-    document.getElementById('held-count').textContent = held + ' held';
+    const theirs = rivalHeld().length;
+    document.getElementById('held-count').textContent =
+      held + ' held' + (theirs ? ` · ${theirs} lost` : '');
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
     if ($ap) {
@@ -1336,6 +1445,15 @@
       } else {
         sel = `<div class="sel"><p class="sel-desc">${T.label} — you have no route to it yet. Take something it connects to first.</p></div>`;
       }
+    } else if (b && b.discovered && rivalHolds(b.id)) {
+      sel = `
+        <div class="sel">
+          <div class="sel-top">
+            <span class="sel-name">${window.BUILDING_KINDS[b.kind].label}</span>
+            <span class="tag-pill rival">${window.RIVAL.name}</span>
+          </div>
+          <p class="sel-desc">Something else is already inside. There is no way in that does not go through it.</p>
+        </div>`;
     } else if (b && b.discovered) {
       // a building is a container: list what is in it and let the player pick
       const inside = hostsIn(b);
@@ -1504,7 +1622,7 @@
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, freshState, buildingById, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, repopulatePeople, power, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, repopulatePeople, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,

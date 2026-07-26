@@ -516,3 +516,12 @@ footer .build { opacity: .55; font-size: 10px; }
   color: var(--ink-dim); border-radius: 8px;
   padding: 6px 10px; font-size: 11px; cursor: pointer;
 }
+
+/* the rival: something else taking the same city */
+.bldg.rival .body { stroke: var(--power); fill: color-mix(in srgb, var(--power) 14%, #131a17); stroke-dasharray: 3 2; }
+.bldg.rival .roof { fill: color-mix(in srgb, var(--power) 22%, #1a2320); }
+.bldg.rival .win { fill: color-mix(in srgb, var(--power) 35%, #1e2724); }
+.bldg.rival .btag { fill: var(--power); letter-spacing: .1em; }
+.tag-pill.rival { color: var(--power); }
+.event-row.rival { border-color: var(--power); }
+.event-row.rival .event-label { color: var(--power); }

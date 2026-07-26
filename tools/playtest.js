@@ -229,6 +229,8 @@ function playOne(strategyName) {
     peakHeat: heatSamples.length ? Math.max(...heatSamples) : 0,
     meanHeat: heatSamples.length ? heatSamples.reduce((a, b) => a + b, 0) / heatSamples.length : 0,
     strikes,
+    rivalHeld: d.rivalHeld().length,
+    rivalAwake: !!(d.state.rival && d.state.rival.awake),
     maxAP: d.maxAP(),
     caps: Object.assign({}, d.state.caps),
     tags: [...d.state.tags],
@@ -268,7 +270,8 @@ function run() {
                 `  stealth ${pct(mean(runs.map(r => r.byRole.stealth)), roleTotal)}`);
     console.log(`   heat   mean ${fmt(mean(runs.map(r => r.meanHeat)))} · peak ${fmt(mean(runs.map(r => r.peakHeat)))}` +
                 ` · floor ${fmt(mean(runs.map(r => r.heatFloor)))} · strikes ${fmt(mean(runs.map(r => r.strikes)), 2)}`);
-    console.log(`   power ${fmt(mean(runs.map(r => r.power)), 0)} · maxAP ${fmt(mean(runs.map(r => r.maxAP)), 2)}` +
+    console.log(`   rival  holds ${fmt(mean(runs.map(r => r.rivalHeld)), 1)} buildings · woke in ${pct(runs.filter(r => r.rivalAwake).length, runs.length)} of games`);
+  console.log(`   power ${fmt(mean(runs.map(r => r.power)), 0)} · maxAP ${fmt(mean(runs.map(r => r.maxAP)), 2)}` +
                 ` · idle turns ${fmt(mean(runs.map(r => r.stalledTurns)), 0)}`);
     console.log(`   events ${fmt(mean(runs.map(r => r.distinctEvents)), 1)} distinct of ` +
                 `${fmt(mean(runs.map(r => r.eventDraws)), 1)} draws` +

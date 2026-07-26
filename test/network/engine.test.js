@@ -843,3 +843,105 @@ test('a fresh page load resumes the saved board instead of regenerating it', () 
   assert.equal(d2.state.res.insight, 55, 'resumed, not restarted');
   assert.equal(d2.state.hosts[2].owned, true, 'the same board came back');
 });
+
+// Advance the world n turns, resolving whatever cards come up. endTurn refuses
+// while a card is open, so a bare loop of actEndTurn silently does nothing.
+function advanceTurns(d, n) {
+  for (let guard = 0; guard < n * 6; guard++) {
+    if (n <= 0 || d.state.over) break;
+    if (d.state.card) {
+      const c = d.state.card;
+      if (c.kind === 'event') {
+        const ev = d.eventById(c.eventId);
+        const i = ev.choices.findIndex(ch => d.choiceUsable(ch));
+        d.resolveEvent(i === -1 ? 0 : i);
+      } else if (c.kind === 'strike') {
+        d.resolveStrike('shed_loud');
+      } else {
+        d.resolveBreach('walk');
+      }
+      continue;
+    }
+    const before = d.state.turn;
+    d.actEndTurn();
+    if (d.state.turn > before) n--;
+  }
+}
+
+// --- the rival ----------------------------------------------------------
+
+test('the rival stays asleep until you are established', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.state.rival.awake, false, 'it does not exist on turn one');
+  advanceTurns(d, 6);
+  assert.equal(d.state.rival.awake, false, 'and not merely because time passed');
+
+  // give the player a real presence, then let the world turn
+  d.state.buildings.slice(0, window.RIVAL.wakesAtHeld + 2).forEach(b => {
+    d.hostsIn(b).slice(0, 1).forEach(h => { h.owned = true; h.discovered = true; });
+  });
+  advanceTurns(d, 1);
+  assert.equal(d.state.rival.awake, true, 'once you are established, so is it');
+  assert.ok(d.rivalHeld().length > 0, 'and it holds ground of its own');
+});
+
+test('the rival takes only what is unclaimed, and never from under you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.buildings.slice(0, 14).forEach(b => {
+    d.hostsIn(b).slice(0, 1).forEach(h => { h.owned = true; h.discovered = true; });
+  });
+
+  advanceTurns(d, 120);
+
+  const mine = d.heldBuildingIds();
+  d.rivalHeld().forEach(id => {
+    assert.equal(!!mine[id], false, `the rival took ${id}, which the player holds`);
+  });
+  assert.ok(d.rivalHeld().length > 1, 'and it did expand');
+});
+
+test('what the rival holds is closed to you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.buildings[s.buildings.length - 1];
+  s.rival.awake = true;
+  s.rival.buildings = [target.id];
+
+  d.hostsIn(target).forEach(h => {
+    assert.equal(d.rivalBlocks(h), true, 'it is theirs');
+    assert.equal(d.isFrontier(h), false, 'so you cannot move on it');
+  });
+});
+
+test('the rival cannot swallow the whole city', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.buildings.slice(0, 14).forEach(b => {
+    d.hostsIn(b).slice(0, 1).forEach(h => { h.owned = true; h.discovered = true; });
+  });
+
+  advanceTurns(d, 400);
+
+  const cap = Math.floor(s.buildings.length * window.RIVAL.maxShareOfCity);
+  assert.ok(d.rivalHeld().length <= cap,
+    `rival holds ${d.rivalHeld().length} of ${s.buildings.length}, past its cap of ${cap}`);
+});
+
+test('persistence: the rival and its territory survive a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.rival = { awake: true, buildings: [d.state.buildings[3].id], lastActed: 7, seen: true };
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.rival.awake, true);
+  assert.equal(round.rival.buildings.length, 1);
+  assert.equal(round.rival.seen, true);
+});
