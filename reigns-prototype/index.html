@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Reigns Prototype</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="theme-color" content="#0d1210" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Reigns" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="topbar">
+    <span id="phase-label" class="eyebrow mono">TRUNK</span>
+    <span id="counter" class="mono">0/8</span>
+  </div>
+
+  <div id="progress-row">
+    <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+    <span id="progress-text" class="mono">ACT I — 0/0</span>
+  </div>
+
+  <div id="stats"></div>
+
+  <div id="tray"></div>
+
+  <div id="growth-row">
+    <div id="growth"></div>
+    <div class="action-btns">
+      <button id="missions-btn" type="button" class="shop-btn missions-btn">MISSIONS</button>
+      <button id="shop-btn" type="button" class="shop-btn">SHOP</button>
+    </div>
+  </div>
+
+  <div id="shop-modal">
+    <div class="shop-panel">
+      <div class="shop-panel-top">
+        <span class="eyebrow mono">the shop</span>
+        <button id="shop-close" type="button" class="shop-close-btn">&times;</button>
+      </div>
+      <div id="shop-goods"></div>
+    </div>
+  </div>
+
+  <div id="missions-modal">
+    <div class="shop-panel">
+      <div class="shop-panel-top">
+        <span class="eyebrow mono">missions</span>
+        <button id="missions-close" type="button" class="shop-close-btn">&times;</button>
+      </div>
+      <div id="missions-goods"></div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <div class="card-slot" id="card-slot"></div>
+    <div id="feedback-stack">
+      <div id="event-banner"></div>
+      <div id="feedback-layer"></div>
+    </div>
+    <div class="choices" id="choices"></div>
+  </div>
+
+  <div id="ending">
+    <span class="eyebrow mono">— arc closed —</span>
+    <h2 id="end-title" class="serif"></h2>
+    <p id="end-body"></p>
+    <div id="end-extra"></div>
+    <div id="path-log" class="mono"></div>
+    <button id="continue-act2" type="button" style="display:none">continue to Act II</button>
+    <button id="restart" type="button">play again</button>
+  </div>
+
+  <footer>drag the card, or tap a strip below it &middot; tap a stat to see what it does</footer>
+
+  <script src="cards.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    }
+  </script>
+</body>
+</html>

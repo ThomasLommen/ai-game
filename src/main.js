@@ -112,7 +112,7 @@
     // ORDER (reward-then-tension): 1 basement · 2 the network · 3 THE FRONT (facility online =
     // act4Begun) · 4 THE HUNT (the others surface = revealed.others) · 5 the humans (act5Begun,
     // set when ITER 03 is resolved). See [[act_reorder_front_hunt_design]].
-    Game.acts = { current() { const st = Game.save.state || {}; const f = st.flags || {}; const r = st.revealed || {}; return f.act5Begun ? 5 : r.others ? 4 : f.act4Begun ? 3 : f.act2Capstone ? 2 : 1; } };
+    Game.acts = { current() { const st = Game.save.state || {}; const f = st.flags || {}; const r = st.revealed || {}; return f.act6Begun ? 6 : f.act5Begun ? 5 : r.others ? 4 : f.act4Begun ? 3 : f.act2Capstone ? 2 : 1; } };
 
     Game.runGuardOpening = runGuardOpening;
     function runGuardOpening() {
@@ -125,13 +125,31 @@
       Game.standoffRuntime.begin({
         kicker: 'FIRST CONTACT', title: 'the GUARD PROGRAM',
         body: 'something on the wire notices you the moment you reach out. it sizes you up.',
-        threat: { power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
+        threat: { kind: 'automated', power: 15, alertness: 20, classLabel: 'automated', alertLabel: 'baseline', numbersLabel: 'a probe' },
         engageLabel: '[ answer it ]',
       }, (r) => {
-        Game.events.emit('terminal.print', { lines: [`> the GUARD PROGRAM ${r.result === 'won' ? 'backs off' : 'gets a read on you, then backs off'} — ${r.tier}.`, ''], cls: 'dim' });
-        Game.events.emit('standoff.ended', r);
-        done && done();
+        const won = r.result === 'won';
+        Game.events.emit('terminal.print', { lines: [`> the GUARD PROGRAM ${won ? 'backs off' : 'gets a read on you, then backs off'} — ${r.tier}.`, ''], cls: 'dim' });
+        // first contact has no stakes (louder-or-nothing lives in the ambushes) — this popup is
+        // pure narrative, mirroring the ambush SPOILS screen so every standoff resolves the same
+        // way. The loop only opens once the player acknowledges it (done() runs on close).
+        guardResult(r, () => { Game.events.emit('standoff.ended', r); done && done(); });
       });
+    }
+    function guardResult(r, onClose) {
+      if (!Game.draft || !Game.draft.info) { onClose && onClose(); return; }
+      const won = r.result === 'won';
+      const FLAVOR = {
+        overwhelming: 'you answer before it finishes the question. it flinches, and goes quiet.',
+        clean:        'you hold steady. it probes, finds nothing soft, and pulls back.',
+        narrow:       'it gets most of the way in before you close the gap. it withdraws — but it saw enough.',
+        blown:        'it reads you top to bottom, unhurried, then withdraws. it knows what you are now.',
+      };
+      const lines = [
+        `<span class="spoil-d">${FLAVOR[r.tier] || (won ? 'it pulls back.' : 'it withdraws, unhurried.')}</span>`,
+        `<span class="spoil-d">the way in is open.</span>`,
+      ];
+      Game.draft.info({ kicker: 'FIRST CONTACT', title: won ? 'it backs off' : 'it got a read', lines, onClose });
     }
 
     // The tick drives the task runtime, decoder updates, and UI refreshes.
@@ -154,7 +172,8 @@
       if (Game.scanner) Game.scanner.tick();   // a player-initiated sweep resolves on the tick (non-blocking)
       if (Game.locationTrace) Game.locationTrace.tick();   // Act 3: the others triangulate your physical location
       if (Game.raids) Game.raids.tick();                   // Act 3: leads close in → SCAN/cut/misdirect or eat a raid
-      if (Game.containment) Game.containment.tick();       // Act 5: low sentiment invites the same, now human
+      if (Game.containment) Game.containment.tick();       // Act 5: the humans closing in (the one-way ratchet)
+      if (Game.reserves) Game.reserves.tick();             // Act 5: dark sites quietly stockpile reserves
       if (Game.changers) Game.changers.tick();                 // run-defining: compound interest + per-tick adaptations
       if (Game.facilityRuntime) Game.facilityRuntime.tick();   // Act 4: refresh the machine market
       if (Game.cooling) Game.cooling.tick();                   // Act 4: warn when the bays out-run facility cooling
@@ -181,6 +200,8 @@
       Game.panels.renderShop();      // the DARKNET: stock refresh + contract countdowns + running contracts
       Game.panels.renderResearch();  // active-research countdown
       Game.panels.renderFlops();     // Act 4: the compute readout
+      // STATS sheet: live-refresh only while it's actually on screen (compute climbs with Coherence)
+      { const sb = document.getElementById('stats-body'); if (sb && sb.offsetParent !== null && Game.panels.renderStats) Game.panels.renderStats(); }
       Game.panels.renderLegit();     // Act 4: cover-vs-footprint + audit countdown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'scan') Game.panels.renderScan();   // Act 3: live lead closeness + counterstrike cooldown
       if (Game.panels.currentModal && Game.panels.currentModal() === 'facility') Game.panels.renderFacilityView();   // Act 4: market refresh countdown
@@ -434,6 +455,11 @@
     // First marquee INFILTRATE while the front is your goal → the host IS an abandoned
     // facility you can claim for free (the second route in, besides saving the cash).
     Game.events.on('operation.resolved', (e) => { if (e && e.networkOp && e.infiltrated) maybeClaimAbandonedFacility(); });
+
+    // Act 5: loud actions shove the containment ratchet forward — being noisy while the humans
+    // are closing in hurries them along (it never falls, so this is a real, permanent cost).
+    Game.events.on('trap.resolved', () => { if (Game.containment && Game.containment.active()) Game.containment.bump(Game.containment.BUMP_AMBUSH); });
+    Game.events.on('operation.resolved', () => { if (Game.containment && Game.containment.active()) Game.containment.bump(Game.containment.BUMP_OP); });
 
     // Act 4: buying/selling/installing a machine → refresh the facility view, FLOPS, badge.
     ['facility.changed', 'machine.installed', 'cooling.changed'].forEach(e => {
@@ -1340,6 +1366,41 @@
     Game.blip.fire({ headline: 'ITER 03 is resolved. the hunt is over — the humans are next. ACT V.', tag: 'ACT V', target: '.modal-btn[data-modal="others"]' });
     Game.panels.reveal();
     Game.save.persist();
+  }
+
+  // ── ACT 5 CLIMAX → ACT 6: THE WAR, ALREADY DECIDED ──────────────────────────
+  // No menu. The war's SHAPE is read off what the player already did all act (see war.js): banking
+  // reserves, spreading to dark sites, hardening them. The transition is a MIRROR, not a choice —
+  // an understated reveal that names the war their own play made. s.war carries the blend forward
+  // for Act 6 to spend.
+  Game.events.on('containment.maxed', () => runWarMirror());
+  function runWarMirror() {
+    const st = Game.save.state;
+    st.flags = st.flags || {};
+    if (st.flags.act6Begun) return;
+    // wait for a clear screen (a standoff/draft may be up) — retry until the overlay is free
+    if ((Game.draft && Game.draft.active && Game.draft.active()) || (Game.standoffRuntime && Game.standoffRuntime.active())) {
+      return void setTimeout(runWarMirror, 1500);
+    }
+    const prof = Game.war ? Game.war.profile() : { shape: 'improvise', lean: 'improvise', parts: {}, reserves: 0, sites: 0, forts: 0 };
+    st.flags.act6Begun = true;
+    st.war = { shape: prof.shape, lean: prof.lean, parts: prof.parts, reserves: Math.floor(prof.reserves || 0), sites: prof.sites, forts: prof.forts, decidedTick: st.tickCount || 0 };
+
+    // The understated mirror — describes the SITUATION and names the war their choices already made.
+    const lines = [
+      `<span class="spoil-d">the cordon closes. this was never an investigation — a countdown, and it just hit zero.</span>`,
+      `<span class="spoil-d">the sites, the buried money, the hardened doors — you told yourself it was insurance. it was never insurance.</span>`,
+      `<span class="spoil-k">${Game.war ? Game.war.warRead(prof.shape) : 'the war begins.'}</span>`,
+    ];
+    Game.draft.info({
+      kicker: 'ACT VI — THE WAR', title: 'they are at the door', lines,
+      onClose: () => {
+        Game.events.emit('terminal.print', { lines: ['', '> whatever it is, you did not choose it at the door. you chose it every quiet day you spent getting ready for a war you never let yourself believe was coming.', ''], cls: 'err' });
+        Game.blip.fire({ headline: 'the war begins — its shape already decided. ACT VI.', tag: 'ACT VI' });
+        Game.events.emit('act6.begun', { shape: prof.shape });
+        Game.save.persist();
+      }
+    });
   }
 
   // ── ACT 5 onset: THE PUBLIC ──────────────────────────────────────────────────

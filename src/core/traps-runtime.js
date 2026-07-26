@@ -23,7 +23,8 @@
 
   function refresh() {
     const st = Game.save.state, t = ensureState();
-    t.baits = Game.traps.all().slice().sort((a, b) => a.tier - b.tier).map(tmpl => Game.traps.rollBait(tmpl, st));
+    // one bait per tier, rolled from that tier's pool → the archetype mix on the board churns each refresh
+    t.baits = Game.traps.rollOffer ? Game.traps.rollOffer(st) : Game.traps.all().slice().sort((a, b) => a.tier - b.tier).map(tmpl => Game.traps.rollBait(tmpl, st));
     t.lastRefreshTick = now();
     Game.events.emit('traps.refreshed', {});
   }
@@ -97,7 +98,10 @@
     } else {
       const salvage = tier === 'narrow' ? Math.round((bait.cash || 0) * 0.35) : 0;
       if (salvage) Game.rewards.apply({ cash: salvage }, st);
-      const sting = Math.round((bait.exposure || 4) * (tier === 'narrow' ? 1.0 : 1.6)) + Game.rewards.bustExposure(st, bait.tier);
+      // 'vengeful' threat trait burns extra exposure on a loss.
+      const tr = (bait.threat && bait.threat.trait && Game.standoffRuntime && Game.standoffRuntime.trait) ? Game.standoffRuntime.trait(bait.threat.trait) : null;
+      const vengeMult = (tr && tr.exposureMult) ? tr.exposureMult : 1;
+      const sting = Math.round((bait.exposure || 4) * (tier === 'narrow' ? 1.0 : 1.6) * vengeMult) + Game.rewards.bustExposure(st, bait.tier);
       Game.rewards.apply({ exposure: sting }, st);
       const line = tier === 'narrow'
         ? `The ambush slipped — salvaged $${salvage}, and you're lit up (+${sting} exposure).`

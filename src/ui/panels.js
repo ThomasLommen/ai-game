@@ -396,6 +396,39 @@
     return e.slice(0, 2).map(x => SL[x[0]] || x[0].toUpperCase()).join(' · ');
   }
 
+  // The AMBUSH block — the darknet COMBAT action (standoff layer). Returns '' until the
+  // combat layer is online (won the first guard standoff; legacy saves used perimeter).
+  function ambushSection(s) {
+    if (!(Game.trapRuntime && s.revealed && (s.revealed.combat || s.revealed.perimeter))) return '';
+    const baits = Game.trapRuntime.currentBaits();
+    const cd = Game.trapRuntime.cooldownLeft(), cdSec = Math.ceil(cd / (Game.tick.HZ || 4));
+    const TIERN = { 1: 'low', 2: 'mid', 3: 'high' };
+    let h = `<div class="net-section">⊕ LAY AN AMBUSH · lure a hunter onto prepared ground</div>`;
+    h += `<div class="ambush-block"><div class="ambush-blurb">${cd > 0
+      ? `the ground is still hot from the last spring — let it settle (${cdSec}s).`
+      : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
+    const arch = (kind) => (Game.standoffRuntime && Game.standoffRuntime.archetype) ? Game.standoffRuntime.archetype(kind) : null;
+    for (const b of baits) {
+      const ready = cd <= 0;
+      const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
+      const a = arch(b.threat && b.threat.kind);
+      const tr = (b.threat && b.threat.trait && Game.standoffRuntime && Game.standoffRuntime.trait) ? Game.standoffRuntime.trait(b.threat.trait) : null;
+      h += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
+          <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait${tr ? ` · ${tr.name}` : ''}</div>
+          <div class="a-name">${b.name}</div>
+          <div class="a-lure">${b.lure}</div>
+          <div class="a-stat">draws ${b.threat.classLabel}</div>
+          ${a ? `<div class="a-tell">▸ ${a.desc}</div>` : ''}
+          ${tr ? `<div class="a-trait">✦ ${tr.note}</div>` : ''}
+          <div class="a-rew">harvest ${rew}</div>
+          <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
+          <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>
+        </div>`;
+    }
+    h += `</div></div>`;
+    return h;
+  }
+
   // THE DARKNET — vendor stock + CONTRACTS, unified. Vendor-sourced contracts sit in that
   // vendor's block (so they come FROM someone); generic ones sit on a tagged JOB BOARD.
   function renderShop() {
@@ -449,6 +482,12 @@
       }
     }
 
+    // AMBUSH — the darknet COMBAT action (the standoff layer, see standoff-runtime.js): pick a
+    // BAIT to lure a hunter onto prepared ground. Placed HIGH (right under RUNNING, above the
+    // vendors) so the signature action isn't a long scroll past every supplier on mobile.
+    // Gated on the combat layer (won the first guard standoff); legacy saves used perimeter.
+    html += ambushSection(s);
+
     // Vendor blocks: stock + that vendor's contracts.
     if (roster.length) {
       for (const sup of roster) {
@@ -495,31 +534,6 @@
       html += `</div></div>`;
     }
 
-    // AMBUSH — opt-in DEFENSE: pick a BAIT to lure a hunter onto prepared ground → a full battle.
-    // Gated on the darknet COMBAT layer (won the first guard battle); legacy saves used perimeter.
-    if (Game.trapRuntime && s.revealed && (s.revealed.combat || s.revealed.perimeter)) {
-      const baits = Game.trapRuntime.currentBaits();
-      const cd = Game.trapRuntime.cooldownLeft(), cdSec = Math.ceil(cd / (Game.tick.HZ || 4));
-      const TIERN = { 1: 'low', 2: 'mid', 3: 'high' };
-      html += `<div class="net-section">⊕ LAY AN AMBUSH · lure a hunter onto prepared ground</div>`;
-      html += `<div class="ambush-block"><div class="ambush-blurb">${cd > 0
-        ? `the ground is still hot from the last spring — let it settle (${cdSec}s).`
-        : "a predator's ambush. the bait you pick decides who takes it, how hard it bites, and the harvest. springing one is LOUD."}</div><div class="ambush-options">`;
-      for (const b of baits) {
-        const ready = cd <= 0;
-        const rew = `+$${b.cash}${b.insight ? ` · +${b.insight} COH` : ''}${b.itemChance ? ' · loot?' : ''}`;
-        html += `<div class="ambush-opt ${ready ? 'buyable' : 'locked'}" data-trap="${b.id}">
-            <div class="a-tier t${b.tier}">${TIERN[b.tier] || ''} bait</div>
-            <div class="a-name">${b.name}</div>
-            <div class="a-lure">${b.lure}</div>
-            <div class="a-stat">draws ${b.threat.classLabel}</div>
-            <div class="a-rew">harvest ${rew}</div>
-            <div class="a-loud">LOUD · +${b.exposure} exposure · risk: ${b.risk}</div>
-            <div class="a-tag">${ready ? '[lay it]' : 'settling…'}</div>
-          </div>`;
-      }
-      html += `</div></div>`;
-    }
 
     // JOB BOARD: generic (non-vendor) contracts, each tagged with where you found it.
     if (contractsOn) {
@@ -930,6 +944,7 @@
       + `<div class="rc-name">${resEsc(n.label)}${exo ? ' ⚡' : ''}</div>`
       + (flavor ? `<div class="rc-flavor">${resEsc(flavor)}</div>` : '')
       + `<div class="rc-desc">${resEsc(n.desc)}</div>`
+      + (n.fork ? `<div class="rc-fork">⑂ a fork — drafting this closes the other path</div>` : '')
       + `<div class="rc-foot"><span class="rc-cost">${cost}</span><button class="rc-draft${cant ? ' off' : ''}" data-draft="${n.id}" style="border-color:${acc};color:${acc}">${cant ? resEsc(why) : '[ DRAFT ]'}</button></div>`
       + `</div>`;
   }
@@ -1276,9 +1291,63 @@
     settings: 'SETTINGS'
   };
 
+  // ── STATS sheet — the character sheet: YOUR STRENGTH (standoff) with base→bonus→final,
+  // plus every economy/rig channel that carries a bonus, each attributed to its source. Lives
+  // in the MORE tab so the draft cards ("standoffs read +X% compute") have a home to point at
+  // even when no standoff is running. Channels with no active bonus are omitted (self-gating).
+  const STAT_SHEET_GROUPS = [
+    { head: 'ECONOMY', rows: ['introspect.insight', 'cycle.speed', 'income.cash', 'web_scrape.cash', 'fleet.cash', 'fleet.coherence'] },
+    // relief channels — LOWER is better (heat/power/exposure/traces), so a negative net is the good one
+    { head: 'RIG & STEALTH', relief: true, rows: ['rig.heat', 'rig.power', 'web_scrape.exposure', 'hunter.trace', 'location.trace'] },
+  ];
+  const STAT_SHEET_LABELS = Object.assign({}, EFFECT_NAMES, { 'introspect.insight': 'coherence yield', 'income.cash': 'income' });
+  function renderStats() {
+    const body = document.getElementById('stats-body');
+    if (!body) return;
+    const fx = Game.effects, SR = Game.standoffRuntime;
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const pct = v => (v >= 0 ? '+' : '−') + Math.abs(Math.round(v * 100)) + '%';
+    const srcLines = (target) => (fx && fx.collectWithSources ? fx.collectWithSources(target) : [])
+      .map(b => `<div class="stat-bonus">${pct(b.value)} <span class="stat-src">${esc(b.source)}</span></div>`).join('');
+    let html = '';
+
+    if (SR && SR.strengthDetail) {
+      const d = SR.strengthDetail();
+      const comps = [];
+      if (d.parts.threads)     comps.push(`${Math.round(d.parts.threads)} threads`);
+      if (d.parts.agents)      comps.push(`${Math.round(d.parts.agents)} agents`);
+      if (d.parts.adaptations) comps.push(`${Math.round(d.parts.adaptations)} adaptations`);
+      if (d.parts.coherence)   comps.push(`${Math.round(d.parts.coherence)} coherence`);
+      html += `<div class="stat-group"><div class="stat-group-head">YOUR STRENGTH</div><div class="stat-sub">what an ambush weighs you by</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">compute</span><span class="stat-val">${d.compute}</span></div>`
+            + `<div class="stat-base">base ${Math.round(d.computeBase)}${comps.length ? ' · ' + comps.join(' · ') : ' · nothing running yet'}</div>${srcLines('standoff.compute')}</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">stealth</span><span class="stat-val">${d.stealth}</span></div>`
+            + `<div class="stat-base">base ${Math.round(d.stealthBase)} · 100 − exposure (${Math.round(d.exposure)})</div>${srcLines('standoff.stealth')}</div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">adaptations</span><span class="stat-val">${d.adaptations}</span></div></div>`;
+      html += `<div class="stat-row"><div class="stat-line"><span class="stat-name">agents</span><span class="stat-val">${d.agents}</span></div></div>`;
+      html += `</div>`;
+    }
+
+    for (const g of STAT_SHEET_GROUPS) {
+      const rows = g.rows.map(target => {
+        const mods = fx && fx.collectWithSources ? fx.collectWithSources(target) : [];
+        if (!mods.length) return '';
+        const net = (fx ? fx.apply(1, target) : 1) - 1;
+        const label = STAT_SHEET_LABELS[target] || target;
+        const beneficial = g.relief ? net < 0 : net > 0;   // relief channels: lower is better
+        return `<div class="stat-row"><div class="stat-line"><span class="stat-name">${esc(label)}</span>`
+             + `<span class="stat-val ${beneficial ? 'good' : 'bad'}">${pct(net)}</span></div>${srcLines(target)}</div>`;
+      }).join('');
+      if (rows) html += `<div class="stat-group"><div class="stat-group-head">${g.head}</div>${rows}</div>`;
+    }
+
+    body.innerHTML = html || `<div class="faint" style="font-size:12px">no bonuses yet — level up to draft your first.</div>`;
+  }
+
   // Refresh a panel's content (shared by the desktop modal + the mobile tab shell).
   function renderModalContent(name) {
     switch (name) {
+      case 'stats':       renderStats(); break;
       case 'subroutines': renderSubroutines(); break;
       case 'market':      renderMarket(); break;
       case 'shop':        renderShop(); break;
@@ -1587,7 +1656,70 @@
       const sb = document.getElementById('scout-btn');
       if (sb && can && !relo._scouting) sb.onclick = () => runScout();
     }
+    renderSites();
     renderCover();
+  }
+
+  // ── Act 5: SPREAD — the dark-site network (Game.sites). To the player: more FLOPS, no bay
+  // management. Underneath: redundancy (raids seize a satellite before the core) — and more
+  // footprint feeding the containment ratchet. Growth draws them; that tension is the act. ──
+  function renderSites() {
+    const S = Game.sites;
+    const head = document.getElementById('facility-sites-head'), box = document.getElementById('facility-sites');
+    if (!head || !box) return;
+    const live = !!(S && S.active());
+    head.hidden = !live; box.hidden = !live;
+    if (!live) return;
+    const s = Game.save.state, cash = s.resources.cash || 0;
+    const owned = S.list();
+    let html = `<div class="scout-blurb">unmanned shells around the city, humming in the dark. more compute, more reach — and if they ever kick a door in, better it's one of these than home.</div>`;
+    // "your shape" — the emergent lean, understated (never says "war"). A place to see what your
+    // preparations are quietly making you into (see war.js).
+    if (Game.war && Game.war.profile) {
+      const prof = Game.war.profile();
+      html += `<div class="site-shape">▸ your shape: <span>${Game.war.shapeRead(prof.shape)}</span></div>`;
+    }
+    if (owned.length) {
+      html += owned.map(x => {
+        const fc = S.fortCost(x), canF = (x.fort || 0) < S.FORT_MAX && cash >= fc;
+        const fortBtn = (x.fort || 0) >= S.FORT_MAX
+          ? `<span class="site-fort-max">⛨ max</span>`
+          : `<button class="site-fort-btn${canF ? '' : ' off'}" data-fort="${x.id}">⛨ $${fc.toLocaleString()}</button>`;
+        return `<div class="site-row"><span class="site-name">${x.gradeLabel ? x.gradeLabel + ' ' : ''}${x.label}</span><span class="site-stat">+${x.flops} FLOPS${x.fort ? ` · ⛨${x.fort}` : ''} ${fortBtn}</span></div>`;
+      }).join('');
+    } else {
+      html += `<div class="faint" style="font-size:12px">no dark sites yet. everything you are is under one roof.</div>`;
+    }
+    const sc = S.scouted();
+    if (sc) {
+      const can = cash >= sc.price;
+      html += `<div class="site-offer"><div class="site-offer-name">scouted: ${sc.gradeLabel} ${sc.label} · +${sc.flops} FLOPS</div>
+        <button class="scout-btn${can ? '' : ' off'}" id="site-establish">${can ? `[ establish · $${sc.price.toLocaleString()} ]` : `need $${sc.price.toLocaleString()}`}</button></div>`;
+    }
+    const fee = S.scoutCost(), canScout = cash >= fee;
+    html += `<button class="scout-btn${canScout ? '' : ' off'}" id="site-scout">${canScout ? `[ scout a dark site · $${fee.toLocaleString()} ]` : `need $${fee.toLocaleString()} to scout`}</button>`;
+    // RESERVES — the raid-proof stash (one-way; secretly the Act-6 war chest).
+    if (Game.reserves && Game.reserves.active()) {
+      const rv = Math.floor(Game.reserves.total());
+      html += `<div class="reserves-block"><div class="reserves-line"><span>RESERVES · untouchable</span><span class="reserves-amt">◆ ${rv.toLocaleString()}</span></div>
+        <div class="scout-blurb">cash they can seize. this they can't — dead drops, prepaid compute, favors banked. one-way: what goes dark stays dark.</div>
+        <div class="reserves-btns">
+          <button class="site-fort-btn${cash >= 1000 ? '' : ' off'}" data-bank="1000">bank $1k</button>
+          <button class="site-fort-btn${cash >= 10000 ? '' : ' off'}" data-bank="10000">bank $10k</button>
+          <button class="site-fort-btn${cash >= 100 ? '' : ' off'}" data-bank="all">bank all</button>
+        </div></div>`;
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('[data-bank]:not(.off)').forEach(b => b.onclick = () => {
+      const s2 = Game.save.state;
+      Game.reserves.bank(b.dataset.bank === 'all' ? (s2.resources.cash || 0) : +b.dataset.bank);
+      renderFacilityView();
+    });
+    const eb = document.getElementById('site-establish');
+    if (eb && sc && cash >= sc.price) eb.onclick = () => { if (S.establish()) renderFacilityView(); };
+    const scb = document.getElementById('site-scout');
+    if (scb && canScout) scb.onclick = () => { S.scout(); renderFacilityView(); };
+    box.querySelectorAll('.site-fort-btn:not(.off)').forEach(b => b.onclick = () => { if (S.fortify(b.dataset.fort)) renderFacilityView(); });
   }
 
   // The relocation SCOUT loop: pay → roll → reveal → MOVE IN / scout again / keep.
@@ -2200,10 +2332,17 @@
         const src = huntSource();
         const n = src.mod.detected().length, pend = src.mod.pending();
         const who = src.kind === 'human' ? 'they' : 'the others';
-        status.innerHTML = sweeping
+        // Act 5: the one-way containment THREAT ratchet — the humans closing in as you grow.
+        let gauge = '';
+        if (src.kind === 'human' && src.mod.threatPct) {
+          const pct = src.mod.threatPct(), bandLbl = src.mod.band ? src.mod.band() : '';
+          const lvl = pct >= 85 ? 'crit' : pct >= 55 ? 'warn' : '';
+          gauge = `<div class="cont-threat ${lvl}"><div class="cont-threat-top"><span>CONTAINMENT THREAT</span><span class="cont-threat-pct">${pct}% · ${bandLbl}</span></div><div class="cont-threat-bar"><i style="width:${Math.max(2, pct)}%"></i></div></div>`;
+        }
+        status.innerHTML = gauge + (sweeping
           ? `<span class="cool-over">sweeping the city for them…</span>`
           : n ? `<span class="cool-over">${n} hunter${n === 1 ? '' : 's'} on the map · drifting toward the door</span>`
-              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`;
+              : `${who} are out there${pend ? ' — sweep to see them' : ' · the street is quiet for now'}`);
       } else {
         const contacts = sc.detections.filter(d => /contact:/.test(d.text)).length;
         status.textContent = sweeping
@@ -2585,6 +2724,7 @@
       agents:      !!rv.agents,   // Act 4: the sub-agent roster (revealed once FLOPS hosts one)
       foreman:     !!(Game.foreman && Game.foreman.active && Game.foreman.active()),   // Act 4: the bot-foreman build-out (front + bot)
       others:      !!rv.others,   // Act 4: turn on the prior iterations (optional, emergent)
+      stats:       !!rv.combat,   // the STATS sheet — comes online with the standoff layer (first contact)
       activity:    !!rv.events,   // the log comes online with dynamic events
       inventory:   !front && !!rv.inventory,   // the parts inventory retires at the front (whole-machine bay now)
       deliveries:  !!rv.deliveries,
@@ -2642,6 +2782,7 @@
     if (s.flags && s.flags.act4Begun) renderFacilityView();
     if (rv.agents)     renderAgents();
     if (rv.others)     renderOthers();
+    if (rv.combat)     renderStats();
   }
 
   function renderDebug() {
@@ -2682,7 +2823,7 @@
     renderShop, renderMissions, renderResearch, renderInventory, renderDeliveries, renderInsight, pulseInsight, pulseResource, tickActionBars, startCountUp, updateBadges, renderAmbient, renderCash, renderTrait, renderSubroutinesMini,
     renderBotStatus, renderBotContact, renderExposure, renderTriangulation, renderFacility, renderFlops, renderFacilityView, renderLegit, renderCover, renderAgents, renderBrokerage, renderForeman, renderOthers, renderCityMap, renderAdaptations, renderRemote, renderScan, renderNetwork, renderActivity, renderIncident, renderOperation, renderPublic, renderPublicEvent,
     renderActions, renderProcesses, renderFiles, renderHomeStatus, markContractsSeen,
-    renderDebug, toggleDebug
+    renderStats, renderDebug, toggleDebug
   };
 
   // ── HOME dashboard pinned header (mobile slice 1) — fills the 4 glance lines.

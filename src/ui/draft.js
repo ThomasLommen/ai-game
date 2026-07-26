@@ -1,6 +1,6 @@
-// ── Game.draft — the 1-of-N pick overlay (opening pick + post-win prizes) ────
-// A full-screen choice that PAUSES the game (Game.paused checks draft.active()) until you
-// pick. Used for the opening roster pick and battle prizes. ([[start-defense-pivot]])
+// ── Game.draft — the shared full-screen overlay: present() (1-of-N pick, e.g. level-up
+// drafts), info() (result pop-up, e.g. ambush spoils), compare() (the STANDOFF screen).
+// PAUSES the game (Game.paused checks draft.active()) until you resolve it. ([[start-defense-pivot]])
 (function () {
   if (typeof window === 'undefined') return;
   window.Game = window.Game || {};
@@ -19,7 +19,7 @@
   // Show the overlay AND cancel any pending hide — otherwise a stale hide() timer from the
   // previous pop-up (e.g. spoils → calm draft on the SAME overlay) fires 300ms later and
   // hides the new one while it's still active, leaving the game paused on an invisible
-  // overlay (couldn't start functions; froze the siege tick). The token guards re-shows.
+  // overlay (couldn't start functions; froze the game tick). The token guards re-shows.
   function show(ov) { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } ov.hidden = false; arm(ov); requestAnimationFrame(() => ov.classList.add('up')); }
 
   // present({ kicker, title, items:[{id,name,desc,kind}], onPick(item) })
@@ -41,7 +41,7 @@
     show(ov);
   }
 
-  // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. battle spoils):
+  // info({ kicker, title, lines:[html], onClose }) — a RESULT pop-up (e.g. ambush spoils):
   // same paused full-screen overlay, but a read-out + a single [continue] instead of a choice.
   function info(opts) {
     const ov = overlay(); if (!ov) { if (opts && opts.onClose) opts.onClose(); return; }
@@ -69,9 +69,13 @@
     document.getElementById('draft-title').textContent = opts.title || '';
     const cards = document.getElementById('draft-cards');
     const advTag = adv => adv === 'you' ? '<span class="standoff-adv-you">[ADVANTAGE: YOU]</span>' : '<span class="standoff-adv-them">[ADVANTAGE: THEM]</span>';
-    const rowLine = r => `<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}</div>`;
+    // `key` rows are the axis this threat KIND is beaten by (the archetype tell) — flag them so the
+    // matchup reads at a glance ("vs a hunter, STEALTH is what counts").
+    const rowLine = r => `<div class="standoff-line${r.key ? ' standoff-key' : ''}"><span class="standoff-sys">&gt;</span> ${esc((r.label || '').toUpperCase())} ${esc(r.you)} vs ${r.them == null ? '—' : esc(r.them)} &nbsp;${advTag(r.adv)}${r.key ? ' <span class="standoff-tell-mark">◄ decisive</span>' : ''}</div>`;
     const lines = [`<div class="standoff-line"><span class="standoff-sys">&gt;</span> analyzing target...</div>`];
     if (opts.body) lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> ${esc(opts.body)}</div>`);
+    if (opts.tell) lines.push(`<div class="standoff-line standoff-read"><span class="standoff-sys">&gt;</span> read: ${esc(opts.tell)}</div>`);
+    if (opts.trait) lines.push(`<div class="standoff-line standoff-trait"><span class="standoff-sys">&gt;</span> ${esc(opts.trait)}</div>`);
     (opts.rows || []).forEach(r => lines.push(rowLine(r)));
     lines.push(`<div class="standoff-line"><span class="standoff-sys">&gt;</span> resolving odds<span class="standoff-cursor"></span></div>`);
     cards.innerHTML =

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>The Network</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="topbar">
+    <span id="turn" class="eyebrow mono">TURN 1</span>
+    <span id="held-count" class="mono">1 held</span>
+  </div>
+
+  <div id="heat-row">
+    <div class="heat-track"><div id="heat-fill" class="heat-fill"></div></div>
+    <div class="heat-meta">
+      <span id="heat-text" class="mono">HEAT 0 / 40</span>
+      <span id="heat-drift" class="mono dim">+0/turn</span>
+    </div>
+  </div>
+
+  <div id="res-row">
+    <span class="res insight"><b id="res-insight">0</b> insight</span>
+    <span class="res cash"><b id="res-cash">0</b> cash</span>
+    <span class="res power"><b id="res-power">0</b> power</span>
+    <span class="res cover"><b id="res-cover">0</b> cover</span>
+  </div>
+
+  <div id="stage-row">
+    <span id="stage-label" class="stage-label">a single foothold</span>
+  </div>
+
+  <div id="graph-wrap">
+    <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="feedback-stack">
+      <div id="event-banner"></div>
+      <div id="feedback-layer"></div>
+    </div>
+  </div>
+
+  <div id="panel"></div>
+
+  <footer>
+    tap a node · every action costs a turn · heat is what finds you
+    <button id="restart" type="button">restart</button>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

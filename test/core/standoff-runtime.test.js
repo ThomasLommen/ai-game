@@ -84,6 +84,69 @@ test('computeOdds() rises with a compute edge and falls with a compute deficit',
   assert.ok(weak < 0.15, `expected a big compute deficit to read as heavy underdog, got ${weak}`);
 });
 
+test('archetype weighting: the SAME build reads very differently against a brute vs a hunter', () => {
+  const { runtime } = freshStandoff(6.1);
+  // a stealthy-but-weak-compute build (a ghost): great vs a hunter, poor vs a brute
+  const ghost = { compute: 30, stealth: 180, adaptations: 0 };
+  const vsBrute  = runtime.computeOdds(ghost, { power: 120, alertness: 40, kind: 'brute' });
+  const vsHunter = runtime.computeOdds(ghost, { power: 120, alertness: 40, kind: 'hunter' });
+  assert.ok(vsHunter > vsBrute + 0.2, `stealth build should fare far better vs a hunter (${vsHunter}) than a brute (${vsBrute})`);
+
+  // a compute-heavy but exposed build (a tank): the inverse
+  const tank = { compute: 300, stealth: 20, adaptations: 0 };
+  const tBrute  = runtime.computeOdds(tank, { power: 120, alertness: 40, kind: 'brute' });
+  const tHunter = runtime.computeOdds(tank, { power: 120, alertness: 40, kind: 'hunter' });
+  assert.ok(tBrute > tHunter + 0.2, `compute build should fare far better vs a brute (${tBrute}) than a hunter (${tHunter})`);
+});
+
+test('archetype weighting: adaptations swing a swarm matchup far more than a brute matchup', () => {
+  const { runtime } = freshStandoff(6.2);
+  const base = { compute: 100, stealth: 50 };
+  const swarmNoAdapt  = runtime.computeOdds({ ...base, adaptations: 0 }, { power: 100, alertness: 50, kind: 'swarm' });
+  const swarmAdapt    = runtime.computeOdds({ ...base, adaptations: 8 }, { power: 100, alertness: 50, kind: 'swarm' });
+  const bruteNoAdapt  = runtime.computeOdds({ ...base, adaptations: 0 }, { power: 100, alertness: 50, kind: 'brute' });
+  const bruteAdapt    = runtime.computeOdds({ ...base, adaptations: 8 }, { power: 100, alertness: 50, kind: 'brute' });
+  assert.ok((swarmAdapt - swarmNoAdapt) > (bruteAdapt - bruteNoAdapt) + 0.1, `adaptations should matter more vs a swarm (${swarmAdapt - swarmNoAdapt}) than a brute (${bruteAdapt - bruteNoAdapt})`);
+});
+
+test('threat traits shift the odds on top of the archetype (skittish eases, cornered worsens)', () => {
+  const { runtime } = freshStandoff(6.6);
+  const you = { compute: 100, stealth: 60, adaptations: 1 };
+  const base = { power: 100, alertness: 60, kind: 'automated' };
+  const plain    = runtime.computeOdds(you, base);
+  const skittish = runtime.computeOdds(you, { ...base, trait: 'skittish' });
+  const cornered = runtime.computeOdds(you, { ...base, trait: 'cornered' });
+  assert.ok(skittish > plain + 0.08, `skittish should ease the odds (${skittish} vs ${plain})`);
+  assert.ok(cornered < plain - 0.08, `cornered should worsen the odds (${cornered} vs ${plain})`);
+});
+
+test("the 'swift' trait widens the outcome grading — more overwhelming/blown, fewer clean/narrow", () => {
+  const tally = (traitId) => {
+    const { runtime, compareCalls } = freshStandoff(30, { threads: 12 });   // ~even-ish odds
+    const seen = { extreme: 0, middling: 0 };
+    for (let i = 0; i < 300; i++) {
+      let r = null;
+      runtime.begin({ threat: { power: 100, alertness: 50, kind: 'automated', trait: traitId } }, x => { r = x; });
+      compareCalls[compareCalls.length - 1].onEngage();
+      if (r.tier === 'overwhelming' || r.tier === 'blown') seen.extreme++; else seen.middling++;
+    }
+    return seen.extreme;
+  };
+  assert.ok(tally('swift') > tally(null) + 20, 'swift should produce noticeably more extreme (overwhelming/blown) outcomes');
+});
+
+test('compareRows marks the archetype tell (the axis this kind is beaten by)', () => {
+  const { runtime } = freshStandoff(6.3);
+  runtime.begin({ threat: { power: 40, alertness: 20, kind: 'hunter' } }, () => {});
+  // begin passes rows through compare; re-derive via a fresh begin capture
+  const { runtime: r2, compareCalls } = freshStandoff(6.4);
+  r2.begin({ threat: { power: 40, alertness: 20, kind: 'hunter' } }, () => {});
+  const rows = compareCalls[0].rows;
+  assert.equal(rows.find(r => r.label === 'stealth').key, true, 'hunter tell should mark stealth');
+  assert.equal(rows.find(r => r.label === 'compute').key, false, 'hunter tell should not mark compute');
+  assert.ok(typeof compareCalls[0].tell === 'string' && compareCalls[0].tell.length, 'a tell description is passed to the scan');
+});
+
 test('computeOdds() clamps to [0.05, 0.95] when both compute and stealth are lopsided', () => {
   const { runtime } = freshStandoff(6.5);
   const strong = runtime.computeOdds({ compute: 100000, stealth: 200 }, { power: 1, alertness: 0 });

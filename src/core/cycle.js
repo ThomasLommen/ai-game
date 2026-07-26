@@ -26,6 +26,12 @@
       if (RR && RR.hasMod('polymath'))  syn *= (1 + 0.08 * Game.changers.domainsCount());
       if (RR && RR.hasMod('resonance')) syn *= (1 + 0.03 * Game.changers.exoticCount());
     }
+    // EXOTIC cycle rules keyed off how many threads you're running (the focus/parallel axis).
+    if (RR && (RR.hasMod('focus_burst') || RR.hasMod('multitask'))) {
+      const used = (Game.tasksRuntime && Game.tasksRuntime.getCpu) ? (Game.tasksRuntime.getCpu().allocated || 0) : 0;
+      if (RR.hasMod('focus_burst') && used <= 1) syn *= 1.40;   // single-minded: +40% while you run just one thing
+      if (RR.hasMod('multitask'))               syn *= (1 + 0.06 * used);   // parallel dividend: +6% per running process
+    }
     return Math.max(0.05, eff * thr * syn);
   }
   // Current cycle length in ticks (live — responds to speed + throttle each tick).

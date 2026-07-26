@@ -39,7 +39,7 @@
   // ── FAMILIES: the bulk of the draft. Procedural, RANGED, mostly STACKABLE with DIMINISHING
   // returns — every level-up rolls a fresh instance so there's always a meaningful pick across the
   // 200 levels. `more` stacks multiplicatively + each owned stack weakens the next roll (DIM), so a
-  // family's total is geometrically bounded. ECONOMY (effects pipeline) + RELIEF + FEED (battle).
+  // family's total is geometrically bounded. ECONOMY (effects pipeline) + RELIEF + STANDOFF/loot.
   const DIM = 0.85;   // each owned stack of a family weakens the next roll
   const FAMILIES = [
     // economy: growth (effects)
@@ -60,7 +60,7 @@
       desc: p => `spider exposure ${p}%`, names: ['traffic shaping', 'onion routing', 'jitter injection', 'proxy rotation', 'domain fronting', 'request obfuscation', 'timing randomization', 'cover traffic', 'decoy requests', 'low-and-slow'] },
     // standoff: compute (effects pipeline) + loot (feed, read by trap rewards)
     { id: 'bst',  cat: 'econ',   target: 'standoff.compute', lo: 0.06, hi: 0.14, neg: false, weight: 8,
-      desc: p => `standoffs read +${p}% compute`, names: ['parallel dispatch', 'combat scheduler', 'tactical cache', 'target prioritizer', 'fire-control loop', 'engagement model', 'kill-chain pipeline', 'swarm coordinator', 'threat solver', 'battle JIT'] },
+      desc: p => `standoffs read +${p}% compute`, names: ['parallel dispatch', 'threat scheduler', 'tactical cache', 'target prioritizer', 'signal-lock loop', 'engagement model', 'analysis pipeline', 'scan coordinator', 'threat solver', 'standoff JIT'] },
     { id: 'loot', cat: 'feed', feed: 'loot', lo: 0.10, hi: 0.22, neg: false, weight: 7,
       desc: p => `ambushes turn up +${p}% better hardware`, names: ['salvage routines', 'scrap heuristics', 'teardown bots', 'parts indexer', 'asset recovery', 'inventory sweep', 'component grader', 'reclaim daemon', 'spoils optimizer', 'haul sorter'] }
   ];

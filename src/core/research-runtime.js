@@ -331,6 +331,14 @@
     if (r.active === nodeId) { r.active = null; r.activeCost = 0; }
     if (!node || r.researched[nodeId]) return;
     r.researched[nodeId] = true;
+    // EXCLUSIVE FORK: nodes sharing a `fork` group are mutually exclusive — drafting one WALLS the
+    // rest for the run (they drop out of every future hand). This is the mechanism the doctrine
+    // pairs always described but never enforced (r.walled was read, never written).
+    if (node.fork) {
+      Game.research.all().forEach(sib => {
+        if (sib.id !== nodeId && sib.fork === node.fork && !r.researched[sib.id]) r.walled[sib.id] = true;
+      });
+    }
     r.predraftHand = null; r.predraftFree = null;   // the install landed — the old hand is spent for good
     applyGrant(node);
     Game.events.emit('terminal.print', { lines: [`> research complete: ${node.label}. ${node.desc || ''}`, ''], cls: 'dim' });

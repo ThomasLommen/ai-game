@@ -76,7 +76,12 @@
   function updateHeat() {
     const s = Game.save.state;
     if (typeof s.heat !== 'number') s.heat = AMBIENT;
-    s.heat += (heatTarget() - s.heat) * HEAT_APPROACH;
+    const target = heatTarget();
+    let approach = HEAT_APPROACH;
+    // EXOTIC 'fast_cooling': the rig sheds heat far quicker when it's coming DOWN, so the throttle
+    // clears fast after you back off (heat eases very slowly by default — this is felt).
+    if (target < s.heat && Game.researchRuntime && Game.researchRuntime.hasMod('fast_cooling')) approach = Math.min(1, HEAT_APPROACH * 2.5);
+    s.heat += (target - s.heat) * approach;
     if (s.heat < AMBIENT) s.heat = AMBIENT;
     // 'thermal_runaway' (run-defining): the thermal ceiling no longer shuts you down.
     if (!isLockedOut() && s.heat >= HEAT_CRIT && !(Game.researchRuntime && Game.researchRuntime.hasMod('thermal_runaway'))) tripThermal();
@@ -91,7 +96,10 @@
     if (h <= warn) return 1;
     if (h >= HEAT_CRIT) return THROTTLE_MIN;
     const f = (h - warn) / (HEAT_CRIT - warn);
-    return 1 - f * (1 - THROTTLE_MIN);
+    let bite = 1 - f * (1 - THROTTLE_MIN);
+    // EXOTIC 'thermal_governor': the throttle bites softer — you keep more of your speed when hot.
+    if (Game.researchRuntime && Game.researchRuntime.hasMod('thermal_governor')) bite = 1 - (1 - bite) * 0.6;
+    return bite;
   }
   // 'speculative' (Overclocker changer): a trip no longer HALTS you — the work was
   // already run ahead, so it commits and rolls on through a brief brownout instead
