@@ -444,6 +444,8 @@ footer .build { opacity: .55; font-size: 10px; }
 /* --- the city ------------------------------------------------------- */
 #graph { touch-action: none; cursor: grab; }
 #graph:active { cursor: grabbing; }
+/* dragging across the map must not select the building labels */
+#graph, #graph text { user-select: none; -webkit-user-select: none; }
 
 .ground { fill: #0b0f0d; }
 .street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
@@ -456,7 +458,7 @@ footer .build { opacity: .55; font-size: 10px; }
   fill: var(--muted); font-size: 7.5px; text-anchor: middle;
   font-family: ui-monospace, Menlo, monospace;
 }
-.bldg.part-held .body { stroke: color-mix(in srgb, var(--insight) 55%, transparent); }
+.bldg.open .body      { stroke: var(--ink-dim); stroke-dasharray: 4 3; }
 .bldg.all-held .body  { stroke: var(--insight); fill: #16211d; }
 .bldg.all-held .btag  { fill: var(--ink-dim); }
 .bldg.sel .body { stroke: var(--ink); stroke-width: 2; }
@@ -468,46 +470,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .wire { stroke: #223029; stroke-width: 1; }
 .wire.live { stroke: color-mix(in srgb, var(--cover) 65%, transparent); stroke-width: 1.6; }
 
-.hnode { cursor: pointer; }
-.hnode .hit { fill: transparent; }
-.hnode .dot { fill: #26312d; stroke: #37443f; stroke-width: 1.4; }
-.hnode .camb { fill: #26312d; stroke: #37443f; stroke-width: 1; }
-.hnode .lens { fill: #55635d; }
-
-.hnode.frontier .dot { stroke: var(--ink-dim); }
-.hnode.frontier .camb { stroke: var(--ink-dim); }
-.hnode.frontier .lens { fill: var(--ink-dim); }
-
-.hnode.owned.compute .dot { fill: var(--insight); stroke: var(--insight); }
-.hnode.owned.cash .dot    { fill: var(--cash); stroke: var(--cash); }
-.hnode.owned.stealth .dot { fill: var(--cover); stroke: var(--cover); }
-.hnode.owned .camb { fill: color-mix(in srgb, var(--cover) 60%, #26312d); stroke: var(--cover); }
-.hnode.owned .lens { fill: var(--item); }
-.hnode.selected .dot, .hnode.selected .camb { stroke: var(--ink); stroke-width: 2.2; }
-
-.person { fill: #6d7d76; opacity: .9; }
-
-/* what is inside a building */
-.inside-list { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
-.inside-row {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  color: var(--ink);
-  font-size: 12.5px;
-  cursor: pointer;
-  text-align: left;
-}
-.inside-row:hover { border-color: var(--ink-dim); }
-.inside-row.held { border-left: 3px solid var(--insight); }
-.ir-name { flex: 1; }
-.ir-meta { color: var(--muted); font-size: 10.5px; }
-.ir-state { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.ir-state.reachable { color: var(--item); }
-.ir-state.held { color: var(--insight); }
-.ir-state.no-route { color: var(--line); }
+/* a building's own colour says what it earns you once it is yours */
+.bldg.all-held.compute .body { stroke: var(--insight); }
+.bldg.all-held.cash .body    { stroke: var(--cash); }
+.bldg.all-held.stealth .body { stroke: var(--cover); }
+.bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg.all-held.cash .win.lit    { fill: color-mix(in srgb, var(--cash) 55%, #1e2724); }
+.bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
 
 #recenter {
   position: absolute; right: 10px; bottom: 10px;

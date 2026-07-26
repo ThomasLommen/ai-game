@@ -121,32 +121,42 @@ window.RIVAL = {
 // engine reads, so difficulty stays a single number even though the fiction
 // is now geographic.
 window.DISTRICTS = {
-  residential: { tier: 0, label: 'suburbs',    kinds: ['house', 'house', 'house', 'apartment'] },
-  commercial:  { tier: 1, label: 'high street', kinds: ['shop', 'shop', 'office', 'apartment'] },
-  business:    { tier: 2, label: 'business park', kinds: ['office', 'office', 'warehouse'] },
-  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter'] },
+  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast'] },
+  commercial:  { tier: 1, label: 'high street',    kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
+  business:    { tier: 2, label: 'business park',  kinds: ['office', 'office', 'finance', 'cabinet'] },
+  // no street furniture out here: a row of cheap masts could drag the hardest
+  // district's average below the one before it, and the map stops teaching
+  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter', 'finance'] },
 };
 
-// What lives inside each kind of building, and how many eyes are on the
-// outside. `cameras` are exterior hosts — the way in.
+// One building, one host. Interiors made every building a chore — several
+// near-identical breaches for the same patch of street — so a building is now
+// a single thing you either hold or do not. Its kind says what it is.
+// Stealth lives in street furniture rather than on walls, which keeps it a
+// distinct, cheap, spatial thing without reintroducing interiors.
 window.BUILDING_KINDS = {
-  house:      { w: [30, 38], h: [24, 30], label: 'house',      inside: { consumer: [1, 1] }, cameras: [0, 1] },
-  apartment:  { w: [44, 58], h: [34, 44], label: 'apartments', inside: { consumer: [1, 3], iot: [1, 1] }, cameras: [1, 2] },
-  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',  inside: { till: [1, 2], consumer: [0, 1] }, cameras: [1, 1] },
-  office:     { w: [52, 68], h: [42, 56], label: 'offices',    inside: { server: [1, 2], corporate: [1, 2] }, cameras: [1, 2] },
-  warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',  inside: { server: [1, 2], corporate: [0, 1] }, cameras: [1, 2] },
-  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter', inside: { datacenter: [1, 2], server: [1, 2] }, cameras: [2, 3] },
+  cabinet:    { w: [18, 24], h: [14, 18], label: 'street cabinet', host: 'iot' },
+  mast:       { w: [12, 16], h: [20, 26], label: 'camera mast',    host: 'iot' },
+  house:      { w: [30, 38], h: [24, 30], label: 'house',          host: 'consumer' },
+  apartment:  { w: [44, 58], h: [34, 44], label: 'apartments',     host: 'consumer' },
+  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',      host: 'till' },
+  office:     { w: [52, 68], h: [42, 56], label: 'offices',        host: 'server' },
+  finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
+  warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
+  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter' },
 };
 
+// One building is one host now, so a block of four buildings is four things to
+// take rather than a dozen. The city is correspondingly wider — a 4x5 grid ran
+// out of ground long before a game was over.
 window.CITY = {
-  cols: 4, rows: 5,
+  cols: 6, rows: 7,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
   // districts by block row, suburbs nearest the origin
-  rowDistricts: ['residential', 'residential', 'commercial', 'business', 'industrial'],
-  cameraVision: 150,   // a held camera reveals buildings within this radius
-  people: { perRevealedBlock: [1, 3] },
+  rowDistricts: ['residential', 'residential', 'commercial', 'commercial', 'business', 'business', 'industrial'],
+  cameraVision: 160,   // a held camera reveals buildings within this radius
 };
 
 window.HOST_NAMES = {
@@ -223,7 +233,7 @@ window.APPROACHES = [
     text: 'Buy your way in',
     kind: 'cash',
     // anything with people in it can be bought; a datacenter has no one to bribe
-    avail: (h) => h.type !== 'datacenter',
+    avail: (h) => h.type !== 'datacenter' && h.type !== 'iot',
     costFor: (h) => ({ cash: Math.max(4, Math.ceil(h.defense * 0.9)) }),
     heat: 0,
     onWin: { hold: true },

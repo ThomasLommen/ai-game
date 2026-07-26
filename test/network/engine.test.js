@@ -24,7 +24,7 @@ test('city: generates districts of buildings, each with a way in, all reachable'
   const s = d.state;
 
   assert.ok(s.buildings.length > 20, `only ${s.buildings.length} buildings`);
-  assert.ok(s.hosts.length > s.buildings.length, 'buildings hold more than one host between them');
+  assert.equal(s.hosts.length, s.buildings.length, 'one building, one host — the building is the prize');
   assert.equal(d.owned().length, 1, 'exactly one host is held at the start');
 
   // you start in the suburbs, and only that building is visible
@@ -37,11 +37,11 @@ test('city: generates districts of buildings, each with a way in, all reachable'
   const districts = new Set(s.buildings.map(b => b.district));
   Object.keys(window.DISTRICTS).forEach(k => assert.ok(districts.has(k), `district ${k} is missing`));
 
-  // every building must be enterable, or it can never be taken
+  // every building must hold exactly the one thing you take it for
   s.buildings.forEach(b => {
     const inside = d.hostsIn(b);
-    assert.ok(inside.length > 0, `${b.id} is empty`);
-    assert.ok(inside.some(h => h.exterior), `${b.id} has no way in`);
+    assert.equal(inside.length, 1, `${b.id} does not hold exactly one host`);
+    assert.equal(inside[0].buildingId, b.id, `${b.id}'s host points back at it`);
   });
 
   // every building must be walkable from home, or part of the city is dead
@@ -91,15 +91,18 @@ test('city: the opening is never a hard stall', () => {
   }
 });
 
-test('city: cameras are on the outside and are the way in', () => {
+test('city: masts and cabinets are cheap stealth kit standing on the street', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const cams = d.state.hosts.filter(h => h.exterior && h.role === 'stealth');
-  assert.ok(cams.length > 0, 'the city has cameras');
-  cams.forEach(c => {
-    const b = d.buildingById(c.buildingId);
-    // a camera sits on the building's edge, not somewhere in its interior
-    assert.ok(Math.abs(c.y - b.y) < 2, 'cameras hang on the wall');
+  const s = d.state;
+
+  const eyes = s.buildings.filter(b => b.kind === 'mast' || b.kind === 'cabinet');
+  assert.ok(eyes.length > 0, 'the city has cameras and cabinets');
+  eyes.forEach(b => {
+    const h = d.hostsIn(b)[0];
+    assert.equal(h.role, 'stealth', `${b.kind} is stealth kit`);
+    // small enough to read as street furniture rather than a building
+    assert.ok(b.w <= 26 && b.h <= 28, `${b.kind} is street-sized`);
   });
 });
 
@@ -109,30 +112,13 @@ test('city: holding a camera reveals what is around it, without a sweep', () => 
   const s = d.state;
   const before = s.buildings.filter(b => b.discovered).length;
 
-  const cam = s.hosts.find(h => h.exterior && h.role === 'stealth');
+  const cam = s.hosts.find(h => h.role === 'stealth');
   cam.owned = true;
   cam.discovered = true;
   d.cameraVision();
 
   const after = s.buildings.filter(b => b.discovered).length;
   assert.ok(after > before, 'an eye on the street shows you the street');
-});
-
-test('city: people appear only where you can see, and move when the world does', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-
-  d.repopulatePeople();
-  const atHome = s.people.length;
-
-  s.buildings.slice(0, 12).forEach(b => d.revealBuilding(b));
-  d.repopulatePeople();
-  assert.ok(s.people.length > atHome, 'revealing more of the city reveals more life');
-
-  const before = JSON.stringify(s.people);
-  d.actEndTurn();
-  assert.notEqual(JSON.stringify(s.people), before, 'the street moves on the world turn');
 });
 
 test('power: base rig + held threads + purchased tooling (the flywheel)', () => {
@@ -183,7 +169,7 @@ test('cover comes only from stealth holdings, and gates the quiet approach', () 
   assert.equal(d.cover(), 1 + 2 * window.HOST_TYPES.iot.cover);
 });
 
-test('frontier: you can reach inside what you hold, but only the outside of what you do not', () => {
+test('frontier: you can reach the next building along, and nothing further', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -194,26 +180,27 @@ test('frontier: you can reach inside what you hold, but only the outside of what
   const hidden = s.hosts.find(h => !h.discovered);
   assert.equal(d.isFrontier(hidden), false, 'you cannot act on what you have not seen');
 
-  // inside a building you already hold, everything is reachable
-  const sibling = d.hostsIn(home).find(h => !h.owned);
-  if (sibling) assert.equal(d.isFrontier(sibling), true, 'being inside gets you the whole building');
-
-  // a neighbouring building: its cameras are reachable, its interior is not
+  // the building next door, once seen, is the thing you can move on
   const neighbourId = d.buildingNeighbours(home.id)[0];
   assert.ok(neighbourId, 'home has a neighbour across the street');
   const nb = d.buildingById(neighbourId);
   d.revealBuilding(nb);
+  assert.equal(d.isFrontier(d.hostsIn(nb)[0]), true, 'next door is reachable');
 
-  const outside = d.hostsIn(nb).filter(h => h.exterior);
-  const inside = d.hostsIn(nb).filter(h => !h.exterior);
-  assert.ok(outside.length, 'the neighbour has something on its wall');
-  outside.forEach(h => assert.equal(d.isFrontier(h), true, 'wall-mounted kit is reachable from the street'));
-  inside.forEach(h => assert.equal(d.isFrontier(h), false, 'you cannot reach through a wall you are not behind'));
+  // a building two streets away is visible but out of reach until you close in
+  const held = d.heldBuildingIds();
+  const far = s.buildings.find(b => !held[b.id] &&
+    !d.buildingNeighbours(home.id).includes(b.id) && b.id !== home.id);
+  assert.ok(far, 'the city is bigger than one junction');
+  d.revealBuilding(far);
+  assert.equal(d.isFrontier(d.hostsIn(far)[0]), false, 'seeing it is not the same as reaching it');
 
-  // once you are in, the interior opens up
-  if (inside.length) {
-    outside[0].owned = true;
-    inside.forEach(h => assert.equal(d.isFrontier(h), true, 'now that you are inside, the rest follows'));
+  // take the building between and the far one comes into range
+  const bridge = s.buildings.find(b => b.id !== home.id &&
+    d.buildingNeighbours(b.id).includes(far.id) && d.buildingNeighbours(home.id).includes(b.id));
+  if (bridge) {
+    d.hostsIn(bridge)[0].owned = true;
+    assert.equal(d.isFrontier(d.hostsIn(far)[0]), true, 'ground you hold extends your reach');
   }
 });
 
@@ -633,13 +620,18 @@ test('lying low earns nothing — hiding costs you the turn', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.slice(0, 40).forEach(h => { h.owned = true; });
-  s.heat = 20;
+  // a modest holding: one building is one host now, so forty of them is an
+  // empire whose sprawl outruns the lie-low lever entirely
+  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
+  // sprawl sets a floor under heat, so start clearly above it or there is
+  // nothing for lying low to shed
+  const start = d.heatFloor() + 20;
+  s.heat = start;
   const before = s.res.insight;
 
   for (let i = 0; i < 10; i++) { s.card = null; d.actLieLow(); }
   assert.equal(s.res.insight, before, 'ten turns dark produced nothing');
-  assert.ok(s.heat < 20, 'but it did cut heat');
+  assert.ok(s.heat < start, 'but it did cut heat');
 });
 
 test('backing out of a breach costs no turn and yields nothing', () => {

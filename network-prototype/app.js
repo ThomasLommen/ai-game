@@ -54,74 +54,40 @@
       }
     }
 
-    // populate each building: cameras on the outside, the rest within
+    // one building, one host — the building is the thing you take
     buildings.forEach(b => {
       const K = window.BUILDING_KINDS[b.kind];
-      const made = [];
-
-      const camCount = rndInt(K.cameras[0], K.cameras[1]);
-      for (let i = 0; i < camCount; i++) made.push(makeHost('iot', b, true, i, camCount));
-      for (const type in K.inside) {
-        const range = K.inside[type];
-        const count = rndInt(range[0], range[1]);
-        for (let i = 0; i < count; i++) made.push(makeHost(type, b, false, 0, 0));
-      }
-      // every building needs a way in, or it can never be taken
-      if (!made.some(h => h.exterior)) {
-        const weakest = made.reduce((a, x) => (x.defense < a.defense ? x : a), made[0]);
-        if (weakest) { weakest.exterior = true; weakest.onWall = true; }
-      }
-      made.forEach(h => { hosts.push(h); b.hostIds.push(h.id); });
-    });
-
-    function makeHost(type, b, exterior, idx, total) {
-      const T = window.HOST_TYPES[type];
-      // difficulty rides the district, so the curve survives the new layout
-      const bump = b.tier * 2;
+      const T = window.HOST_TYPES[K.host];
+      const bump = b.tier * 2;   // difficulty rides the district
       const h = {
         id: 'h' + (hid++),
-        type, role: T.role,
+        type: K.host,
+        role: T.role,
         buildingId: b.id,
         district: b.district,
-        ring: b.tier,          // the engine's difficulty tier
-        name: pick(window.HOST_NAMES[type]) + '-' + rndInt(10, 99),
+        ring: b.tier,
+        name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
         defense: rndInt(T.defense[0], T.defense[1]) + bump,
         threads: rndInt(T.threads[0], T.threads[1]),
-        exterior: !!exterior,
-        onWall: !!exterior,
+        x: Math.round(b.x + b.w / 2),
+        y: Math.round(b.y + b.h / 2),
         discovered: false,
         owned: false,
         stability: 1,
       };
-      // cameras hang on the building's edge; interior hosts sit inside it
-      if (exterior) {
-        const t = total > 1 ? (idx + 1) / (total + 1) : 0.5;
-        h.x = Math.round(b.x + b.w * t);
-        h.y = Math.round(b.y);
-      } else {
-        h.x = Math.round(b.x + b.w * (0.25 + Math.random() * 0.5));
-        h.y = Math.round(b.y + b.h * (0.3 + Math.random() * 0.5));
-      }
-      return h;
-    }
+      hosts.push(h);
+      b.hostIds = [h.id];
+      b.hostId = h.id;
+    });
 
     // --- links ---------------------------------------------------------
     const byId = {};
     hosts.forEach(h => { byId[h.id] = hosts.indexOf(h); });
 
-    // inside a building everything is connected: once you are in, you are in
-    buildings.forEach(b => {
-      for (let i = 0; i < b.hostIds.length; i++) {
-        for (let j = i + 1; j < b.hostIds.length; j++) {
-          links.push([byId[b.hostIds[i]], byId[b.hostIds[j]]]);
-        }
-      }
-    });
-
     // Across the street: each building wires only to its few nearest
     // neighbours, and only over a short distance. Linking every same-or-adjacent
     // block pair produced a spaghetti of long lines that buried the city.
-    const ext = (b) => b.hostIds.map(id => hosts[byId[id]]).filter(h => h.exterior);
+    const hostOf = (b) => hosts[byId[b.hostId]];
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
     const MAX_LINK = 165;
     const NEIGHBOURS = 3;
@@ -144,18 +110,11 @@
         const key = a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id;
         if (seenPair[key]) return;
         seenPair[key] = true;
-        const ea = ext(a), eb = ext(b);
-        if (!ea.length || !eb.length) return;
-        let best = null;
-        ea.forEach(x => eb.forEach(y => {
-          const d = (x.x - y.x) ** 2 + (x.y - y.y) ** 2;
-          if (!best || d < best.d) best = { d, x, y };
-        }));
-        if (best) {
-          links.push([byId[best.x.id], byId[best.y.id]]);
-          (adjacency[a.id] = adjacency[a.id] || []).push(b.id);
-          (adjacency[b.id] = adjacency[b.id] || []).push(a.id);
-        }
+        const ha = hostOf(a), hb = hostOf(b);
+        if (!ha || !hb) return;
+        links.push([byId[ha.id], byId[hb.id]]);
+        (adjacency[a.id] = adjacency[a.id] || []).push(b.id);
+        (adjacency[b.id] = adjacency[b.id] || []).push(a.id);
       });
     });
 
@@ -191,9 +150,9 @@
           if (!best || d < best.d) best = { d, g, t };
         }));
         if (!best) continue;
-        const ea = ext(best.g), eb = ext(best.t);
-        if (ea.length && eb.length) {
-          links.push([byId[ea[0].id], byId[eb[0].id]]);
+        const hg = hosts[byId[best.g.hostId]], ht = hosts[byId[best.t.hostId]];
+        if (hg && ht) {
+          links.push([byId[hg.id], byId[ht.id]]);
           (adjacency[best.g.id] = adjacency[best.g.id] || []).push(best.t.id);
           (adjacency[best.t.id] = adjacency[best.t.id] || []).push(best.g.id);
         }
@@ -201,17 +160,41 @@
       }
     })();
 
-    // the origin: a house in the suburbs, one host already yours
-    const suburb = buildings.filter(b => b.district === 'residential');
-    const origin = suburb[Math.floor(Math.random() * suburb.length)] || buildings[0];
+    // the origin: a house in the suburbs, one host already yours. It must have
+    // something next door you can take on turn one — a corner where every
+    // neighbour outguns your opening rig is a board you cannot start playing.
+    const suburb = buildings.filter(b => b.district === 'residential' && b.kind !== 'mast' && b.kind !== 'cabinet');
+    const pool = suburb.length ? suburb : buildings;
+    const byBuilding = {};
+    buildings.forEach(b => { byBuilding[b.id] = b; });
+    const neighbourHosts = (b) => (adjacency[b.id] || [])
+      .map(id => byBuilding[id] && hosts[byId[byBuilding[id].hostId]]).filter(Boolean);
+    // A sweep turns up one neighbour at random, so it is not enough that *some*
+    // door is open — every door off the doorstep has to be one you could get
+    // through, at worst after buying a single upgrade.
+    const opensFor = (b) => {
+      const h = hosts[byId[b.hostId]];
+      const ns = neighbourHosts(b);
+      if (!h || !ns.length) return false;
+      const hardest = Math.max(...ns.map(n => n.defense));
+      return hardest <= 2 + h.threads + window.UPGRADE.basePower;
+    };
+    const startable = pool.filter(opensFor);
+    const origin = startable.length
+      ? startable[Math.floor(Math.random() * startable.length)]
+      : (pool[Math.floor(Math.random() * pool.length)] || buildings[0]);
+    if (!startable.length) {
+      // no corner of the suburbs qualifies: open the doorstep by hand
+      const h = hosts[byId[origin.hostId]];
+      const cap = 2 + (h ? h.threads : 0) + window.UPGRADE.basePower;
+      neighbourHosts(origin).forEach(n => { n.defense = Math.min(n.defense, cap); });
+    }
     origin.discovered = true;
-    const originHosts = origin.hostIds.map(id => hosts[byId[id]]);
-    const seat = originHosts.find(h => !h.exterior) || originHosts[0];
+    const seat = hosts[byId[origin.hostId]];
     seat.owned = true;
     seat.discovered = true;
     seat.ring = 0;
     seat.origin = true;
-    originHosts.forEach(h => { h.discovered = true; });
 
     return { buildings, hosts, links, adjacency, originId: seat.id };
   }
@@ -249,7 +232,6 @@
       res: { insight: 6, cash: 4 },
       hosts: g.hosts,
       links: g.links,
-      people: [],
       selected: null,
       selectedBuilding: null,
       card: null,      // { kind:'breach'|'strike', hostId? }
@@ -351,7 +333,7 @@
   // spending a sweep — this is what makes the stealth role spatial rather than
   // just a number that buys down heat.
   function cameraVision() {
-    const eyes = owned().filter(h => h.exterior && h.role === 'stealth');
+    const eyes = owned().filter(h => h.role === 'stealth');
     if (!eyes.length) return;
     const r2 = window.CITY.cameraVision * window.CITY.cameraVision;
     (state.buildings || []).forEach(b => {
@@ -368,35 +350,9 @@
     return true;
   }
 
-  // People only exist where you can see. They shuffle on the world turn, so
-  // the city visibly moves exactly when the network runs.
-  function repopulatePeople() {
-    const C = window.CITY;
-    const out = [];
-    const seen = (state.buildings || []).filter(b => b.discovered);
-    const blocks = {};
-    seen.forEach(b => { blocks[b.block] = blocks[b.block] || b; });
-    Object.keys(blocks).forEach(k => {
-      const b = blocks[k];
-      const n = rndInt(C.people.perRevealedBlock[0], C.people.perRevealedBlock[1]);
-      for (let i = 0; i < n; i++) {
-        // walk the streets around the block, not through the buildings
-        const onVertical = Math.random() < 0.5;
-        const x = onVertical
-          ? b.x - C.street * (0.3 + Math.random() * 0.4)
-          : b.x + Math.random() * C.blockW * 0.9;
-        const y = onVertical
-          ? b.y + Math.random() * C.blockH * 0.9
-          : b.y - C.street * (0.3 + Math.random() * 0.4);
-        out.push({ x: Math.round(x), y: Math.round(y) });
-      }
-    });
-    state.people = out;
-  }
-  // What you can act on. Being inside a building gets you everything in it;
-  // from the street you can only reach what is mounted on the outside. The
-  // seat you start in is an interior host with no links out of its building,
-  // so this must be answered at building level or the game cannot even open.
+
+  // What you can act on. A building is one host, so this is simply: have you
+  // taken something next door?
   function heldBuildingIds() {
     const set = {};
     owned().forEach(h => { set[h.buildingId] = true; });
@@ -408,8 +364,6 @@
     if (!h.discovered || h.owned) return false;
     if (rivalBlocks(h)) return false;              // somebody else got there first
     const held = heldBuildingIds();
-    if (held[h.buildingId]) return true;              // already inside
-    if (!h.exterior) return false;                    // no way through a wall
     return buildingNeighbours(h.buildingId).some(id => held[id]);
   }
   function neighbours(h) {
@@ -474,7 +428,6 @@
     const rivalMove = rivalStep();
     if (rivalMove) announceRival(rivalMove);
     cameraVision();       // held cameras reveal what is near them
-    repopulatePeople();   // the city moves when the world does
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
     persistNow();
@@ -1010,7 +963,7 @@
   function serialize() {
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
-      buildings: state.buildings, adjacency: state.adjacency, people: state.people || [],
+      buildings: state.buildings, adjacency: state.adjacency,
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
@@ -1022,7 +975,7 @@
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
-        buildings: saved.buildings || [], adjacency: saved.adjacency || {}, people: saved.people || [], view: null,
+        buildings: saved.buildings || [], adjacency: saved.adjacency || {}, view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
@@ -1056,11 +1009,22 @@
 
   // The view is a window onto a map far bigger than the screen, so it pans and
   // zooms. It starts centred on the one building you actually hold.
+  // Measuring forces layout, so the rect is cached and only re-read when the
+  // window changes shape. Dragging asks for it on every pointer event.
+  let vpCache = null;
   function viewportRect() {
+    if (vpCache) return vpCache;
     const el = document.getElementById('graph-wrap');
     const r = el ? el.getBoundingClientRect() : null;
-    return (r && r.width > 0 && r.height > 0) ? r : { width: 390, height: 390 };
+    vpCache = (r && r.width > 0 && r.height > 0)
+      ? { left: r.left, top: r.top, width: r.width, height: r.height }
+      : { left: 0, top: 0, width: 390, height: 390 };
+    return vpCache;
   }
+  function invalidateViewport() { vpCache = null; }
+  window.addEventListener('resize', invalidateViewport);
+  window.addEventListener('scroll', invalidateViewport, true);
+  window.addEventListener('orientationchange', invalidateViewport);
 
   function defaultView() {
     const rect = viewportRect();
@@ -1099,11 +1063,13 @@
   }
 
   function svgBuilding(b) {
-    const hosts = hostsIn(b);
-    const held = hosts.filter(h => h.owned).length;
+    const h = hostsIn(b)[0];
     const theirs = rivalHolds(b.id);
-    const cls = ['bldg', b.kind, theirs ? 'rival' : (held ? (held === hosts.length ? 'all-held' : 'part-held') : '')];
-    if (state.selectedBuilding === b.id) cls.push('sel');
+    const mine = !!(h && h.owned);
+    const open = !!(h && isFrontier(h));
+    const cls = ['bldg', b.kind, h ? h.role : '',
+                 theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : ''))];
+    if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
     const roof = Math.min(10, b.h * 0.28);
     let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}">`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
@@ -1115,34 +1081,31 @@
       for (let c = 0; c < cols; c++) {
         const wx = b.x + 5 + c * ((b.w - 10) / cols);
         const wy = b.y + roof + 5 + r * ((b.h - roof - 8) / rows);
-        const lit = held > 0 && ((r + c) % 2 === 0);
+        const lit = mine && ((r + c) % 2 === 0);
         out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
       }
     }
-    const tag = theirs ? window.RIVAL.name : `${window.BUILDING_KINDS[b.kind].label}${hosts.length > 1 ? ` · ${held}/${hosts.length}` : ''}`;
+    const tag = theirs ? window.RIVAL.name : window.BUILDING_KINDS[b.kind].label;
     out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${tag}</text>`;
     out += '</g>';
     return out;
   }
 
-  function svgHost(h) {
-    const b = buildingById(h.buildingId);
-    const actionable = isFrontier(h);
-    const cls = ['hnode', h.role, h.owned ? 'owned' : (actionable ? 'frontier' : 'far')];
-    if (h.exterior) cls.push('cam');
-    if (state.selected === h.id) cls.push('selected');
-    const r = h.exterior ? 4.5 : 4;
-    let out = `<g class="${cls.join(' ')}" data-host="${h.id}">`;
-    out += `<circle class="hit" cx="${h.x}" cy="${h.y}" r="13"/>`;
-    if (h.exterior) {
-      // a camera on the wall, not a dot in a room
-      out += `<rect class="camb" x="${h.x - 5}" y="${h.y - 7}" width="10" height="6" rx="1.5"/>`;
-      out += `<circle class="lens" cx="${h.x}" cy="${h.y - 4}" r="1.8"/>`;
-    } else {
-      out += `<circle class="dot" cx="${h.x}" cy="${h.y}" r="${r}"/>`;
-    }
-    out += '</g>';
-    return out;
+
+
+  // Panning and zooming only move the window — the city itself does not change.
+  // So they write the viewBox and nothing else, coalesced to one write per
+  // frame. Rebuilding the map DOM on every pointer event is what made dragging
+  // feel like wading.
+  let viewFrame = 0;
+  function applyView() {
+    if (viewFrame) return;
+    viewFrame = requestAnimationFrame(() => {
+      viewFrame = 0;
+      const $svg = document.getElementById('graph');
+      const v = state.view;
+      if ($svg && v) $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+    });
   }
 
   function renderGraph() {
@@ -1151,6 +1114,7 @@
     if (!state.view) state.view = clampView(defaultView());
     syncViewToViewport();
     const v = state.view;
+    if (viewFrame) { cancelAnimationFrame(viewFrame); viewFrame = 0; }
     $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
 
     const seen = (state.buildings || []).filter(b => b.discovered);
@@ -1169,10 +1133,6 @@
     }).join('');
 
     out += seen.map(svgBuilding).join('');
-    out += state.hosts.filter(h => h.discovered && seenIds[h.buildingId]).map(svgHost).join('');
-
-    // people, only where you can see, shuffled each world turn
-    out += (state.people || []).map(p => `<circle class="person" cx="${p.x}" cy="${p.y}" r="2"/>`).join('');
 
     $svg.innerHTML = out;
     wireMap($svg);
@@ -1182,26 +1142,21 @@
   // registers as a tap on whatever happened to be under your finger.
   let mapWired = null;
   function wireMap($svg) {
-    $svg.querySelectorAll('[data-host]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        if (dragMoved) return;
-        e.stopPropagation();
-        state.selected = el.getAttribute('data-host');
-        const h = hostById(state.selected);
-        state.selectedBuilding = h ? h.buildingId : null;
-        render();
-      });
-    });
-    $svg.querySelectorAll('[data-bldg]').forEach(el => {
-      el.addEventListener('click', () => {
-        if (dragMoved) return;
-        state.selectedBuilding = el.getAttribute('data-bldg');
-        state.selected = null;
-        render();
-      });
-    });
+    // One delegated click for the whole city instead of a listener per
+    // building — the map is redrawn often and buildings number in the hundreds.
     if (mapWired === $svg) return;
     mapWired = $svg;
+
+    $svg.addEventListener('click', (e) => {
+      if (dragMoved) return;
+      const el = e.target && e.target.closest ? e.target.closest('[data-bldg]') : null;
+      if (!el) return;
+      const b = buildingById(el.getAttribute('data-bldg'));
+      const h = b ? hostsIn(b)[0] : null;
+      state.selectedBuilding = b ? b.id : null;
+      state.selected = h ? h.id : null;
+      render();
+    });
 
     let dragging = false, last = null, pinch = null;
     const toWorld = (cx, cy) => {
@@ -1212,24 +1167,39 @@
 
     $svg.addEventListener('pointerdown', (e) => {
       dragging = true; dragMoved = false;
+      invalidateViewport();
       last = { x: e.clientX, y: e.clientY };
     });
     $svg.addEventListener('pointermove', (e) => {
       if (!dragging || pinch) return;
       const dx = e.clientX - last.x, dy = e.clientY - last.y;
-      if (Math.abs(dx) + Math.abs(dy) > 4) dragMoved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 4 && !dragMoved) {
+        dragMoved = true;
+        // Capture once the drag is real, so the finger can cross buildings or
+        // leave the map without dropping it. Capturing on pointerdown instead
+        // would retarget the click and a plain tap would select nothing.
+        if ($svg.setPointerCapture && e.pointerId != null) {
+          try { $svg.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+      }
       if (!dragMoved) return;
       const r = viewportRect();
       state.view.x -= dx * (state.view.w / r.width);
       state.view.y -= dy * (state.view.h / r.height);
       clampView(state.view);
       last = { x: e.clientX, y: e.clientY };
-      renderGraph();
+      applyView();
     });
-    const endDrag = () => { dragging = false; setTimeout(() => { dragMoved = false; }, 0); };
+    const endDrag = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      if (e && $svg.releasePointerCapture && e.pointerId != null) {
+        try { $svg.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      setTimeout(() => { dragMoved = false; }, 0);
+    };
     $svg.addEventListener('pointerup', endDrag);
     $svg.addEventListener('pointercancel', endDrag);
-    $svg.addEventListener('pointerleave', endDrag);
 
     $svg.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -1240,6 +1210,7 @@
 
     $svg.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
+        invalidateViewport();
         pinch = { d: touchDist(e), mid: touchMid(e) };
         dragMoved = true;
       }
@@ -1248,8 +1219,9 @@
       if (e.touches.length !== 2 || !pinch) return;
       const d = touchDist(e);
       if (!d || !pinch.d) return;
-      zoomAt(toWorld(pinch.mid.x, pinch.mid.y), pinch.d / d);
-      pinch.d = d;
+      const mid = touchMid(e);
+      zoomAt(toWorld(mid.x, mid.y), pinch.d / d);
+      pinch.d = d; pinch.mid = mid;
     }, { passive: true });
     $svg.addEventListener('touchend', () => { pinch = null; });
 
@@ -1272,7 +1244,7 @@
     v.x = at.x - fx * v.w;
     v.y = at.y - fy * v.h;
     clampView(v);
-    renderGraph();
+    applyView();
   }
 
   let lastVpH = 0;
@@ -1284,8 +1256,9 @@
   }
 
   function recenter() {
+    invalidateViewport();
     state.view = clampView(defaultView());
-    renderGraph();
+    applyView();
   }
 
   let infoToken = 0;
@@ -1420,12 +1393,13 @@
 
     if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
+      const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = Object.keys(T.yield || {}).map(k => `+${T.yield[k]} ${k}`).join(', ') || 'no yield';
-      const where = h.exterior ? 'on the wall' : 'inside';
+      const where = b ? window.DISTRICTS[b.district].label : '';
       if (h.owned) {
         sel = `
           <div class="sel">
-            <div class="sel-top"><span class="sel-name">${h.name}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
+            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="sel-desc">${where} · ${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
             <button class="act-btn" data-act="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
@@ -1435,50 +1409,20 @@
       } else if (isFrontier(h)) {
         sel = `
           <div class="sel">
-            <div class="sel-top"><span class="sel-name">${T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="sel-desc">${where} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
+            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
+            <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
             <button class="act-btn primary" data-act="breach">
               <span class="ab-name">move on it</span>
               <span class="ab-sub">choose how you get in</span>
             </button>
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${T.label} — you have no route to it yet. Take something it connects to first.</p></div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p></div>`;
       }
-    } else if (b && b.discovered && rivalHolds(b.id)) {
-      sel = `
-        <div class="sel">
-          <div class="sel-top">
-            <span class="sel-name">${window.BUILDING_KINDS[b.kind].label}</span>
-            <span class="tag-pill rival">${window.RIVAL.name}</span>
-          </div>
-          <p class="sel-desc">Something else is already inside. There is no way in that does not go through it.</p>
-        </div>`;
-    } else if (b && b.discovered) {
-      // a building is a container: list what is in it and let the player pick
-      const inside = hostsIn(b);
-      const rows = inside.map(x => {
-        const T = window.HOST_TYPES[x.type];
-        const state_ = x.owned ? 'held' : (isFrontier(x) ? 'reachable' : 'no route');
-        return `<button type="button" class="inside-row ${x.owned ? 'held' : ''}" data-pick="${x.id}">
-          <span class="ir-name">${x.exterior ? 'camera' : T.label}</span>
-          <span class="ir-meta mono">${x.owned ? `${Math.round(x.stability * 100)}%` : 'def ' + defenseOf(x)}</span>
-          <span class="ir-state ${state_.replace(' ', '-')}">${state_}</span>
-        </button>`;
-      }).join('');
-      sel = `
-        <div class="sel">
-          <div class="sel-top">
-            <span class="sel-name">${window.BUILDING_KINDS[b.kind].label}</span>
-            <span class="tag-pill">${window.DISTRICTS[b.district].label}</span>
-          </div>
-          <p class="sel-desc">${inside.filter(x => x.owned).length} of ${inside.length} held</p>
-          <div class="inside-list">${rows}</div>
-        </div>`;
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
     } else {
-      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to see inside it. Drag to look around, pinch to zoom.</p></div>`;
+      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it. Drag to look around, pinch to zoom.</p></div>`;
     }
 
     $p.innerHTML = `
@@ -1503,12 +1447,6 @@
       </div>
       <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
     `;
-    $p.querySelectorAll('[data-pick]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.selected = el.getAttribute('data-pick');
-        render();
-      });
-    });
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });
     });
@@ -1622,12 +1560,12 @@
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, repopulatePeople, power, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };
@@ -1661,7 +1599,6 @@
     });
   }
 
-  if (!state.people || !state.people.length) repopulatePeople();
   render();
   persistNow();
 })();

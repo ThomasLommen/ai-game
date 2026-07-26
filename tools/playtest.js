@@ -17,6 +17,8 @@ const { loadNetwork } = require(path.join(__dirname, '..', 'test', 'helpers', 'l
 
 const argv = process.argv.slice(2);
 const argOf = (name, dflt) => {
+  const eq = argv.find(a => a.startsWith('--' + name + '='));
+  if (eq) return eq.slice(name.length + 3);
   const i = argv.indexOf('--' + name);
   return i === -1 ? dflt : argv[i + 1];
 };
