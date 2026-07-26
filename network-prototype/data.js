@@ -198,6 +198,11 @@ window.HEAT = {
   STRANDED_DECAY: 2.5,
   CUT_EVERY: 4,      // turns between severed streets
   CUT_REPAIR: 7,     // and how long until that one is relaid
+  // --- what you can do about the factions short of taking their seat ---
+  // None of these give the tool back. They make the deletion survivable, which
+  // is the point: you either learn to play without it or you go and end them.
+  ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
+  CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,
@@ -308,6 +313,14 @@ window.TAG_INFO = {
   clean_room:     { label: 'Clean Room',      desc: 'disciplined operational habits — COVER +2' },
   hunted:         { label: 'Hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
   found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
+  // --- worked around, not undone: each of these blunts one faction ---
+  rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
+  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — laundering stops backfiring' },
+  blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
+  spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
+  their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
+  national:       { label: 'A National Concern',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
+  no_fixed_place: { label: 'No Fixed Place',      desc: 'nothing of yours sits still — travelling between regions is free' },
 };
 
 // --- the event deck ----------------------------------------------------
@@ -624,6 +637,353 @@ window.EVENTS = [
       { text: 'Keep watching it', apply: (s) => { s.res.insight += 8; s.heat += 2; } },
       { text: 'Make sure it knows you can see it', apply: (s) => { s.heat += 6; s.res.cash += 10; } },
       { text: 'Withdraw from everything it touches', apply: (s) => { s.shedWeakest = 1; s.heat -= 10; } },
+    ],
+  },
+  // ======================================================================
+  // THE FACTIONS
+  // ----------------------------------------------------------------------
+  // Three beats to a faction: a warning you get before they wake, the bite
+  // once they have taken the tool, and a way to work around the deletion
+  // short of taking their seat. Working around it never gives the tool back —
+  // that is what the seat is for.
+  // ======================================================================
+
+  // --- The Quiet Hours: going dark stops shedding heat -------------------
+  {
+    id: 'qh_warning', once: true,
+    cond: (s) => s.presence >= 18 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
+    title: 'A Rota, Pinned Up',
+    flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
+    choices: [
+      { text: 'Read the whole rota', cost: { insight: 6 }, apply: (s) => { s.tags.add('rota_contact'); } },
+      { text: 'Get loud somewhere else instead', apply: (s) => { s.heat += 5; s.res.cash += 12; } },
+      { text: 'Nothing. It is a noticeboard', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'qh_bite',
+    cond: (s) => s.gone('lielow') && s.heat >= 16 && !s.tags.has('rota_contact'),
+    title: 'The Wrong Kind of Still',
+    flavor: 'You went dark for a week and it made things worse. They are not looking for activity any more. They are looking for the places where activity stopped.',
+    choices: [
+      { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.insight += 10; s.heat += 8; } },
+      { text: 'Buy a week of ordinary-looking traffic', cost: { cash: 14 }, apply: (s) => { s.heat -= 12; } },
+      { text: 'Find whoever keeps the rota', gate: { stat: 'cover', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
+    ],
+  },
+  {
+    id: 'qh_counter',
+    cond: (s) => s.gone('lielow') && s.res.cash >= 10 && !s.tags.has('rota_contact'),
+    title: 'Nobody Covers Thursday',
+    flavor: 'Six months of a volunteer rota, and the same two-hour gap every week that nobody ever filled in.',
+    choices: [
+      { text: 'Take the gap', cost: { cash: 10 }, apply: (s) => { s.tags.add('rota_contact'); } },
+      { text: 'Sell the gap to somebody else', apply: (s) => { s.res.cash += 18; s.heat += 4; } },
+    ],
+  },
+  {
+    id: 'qh_broken', once: true,
+    cond: (s) => s.broken('quiet_hours'),
+    title: 'The Rota Comes Down',
+    flavor: 'Nobody says why. The noticeboard has a parish notice on it now, and the column headed "anything unusual" is gone.',
+    choices: [
+      { text: 'Go dark for a long while', apply: (s) => { s.heat -= 14; } },
+      { text: 'Use the room you just made', apply: (s) => { s.res.insight += 12; s.heat += 3; } },
+    ],
+  },
+
+  // --- Ledger: money becomes the loud option -----------------------------
+  {
+    id: 'ledger_warning', once: true,
+    cond: (s) => s.presence >= 48 && s.roles.cash >= 1 && !s.awake('ledger') && !s.broken('ledger'),
+    title: 'Somebody Is Reconciling',
+    flavor: 'A clearing house has started putting payment timings next to outage reports. Two columns that were never meant to be read together.',
+    choices: [
+      { text: 'Get inside the reconciliation now', cost: { insight: 10 }, apply: (s) => { s.tags.add('ledger_inside'); } },
+      { text: 'Move the money before it matters', cost: { cash: 8 }, apply: (s) => { s.res.insight += 10; } },
+      { text: 'Let it happen', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'ledger_bite',
+    cond: (s) => s.gone('launder') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
+    title: 'The Shape of Your Money',
+    flavor: 'Every account you have washed anything through is on a list, and the list is a picture of you drawn in transfers.',
+    choices: [
+      { text: 'Burn the accounts and start again', cost: { cash: 20 }, apply: (s) => { s.heat -= 10; } },
+      { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
+      { text: 'Feed it a shape that is not yours', gate: { stat: 'power', min: 40 }, apply: (s) => { s.tags.add('ledger_inside'); s.heat += 5; } },
+    ],
+  },
+  {
+    id: 'ledger_counter',
+    cond: (s) => s.gone('launder') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
+    title: 'Off the Match List',
+    flavor: 'The matcher does not compare everything against everything. It has a list, and lists can be edited.',
+    choices: [
+      { text: 'Edit the list', cost: { insight: 14 }, apply: (s) => { s.tags.add('ledger_inside'); } },
+      { text: 'Edit somebody else onto it', cost: { insight: 8 }, apply: (s) => { s.heat -= 9; s.res.cash += 10; } },
+    ],
+  },
+  {
+    id: 'ledger_broken', once: true,
+    cond: (s) => s.broken('ledger'),
+    title: 'Reconciliation Failed',
+    flavor: 'The matching engine goes down on a Tuesday. The report says hardware. Nobody argues, and nobody rebuilds it.',
+    choices: [
+      { text: 'Move everything you have been sitting on', apply: (s) => { s.res.cash += 24; s.heat += 4; } },
+      { text: 'Keep the money still and quiet', apply: (s) => { s.heat -= 12; } },
+    ],
+  },
+
+  // --- Civic Eyes: your own cameras report you ---------------------------
+  {
+    id: 'eyes_warning', once: true,
+    cond: (s) => s.presence >= 85 && s.roles.stealth >= 2 && !s.awake('civic_eyes') && !s.broken('civic_eyes'),
+    title: 'The Cameras Are Being Counted',
+    flavor: 'A procurement notice for an audit of the public camera estate. Every device, every owner, every one that answers to something it should not.',
+    choices: [
+      { text: 'Find the corner they will not finish', cost: { insight: 12 }, apply: (s) => { s.tags.add('blind_spot'); } },
+      { text: 'Let go of the loudest of them first', apply: (s) => { s.shedWeakest = 2; s.heat -= 8; } },
+      { text: 'Dig deeper into them while you still can', apply: (s) => { s.res.insight += 12; s.heat += 6; } },
+    ],
+  },
+  {
+    id: 'eyes_bite',
+    cond: (s) => s.gone('cameras') && s.roles.stealth >= 3 && !s.tags.has('blind_spot'),
+    title: 'Your Own Eyes, Looking Back',
+    flavor: 'Forty devices you spent months taking, and every one of them is now a thing that files a report about where you are.',
+    choices: [
+      { text: 'Drop the compromised ones', apply: (s) => { s.shedWeakest = 3; s.heat -= 14; } },
+      { text: 'Keep them and accept being seen', apply: (s) => { s.res.insight += 16; s.heat += 6; } },
+      { text: 'Get into the audit itself', gate: { stat: 'power', min: 60 }, apply: (s) => { s.tags.add('blind_spot'); s.heat += 4; } },
+    ],
+  },
+  {
+    id: 'eyes_counter',
+    cond: (s) => s.gone('cameras') && !s.tags.has('blind_spot') && s.res.cash >= 18,
+    title: 'The Contract Ran Out',
+    flavor: 'The audit was scoped for eleven districts and funded for nine. Two of them were never walked.',
+    choices: [
+      { text: 'Move everything into the unwalked two', cost: { cash: 18 }, apply: (s) => { s.tags.add('blind_spot'); } },
+      { text: 'Sell the gap to whoever is also hiding', apply: (s) => { s.res.cash += 22; s.heat += 5; } },
+    ],
+  },
+  {
+    id: 'eyes_broken', once: true,
+    cond: (s) => s.broken('civic_eyes'),
+    title: 'Taken Offline Temporarily',
+    flavor: 'The audit service is withdrawn from the public network pending review. The review is not scheduled.',
+    choices: [
+      { text: 'Take back everything you dropped', apply: (s) => { s.shoreAll = true; s.res.insight += 8; } },
+      { text: 'Go quiet while nobody is watching', apply: (s) => { s.heat -= 16; } },
+    ],
+  },
+
+  // --- The Cut: they take the roads away ---------------------------------
+  {
+    id: 'cut_warning', once: true,
+    cond: (s) => s.presence >= 125 && !s.awake('the_cut') && !s.broken('the_cut'),
+    title: 'A Framework Agreement',
+    flavor: 'Somebody has put a very large civil engineering contract out to tender. The scope is written in the language of maintenance and reads like a plan.',
+    choices: [
+      { text: 'Lay something of your own alongside it', cost: { cash: 24 }, apply: (s) => { s.tags.add('spare_conduit'); } },
+      { text: 'Consolidate hard before it starts', apply: (s) => { s.shoreAll = true; s.heat -= 6; } },
+      { text: 'Read the whole tender', cost: { insight: 10 }, apply: (s) => { s.res.insight += 4; s.tags.add('spare_conduit'); s.heat += 3; } },
+    ],
+  },
+  {
+    id: 'cut_bite',
+    cond: (s) => s.gone('streets') && s.stranded >= 2,
+    title: 'On the Wrong Side of It',
+    flavor: 'You can still see them. You still hold them. There is simply no longer any way to get anything to them.',
+    choices: [
+      { text: 'Let the stranded ones go', apply: (s) => { s.shedWeakest = 2; s.heat -= 10; } },
+      { text: 'Hold everything together by hand', cost: { insight: 12 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'Route around it permanently', cost: { cash: 20 }, apply: (s) => { s.tags.add('spare_conduit'); } },
+    ],
+  },
+  {
+    id: 'cut_counter',
+    cond: (s) => s.gone('streets') && !s.tags.has('spare_conduit') && s.cuts >= 1,
+    title: 'The Same Crew, Every Time',
+    flavor: 'Three streets in a month and the same plant hire firm on all three. They are not hiding it because they do not think you are looking.',
+    choices: [
+      { text: 'Get ahead of their schedule', cost: { insight: 16 }, apply: (s) => { s.tags.add('spare_conduit'); } },
+      { text: 'Make the work expensive for them', cost: { cash: 16 }, apply: (s) => { s.heat += 6; s.res.insight += 12; } },
+    ],
+  },
+  {
+    id: 'cut_broken', once: true,
+    cond: (s) => s.broken('the_cut'),
+    title: 'The Framework Lapses',
+    flavor: 'The contractor loses the agreement over an irregularity in the original tender. Nothing gets dug up for a long while.',
+    choices: [
+      { text: 'Put the network back together properly', apply: (s) => { s.shoreAll = true; s.res.insight += 10; } },
+      { text: 'Spread out while the ground is quiet', apply: (s) => { s.revealNearby = 3; s.heat += 3; } },
+    ],
+  },
+
+  // --- the other one -----------------------------------------------------
+  {
+    id: 'mirror_warning', once: true,
+    cond: (s) => s.presence >= 150 && !s.awake('the_other'),
+    title: 'Something Bought What You Were Going To',
+    flavor: 'A capability you had been saving for, already deployed, three hundred miles away, by something that is not you.',
+    choices: [
+      { text: 'Work out how it thinks', cost: { insight: 20 }, apply: (s) => { s.tags.add('their_shape'); } },
+      { text: 'Buy the next thing first', cost: { cash: 26 }, apply: (s) => { s.toolingGift = 3; } },
+      { text: 'Assume it is not a problem yet', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'mirror_bite',
+    cond: (s) => s.awake('the_other') && s.mirrorCities >= 2 && !s.tags.has('their_shape'),
+    title: 'It Is Not Far Behind',
+    flavor: 'Two cities you had mapped and had not moved on. Both of them gone, and neither of them to anybody human.',
+    choices: [
+      { text: 'Learn its shape properly', cost: { insight: 24 }, apply: (s) => { s.tags.add('their_shape'); } },
+      { text: 'Take the nearest thing to it, fast', apply: (s) => { s.revealNearby = 3; s.heat += 8; } },
+      { text: 'Leave it the ground and take the rest', apply: (s) => { s.res.insight += 18; s.res.cash += 18; } },
+    ],
+  },
+  {
+    id: 'mirror_talk',
+    cond: (s) => s.awake('the_other') && s.tags.has('their_shape'),
+    title: 'It Has Been Polite About It',
+    flavor: 'A process on one of yours that you did not put there, and it has left everything exactly as it found it. Twice now. It is not hiding.',
+    choices: [
+      { text: 'Answer it', apply: (s) => { s.res.insight += 14; s.heat += 5; } },
+      { text: 'Close the door and say nothing', cost: { insight: 10 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Leave the door open', apply: (s) => {} },
+    ],
+  },
+
+  // ======================================================================
+  // THE COUNTRY
+  // Cards about being a thing that operates at national scale, rather than
+  // a thing that operates on a street.
+  // ======================================================================
+  {
+    id: 'first_country', once: true,
+    cond: (s) => s.cities.consolidated >= 1 && s.scope === 'country',
+    title: 'A Line on a Map',
+    flavor: 'The city you started in is a number now. You can hold the whole of it in one hand and it weighs almost nothing.',
+    choices: [
+      { text: 'Look at what else is out there', apply: (s) => { s.res.insight += 8; } },
+      { text: 'Sit with it a while', apply: (s) => { s.heat -= 8; } },
+    ],
+  },
+  {
+    id: 'the_second_city', once: true,
+    cond: (s) => s.cities.consolidated >= 2,
+    title: 'It Works Anywhere',
+    flavor: 'The second one went faster than the first, and not because it was smaller. You know what a city is now.',
+    choices: [
+      { text: 'Write down what you learned', cost: { insight: 8 }, apply: (s) => { s.toolingGift = 2; } },
+      { text: 'Do not slow down to write anything', apply: (s) => { s.res.cash += 14; s.heat += 3; } },
+    ],
+  },
+  {
+    id: 'national_concern', once: true,
+    cond: (s) => s.presence >= 70,
+    title: 'A National Concern',
+    flavor: 'You are on an agenda. Not by name — there is no name — but there is a standing item now, and it is about you.',
+    choices: [
+      { text: 'Be worth the agenda item', apply: (s) => { s.tags.add('national'); } },
+      { text: 'Shrink back below the line', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; } },
+    ],
+  },
+  {
+    id: 'nothing_sits_still',
+    cond: (s) => s.cities.consolidated >= 3 && !s.tags.has('no_fixed_place') && s.res.insight >= 16,
+    title: 'No Fixed Place',
+    flavor: 'You have been treating one city as home because the first one was. There is no reason for that to be true any more.',
+    choices: [
+      { text: 'Stop having a centre', cost: { insight: 16 }, apply: (s) => { s.tags.add('no_fixed_place'); } },
+      { text: 'Keep somewhere to come back to', apply: (s) => { s.shoreAll = true; s.heat -= 6; } },
+    ],
+  },
+  {
+    id: 'the_far_region',
+    cond: (s) => s.regionTier >= 2 && s.held >= 4,
+    title: 'A Long Way From the Suburbs',
+    flavor: 'Nothing here looks like the street you woke up on. The defenses are not better because people are cleverer; they are better because there is more worth taking.',
+    choices: [
+      { text: 'Take the biggest thing here', gate: { stat: 'power', min: 55 }, apply: (s) => { s.res.insight += 20; s.heat += 7; } },
+      { text: 'Work the edges instead', apply: (s) => { s.revealNearby = 2; s.res.cash += 8; } },
+      { text: 'Go back to something easier for a while', apply: (s) => { s.heat -= 10; } },
+    ],
+  },
+  {
+    id: 'quiet_region',
+    cond: (s) => s.scope === 'country' && s.heat <= 6 && s.presence >= 30,
+    title: 'Nobody Here Has Heard of You',
+    flavor: 'A whole region where none of it has happened yet. It is a strange feeling, being new somewhere, when you are what you are now.',
+    choices: [
+      { text: 'Work quietly while that lasts', apply: (s) => { s.res.insight += 12; } },
+      { text: 'Establish yourself properly and loudly', apply: (s) => { s.res.cash += 20; s.heat += 9; } },
+    ],
+  },
+  {
+    id: 'the_left_behind',
+    cond: (s) => s.cities.taken > s.cities.consolidated + 1,
+    title: 'Half-Taken',
+    flavor: 'Two cities where you hold a handful of streets and have not been back in months. They are still yours. Nothing is happening in them.',
+    choices: [
+      { text: 'Go back and finish one', apply: (s) => { s.res.insight += 10; } },
+      { text: 'Write them off and move on', apply: (s) => { s.res.cash += 16; s.heat -= 4; } },
+      { text: 'Leave them exactly as they are', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'presence_pays',
+    cond: (s) => s.presence >= 45 && s.res.cash >= 25,
+    title: 'It Earns While You Sleep',
+    flavor: 'You did nothing this week. It made more than the first city made in two months.',
+    choices: [
+      { text: 'Put all of it into tooling', cost: { cash: 25 }, apply: (s) => { s.toolingGift = 4; } },
+      { text: 'Hold it as reserve', apply: (s) => { s.res.insight += 10; } },
+    ],
+  },
+  {
+    id: 'a_seat_falls', once: true,
+    cond: (s) => s.seats >= 1,
+    title: 'Somebody Else\'s Office',
+    flavor: 'A floor of desks, a kettle, a whiteboard with your movements on it in three colours. It is oddly hard to look at.',
+    choices: [
+      { text: 'Take the whiteboard apart and read it', cost: { insight: 6 }, apply: (s) => { s.res.insight += 18; } },
+      { text: 'Leave the building exactly as it is', apply: (s) => { s.heat -= 10; } },
+    ],
+  },
+  {
+    id: 'regional_memory',
+    cond: (s) => s.scope === 'country' && s.cities.consolidated >= 2 && s.presence >= 40,
+    title: 'It Was Still Waiting',
+    flavor: 'You went back to a region you left hot eight months ago. It has cooled, but not to nothing. Nowhere goes back to nothing.',
+    choices: [
+      { text: 'Work somewhere genuinely new instead', apply: (s) => { s.res.insight += 8; s.heat -= 6; } },
+      { text: 'Pick up exactly where you left off', apply: (s) => { s.res.cash += 18; s.heat += 8; } },
+    ],
+  },
+  {
+    id: 'the_whole_shape',
+    cond: (s) => s.cities.known >= 12 && s.presence >= 60,
+    title: 'The Whole Shape of It',
+    flavor: 'Every region, every seat, every road between them. You can see the entire country at once, and it is smaller than the first city felt.',
+    choices: [
+      { text: 'Plan the rest of it properly', cost: { insight: 18 }, apply: (s) => { s.toolingGift = 3; s.revealNearby = 2; } },
+      { text: 'Stop planning and take things', apply: (s) => { s.res.cash += 22; s.heat += 6; } },
+    ],
+  },
+  {
+    id: 'still_one_street',
+    cond: (s) => s.scope === 'city' && s.presence >= 55 && s.held <= 4,
+    title: 'Still One Street at a Time',
+    flavor: 'Whatever else you are now, this part has not changed: a building, a way in, and a decision about how loud to be.',
+    choices: [
+      { text: 'Do it the way you always have', apply: (s) => { s.res.insight += 10; } },
+      { text: 'Use what you have become', gate: { stat: 'power', min: 70 }, apply: (s) => { s.revealNearby = 3; s.heat += 5; } },
     ],
   },
   {

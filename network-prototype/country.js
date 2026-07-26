@@ -94,6 +94,7 @@ window.COUNTRY = {
   // Without this the conversion swings on how thread-rich the city happened to
   // be — a warehouse district could cost you 40% of your power, a suburb none.
   threadsPerPresence: 6,
+  nationalMult: 1.35,  // the `national` tag: presence earns more and is louder
   heatPer: 0.10,      // added to heat drift, per presence
   heatFloorPer: 0.18, // and it sets a floor you cannot lie your way under
 };
@@ -179,6 +180,7 @@ window.MIRROR = {
   buyChance: 0.35,
   capPriceMult: 1.4,       // it pays over the odds; it is in a hurry too
   maxShareOfCountry: 0.34,
+  readSlowdown: 3,         // turns added to its cadence once you know its shape
   name: 'the other one',
 };
 

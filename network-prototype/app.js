@@ -445,8 +445,10 @@
   // Stealth holdings are what lower the floor: that is what they are for.
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
-    // audited cameras are not cover, they are witnesses
-    const quiet = ruleBroken('cameras') ? 0 : ownedOf('stealth').length;
+    // audited cameras are not cover, they are witnesses — unless you found the
+    // corner of the audit that never got finished
+    const audited = ruleBroken('cameras') && !has('blind_spot');
+    const quiet = audited ? 0 : ownedOf('stealth').length;
     const loudPart = 0.8 * loud;
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
                             0.9 * quiet + (has('dark_relay') ? 3 : 0));
@@ -472,7 +474,7 @@
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
   function cover() {
-    const eyes = ruleBroken('cameras')
+    const eyes = (ruleBroken('cameras') && !has('blind_spot'))
       ? 0
       : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
@@ -552,10 +554,10 @@
     // normally your stealth kit buys heat down; audited, every one of them
     // is a thing reporting where you are
     const stealthCount = ownedOf('stealth').length;
-    h += ruleBroken('cameras')
+    h += (ruleBroken('cameras') && !has('blind_spot'))
       ? window.HEAT.AUDITED_CAMERA * stealthCount
       : -window.HEAT.IOT_COVER * stealthCount;
-    h += presence() * window.COUNTRY.heatPer;
+    h += presence() * window.COUNTRY.heatPer * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
     return h;
   }
@@ -789,11 +791,37 @@
   // when the simulation is genuinely in the situation it describes, so the
   // fiction can never contradict what the player is looking at.
   function eventContext() {
+    const co = CO() || {};
+    const cities = co.cities || [];
     return {
       held: owned().length, heat: state.heat, power: power(), cover: cover(),
       turn: state.turn, res: state.res, tags: state.tags,
       roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
+      // --- the country, so a card can be about where you are as well as what
+      // you hold. `gone` is the one a faction card is usually asking about.
+      scope: state.scope,
+      region: state.region,
+      regionTier: regionById(state.region).tier,
+      presence: co.presence || 0,
+      cities: {
+        total: cities.length,
+        taken: cities.filter(c => c.taken).length,
+        consolidated: cities.filter(c => c.consolidated).length,
+        known: cities.filter(c => c.known).length,
+      },
+      seats: cities.filter(c => c.factionId && c.consolidated).length,
+      gone: (rule) => ruleBroken(rule),
+      awake: (id) => factionAwake(id),
+      wokeAgo: (id) => {
+        const f = factionState(id);
+        return f && f.awake ? state.turn - f.wokeTurn : -1;
+      },
+      broken: (id) => !!(factionState(id) || {}).broken,
+      stranded: strandedHosts().length,
+      cuts: (state.cuts || []).length,
+      mirrorCities: ((co.mirror || {}).cities || []).length,
+      regionHeat: co.regionHeat || {},
     };
   }
   // how many buildings you hold in each district — lets an event only fire
@@ -963,11 +991,18 @@
     state.ap = 0;
     // The Quiet Hours watch for absence. While they are up, going dark buys
     // you nothing — the turn is spent and the heat stays exactly where it was.
+    // A name inside the rota gets you a window they are not watching: not the
+    // tool back, but not nothing either.
     const watched = ruleBroken('lielow');
-    if (!watched) state.heat = clampHeat(state.heat - window.HEAT.LIE_LOW);
+    const shed = watched
+      ? (has('rota_contact') ? window.HEAT.LIE_LOW * window.HEAT.ROTA_SHARE : 0)
+      : window.HEAT.LIE_LOW;
+    if (shed) state.heat = clampHeat(state.heat - shed);
     afterSnap(before);
     pushLog(watched
-      ? 'You go quiet. Somebody notices the quiet.'
+      ? (has('rota_contact')
+          ? 'You go quiet in the window nobody is covering.'
+          : 'You go quiet. Somebody notices the quiet.')
       : 'You go quiet for a while. Nothing earns while you are dark.');
     endTurn({ silent: true }); // going dark means going dark -- no production
     render();
@@ -996,14 +1031,21 @@
     // Ledger matches payment patterns against outage reports. Washing money
     // through it does not clean anything — it draws a shape somebody is
     // already looking for.
-    const matched = ruleBroken('launder');
+    // Somebody inside the clearing house drops your accounts off the match
+    // list. It does not clean the money — it just stops it pointing at you.
+    const matched = ruleBroken('launder') && !has('ledger_inside');
+    const neutral = ruleBroken('launder') && has('ledger_inside');
     state.heat = matched
       ? clampHeat(state.heat + window.LAUNDER.heat * window.HEAT.LEDGER_BACKFIRE)
-      : clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
+      : neutral
+        ? state.heat
+        : clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
     afterSnap(before);
     pushLog(matched
       ? 'The money moves, and it moves in a pattern somebody is watching for.'
-      : 'Money moves, and so does the paperwork pointing at you.');
+      : neutral
+        ? 'The money moves. Your accounts are not on the list it is matched against.'
+        : 'Money moves, and so does the paperwork pointing at you.');
     persistNow();
     render();
   }
@@ -1169,7 +1211,9 @@
   function presenceYield() {
     const p = CO().presence || 0;
     const y = window.COUNTRY.presenceYield;
-    return { insight: p * y.insight, cash: p * y.cash };
+    // being a thing that gets discussed cuts both ways
+    const m = has('national') ? window.COUNTRY.nationalMult : 1;
+    return { insight: p * y.insight * m, cash: p * y.cash * m };
   }
 
   // Swapping which city you are standing in. The campaign — capabilities,
@@ -1266,7 +1310,10 @@
   }
 
   // --- country actions ---
-  function countryCost(kind) { return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap; }
+  function countryCost(kind) {
+    if (kind === 'move' && has('no_fixed_place')) return 0;
+    return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
+  }
   function canAffordCountry(kind) { return !state.card && !state.over && state.ap >= countryCost(kind); }
 
   function actTravel(id) {
@@ -1451,7 +1498,8 @@
 
     const cap = Math.floor(CO().cities.length * M.maxShareOfCountry);
     if (m.cities.length >= cap) return null;
-    const cadence = Math.max(M.fastEvery, M.actEvery - Object.keys(m.caps).length);
+    const cadence = Math.max(M.fastEvery, M.actEvery - Object.keys(m.caps).length)
+      + (has('their_shape') ? M.readSlowdown : 0);
     if (state.turn - m.lastActed < cadence) return null;
 
     const options = mirrorTakeable();
@@ -1505,7 +1553,10 @@
         state.links = state.links.filter(([x, y]) => !((x === ia && y === ib) || (x === ib && y === ia)));
       }
       state.lastCutTurn = state.turn;
-      state.cuts = (state.cuts || []).concat([{ a, b, until: state.turn + window.HEAT.CUT_REPAIR }]);
+      const repair = has('spare_conduit')
+      ? Math.ceil(window.HEAT.CUT_REPAIR * window.HEAT.CONDUIT_SHARE)
+      : window.HEAT.CUT_REPAIR;
+    state.cuts = (state.cuts || []).concat([{ a, b, until: state.turn + repair }]);
       return { a, b };
     }
     return null;

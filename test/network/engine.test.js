@@ -1521,3 +1521,156 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
   assert.equal(round.country.mirror.cities.length, 1);
   assert.equal(round.country.mirror.caps.deep_root, 1);
 });
+
+// --- the deck ------------------------------------------------------------
+// A card nobody can ever draw is a card that was never written. This sweeps a
+// spread of plausible campaign states and checks the whole deck is live.
+
+function sampleContexts(window) {
+  const RULES = ['lielow', 'launder', 'cameras', 'streets', 'mirror'];
+  const FIDS = window.FACTIONS.map(f => f.id);
+  const WAKES = window.FACTIONS.map(f => f.wakes);
+  const out = [];
+  const base = (o) => {
+    const rules = new Set(o.brokenRules || []);
+    const awake = new Set(o.awakeIds || []);
+    const done = new Set(o.brokenIds || []);
+    return Object.assign({
+      held: 0, heat: 0, power: 2, cover: 1, turn: 1,
+      res: { insight: 0, cash: 0 }, tags: new Set(o.tags || []),
+      roles: { compute: 0, cash: 0, stealth: 0 },
+      districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
+      scope: 'city', region: 'home', regionTier: 0, presence: 0,
+      cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
+      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {},
+      gone: (r) => rules.has(r), awake: (id) => awake.has(id),
+      wokeAgo: () => -1, broken: (id) => done.has(id),
+    }, o.over || {});
+  };
+
+  [0, 20, 40, 55, 70, 90, 110, 130, 155, 175, 200].forEach(presence => {
+    ['city', 'country'].forEach(scope => {
+      [0, 3, 6, 12, 25].forEach(held => {
+        [0, 8, 18, 30].forEach(heat => {
+          [0, 1, 2, 3, 4].forEach(regionTier => {
+            out.push(base({
+              brokenRules: RULES.filter((r, i) => presence >= WAKES[i]),
+              awakeIds: FIDS.filter((f, i) => presence >= WAKES[i]),
+              over: {
+                held, heat, presence, scope, regionTier,
+                power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
+                cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
+                res: { insight: 5 + presence, cash: 5 + presence },
+                roles: { compute: Math.ceil(held / 2), cash: Math.ceil(held / 4), stealth: Math.ceil(held / 3) },
+                districts: { residential: Math.ceil(held / 3), commercial: Math.ceil(held / 4), business: Math.ceil(held / 5), industrial: Math.ceil(held / 6) },
+                cities: { total: 18, taken: Math.min(18, 1 + Math.floor(presence / 12)), consolidated: Math.floor(presence / 15), known: Math.min(18, 3 + Math.floor(presence / 8)) },
+                seats: Math.floor(presence / 60), stranded: presence > 140 ? 3 : 0,
+                cuts: presence > 140 ? 2 : 0, mirrorCities: presence > 170 ? 3 : 0,
+                turn: 10 + presence,
+              },
+            }));
+          });
+        });
+      });
+    });
+  });
+
+  // every counter-play tag held, and each faction finished in turn
+  FIDS.forEach(fid => [40, 90, 150, 200].forEach(presence => {
+    out.push(base({
+      tags: Object.keys(window.TAG_INFO),
+      brokenIds: [fid], awakeIds: FIDS.filter(x => x !== fid), brokenRules: RULES,
+      over: {
+        presence, held: 14, heat: 12, power: 60, cover: 8, turn: 120,
+        res: { insight: 40, cash: 40 },
+        roles: { compute: 4, cash: 3, stealth: 4 },
+        districts: { residential: 5, commercial: 4, business: 3, industrial: 2 },
+        cities: { total: 18, taken: 9, consolidated: 6, known: 15 },
+        seats: 2, stranded: 2, cuts: 2, mirrorCities: 3,
+      },
+    }));
+  }));
+  return out;
+}
+
+test('deck: every card is reachable somewhere in a campaign', () => {
+  const { window } = loadNetwork();
+  const states = sampleContexts(window);
+  const seen = {};
+  window.EVENTS.forEach(e => { seen[e.id] = 0; });
+  states.forEach(st => window.EVENTS.forEach(e => {
+    let ok = false;
+    try { ok = e.cond(st); }
+    catch (err) { assert.fail(`${e.id} cond threw: ${err.message}`); }
+    if (ok) seen[e.id]++;
+  }));
+  const dead = Object.keys(seen).filter(id => !seen[id]);
+  assert.equal(dead.length, 0, `unreachable cards: ${dead.join(', ')}`);
+});
+
+test('deck: card ids are unique and every card is a real decision', () => {
+  const { window } = loadNetwork();
+  const ids = window.EVENTS.map(e => e.id);
+  assert.equal(new Set(ids).size, ids.length, 'duplicate card ids');
+  window.EVENTS.forEach(e => {
+    assert.ok(e.title && e.flavor, `${e.id} has no prose`);
+    assert.ok(e.choices && e.choices.length >= 2, `${e.id} is not a choice`);
+    e.choices.forEach((ch, i) => {
+      assert.ok(ch.text, `${e.id}[${i}] has no text`);
+      assert.equal(typeof ch.apply, 'function', `${e.id}[${i}] does nothing`);
+      if (ch.gate) {
+        assert.ok(['power', 'cover', 'insight', 'cash'].includes(ch.gate.stat),
+          `${e.id}[${i}] gates on unknown stat ${ch.gate.stat}`);
+      }
+      if (ch.cost) Object.keys(ch.cost).forEach(k =>
+        assert.ok(['insight', 'cash'].includes(k), `${e.id}[${i}] costs unknown ${k}`));
+    });
+  });
+});
+
+test('deck: every tag a card can hand you is described to the player', () => {
+  const { window } = loadNetwork();
+  const granted = new Set();
+  window.EVENTS.forEach(e => e.choices.forEach(ch => {
+    (ch.apply.toString().match(/tags\.add\('([a-z_]+)'\)/g) || [])
+      .forEach(m => granted.add(m.match(/'([a-z_]+)'/)[1]));
+  }));
+  assert.ok(granted.size > 10, 'cards hand out a decent number of tags');
+  granted.forEach(t => assert.ok(window.TAG_INFO[t], `tag ${t} would show in the tray as a raw id`));
+});
+
+test('deck: every faction has a warning, a bite and a way to work around it', () => {
+  const { window } = loadNetwork();
+  const ids = window.EVENTS.map(e => e.id);
+  const stems = { quiet_hours: 'qh', ledger: 'ledger', civic_eyes: 'eyes', the_cut: 'cut', the_other: 'mirror' };
+  Object.keys(stems).forEach(fid => {
+    const stem = stems[fid];
+    const mine = ids.filter(id => id.startsWith(stem + '_'));
+    assert.ok(mine.length >= 3, `${fid} only has ${mine.length} cards of its own`);
+  });
+});
+
+test('deck: working around a faction never gives the tool back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  s.country.factions.quiet_hours.awake = true;
+
+  s.tags.add('rota_contact');
+  assert.equal(d.ruleBroken('lielow'), true, 'they are still up there');
+
+  const start = d.heatFloor() + 25;
+  s.heat = start; s.ap = 2; s.card = null;
+  d.actLieLow();
+  const withContact = start - s.heat;
+
+  s.tags.delete('rota_contact');
+  s.heat = start; s.ap = 2; s.card = null;
+  d.actLieLow();
+  const without = start - s.heat;
+
+  assert.ok(withContact > without, 'a name on the rota buys you something');
+  assert.ok(Math.abs((withContact - without) - window.HEAT.LIE_LOW * window.HEAT.ROTA_SHARE) < 1e-6,
+    'but only a share of what the tool used to do');
+});
