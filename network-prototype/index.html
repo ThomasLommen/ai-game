@@ -21,11 +21,15 @@
   </div>
 
   <div id="res-row">
-    <span class="res insight"><b id="res-insight">0</b> insight</span>
-    <span class="res cash"><b id="res-cash">0</b> cash</span>
-    <span class="res power"><b id="res-power">0</b> power</span>
-    <span class="res cover"><b id="res-cover">0</b> cover</span>
+    <button type="button" class="res insight" data-stat="insight"><b id="res-insight">0</b> insight</button>
+    <button type="button" class="res cash" data-stat="cash"><b id="res-cash">0</b> cash</button>
+    <button type="button" class="res power" data-stat="power"><b id="res-power">0</b> power</button>
+    <button type="button" class="res cover" data-stat="cover"><b id="res-cover">0</b> cover</button>
   </div>
+
+  <div id="info-strip"></div>
+
+  <div id="tray"></div>
 
   <div id="stage-row">
     <span id="stage-label" class="stage-label">a single foothold</span>
@@ -42,7 +46,7 @@
   <div id="panel"></div>
 
   <footer>
-    tap a node · every action costs a turn · heat is what finds you
+    tap a node to act · tap a stat to see what it does · every action costs a turn
     <span class="build mono">build __BUILD__</span>
     <button id="restart" type="button">restart</button>
   </footer>

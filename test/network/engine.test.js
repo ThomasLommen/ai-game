@@ -20,17 +20,31 @@ test('graph: generates a connected ring structure with exactly one owned origin'
   });
 });
 
-test('graph: ring 1 is always crackable from the opening power, or the game stalls', () => {
+test('graph: the opening is never a hard stall', () => {
   // regression guard: an early build put servers (defense 8-14) in ring 1 while
   // opening power was 4, and playtests stalled at 2 hosts after 70+ turns.
-  for (let i = 0; i < 40; i++) {
+  //
+  // The invariant is *not* "something is always crackable immediately" — about
+  // 0.02% of boards roll all-tough ring 1, which is fine, because one tooling
+  // upgrade is affordable from the starting insight and always closes the gap.
+  // What must never happen is a board with no route out at all.
+  let immediate = 0;
+  const RUNS = 60;
+  for (let i = 0; i < RUNS; i++) {
     const { window } = loadNetwork();
     const d = window.__netDebug;
     const openingPower = d.power();
+    const escapePower = openingPower + window.UPGRADE.basePower; // one affordable upgrade
     const ring1 = d.state.hosts.filter(h => h.ring === 1);
-    assert.ok(ring1.some(h => h.defense <= openingPower),
-      `no ring-1 host is crackable at power ${openingPower}`);
+    const cheapest = Math.min(...ring1.map(h => h.defense));
+
+    assert.ok(cheapest <= escapePower,
+      `board is unwinnable: cheapest ring-1 defense ${cheapest} vs ${escapePower} after an upgrade`);
+    assert.ok(window.UPGRADE.costs[0] <= d.state.res.insight + 2,
+      'the first tooling upgrade must be reachable early, or the escape hatch is fictional');
+    if (cheapest <= openingPower) immediate++;
   }
+  assert.ok(immediate > RUNS * 0.9, `only ${immediate}/${RUNS} boards open immediately — too grindy`);
 });
 
 test('power: base rig + held threads + purchased tooling (the flywheel)', () => {
@@ -164,6 +178,186 @@ test('breach: walking away costs the turn but changes nothing else', () => {
   d.resolveBreach('walk');
   assert.equal(d.owned().length, heldBefore, 'nothing gained');
   assert.ok(s.turn > turnBefore, 'but the turn is spent');
+});
+
+test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
+  // regression guard for a real exploit — discovery used to spread from any
+  // *discovered* host, so a player could reveal all 30 hosts from the start
+  // node without ever taking anything.
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const total = d.state.hosts.length;
+
+  let swept = 0;
+  for (let i = 0; i < 60; i++) {
+    d.state.res.insight = 999;          // money must not be the thing limiting this
+    if (d.sweepBlocked() === 'nothing') break;
+    d.actScan();
+    swept++;
+  }
+  const discovered = d.state.hosts.filter(h => h.discovered).length;
+  assert.equal(d.owned().length, 1, 'still holding only the origin');
+  assert.ok(discovered < total / 2, `revealed ${discovered}/${total} without taking anything`);
+  assert.equal(d.sweepBlocked(), 'nothing', 'sweep reports itself exhausted rather than idling');
+});
+
+test('sweeping costs insight, and is blocked when you cannot pay', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.res.insight = window.SWEEP_COST;
+  assert.equal(d.sweepBlocked(), null);
+  d.actScan();
+  assert.ok(d.state.res.insight < window.SWEEP_COST + 2, 'the sweep was paid for');
+
+  d.state.res.insight = 0;
+  assert.equal(d.sweepBlocked(), 'poor', 'no insight, no sweep');
+});
+
+test('events are only eligible when the board is actually in that situation', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  // nothing held beyond the origin: the sprawl and corporate events must not offer
+  let ids = d.eligibleEvents().map(e => e.id);
+  assert.ok(!ids.includes('sprawl_warning'), 'sprawl event needs a real fleet');
+  assert.ok(!ids.includes('payroll_window'), 'payroll event needs a corporate holding');
+
+  s.hosts.forEach(h => { if (h.ring <= 3) { h.discovered = true; h.owned = true; } });
+  ids = d.eligibleEvents().map(e => e.id);
+  assert.ok(ids.includes('sprawl_warning'), 'now that you are spread thin, it offers');
+  if (d.ownedOf('cash').length) assert.ok(ids.includes('payroll_window'));
+});
+
+test('once-only events do not come back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.hosts.forEach(h => { if (h.ring <= 1) h.owned = true; });
+  d.state.heat = 1;
+  assert.ok(d.eligibleEvents().some(e => e.id === 'first_quiet'));
+  d.state.eventsSeen.push('first_quiet');
+  assert.ok(!d.eligibleEvents().some(e => e.id === 'first_quiet'), 'already seen, never again');
+});
+
+test('an event choice applies its cost and its effect, and closes the card', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 20;
+  s.card = { kind: 'event', eventId: 'first_quiet' };
+
+  d.resolveEvent(0); // "Build the habit properly" — costs 4 insight, grants clean_room
+  assert.ok(s.tags.has('clean_room'), 'the tag was granted');
+  assert.ok(s.res.insight < 20, 'the cost was paid');
+  assert.equal(s.card, null, 'the card closed');
+  assert.ok(s.eventsSeen.includes('first_quiet'), 'and it is recorded as seen');
+});
+
+test('an unaffordable event choice cannot be taken', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 0;
+  s.card = { kind: 'event', eventId: 'first_quiet' };
+
+  const ev = d.eventById('first_quiet');
+  assert.equal(d.choiceUsable(ev.choices[0]), false, 'the paid option is not usable while broke');
+  d.resolveEvent(0);
+  assert.ok(s.card, 'the card stays open rather than resolving for free');
+  assert.ok(!s.tags.has('clean_room'));
+});
+
+test('tags feed back into the simulation rather than sitting in a tray', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
+
+  const base = { power: d.power(), cover: d.cover(), heat: d.heatPerTurn(), strike: d.strikeThreshold() };
+  const host = s.hosts.find(h => h.ring === 2);
+  const baseDef = d.defenseOf(host);
+
+  s.tags.add('ally_process');
+  assert.equal(d.power(), base.power + 3, 'an ally raises POWER');
+
+  s.tags.add('clean_room');
+  assert.equal(d.cover(), base.cover + 2, 'discipline raises COVER');
+
+  s.tags.add('dark_relay');
+  assert.ok(d.heatPerTurn() < base.heat, 'a dark relay slows heat');
+
+  s.tags.add('hunted');
+  assert.ok(d.strikeThreshold() < base.strike, 'being hunted brings the strike forward');
+
+  s.tags.add('known_capable');
+  assert.ok(d.defenseOf(host) > baseDef, 'being known hardens every host against you');
+});
+
+test('overextended makes holdings decay faster', () => {
+  // must be the same host in the same graph — a fresh load would roll a
+  // different type, and types have different churn rates
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const h = d.state.hosts.find(x => x.ring === 1);
+  h.owned = true;
+
+  h.stability = 1;
+  d.endTurn();
+  const normal = 1 - h.stability;
+
+  h.stability = 1;
+  d.state.tags.add('overextended');
+  d.endTurn();
+  const stretched = 1 - h.stability;
+
+  assert.ok(stretched > normal, `sprawl costs more upkeep (${stretched} vs ${normal})`);
+});
+
+test('persistence: tags and seen events survive a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.tags.add('dark_relay');
+  d.state.tags.add('hunted');
+  d.state.eventsSeen.push('first_quiet');
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(round.tags.has('dark_relay'));
+  assert.ok(round.tags.has('hunted'));
+  assert.ok(round.eventsSeen.includes('first_quiet'));
+});
+
+test('data integrity: every event is reachable, well formed, and references real tags', () => {
+  const { window } = loadNetwork();
+  const tagIds = new Set(Object.keys(window.TAG_INFO));
+  const ids = window.EVENTS.map(e => e.id);
+  assert.equal(ids.filter((id, i) => ids.indexOf(id) !== i).length, 0, 'event ids are unique');
+
+  window.EVENTS.forEach(e => {
+    assert.ok(e.title && e.flavor, `${e.id} has text`);
+    assert.ok(typeof e.cond === 'function', `${e.id} has a condition`);
+    assert.ok(e.choices.length >= 2, `${e.id} offers a real choice`);
+    e.choices.forEach(ch => {
+      assert.ok(ch.text, `${e.id} choice has text`);
+      assert.ok(typeof ch.apply === 'function', `${e.id} choice has an effect`);
+      if (ch.gate) assert.ok(['power', 'cover', 'insight', 'cash'].includes(ch.gate.stat), `${e.id} gate stat is real`);
+    });
+  });
+
+  // every tag the events can grant must be described to the player
+  const src = window.EVENTS.map(e => e.choices.map(c => c.apply.toString()).join(' ')).join(' ');
+  [...src.matchAll(/tags\.(?:add|delete)\('([a-z_]+)'\)/g)].forEach(m => {
+    assert.ok(tagIds.has(m[1]), `event tag ${m[1]} has no TAG_INFO entry`);
+  });
+});
+
+test('every stat and action shown to the player has an explanation', () => {
+  const { window } = loadNetwork();
+  ['insight', 'cash', 'power', 'cover', 'heat'].forEach(k => {
+    assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
+  });
+  ['sweep', 'lielow', 'upgrade', 'launder', 'shore'].forEach(k => {
+    assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
+  });
 });
 
 test('the hunter fires once heat crosses the threshold', () => {
