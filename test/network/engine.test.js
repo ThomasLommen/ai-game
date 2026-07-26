@@ -1054,7 +1054,7 @@ test('country: a city you finish stops being streets and becomes presence', () =
   // Winning must not gut you. Presence buys back most of the power the
   // streets were giving — you trade some depth for reach and standing income,
   // but never so much that the next region becomes unplayable.
-  assert.ok(d.power() >= powerBefore * 0.6,
+  assert.ok(d.power() >= powerBefore * 0.8,
     `power collapsed from ${powerBefore} to ${d.power()} on consolidating`);
   assert.ok(d.heatFloor() > 0, 'a national operation cannot hide completely');
 });
@@ -1191,13 +1191,13 @@ test('persistence: the country survives a round trip', () => {
   holdToGoal(d);
   s.ap = 9;
   d.actConsolidate();
-  s.country.presence = 26;
+  s.country.presence = window.FACTIONS[0].wakes;
   d.checkFactions();
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.ok(round, 'the save is accepted');
   assert.equal(round.scope, 'country');
-  assert.equal(round.country.presence, 26);
+  assert.equal(round.country.presence, window.FACTIONS[0].wakes);
   assert.equal(round.country.cities.length, s.country.cities.length);
   assert.equal(round.region, s.region);
   assert.equal(round.country.factions.quiet_hours.awake, true, 'woken factions stay woken');
@@ -1228,4 +1228,296 @@ test('country: a city you walk away from is frozen, not running in the backgroun
   s.ap = 9;
   d.actTravel(hard.id);
   assert.equal(d.owned().length, heldThere, 'and it is all still there when you go back');
+});
+
+// --- the faction ladder --------------------------------------------------
+// The escalation is not a difficulty slider: each faction deletes a rule you
+// had got used to. These tests are about the tool going away and coming back,
+// because that is the whole design.
+
+function wake(d, id) {
+  const f = d.state.country.factions[id];
+  f.awake = true;
+  f.broken = false;
+}
+
+test('factions: wake on presence in order, hardest last', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const order = window.FACTIONS.slice().sort((a, b) => a.wakes - b.wakes);
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(order[i].wakes > order[i - 1].wakes, 'each faction wakes later than the last');
+    assert.ok(order[i].tier > order[i - 1].tier, 'and is a rung further up');
+  }
+
+  s.country.presence = 0;
+  d.checkFactions();
+  assert.equal(d.awakeFactions().length, 0, 'nobody cares about you yet');
+
+  s.country.presence = order[0].wakes;
+  d.checkFactions();
+  assert.equal(d.awakeFactions().length, 1, 'the first one notices');
+  assert.equal(d.awakeFactions()[0].id, order[0].id);
+
+  s.country.presence = 999;
+  d.checkFactions();
+  assert.equal(d.awakeFactions().length, window.FACTIONS.length, 'eventually all of them');
+});
+
+test('factions: every one of them deletes a rule, and no two delete the same one', () => {
+  const { window } = loadNetwork();
+  const breaks = window.FACTIONS.map(f => f.breaks);
+  assert.equal(new Set(breaks).size, breaks.length, 'two factions take the same tool away');
+  window.FACTIONS.forEach(f => {
+    assert.ok(f.tell && f.onWake, `${f.id} does not say what it does`);
+  });
+});
+
+test('the quiet hours: going dark stops shedding heat, and the turn is still gone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+
+  // The world turn has its own drift, which can be negative all on its own.
+  // The claim is about the shed, so measure the same board twice and compare
+  // the difference rather than the sign.
+  const start = d.heatFloor() + 25;
+  s.heat = start;
+  s.ap = 2; s.card = null;
+  d.actLieLow();
+  const openShed = start - s.heat;
+  assert.ok(openShed > 0, 'normally lying low buys heat down');
+
+  wake(d, 'quiet_hours');
+  s.heat = start;
+  s.ap = 2; s.card = null;
+  const turnBefore = s.turn;
+  d.actLieLow();
+  const watchedShed = start - s.heat;
+
+  assert.ok(Math.abs((openShed - watchedShed) - window.HEAT.LIE_LOW) < 1e-6,
+    `watched, the ${window.HEAT.LIE_LOW} it normally sheds is gone (shed ${openShed} vs ${watchedShed})`);
+  assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
+});
+
+test('ledger: laundering stops cleaning and starts pointing at you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 8).forEach(h => { h.owned = true; });
+
+  s.res.cash = 60; s.ap = 4; s.card = null;
+  s.heat = d.heatFloor() + 20;
+  const start = s.heat;
+  d.actLaunder();
+  assert.ok(s.heat < start, 'normally money buys heat down');
+
+  wake(d, 'ledger');
+  s.res.cash = 60; s.ap = 4; s.card = null;
+  s.heat = d.heatFloor() + 20;
+  const matched = s.heat;
+  const cashBefore = s.res.cash;
+  d.actLaunder();
+  assert.ok(s.heat > matched, 'matched, washing money raises heat instead');
+  assert.ok(s.res.cash < cashBefore, 'and it still costs you the cash');
+});
+
+test('civic eyes: your own cameras stop covering you and start reporting', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = false; });
+  const eyes = s.hosts.filter(h => h.role === 'stealth').slice(0, 4);
+  const loud = s.hosts.filter(h => h.role !== 'stealth').slice(0, 6);
+  eyes.concat(loud).forEach(h => { h.owned = true; h.discovered = true; });
+
+  const coverBefore = d.cover();
+  const driftBefore = d.heatPerTurn();
+  const floorBefore = d.heatFloor();
+
+  wake(d, 'civic_eyes');
+  assert.ok(d.cover() < coverBefore, 'audited cameras are not cover');
+  assert.ok(d.heatPerTurn() > driftBefore, 'they add heat rather than remove it');
+  assert.ok(d.heatFloor() > floorBefore, 'and you cannot hide under them any more');
+
+  // and they stop showing you the street
+  s.buildings.forEach(b => { b.discovered = false; });
+  d.cameraVision();
+  assert.equal(s.buildings.filter(b => b.discovered).length, 0, 'no free sight while audited');
+});
+
+test('the cut: severed streets strand what you hold, and are relaid afterwards', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.hosts.slice(0, 18).forEach(h => { h.owned = true; });
+
+  assert.equal(d.cutStreets(), null, 'nothing is cut while nobody is cutting');
+
+  wake(d, 'the_cut');
+  s.lastCutTurn = -99;
+  const cut = d.cutStreets();
+  assert.ok(cut, 'they take a street');
+  assert.equal(s.cuts.length, 1, 'and it is recorded so it can be put back');
+
+  // cadence: not every single turn
+  assert.equal(d.cutStreets(), null, 'they are a crew, not a weather system');
+
+  // the street comes back
+  s.turn += window.HEAT.CUT_REPAIR + 1;
+  const relaid = d.repairStreets();
+  assert.equal(relaid.length, 1, 'the council relays it');
+  assert.equal(s.cuts.length, 0);
+  assert.ok(d.buildingNeighbours(cut.a).includes(cut.b), 'and the street is a street again');
+});
+
+test('the cut: never cuts a city shut', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
+  wake(d, 'the_cut');
+
+  for (let i = 0; i < 30; i++) {
+    s.lastCutTurn = -99;
+    s.turn += 1;
+    d.cutStreets();
+    assert.ok(s.hosts.filter(h => d.isFrontier(h)).length > 0,
+      'there is always somewhere left to go');
+  }
+});
+
+test('the cut: stranded holdings rot, connected ones do not', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.hosts.slice(0, 16).forEach(h => { h.owned = true; });
+
+  assert.equal(d.strandedHosts().length, 0, 'nothing is stranded while the streets are whole');
+
+  wake(d, 'the_cut');
+  // cut until something is genuinely cut off
+  let stranded = [];
+  for (let i = 0; i < 40 && !stranded.length; i++) {
+    s.lastCutTurn = -99;
+    s.turn += 1;
+    d.cutStreets();
+    stranded = d.strandedHosts();
+  }
+  if (!stranded.length) return; // a board where the network never split; fine
+  // compare like with like: host types churn at different base rates, so the
+  // claim is about the multiplier, not about which building happened to rot
+  const victim = stranded[0];
+  const twin = d.owned().find(h => !stranded.includes(h) && !h.origin && h.type === victim.type);
+  const v0 = victim.stability;
+  const t0 = twin ? twin.stability : null;
+  s.card = null;
+  d.endTurn({ silent: true });
+
+  const churn = window.HOST_TYPES[victim.type].churn;
+  const dropped = v0 - victim.stability;
+  assert.ok(dropped > 0, 'what you cannot reach decays');
+  assert.ok(Math.abs(dropped - churn * window.HEAT.STRANDED_DECAY) < 1e-9,
+    `stranded decay was ${dropped}, expected ${churn * window.HEAT.STRANDED_DECAY}`);
+  if (twin) {
+    assert.ok(dropped > (t0 - twin.stability) * 1.5,
+      'and far faster than the same kind of holding you can still reach');
+  }
+});
+
+test('factions: taking the seat gives the tool back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+
+  wake(d, 'quiet_hours');
+  assert.equal(d.ruleBroken('lielow'), true);
+
+  d.breakFactionAt(s.country.factions.quiet_hours.rootId);
+  assert.equal(d.ruleBroken('lielow'), false, 'their seat falls, the quiet is yours again');
+
+  s.heat = d.heatFloor() + 20;
+  const before = s.heat;
+  s.card = null;
+  d.actLieLow();
+  assert.ok(s.heat < before, 'and lying low works exactly as it used to');
+});
+
+test('factions: a broken faction never wakes again', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.country.factions.ledger.broken = true;
+  s.country.presence = 999;
+  d.checkFactions();
+  assert.equal(d.factionAwake('ledger'), false, 'they are finished, not merely quiet');
+  assert.equal(d.ruleBroken('launder'), false);
+});
+
+test('the other one: takes the country it can reach, never from under you, and is capped', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const co = s.country;
+
+  wake(d, 'the_other');
+  // give it a long run at the map
+  for (let i = 0; i < 400; i++) { s.turn += 1; d.mirrorStep(); }
+
+  const m = d.mirror();
+  assert.ok(m.cities.length > 1, 'it spreads');
+  const cap = Math.ceil(co.cities.length * window.MIRROR.maxShareOfCountry);
+  assert.ok(m.cities.length <= cap,
+    `it holds ${m.cities.length} of ${co.cities.length}, past its cap of ${cap}`);
+  m.cities.forEach(id => {
+    assert.equal(d.cityById(id).taken, false, 'it never takes a city you already hold');
+  });
+  assert.ok(Object.keys(m.caps).length > 0, 'and it buys off the same shelf you do');
+});
+
+test('the other one: what it holds is closed to you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = s.country.cities.find(c => !c.taken && window.CITY_KINDS[c.kind].contest);
+  // put it next to something of yours so it would otherwise be reachable
+  d.cityRoads(target.id).forEach(id => {
+    const n = d.cityById(id);
+    if (n && window.CITY_KINDS[n.kind].contest) n.taken = true;
+  });
+  assert.equal(d.cityReachable(target), true, 'it is on your frontier');
+
+  d.mirror().cities.push(target.id);
+  assert.equal(d.cityReachable(target), false, 'until something else gets there first');
+});
+
+test('persistence: the ladder and the mirror survive a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  wake(d, 'quiet_hours');
+  wake(d, 'the_cut');
+  s.country.factions.ledger.broken = true;
+  s.cuts = [{ a: s.buildings[0].id, b: s.buildings[1].id, until: 20 }];
+  s.lastCutTurn = 12;
+  d.mirror().cities.push(s.country.cities[5].id);
+  d.mirror().caps = { deep_root: 1 };
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(round);
+  assert.equal(round.country.factions.quiet_hours.awake, true);
+  assert.equal(round.country.factions.ledger.broken, true);
+  assert.equal(round.cuts.length, 1, 'open roadworks survive');
+  assert.equal(round.lastCutTurn, 12);
+  assert.equal(round.country.mirror.cities.length, 1);
+  assert.equal(round.country.mirror.caps.deep_root, 1);
 });

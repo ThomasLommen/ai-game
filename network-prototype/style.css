@@ -199,6 +199,10 @@ body {
 .act-btn:hover:not([disabled]) { border-color: var(--ink-dim); }
 .act-btn[disabled] { opacity: .4; cursor: default; }
 .act-btn.primary { border-color: var(--item); color: var(--item); }
+/* a tool somebody has taken off you: still there, still pressable, no longer
+   the thing it used to be */
+.act-btn.broken { border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
+.act-btn.broken .ab-sub { color: var(--heat); }
 
 .log { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
 .log-row { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
@@ -547,5 +551,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.rival .win { fill: color-mix(in srgb, var(--power) 35%, #1e2724); }
 .bldg.rival .btag { fill: var(--power); letter-spacing: .1em; }
 .tag-pill.rival { color: var(--power); }
+.event-row.faction { border-color: var(--heat); }
+.event-row.faction .event-label { color: var(--heat); }
+.event-row.faction-gone { border-color: var(--insight); }
+.event-row.faction-gone .event-label { color: var(--insight); }
+.tray-item.faction { border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
+.tray-item.faction .tray-label { color: var(--heat); }
+.cnode.mirror .dot { stroke: var(--power); fill: color-mix(in srgb, var(--power) 20%, #1a2320); stroke-dasharray: 3 2; }
+.cnode.mirror .ctag { fill: var(--power); letter-spacing: .08em; }
 .event-row.rival { border-color: var(--power); }
 .event-row.rival .event-label { color: var(--power); }

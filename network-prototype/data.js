@@ -183,6 +183,21 @@ window.HEAT = {
   // cameras zeroed the floor entirely and the pressure system went decorative
   // in 72.5% of measured games.
   MAX_STEALTH_MASK: 0.6,
+  // --- what the factions do to these numbers ---
+  // Ledger does not merely stop laundering working: washing money through a
+  // matcher actively draws a line to you, so the cash lever inverts.
+  LEDGER_BACKFIRE: 0.7,
+  // A camera you hold that is being audited is not cover, it is a witness.
+  // Slightly worse than a plain loud host, because it is *yours* and it is
+  // reporting.
+  AUDITED_CAMERA: 0.5,
+  // The Cut's real bite: a holding you can no longer route back to rots. It is
+  // a crew with a cadence, and the streets get relaid — measured at every turn
+  // and no repair it took a 29-building network to 3 in fifteen turns, which is
+  // an extinction event rather than a tool being taken away.
+  STRANDED_DECAY: 2.5,
+  CUT_EVERY: 4,      // turns between severed streets
+  CUT_REPAIR: 7,     // and how long until that one is relaid
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,

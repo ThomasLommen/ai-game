@@ -90,6 +90,10 @@ window.COUNTRY = {
   // outrun every defense in the country by the third region.
   powerRoot: 10,
   coverRoot: 1.2,
+  // A city's presence is partly what its streets were actually worth to you.
+  // Without this the conversion swings on how thread-rich the city happened to
+  // be — a warehouse district could cost you 40% of your power, a suburb none.
+  threadsPerPresence: 6,
   heatPer: 0.10,      // added to heat drift, per presence
   heatFloorPer: 0.18, // and it sets a floor you cannot lie your way under
 };
@@ -108,14 +112,16 @@ window.CITY_NAMES = {
 // either play without the tool or you go and take their seat.
 //
 //   breaks   — the id of the rule this faction deletes, read by the engine
-//   wakes    — presence you must hold nationally before they take an interest
+//   wakes    — presence you must hold nationally before they take an interest.
+//              Paced roughly one to a region: the home city is worth ~20, and
+//              each region after it about 40.
 //   root     — set at generation: the city whose fall ends them
 window.FACTIONS = [
   {
     id: 'quiet_hours', region: 'estuary', tier: 1,
     name: 'The Quiet Hours',
     breaks: 'lielow',
-    wakes: 8,
+    wakes: 30,
     tell: 'lying low no longer sheds heat',
     blurb: 'A volunteer rota watching for the wrong kind of stillness. They noticed that the quiet places were getting quieter.',
     onWake: 'Somebody worked out that the safest-looking parts of the network were the ones being used. Going dark stops helping.',
@@ -125,7 +131,7 @@ window.FACTIONS = [
     id: 'ledger', region: 'midlands', tier: 2,
     name: 'Ledger',
     breaks: 'launder',
-    wakes: 20,
+    wakes: 65,
     tell: 'laundering raises heat instead of cutting it',
     blurb: 'A clearing house that started matching payment patterns against outage reports. It works.',
     onWake: 'Every account you wash through now leaves a shape somebody is looking for. Money is the loud option.',
@@ -135,7 +141,7 @@ window.FACTIONS = [
     id: 'civic_eyes', region: 'capital', tier: 3,
     name: 'Civic Eyes',
     breaks: 'cameras',
-    wakes: 34,
+    wakes: 105,
     tell: 'your own stealth holdings report you instead of covering you',
     blurb: 'The camera network audits itself now. Anything on it that answers to somebody else answers loudly.',
     onWake: 'Your cameras are still yours. They are also, now, telling someone where you are.',
@@ -145,7 +151,7 @@ window.FACTIONS = [
     id: 'the_cut', region: 'north', tier: 4,
     name: 'The Cut',
     breaks: 'streets',
-    wakes: 50,
+    wakes: 145,
     tell: 'they sever the links between what you hold',
     blurb: 'They stopped trying to catch you and started taking the roads away. Cheaper, and it works on anything.',
     onWake: 'A backhoe in the wrong place, twice in a week. Your map is going to start coming apart.',
@@ -155,13 +161,26 @@ window.FACTIONS = [
     id: 'the_other', region: null, tier: 5,
     name: 'the other one',
     breaks: 'mirror',
-    wakes: 70,
+    wakes: 180,
     tell: 'it buys the same capabilities you do',
     blurb: 'Not a faction. Something running the same play, from the other end of the country.',
     onWake: 'It has started buying the same things you buy. It is not far behind.',
     onBreak: '',
   },
 ];
+
+// The mirror's numbers. It is the rival one scale up: it takes ground you have
+// not taken, it never takes ground from under you, and it is capped — it races
+// you for the country instead of eating it.
+window.MIRROR = {
+  actEvery: 7,             // turns between cities, before its own upgrades
+  fastEvery: 3,            // however much it buys, never faster than this
+  growthPerTurn: 0.9,      // what its own holdings earn it
+  buyChance: 0.35,
+  capPriceMult: 1.4,       // it pays over the odds; it is in a hurry too
+  maxShareOfCountry: 0.34,
+  name: 'the other one',
+};
 
 // Country-scale actions. These are deliberately not the city verbs: at this
 // scale you are choosing where to be, not what to break into.

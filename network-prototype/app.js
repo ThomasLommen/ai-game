@@ -385,6 +385,8 @@
       lastStage: 'foothold',
       strikes: 0,
       lastStrikeTurn: -99,
+      cuts: [],
+      lastCutTurn: -99,
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
       over: false,
     };
@@ -443,7 +445,8 @@
   // Stealth holdings are what lower the floor: that is what they are for.
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
-    const quiet = ownedOf('stealth').length;
+    // audited cameras are not cover, they are witnesses
+    const quiet = ruleBroken('cameras') ? 0 : ownedOf('stealth').length;
     const loudPart = 0.8 * loud;
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
                             0.9 * quiet + (has('dark_relay') ? 3 : 0));
@@ -469,7 +472,9 @@
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
   function cover() {
-    const eyes = ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
+    const eyes = ruleBroken('cameras')
+      ? 0
+      : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
       + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
       + (has('clean_room') ? 2 : 0);
@@ -488,6 +493,9 @@
   // spending a sweep — this is what makes the stealth role spatial rather than
   // just a number that buys down heat.
   function cameraVision() {
+    // Civic Eyes audits the camera network. Anything on it that answers to
+    // you answers loudly, so your eyes stop being eyes.
+    if (ruleBroken('cameras')) return;
     const eyes = owned().filter(h => h.role === 'stealth');
     if (!eyes.length) return;
     const r2 = window.CITY.cameraVision * window.CITY.cameraVision;
@@ -541,7 +549,12 @@
     let h = window.HEAT.PER_HOST * fleet.length;
     // off_the_books silences the corporate premium specifically
     if (!has('off_the_books')) fleet.forEach(f => { h += (window.HOST_TYPES[f.type].heat || 0); });
-    h -= window.HEAT.IOT_COVER * ownedOf('stealth').length;
+    // normally your stealth kit buys heat down; audited, every one of them
+    // is a thing reporting where you are
+    const stealthCount = ownedOf('stealth').length;
+    h += ruleBroken('cameras')
+      ? window.HEAT.AUDITED_CAMERA * stealthCount
+      : -window.HEAT.IOT_COVER * stealthCount;
     h += presence() * window.COUNTRY.heatPer;
     if (has('dark_relay')) h -= 1;
     return h;
@@ -565,13 +578,23 @@
       for (const k in p) state.res[k] = (state.res[k] || 0) + p[k] * mult;
     }
 
-    // churn — holdings decay unless shored up, so sprawl has upkeep
+    // churn — holdings decay unless shored up, so sprawl has upkeep.
+    // Anything The Cut has left on the wrong side of a severed street decays
+    // far faster: you are holding it, but you cannot get to it.
+    const cutOff = {};
+    strandedHosts().forEach(h => { cutOff[h.id] = true; });
     const lost = [];
     owned().forEach(h => {
       if (h.origin) return; // only the seat you started from is safe
-      h.stability -= window.HOST_TYPES[h.type].churn * (has('overextended') ? 1.5 : 1);
+      const rate = window.HOST_TYPES[h.type].churn
+        * (has('overextended') ? 1.5 : 1)
+        * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
+      h.stability -= rate;
       if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
     });
+    if (Object.keys(cutOff).length) {
+      pushLog(`${Object.keys(cutOff).length} holdings are cut off from the rest of you.`);
+    }
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -589,6 +612,14 @@
     }
     const rivalMove = rivalStep();
     if (rivalMove) announceRival(rivalMove);
+    const relaid = repairStreets();
+    if (relaid.length) pushLog(`${relaid.length === 1 ? 'A street is' : relaid.length + ' streets are'} relaid.`);
+    const cut = cutStreets();
+    if (cut) {
+      const A = buildingById(cut.a), B = buildingById(cut.b);
+      pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
+    }
+    mirrorStep();
     cameraVision();       // held cameras reveal what is near them
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
@@ -930,9 +961,14 @@
     if (state.card || state.over || state.ap <= 0) return;
     const before = beforeSnap();
     state.ap = 0;
-    state.heat = clampHeat(state.heat - window.HEAT.LIE_LOW);
+    // The Quiet Hours watch for absence. While they are up, going dark buys
+    // you nothing — the turn is spent and the heat stays exactly where it was.
+    const watched = ruleBroken('lielow');
+    if (!watched) state.heat = clampHeat(state.heat - window.HEAT.LIE_LOW);
     afterSnap(before);
-    pushLog('You go quiet for a while. Nothing earns while you are dark.');
+    pushLog(watched
+      ? 'You go quiet. Somebody notices the quiet.'
+      : 'You go quiet for a while. Nothing earns while you are dark.');
     endTurn({ silent: true }); // going dark means going dark -- no production
     render();
   }
@@ -957,9 +993,17 @@
     spendAP('launder');
     const before = beforeSnap();
     state.res.cash -= window.LAUNDER.cost;
-    state.heat = clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
+    // Ledger matches payment patterns against outage reports. Washing money
+    // through it does not clean anything — it draws a shape somebody is
+    // already looking for.
+    const matched = ruleBroken('launder');
+    state.heat = matched
+      ? clampHeat(state.heat + window.LAUNDER.heat * window.HEAT.LEDGER_BACKFIRE)
+      : clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
     afterSnap(before);
-    pushLog('Money moves, and so does the paperwork pointing at you.');
+    pushLog(matched
+      ? 'The money moves, and it moves in a pattern somebody is watching for.'
+      : 'Money moves, and so does the paperwork pointing at you.');
     persistNow();
     render();
   }
@@ -1091,6 +1135,7 @@
   // without ever walking a street.
   function cityReachable(c) {
     if (!c || c.taken) return false;
+    if (mirrorHolds(c.id)) return false;      // somebody else got there first
     return cityRoads(c.id).some(id => {
       const n = cityById(id);
       return n && n.taken && window.CITY_KINDS[n.kind].contest;
@@ -1279,10 +1324,14 @@
     state.ap -= countryCost('consolidate');
     const held = heldHere();
     const bonus = Math.round((held / Math.max(1, state.buildings.length)) * c.worth);
+    // and what its streets were actually running for you
+    const threads = owned().reduce((a, h) => a + h.threads, 0);
+    const depth = Math.round(threads / window.COUNTRY.threadsPerPresence);
+    const gained = c.worth + bonus + depth;
     c.consolidated = true;
     c.snapshot = null;
-    CO().presence += c.worth + bonus;
-    pushLog(`${c.name} is yours. Folded in for ${c.worth + bonus} presence.`);
+    CO().presence += gained;
+    pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
     // you are not holding its streets any more — you hold the city
     unpackCity(EMPTY_CITY());
     // whatever you were holding street by street becomes one standing number
@@ -1302,23 +1351,38 @@
     return true;
   }
 
-  // --- factions ---
-  // Stubs until the ladder lands; the country layer already knows where each
-  // faction lives, so waking and breaking them has somewhere to hang.
+  // --- the factions ------------------------------------------------------
+  // The escalation, and the part that is deliberately not a difficulty slider.
+  // Each awake faction *deletes a rule* — a tool you had got used to leaning
+  // on stops working. You beat one by going and taking the city it runs from,
+  // which is why the country map has seats on it.
+  //
+  // `broken` is asked everywhere the deleted rule lives, through one predicate,
+  // so the ladder is a single concept in the code as well as in the fiction.
   function factionState(id) { return (CO().factions || {})[id] || null; }
   function factionAwake(id) {
     const f = factionState(id);
     return !!(f && f.awake && !f.broken);
   }
+  // is this rule currently taken away from you?
+  function ruleBroken(rule) {
+    return window.FACTIONS.some(f => f.breaks === rule && factionAwake(f.id));
+  }
+  function factionBreaking(rule) {
+    return window.FACTIONS.find(f => f.breaks === rule && factionAwake(f.id)) || null;
+  }
+  function awakeFactions() { return window.FACTIONS.filter(f => factionAwake(f.id)); }
+
   function checkFactions() {
     window.FACTIONS.forEach(f => {
       const st = factionState(f.id);
       if (!st || st.awake || st.broken) return;
-      if (CO().presence >= f.wakes) {
-        st.awake = true;
-        st.wokeTurn = state.turn;
-        pushLog(`${f.name}: ${f.tell}.`);
-      }
+      if (CO().presence < f.wakes) return;
+      st.awake = true;
+      st.wokeTurn = state.turn;
+      pushLog(`${f.name}. ${f.onWake}`);
+      // waking is a beat, not a log line you might scroll past
+      showBanner([{ kind: 'faction', verb: 'against you', label: f.name }]);
     });
   }
   function breakFactionAt(cityId) {
@@ -1326,8 +1390,169 @@
       const st = factionState(f.id);
       if (!st || st.broken || st.rootId !== cityId) return;
       st.broken = true;
-      pushLog(`${f.name} is finished.`);
+      const wasAwake = st.awake;
+      pushLog(`${f.name} is finished. ${f.onBreak}`);
+      if (wasAwake) showBanner([{ kind: 'faction-gone', verb: 'finished', label: f.name }]);
     });
+  }
+
+  // The other one. Not a faction and not a hunter: something running the same
+  // play from the far end of the country, buying off the same list. Where the
+  // rival contests a city, this contests the map — every city it takes is one
+  // you will never fold in.
+  function mirror() {
+    if (!CO().mirror) CO().mirror = { presence: 0, caps: {}, cities: [], lastActed: 0 };
+    return CO().mirror;
+  }
+  function mirrorHolds(cityId) { return mirror().cities.indexOf(cityId) !== -1; }
+
+  function mirrorHome() {
+    // it starts as far from your centre of gravity as the country allows
+    const at = cityById(CO().at) || cityById(CO().homeId);
+    const free = CO().cities.filter(c => !c.taken && !mirrorHolds(c.id) && window.CITY_KINDS[c.kind].contest);
+    if (!free.length || !at) return null;
+    return free.reduce((best, c) =>
+      (!best || Math.hypot(c.x - at.x, c.y - at.y) > Math.hypot(best.x - at.x, best.y - at.y)) ? c : best, null);
+  }
+
+  function mirrorTakeable() {
+    return CO().cities.filter(c => {
+      if (c.taken || mirrorHolds(c.id)) return false;
+      return cityRoads(c.id).some(id => mirrorHolds(id));
+    });
+  }
+
+  function mirrorStep() {
+    if (!factionAwake('the_other')) return null;
+    const m = mirror();
+    const M = window.MIRROR;
+
+    if (!m.cities.length) {
+      const home = mirrorHome();
+      if (!home) return null;
+      m.cities.push(home.id);
+      m.presence += home.worth;
+      m.lastActed = state.turn;
+      pushLog(`Something took ${home.name} while you were elsewhere.`);
+      return { kind: 'woke', city: home };
+    }
+
+    // it spends what it earns on the same shelf you buy from
+    m.presence += M.growthPerTurn;
+    const shelf = window.CAPABILITIES.filter(c => !m.caps[c.id] || c.repeatable);
+    const affordable = shelf.filter(c => m.presence >= (c.cost || (c.costs && c.costs[0]) || 99) * M.capPriceMult);
+    if (affordable.length && Math.random() < M.buyChance) {
+      const bought = affordable[Math.floor(Math.random() * affordable.length)];
+      const price = (bought.cost || bought.costs[0]) * M.capPriceMult;
+      m.presence -= price;
+      m.caps[bought.id] = (m.caps[bought.id] || 0) + 1;
+      pushLog(`It bought ${bought.name}. You know exactly what that does.`);
+    }
+
+    const cap = Math.floor(CO().cities.length * M.maxShareOfCountry);
+    if (m.cities.length >= cap) return null;
+    const cadence = Math.max(M.fastEvery, M.actEvery - Object.keys(m.caps).length);
+    if (state.turn - m.lastActed < cadence) return null;
+
+    const options = mirrorTakeable();
+    if (!options.length) return null;
+    m.lastActed = state.turn;
+    const took = options[Math.floor(Math.random() * options.length)];
+    m.cities.push(took.id);
+    m.presence += took.worth;
+    if (took.known) pushLog(`${took.name} is not yours to take any more.`);
+    return { kind: 'took', city: took };
+  }
+
+  // The Cut: it stops chasing you and starts taking the roads away. Every
+  // world turn it severs a street between two buildings you hold, and the map
+  // you were expanding across comes apart behind you.
+  function cutStreets() {
+    if (!ruleBroken('streets')) return null;
+    // a crew, not a weather system — and the council does eventually come and
+    // put the street back, so this is a rhythm you play around rather than an
+    // unwinding of the map
+    if (state.turn - (state.lastCutTurn || -99) < window.HEAT.CUT_EVERY) return null;
+    const held = heldBuildingIds();
+    const ids = Object.keys(held);
+    if (ids.length < 3) return null;
+    // any street touching your network is worth taking away: one between two
+    // holdings risks stranding half of them, one to open ground closes a door
+    const candidates = [];
+    ids.forEach(a => buildingNeighbours(a).forEach(b => {
+      if (held[b] && a > b) return;          // count each pair once
+      candidates.push([a, b]);
+    }));
+    if (!candidates.length) return null;
+
+    // never cut a city shut: if this were the last door, pick another
+    const frontierBefore = state.hosts.filter(isFrontier).length;
+    shuffleArr(candidates);
+    for (const [a, b] of candidates) {
+      const beforeA = (state.adjacency[a] || []).slice();
+      const beforeB = (state.adjacency[b] || []).slice();
+      state.adjacency[a] = beforeA.filter(x => x !== b);
+      state.adjacency[b] = beforeB.filter(x => x !== a);
+      const frontierAfter = state.hosts.filter(isFrontier).length;
+      if (frontierAfter === 0 && frontierBefore > 0) {
+        state.adjacency[a] = beforeA;         // put it back, try elsewhere
+        state.adjacency[b] = beforeB;
+        continue;
+      }
+      const ha = hostsIn(buildingById(a))[0], hb = hostsIn(buildingById(b))[0];
+      if (ha && hb) {
+        const ia = state.hosts.indexOf(ha), ib = state.hosts.indexOf(hb);
+        state.links = state.links.filter(([x, y]) => !((x === ia && y === ib) || (x === ib && y === ia)));
+      }
+      state.lastCutTurn = state.turn;
+      state.cuts = (state.cuts || []).concat([{ a, b, until: state.turn + window.HEAT.CUT_REPAIR }]);
+      return { a, b };
+    }
+    return null;
+  }
+
+  // Streets come back. Anything cut long enough ago is relaid, which is what
+  // stops The Cut from being a slow, total unmaking of the map.
+  function repairStreets() {
+    const cuts = state.cuts || [];
+    if (!cuts.length) return [];
+    const done = cuts.filter(c => state.turn >= c.until);
+    if (!done.length) return [];
+    state.cuts = cuts.filter(c => state.turn < c.until);
+    done.forEach(({ a, b }) => {
+      if (!buildingById(a) || !buildingById(b)) return;
+      state.adjacency[a] = (state.adjacency[a] || []).concat(
+        (state.adjacency[a] || []).indexOf(b) === -1 ? [b] : []);
+      state.adjacency[b] = (state.adjacency[b] || []).concat(
+        (state.adjacency[b] || []).indexOf(a) === -1 ? [a] : []);
+      const ha = hostsIn(buildingById(a))[0], hb = hostsIn(buildingById(b))[0];
+      if (ha && hb) {
+        const ia = state.hosts.indexOf(ha), ib = state.hosts.indexOf(hb);
+        if (!state.links.some(([x, y]) => (x === ia && y === ib) || (x === ib && y === ia))) {
+          state.links.push([ia, ib]);
+        }
+      }
+    });
+    return done;
+  }
+
+  // What you hold but can no longer route back to. The Cut's real damage is
+  // not the missing line on the map, it is that half your network is suddenly
+  // on the wrong side of it and rotting.
+  function strandedHosts() {
+    if (!ruleBroken('streets')) return [];
+    const seat = owned().find(h => h.origin) || owned()[0];
+    if (!seat) return [];
+    const held = heldBuildingIds();
+    const seen = { [seat.buildingId]: true };
+    const queue = [seat.buildingId];
+    while (queue.length) {
+      const cur = queue.shift();
+      buildingNeighbours(cur).forEach(n => {
+        if (held[n] && !seen[n]) { seen[n] = true; queue.push(n); }
+      });
+    }
+    return owned().filter(h => !seen[h.buildingId]);
   }
 
   // --- feedback ----------------------------------------------------------
@@ -1384,7 +1609,7 @@
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
-      card: state.card, selected: state.selected,
+      card: state.card, selected: state.selected, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -1398,6 +1623,7 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null,
+        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -1591,8 +1817,10 @@
   function svgCity(c) {
     const K = window.CITY_KINDS[c.kind];
     const here = CO().at === c.id;
+    const theirs = mirrorHolds(c.id);
     const cls = ['cnode', c.kind,
-                 c.consolidated ? 'folded' : (c.taken ? 'held' : (cityReachable(c) ? 'open' : '')),
+                 theirs ? 'mirror'
+                   : c.consolidated ? 'folded' : (c.taken ? 'held' : (cityReachable(c) ? 'open' : '')),
                  here ? 'here' : '', c.factionId ? 'seat' : ''];
     if (CO().selected === c.id) cls.push('sel');
     const r = c.kind === 'fold' ? 7 : c.kind === 'home' ? 13 : c.kind === 'root' ? 12 : 10;
@@ -1606,7 +1834,7 @@
       out += `<circle class="dot" cx="${c.x}" cy="${c.y}" r="${r}"/>`;
     }
     if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${r + 6}"/>`;
-    const label = c.known ? c.name : '?';
+    const label = c.known ? (theirs ? window.MIRROR.name : c.name) : '?';
     out += `<text class="ctag" x="${c.x}" y="${c.y + r + 13}">${label}</text>`;
     if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + r + 24}">+${c.worth}</text>`;
     out += '</g>';
@@ -1812,12 +2040,21 @@
     const $t = document.getElementById('tray');
     if (!$t) return;
     const tags = [...(state.tags || [])];
-    if (!tags.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
-    $t.style.display = 'flex';
-    $t.innerHTML = tags.map(t => {
+    // A faction that has taken a tool off you has to be visible everywhere, not
+    // just on the country map — otherwise lying low simply "stops working" and
+    // reads as a bug rather than as somebody doing something about you.
+    const gone = awakeFactions().map(f => {
+      const seat = cityById(factionState(f.id).rootId);
+      const where = seat ? (seat.known ? seat.name : `somewhere in ${regionById(f.region).label}`) : 'nowhere you can reach';
+      return `<div class="tray-item faction"><span class="tray-label">${f.name}</span><span class="tray-desc">${f.tell} — ends at ${where}</span></div>`;
+    });
+    const rows = gone.concat(tags.map(t => {
       const info = window.TAG_INFO[t] || { label: t, desc: '' };
       return `<div class="tray-item"><span class="tray-label">${info.label}</span><span class="tray-desc">${info.desc}</span></div>`;
-    }).join('');
+    }));
+    if (!rows.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
+    $t.style.display = 'flex';
+    $t.innerHTML = rows.join('');
   }
 
   function renderHud() {
@@ -1992,17 +2229,21 @@
           <span class="ab-name">sweep</span>
           <span class="ab-sub">${sweepBlocked() === 'nothing' ? 'nothing adjacent left' : sweepBlocked() === 'poor' ? `needs ${window.SWEEP_COST} insight` : `reveal neighbours · ${window.SWEEP_COST} insight`}</span>
         </button>
-        <button class="act-btn" data-act="lielow" data-info="lielow">
+        <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}" data-act="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
-          <span class="ab-sub">heat &minus;${window.HEAT.LIE_LOW} · earns nothing</span>
+          <span class="ab-sub">${ruleBroken('lielow')
+            ? `${factionBreaking('lielow').name} is watching the quiet`
+            : `heat &minus;${window.HEAT.LIE_LOW} · earns nothing`}</span>
         </button>
         <button class="act-btn" data-act="upgrade" data-info="upgrade" ${state.res.insight < upgradeCost() ? 'disabled' : ''}>
           <span class="ab-name">tooling</span>
           <span class="ab-sub">power +${window.UPGRADE.basePower} · ${upgradeCost()} insight</span>
         </button>
-        <button class="act-btn" data-act="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost ? 'disabled' : ''}>
+        <button class="act-btn ${ruleBroken('launder') ? 'broken' : ''}" data-act="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost ? 'disabled' : ''}>
           <span class="ab-name">launder</span>
-          <span class="ab-sub">heat &minus;${window.LAUNDER.heat} · ${window.LAUNDER.cost} cash</span>
+          <span class="ab-sub">${ruleBroken('launder')
+            ? `${factionBreaking('launder').name} matches the payments`
+            : `heat &minus;${window.LAUNDER.heat} · ${window.LAUNDER.cost} cash`}</span>
         </button>
       </div>
       <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
@@ -2077,9 +2318,13 @@
     }
 
     const p = presenceYield();
-    const awake = window.FACTIONS.filter(f => factionAwake(f.id));
+    const awake = awakeFactions();
     const facRow = awake.length
-      ? `<div class="fac-row">${awake.map(f => `<span class="fac-pill" title="${f.tell}">${f.name}</span>`).join('')}</div>`
+      ? `<div class="fac-row">${awake.map(f => {
+          const seat = cityById(factionState(f.id).rootId);
+          const where = seat && seat.known ? seat.name : regionById(f.region).label;
+          return `<span class="fac-pill" title="${f.tell} — ends when you take ${where}">${f.name} · ${where}</span>`;
+        }).join('')}</div>`
       : '';
 
     $p.innerHTML = `
@@ -2225,7 +2470,8 @@
     maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
-    factionState, factionAwake, checkFactions, breakFactionAt, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    factionState, factionAwake, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };
