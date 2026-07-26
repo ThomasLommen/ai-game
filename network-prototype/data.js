@@ -95,6 +95,41 @@ window.CAPABILITIES = [
   },
 ];
 
+// --- the city ----------------------------------------------------------
+// The map is a real place: blocks of buildings separated by streets. Districts
+// replace the old concentric rings as the difficulty curve — you start in the
+// suburbs and work toward the industrial edge. `tier` is what the rest of the
+// engine reads, so difficulty stays a single number even though the fiction
+// is now geographic.
+window.DISTRICTS = {
+  residential: { tier: 0, label: 'suburbs',    kinds: ['house', 'house', 'house', 'apartment'] },
+  commercial:  { tier: 1, label: 'high street', kinds: ['shop', 'shop', 'office', 'apartment'] },
+  business:    { tier: 2, label: 'business park', kinds: ['office', 'office', 'warehouse'] },
+  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter'] },
+};
+
+// What lives inside each kind of building, and how many eyes are on the
+// outside. `cameras` are exterior hosts — the way in.
+window.BUILDING_KINDS = {
+  house:      { w: [30, 38], h: [24, 30], label: 'house',      inside: { consumer: [1, 1] }, cameras: [0, 1] },
+  apartment:  { w: [44, 58], h: [34, 44], label: 'apartments', inside: { consumer: [1, 3], iot: [1, 1] }, cameras: [1, 2] },
+  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',  inside: { consumer: [1, 2], corporate: [0, 1] }, cameras: [1, 1] },
+  office:     { w: [52, 68], h: [42, 56], label: 'offices',    inside: { server: [1, 2], corporate: [1, 2] }, cameras: [1, 2] },
+  warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',  inside: { server: [1, 2], corporate: [0, 1] }, cameras: [1, 2] },
+  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter', inside: { datacenter: [1, 2], server: [1, 2] }, cameras: [2, 3] },
+};
+
+window.CITY = {
+  cols: 4, rows: 5,
+  blockW: 190, blockH: 165,
+  street: 46,          // gap between blocks — these are the roads
+  perBlock: [2, 4],    // buildings in a block
+  // districts by block row, suburbs nearest the origin
+  rowDistricts: ['residential', 'residential', 'commercial', 'business', 'industrial'],
+  cameraVision: 150,   // a held camera reveals buildings within this radius
+  people: { perRevealedBlock: [1, 3] },
+};
+
 window.HOST_NAMES = {
   consumer:   ['DESKTOP', 'LAPTOP', 'HOME-PC', 'WORKSTATION', 'WIN-PC'],
   server:     ['vps', 'web', 'db', 'app', 'edge'],

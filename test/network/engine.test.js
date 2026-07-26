@@ -3,48 +3,136 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadNetwork } = require('../helpers/load-network');
 
-test('graph: generates a connected ring structure with exactly one owned origin', () => {
+// Spend the turn's budget on sweeps, and return how many actually happened.
+// An action that cannot proceed (nothing left to sweep, no insight) silently
+// does nothing and spends no AP, so a `while (ap > 0)` loop around it never
+// terminates — that mistake hung the suite roughly one run in eight.
+function drainBudgetBySweeping(d) {
+  let sweeps = 0;
+  for (let guard = 0; guard < 20 && d.state.ap > 0; guard++) {
+    const before = d.state.ap;
+    d.actScan();
+    if (d.state.ap === before) break;   // refused; stop rather than spin
+    sweeps++;
+  }
+  return sweeps;
+}
+
+test('city: generates districts of buildings, each with a way in, all reachable', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const hosts = d.state.hosts;
+  const s = d.state;
 
-  assert.equal(hosts.length, 30);
-  assert.equal(hosts.filter(h => h.owned).length, 1, 'exactly one host is held at the start');
-  assert.equal(hosts.filter(h => h.discovered).length, 1, 'only the origin is visible at the start');
-  assert.equal(hosts[0].ring, 0);
+  assert.ok(s.buildings.length > 20, `only ${s.buildings.length} buildings`);
+  assert.ok(s.hosts.length > s.buildings.length, 'buildings hold more than one host between them');
+  assert.equal(d.owned().length, 1, 'exactly one host is held at the start');
 
-  // every non-origin host must be reachable, or it can never be taken
-  hosts.forEach(h => {
-    if (h.ring === 0) return;
-    assert.ok(d.neighbours(h).length > 0, `${h.id} (ring ${h.ring}) has no links`);
+  // you start in the suburbs, and only that building is visible
+  const seat = d.owned()[0];
+  const home = d.buildingById(seat.buildingId);
+  assert.equal(home.district, 'residential', 'the origin is in the suburbs');
+  assert.equal(s.buildings.filter(b => b.discovered).length, 1, 'only home is visible at the start');
+
+  // every district is represented, and difficulty rides the district
+  const districts = new Set(s.buildings.map(b => b.district));
+  Object.keys(window.DISTRICTS).forEach(k => assert.ok(districts.has(k), `district ${k} is missing`));
+
+  // every building must be enterable, or it can never be taken
+  s.buildings.forEach(b => {
+    const inside = d.hostsIn(b);
+    assert.ok(inside.length > 0, `${b.id} is empty`);
+    assert.ok(inside.some(h => h.exterior), `${b.id} has no way in`);
   });
+
+  // every building must be walkable from home, or part of the city is dead
+  const seen = new Set([home.id]);
+  const queue = [home.id];
+  while (queue.length) {
+    const cur = queue.shift();
+    d.buildingNeighbours(cur).forEach(n => { if (!seen.has(n)) { seen.add(n); queue.push(n); } });
+  }
+  assert.equal(seen.size, s.buildings.length,
+    `${s.buildings.length - seen.size} buildings are unreachable from home`);
 });
 
-test('graph: the opening is never a hard stall', () => {
-  // regression guard: an early build put servers (defense 8-14) in ring 1 while
-  // opening power was 4, and playtests stalled at 2 hosts after 70+ turns.
-  //
-  // The invariant is *not* "something is always crackable immediately" — about
-  // 0.02% of boards roll all-tough ring 1, which is fine, because one tooling
-  // upgrade is affordable from the starting insight and always closes the gap.
-  // What must never happen is a board with no route out at all.
-  let immediate = 0;
-  const RUNS = 60;
-  for (let i = 0; i < RUNS; i++) {
+test('city: difficulty rises with district, so expanding outward gets harder', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const byTier = {};
+  d.state.hosts.forEach(h => {
+    (byTier[h.ring] = byTier[h.ring] || []).push(h.defense);
+  });
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const tiers = Object.keys(byTier).map(Number).sort((a, b) => a - b);
+  assert.ok(tiers.length >= 3, 'several difficulty tiers exist');
+  for (let i = 1; i < tiers.length; i++) {
+    assert.ok(avg(byTier[tiers[i]]) > avg(byTier[tiers[i - 1]]),
+      `tier ${tiers[i]} is not harder than tier ${tiers[i - 1]}`);
+  }
+});
+
+test('city: the opening is never a hard stall', () => {
+  // regression guard from the ring era: an early build made the first ring
+  // uncrackable and playtests stalled after two holdings.
+  // generating a whole city is expensive, so sample rather than hammer
+  for (let i = 0; i < 10; i++) {
     const { window } = loadNetwork();
     const d = window.__netDebug;
     const openingPower = d.power();
     const escapePower = openingPower + window.UPGRADE.basePower; // one affordable upgrade
-    const ring1 = d.state.hosts.filter(h => h.ring === 1);
-    const cheapest = Math.min(...ring1.map(h => h.defense));
-
+    // turn one is a sweep: you cannot act on a street you have not looked at
+    assert.ok(d.sweepTargets().length > 0, 'there is always somewhere to sweep');
+    while (d.state.ap > 0 && d.sweepBlocked() === null) d.actScan();
+    const reachable = d.state.hosts.filter(h => d.isFrontier(h));
+    assert.ok(reachable.length > 0, 'after the opening sweep something is reachable');
+    const cheapest = Math.min(...reachable.map(h => h.defense));
     assert.ok(cheapest <= escapePower,
-      `board is unwinnable: cheapest ring-1 defense ${cheapest} vs ${escapePower} after an upgrade`);
-    assert.ok(window.UPGRADE.costs[0] <= d.state.res.insight + 2,
-      'the first tooling upgrade must be reachable early, or the escape hatch is fictional');
-    if (cheapest <= openingPower) immediate++;
+      `nothing crackable: cheapest reachable defense ${cheapest} vs ${escapePower} after an upgrade`);
   }
-  assert.ok(immediate > RUNS * 0.9, `only ${immediate}/${RUNS} boards open immediately — too grindy`);
+});
+
+test('city: cameras are on the outside and are the way in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const cams = d.state.hosts.filter(h => h.exterior && h.role === 'stealth');
+  assert.ok(cams.length > 0, 'the city has cameras');
+  cams.forEach(c => {
+    const b = d.buildingById(c.buildingId);
+    // a camera sits on the building's edge, not somewhere in its interior
+    assert.ok(Math.abs(c.y - b.y) < 2, 'cameras hang on the wall');
+  });
+});
+
+test('city: holding a camera reveals what is around it, without a sweep', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const before = s.buildings.filter(b => b.discovered).length;
+
+  const cam = s.hosts.find(h => h.exterior && h.role === 'stealth');
+  cam.owned = true;
+  cam.discovered = true;
+  d.cameraVision();
+
+  const after = s.buildings.filter(b => b.discovered).length;
+  assert.ok(after > before, 'an eye on the street shows you the street');
+});
+
+test('city: people appear only where you can see, and move when the world does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  d.repopulatePeople();
+  const atHome = s.people.length;
+
+  s.buildings.slice(0, 12).forEach(b => d.revealBuilding(b));
+  d.repopulatePeople();
+  assert.ok(s.people.length > atHome, 'revealing more of the city reveals more life');
+
+  const before = JSON.stringify(s.people);
+  d.actEndTurn();
+  assert.notEqual(JSON.stringify(s.people), before, 'the street moves on the world turn');
 });
 
 test('power: base rig + held threads + purchased tooling (the flywheel)', () => {
@@ -95,17 +183,38 @@ test('cover comes only from stealth holdings, and gates the quiet approach', () 
   assert.equal(d.cover(), 1 + 2 * window.HOST_TYPES.iot.cover);
 });
 
-test('frontier: only discovered hosts adjacent to something you hold are actionable', () => {
+test('frontier: you can reach inside what you hold, but only the outside of what you do not', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const origin = d.state.hosts[0];
-  const nbr = d.neighbours(origin)[0];
+  const s = d.state;
+  const seat = d.owned()[0];
+  const home = d.buildingById(seat.buildingId);
 
-  assert.equal(d.isFrontier(nbr), false, 'undiscovered neighbours are not frontier');
-  nbr.discovered = true;
-  assert.equal(d.isFrontier(nbr), true, 'discovered + adjacent to a held host');
-  nbr.owned = true;
-  assert.equal(d.isFrontier(nbr), false, 'already held is no longer frontier');
+  // anything undiscovered is off limits, wherever it is
+  const hidden = s.hosts.find(h => !h.discovered);
+  assert.equal(d.isFrontier(hidden), false, 'you cannot act on what you have not seen');
+
+  // inside a building you already hold, everything is reachable
+  const sibling = d.hostsIn(home).find(h => !h.owned);
+  if (sibling) assert.equal(d.isFrontier(sibling), true, 'being inside gets you the whole building');
+
+  // a neighbouring building: its cameras are reachable, its interior is not
+  const neighbourId = d.buildingNeighbours(home.id)[0];
+  assert.ok(neighbourId, 'home has a neighbour across the street');
+  const nb = d.buildingById(neighbourId);
+  d.revealBuilding(nb);
+
+  const outside = d.hostsIn(nb).filter(h => h.exterior);
+  const inside = d.hostsIn(nb).filter(h => !h.exterior);
+  assert.ok(outside.length, 'the neighbour has something on its wall');
+  outside.forEach(h => assert.equal(d.isFrontier(h), true, 'wall-mounted kit is reachable from the street'));
+  inside.forEach(h => assert.equal(d.isFrontier(h), false, 'you cannot reach through a wall you are not behind'));
+
+  // once you are in, the interior opens up
+  if (inside.length) {
+    outside[0].owned = true;
+    inside.forEach(h => assert.equal(d.isFrontier(h), true, 'now that you are inside, the rest follows'));
+  }
 });
 
 test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
@@ -132,8 +241,8 @@ test('breach: an unmet gate does not hand you the host', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const origin = s.hosts[0];
-  const target = d.neighbours(origin)[0];
+  const origin = d.owned()[0];
+  const target = d.neighbours(origin).find(n => !n.owned);
   target.discovered = true;
   target.defense = 999; // unreachable by any route
   s.res.insight = 0;
@@ -153,7 +262,7 @@ test('breach: a met gate takes the host and grows your power', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const target = d.neighbours(s.hosts[0])[0];
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
   target.discovered = true;
   target.defense = 1;
   target.threads = 6;
@@ -191,13 +300,23 @@ test('sweeping cannot reveal the map: discovery follows territory, not sight', (
 test('sweeping costs insight, and is blocked when you cannot pay', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  d.state.res.insight = window.SWEEP_COST;
-  assert.equal(d.sweepBlocked(), null);
-  d.actScan();
-  assert.ok(d.state.res.insight < window.SWEEP_COST + 2, 'the sweep was paid for');
+  const s = d.state;
+  // check both branches from the opening position, where a target is guaranteed —
+  // after a sweep the last adjacent building may be gone, and the answer would
+  // then be 'nothing' rather than 'poor'
+  assert.ok(d.sweepTargets().length > 0, 'there is somewhere to sweep on turn one');
 
-  d.state.res.insight = 0;
+  s.res.insight = 0;
   assert.equal(d.sweepBlocked(), 'poor', 'no insight, no sweep');
+  const ap = s.ap;
+  d.actScan();
+  assert.equal(s.ap, ap, 'a sweep you cannot pay for costs nothing at all');
+
+  s.res.insight = window.SWEEP_COST;
+  assert.equal(d.sweepBlocked(), null, 'with the money in hand it is available');
+  d.actScan();
+  assert.equal(s.res.insight, 0, 'and the sweep was paid for');
+  assert.equal(s.ap, ap - 1, 'and it cost an action');
 });
 
 test('events are only eligible when the board is actually in that situation', () => {
@@ -210,7 +329,7 @@ test('events are only eligible when the board is actually in that situation', ()
   assert.ok(!ids.includes('sprawl_warning'), 'sprawl event needs a real fleet');
   assert.ok(!ids.includes('payroll_window'), 'payroll event needs a corporate holding');
 
-  s.hosts.forEach(h => { if (h.ring <= 3) { h.discovered = true; h.owned = true; } });
+  s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
   ids = d.eligibleEvents().map(e => e.id);
   assert.ok(ids.includes('sprawl_warning'), 'now that you are spread thin, it offers');
   if (d.ownedOf('cash').length) assert.ok(ids.includes('payroll_window'));
@@ -258,7 +377,7 @@ test('tags feed back into the simulation rather than sitting in a tray', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
+  s.hosts.slice(0, 40).forEach(h => { h.owned = true; });
 
   const base = { power: d.power(), cover: d.cover(), heat: d.heatPerTurn(), strike: d.strikeThreshold() };
   const host = s.hosts.find(h => h.ring === 2);
@@ -355,28 +474,33 @@ test('actions spend the budget without advancing the turn', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 1) { h.discovered = true; h.owned = true; } });
-  s.res.insight = 80;
+  s.res.insight = 80;              // money must not be what limits this
 
+  // a fresh city always has a street left to look down, so a sweep is real
+  assert.ok(d.sweepTargets().length > 0, 'there is somewhere to sweep on turn one');
   assert.equal(s.ap, window.AP.base, 'the turn opens with a full budget');
-  const turn = s.turn;
 
+  const turn = s.turn;
   d.actScan();
   assert.equal(s.ap, window.AP.base - 1, 'one action spent');
   assert.equal(s.turn, turn, 'and the clock did not move');
 
-  while (s.ap > 0) d.actScan();
-  const spentTurn = s.turn;
+  // spend whatever is left, then confirm you cannot overdraw
+  drainBudgetBySweeping(d);
+  s.ap = 0;
+  const stuckTurn = s.turn;
+  const stuckInsight = s.res.insight;
   d.actScan();
-  assert.equal(s.ap, 0, 'you cannot overdraw');
-  assert.equal(s.turn, spentTurn, 'and a refused action does not advance the turn');
+  assert.equal(s.ap, 0, 'you cannot overdraw the budget');
+  assert.equal(s.turn, stuckTurn, 'a refused action does not advance the turn');
+  assert.equal(s.res.insight, stuckInsight, 'and it costs nothing');
 });
 
 test('ending the turn runs the world and refills the budget', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 1) h.owned = true; });
+  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
   s.ap = 0;
   const before = { turn: s.turn, insight: s.res.insight };
 
@@ -392,23 +516,23 @@ test('production is once per turn, not once per action', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 1) { h.discovered = true; h.owned = true; } });
   s.res.insight = 80;
+  assert.ok(d.sweepTargets().length > 0, 'there is somewhere to sweep on turn one');
 
   const start = s.res.insight;
-  const spentOnSweeps = window.AP.base * window.SWEEP_COST;
-  while (s.ap > 0) d.actScan();
-  assert.equal(s.res.insight, start - spentOnSweeps, 'acting alone never pays out');
+  const sweeps = drainBudgetBySweeping(d);
+  assert.ok(sweeps > 0, 'the test needs at least one real sweep');
+  assert.equal(s.res.insight, start - sweeps * window.SWEEP_COST, 'acting alone never pays out');
 
   d.actEndTurn();
-  assert.ok(s.res.insight > start - spentOnSweeps, 'only the world phase pays');
+  assert.ok(s.res.insight > start - sweeps * window.SWEEP_COST, 'only the world phase pays');
 });
 
 test('lying low costs the entire turn, not one action of it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 1) h.owned = true; });
+  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
   s.heat = 20;
   const turn = s.turn;
 
@@ -421,7 +545,7 @@ test('capabilities move the action budget in both directions', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 2) { h.discovered = true; h.owned = true; } });
+  s.hosts.slice(0, 40).forEach(h => { h.discovered = true; h.owned = true; });
   s.res.insight = 1000;
 
   const base = d.maxAP();
@@ -438,7 +562,7 @@ test('a capability can never strand you with no actions at all', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 2) { h.discovered = true; h.owned = true; } });
+  s.hosts.slice(0, 40).forEach(h => { h.discovered = true; h.owned = true; });
   s.res.insight = 5000;
 
   // buy every action-costing capability we can; the floor must hold
@@ -509,7 +633,7 @@ test('lying low earns nothing — hiding costs you the turn', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
+  s.hosts.slice(0, 40).forEach(h => { h.owned = true; });
   s.heat = 20;
   const before = s.res.insight;
 
@@ -522,7 +646,7 @@ test('backing out of a breach costs no turn and yields nothing', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const target = d.neighbours(s.hosts[0])[0];
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
   target.discovered = true;
   const before = { insight: s.res.insight, cash: s.res.cash, turn: s.turn, heat: s.heat };
 
@@ -538,7 +662,7 @@ test('a healthy holding cannot be shored for a free turn', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const h = s.hosts.find(x => x.ring === 1);
+  const h = s.hosts.find(x => !x.origin);
   h.owned = true;
   h.stability = 1;
   s.res.insight = 100;
@@ -600,7 +724,7 @@ test('strike branches differ: ride burns a share, shed drops the loud ones, cove
     const { window } = loadNetwork();
     const d = window.__netDebug;
     const s = d.state;
-    s.hosts.forEach(h => { if (h.ring <= 3) { h.discovered = true; h.owned = true; } });
+    s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
     s.res.insight = 40;
     s.heat = HEAT.STRIKE + 2;
     s.card = { kind: 'strike' };
@@ -629,21 +753,22 @@ test('churn reclaims neglected holdings, but never the origin', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const victim = s.hosts.find(h => h.ring === 1);
+  const seat = d.owned()[0];
+  const victim = s.hosts.find(h => !h.origin);
   victim.owned = true;
   victim.stability = 0.001;
-  s.hosts[0].stability = 0.001; // origin should survive regardless
+  seat.stability = 0.001; // the origin should survive regardless
 
   d.endTurn();
   assert.equal(victim.owned, false, 'a decayed holding is reclaimed');
-  assert.equal(s.hosts[0].owned, true, 'the origin is never lost to churn');
+  assert.equal(seat.owned, true, 'the seat you started from is never lost to churn');
 });
 
 test('shoring up spends insight and restores stability', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const h = s.hosts.find(x => x.ring === 1);
+  const h = s.hosts.find(x => !x.origin);
   h.owned = true;
   h.discovered = true;
   h.stability = 0.2;

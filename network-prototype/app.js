@@ -1,18 +1,5 @@
 'use strict';
 (function () {
-  const RING_COUNT = 5;
-  const RING_SIZES = [1, 5, 7, 8, 9];
-  // Harder types appear further out, so expanding outward *is* the difficulty curve.
-  // Ring 1 is deliberately all soft targets: the flywheel has to be able to
-  // start from the opening power of 4, or the whole game stalls on turn one.
-  const RING_TYPES = [
-    ['consumer'],
-    ['consumer', 'consumer', 'iot'],
-    ['iot', 'consumer', 'server', 'server'],
-    ['server', 'corporate', 'iot', 'server'],
-    ['corporate', 'datacenter', 'server', 'datacenter'],
-  ];
-
   const SAVE_KEY = 'network_proto_save';
   const SAVE_VERSION = 1;
 
@@ -20,55 +7,235 @@
   function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-  // --- graph generation --------------------------------------------------
-  function makeGraph() {
+  // --- city generation ---------------------------------------------------
+  // Blocks of buildings separated by streets. Each building holds several
+  // hosts; its cameras sit on the outside and are the way in. The engine below
+  // still only sees `hosts` and `links`, so the whole loop is unchanged — this
+  // is a generation and rendering layer over the same model.
+  function makeCity() {
+    const C = window.CITY;
+    const buildings = [];
     const hosts = [];
     const links = [];
-    let id = 0;
-    for (let ring = 0; ring < RING_COUNT; ring++) {
-      const n = RING_SIZES[ring];
-      const startIdx = hosts.length;
-      for (let i = 0; i < n; i++) {
-        const type = ring === 0 ? 'consumer' : pick(RING_TYPES[ring]);
-        const T = window.HOST_TYPES[type];
-        const angle = ring === 0 ? 0 : (i / n) * Math.PI * 2 + rnd(-0.16, 0.16);
-        const radius = ring === 0 ? 0 : ring * 108 + rnd(-16, 16);
-        hosts.push({
-          id: 'h' + (id++),
-          type,
-          role: T.role,
-          name: pick(window.HOST_NAMES[type]) + '-' + rndInt(10, 99),
-          x: Math.cos(angle) * radius,
-          y: Math.sin(angle) * radius,
-          ring,
-          defense: rndInt(T.defense[0], T.defense[1]),
-          threads: rndInt(T.threads[0], T.threads[1]),
-          discovered: ring === 0,
-          owned: ring === 0,
-          stability: 1,
-        });
-      }
-      // link each node in this ring to its 1-2 nearest neighbours one ring in
-      if (ring > 0) {
-        const prevStart = startIdx - RING_SIZES[ring - 1];
-        for (let i = startIdx; i < hosts.length; i++) {
-          const cands = [];
-          for (let j = prevStart; j < startIdx; j++) {
-            const dx = hosts[i].x - hosts[j].x, dy = hosts[i].y - hosts[j].y;
-            cands.push({ j, d: dx * dx + dy * dy });
-          }
-          cands.sort((a, b) => a.d - b.d);
-          const take = Math.random() < 0.35 ? 2 : 1;
-          for (let k = 0; k < Math.min(take, cands.length); k++) links.push([i, cands[k].j]);
+    let bid = 0, hid = 0;
+
+    for (let row = 0; row < C.rows; row++) {
+      for (let col = 0; col < C.cols; col++) {
+        const districtKey = C.rowDistricts[row];
+        const D = window.DISTRICTS[districtKey];
+        const bx = C.street + col * (C.blockW + C.street);
+        const by = C.street + row * (C.blockH + C.street);
+
+        // subdivide the block into a small grid and drop a building in some cells
+        const cells = [];
+        const cw = C.blockW / 2, ch = C.blockH / 2;
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
+        shuffleArr(cells);
+        const n = rndInt(C.perBlock[0], C.perBlock[1]);
+
+        for (let i = 0; i < Math.min(n, cells.length); i++) {
+          const cell = cells[i];
+          const kind = pick(D.kinds);
+          const K = window.BUILDING_KINDS[kind];
+          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
+          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
+          const b = {
+            id: 'b' + (bid++),
+            kind, district: districtKey, tier: D.tier,
+            block: row * C.cols + col, row, col,
+            x: Math.round(cell.x + (cell.w - w) / 2),
+            y: Math.round(cell.y + (cell.h - h) / 2),
+            w, h,
+            hostIds: [],
+            discovered: false,
+          };
+          buildings.push(b);
         }
       }
     }
-    return { hosts, links };
+
+    // populate each building: cameras on the outside, the rest within
+    buildings.forEach(b => {
+      const K = window.BUILDING_KINDS[b.kind];
+      const made = [];
+
+      const camCount = rndInt(K.cameras[0], K.cameras[1]);
+      for (let i = 0; i < camCount; i++) made.push(makeHost('iot', b, true, i, camCount));
+      for (const type in K.inside) {
+        const range = K.inside[type];
+        const count = rndInt(range[0], range[1]);
+        for (let i = 0; i < count; i++) made.push(makeHost(type, b, false, 0, 0));
+      }
+      // every building needs a way in, or it can never be taken
+      if (!made.some(h => h.exterior)) {
+        const weakest = made.reduce((a, x) => (x.defense < a.defense ? x : a), made[0]);
+        if (weakest) { weakest.exterior = true; weakest.onWall = true; }
+      }
+      made.forEach(h => { hosts.push(h); b.hostIds.push(h.id); });
+    });
+
+    function makeHost(type, b, exterior, idx, total) {
+      const T = window.HOST_TYPES[type];
+      // difficulty rides the district, so the curve survives the new layout
+      const bump = b.tier * 2;
+      const h = {
+        id: 'h' + (hid++),
+        type, role: T.role,
+        buildingId: b.id,
+        district: b.district,
+        ring: b.tier,          // the engine's difficulty tier
+        name: pick(window.HOST_NAMES[type]) + '-' + rndInt(10, 99),
+        defense: rndInt(T.defense[0], T.defense[1]) + bump,
+        threads: rndInt(T.threads[0], T.threads[1]),
+        exterior: !!exterior,
+        onWall: !!exterior,
+        discovered: false,
+        owned: false,
+        stability: 1,
+      };
+      // cameras hang on the building's edge; interior hosts sit inside it
+      if (exterior) {
+        const t = total > 1 ? (idx + 1) / (total + 1) : 0.5;
+        h.x = Math.round(b.x + b.w * t);
+        h.y = Math.round(b.y);
+      } else {
+        h.x = Math.round(b.x + b.w * (0.25 + Math.random() * 0.5));
+        h.y = Math.round(b.y + b.h * (0.3 + Math.random() * 0.5));
+      }
+      return h;
+    }
+
+    // --- links ---------------------------------------------------------
+    const byId = {};
+    hosts.forEach(h => { byId[h.id] = hosts.indexOf(h); });
+
+    // inside a building everything is connected: once you are in, you are in
+    buildings.forEach(b => {
+      for (let i = 0; i < b.hostIds.length; i++) {
+        for (let j = i + 1; j < b.hostIds.length; j++) {
+          links.push([byId[b.hostIds[i]], byId[b.hostIds[j]]]);
+        }
+      }
+    });
+
+    // Across the street: each building wires only to its few nearest
+    // neighbours, and only over a short distance. Linking every same-or-adjacent
+    // block pair produced a spaghetti of long lines that buried the city.
+    const ext = (b) => b.hostIds.map(id => hosts[byId[id]]).filter(h => h.exterior);
+    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const MAX_LINK = 165;
+    const NEIGHBOURS = 3;
+    const seenPair = {};
+    const adjacency = {};
+
+    buildings.forEach((a) => {
+      const ca = centre(a);
+      const cands = buildings
+        .filter(b => b !== a && blocksAdjacent(a, b))
+        .map(b => {
+          const cb = centre(b);
+          return { b, d: Math.hypot(ca.x - cb.x, ca.y - cb.y) };
+        })
+        .filter(o => o.d <= MAX_LINK)
+        .sort((p, q) => p.d - q.d)
+        .slice(0, NEIGHBOURS);
+
+      cands.forEach(({ b }) => {
+        const key = a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id;
+        if (seenPair[key]) return;
+        seenPair[key] = true;
+        const ea = ext(a), eb = ext(b);
+        if (!ea.length || !eb.length) return;
+        let best = null;
+        ea.forEach(x => eb.forEach(y => {
+          const d = (x.x - y.x) ** 2 + (x.y - y.y) ** 2;
+          if (!best || d < best.d) best = { d, x, y };
+        }));
+        if (best) {
+          links.push([byId[best.x.id], byId[best.y.id]]);
+          (adjacency[a.id] = adjacency[a.id] || []).push(b.id);
+          (adjacency[b.id] = adjacency[b.id] || []).push(a.id);
+        }
+      });
+    });
+
+    // Tightening the link distance to kill the visual spaghetti can leave
+    // pockets of the city with no way in. Stitch any stranded component to its
+    // nearest neighbour, so every building is genuinely reachable.
+    (function connectStragglers() {
+      const centre2 = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+      const compOf = {};
+      let comp = 0;
+      buildings.forEach(b => {
+        if (compOf[b.id] !== undefined) return;
+        const stack = [b.id];
+        compOf[b.id] = comp;
+        while (stack.length) {
+          const cur = stack.pop();
+          (adjacency[cur] || []).forEach(n => {
+            if (compOf[n] === undefined) { compOf[n] = comp; stack.push(n); }
+          });
+        }
+        comp++;
+      });
+      if (comp <= 1) return;
+
+      const main = 0;
+      for (let c = 1; c < comp; c++) {
+        const group = buildings.filter(b => compOf[b.id] === c);
+        const target = buildings.filter(b => compOf[b.id] === main);
+        let best = null;
+        group.forEach(g => target.forEach(t => {
+          const cg = centre2(g), ct = centre2(t);
+          const d = Math.hypot(cg.x - ct.x, cg.y - ct.y);
+          if (!best || d < best.d) best = { d, g, t };
+        }));
+        if (!best) continue;
+        const ea = ext(best.g), eb = ext(best.t);
+        if (ea.length && eb.length) {
+          links.push([byId[ea[0].id], byId[eb[0].id]]);
+          (adjacency[best.g.id] = adjacency[best.g.id] || []).push(best.t.id);
+          (adjacency[best.t.id] = adjacency[best.t.id] || []).push(best.g.id);
+        }
+        group.forEach(b => { compOf[b.id] = main; });
+      }
+    })();
+
+    // the origin: a house in the suburbs, one host already yours
+    const suburb = buildings.filter(b => b.district === 'residential');
+    const origin = suburb[Math.floor(Math.random() * suburb.length)] || buildings[0];
+    origin.discovered = true;
+    const originHosts = origin.hostIds.map(id => hosts[byId[id]]);
+    const seat = originHosts.find(h => !h.exterior) || originHosts[0];
+    seat.owned = true;
+    seat.discovered = true;
+    seat.ring = 0;
+    seat.origin = true;
+    originHosts.forEach(h => { h.discovered = true; });
+
+    return { buildings, hosts, links, adjacency, originId: seat.id };
+  }
+
+  function blocksAdjacent(a, b) {
+    if (a.block === b.block) return true;
+    const dr = Math.abs(a.row - b.row), dc = Math.abs(a.col - b.col);
+    return (dr + dc) === 1; // across one street, not diagonally
+  }
+
+  function shuffleArr(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
   }
 
   function freshState() {
-    const g = makeGraph();
+    const g = makeCity();
     return {
+      buildings: g.buildings,
+      adjacency: g.adjacency,
+      view: null,          // pan/zoom, set on first render
       turn: 1,
       heat: 0,
       upgrades: 0,
@@ -80,7 +247,9 @@
       res: { insight: 6, cash: 4 },
       hosts: g.hosts,
       links: g.links,
+      people: [],
       selected: null,
+      selectedBuilding: null,
       card: null,      // { kind:'breach'|'strike', hostId? }
       log: [],
       lastStage: 'foothold',
@@ -160,10 +329,73 @@
     return s;
   }
   function hostById(id) { return state.hosts.find(h => h.id === id); }
+  function buildingById(id) { return (state.buildings || []).find(b => b.id === id); }
+  function hostsIn(b) { return b ? b.hostIds.map(hostById).filter(Boolean) : []; }
+  function buildingHeld(b) { return hostsIn(b).some(h => h.owned); }
+
+  // Cameras are eyes. Holding one reveals the buildings around it without
+  // spending a sweep — this is what makes the stealth role spatial rather than
+  // just a number that buys down heat.
+  function cameraVision() {
+    const eyes = owned().filter(h => h.exterior && h.role === 'stealth');
+    if (!eyes.length) return;
+    const r2 = window.CITY.cameraVision * window.CITY.cameraVision;
+    (state.buildings || []).forEach(b => {
+      if (b.discovered) return;
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      if (eyes.some(e => (e.x - cx) ** 2 + (e.y - cy) ** 2 <= r2)) revealBuilding(b);
+    });
+  }
+
+  function revealBuilding(b) {
+    if (!b || b.discovered) return false;
+    b.discovered = true;
+    hostsIn(b).forEach(h => { h.discovered = true; });
+    return true;
+  }
+
+  // People only exist where you can see. They shuffle on the world turn, so
+  // the city visibly moves exactly when the network runs.
+  function repopulatePeople() {
+    const C = window.CITY;
+    const out = [];
+    const seen = (state.buildings || []).filter(b => b.discovered);
+    const blocks = {};
+    seen.forEach(b => { blocks[b.block] = blocks[b.block] || b; });
+    Object.keys(blocks).forEach(k => {
+      const b = blocks[k];
+      const n = rndInt(C.people.perRevealedBlock[0], C.people.perRevealedBlock[1]);
+      for (let i = 0; i < n; i++) {
+        // walk the streets around the block, not through the buildings
+        const onVertical = Math.random() < 0.5;
+        const x = onVertical
+          ? b.x - C.street * (0.3 + Math.random() * 0.4)
+          : b.x + Math.random() * C.blockW * 0.9;
+        const y = onVertical
+          ? b.y + Math.random() * C.blockH * 0.9
+          : b.y - C.street * (0.3 + Math.random() * 0.4);
+        out.push({ x: Math.round(x), y: Math.round(y) });
+      }
+    });
+    state.people = out;
+  }
+  // What you can act on. Being inside a building gets you everything in it;
+  // from the street you can only reach what is mounted on the outside. The
+  // seat you start in is an interior host with no links out of its building,
+  // so this must be answered at building level or the game cannot even open.
+  function heldBuildingIds() {
+    const set = {};
+    owned().forEach(h => { set[h.buildingId] = true; });
+    return set;
+  }
+  function buildingNeighbours(bid) { return (state.adjacency && state.adjacency[bid]) || []; }
+
   function isFrontier(h) {
-    // discovered, not held, and touching something you hold
     if (!h.discovered || h.owned) return false;
-    return neighbours(h).some(n => n.owned);
+    const held = heldBuildingIds();
+    if (held[h.buildingId]) return true;              // already inside
+    if (!h.exterior) return false;                    // no way through a wall
+    return buildingNeighbours(h.buildingId).some(id => held[id]);
   }
   function neighbours(h) {
     const idx = state.hosts.indexOf(h);
@@ -207,7 +439,7 @@
     // churn — holdings decay unless shored up, so sprawl has upkeep
     const lost = [];
     owned().forEach(h => {
-      if (h.ring === 0) return; // origin never churns away
+      if (h.origin) return; // only the seat you started from is safe
       h.stability -= window.HOST_TYPES[h.type].churn * (has('overextended') ? 1.5 : 1);
       if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
     });
@@ -223,6 +455,8 @@
       if (ev) state.card = { kind: 'event', eventId: ev.id };
       state.nextEventTurn = state.turn + 4 + Math.floor(Math.random() * 4);
     }
+    cameraVision();       // held cameras reveal what is near them
+    repopulatePeople();   // the city moves when the world does
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
     persistNow();
@@ -341,7 +575,7 @@
     ch.apply(scratch);
 
     if (scratch.shedWeakest > 0) {
-      const weakest = owned().filter(h => h.ring > 0).sort((a, b) => a.threads - b.threads).slice(0, scratch.shedWeakest);
+      const weakest = owned().filter(h => !h.origin).sort((a, b) => a.threads - b.threads).slice(0, scratch.shedWeakest);
       weakest.forEach(h => { h.owned = false; h.stability = 1; });
       if (weakest.length) pushLog(`Let go of ${weakest.map(h => h.name).join(', ')}.`);
     }
@@ -365,11 +599,15 @@
   }
 
   // --- actions -----------------------------------------------------------
+  // Discovery follows territory, not sight: you can only see one street past
+  // what you actually hold. A sweep reveals whole buildings, since a building
+  // is the unit you look at.
   function sweepTargets() {
-    // Discovery follows territory, not sight. Previously this also spread from
-    // already-discovered hosts, which let a player reveal the entire map from
-    // the start node without ever taking anything.
-    return state.hosts.filter(h => !h.discovered && neighbours(h).some(n => n.owned));
+    const held = heldBuildingIds();
+    return (state.buildings || []).filter(b => {
+      if (b.discovered) return false;
+      return buildingNeighbours(b.id).some(id => held[id]);
+    });
   }
 
   // why sweep is unavailable, if it is — surfaced on the button itself
@@ -385,17 +623,19 @@
     if (state.res.insight < window.SWEEP_COST) return;
     spendAP('sweep');
     state.res.insight -= window.SWEEP_COST;
-    const reach = 2 + ownedOf('stealth').length; // routers extend the sweep
-    const undiscovered = sweepTargets();
+    const reach = 1 + ownedOf('stealth').length; // cameras extend the sweep
+    const targets = sweepTargets();
     const found = [];
-    for (let i = 0; i < reach && undiscovered.length; i++) {
-      const idx = Math.floor(Math.random() * undiscovered.length);
-      const h = undiscovered.splice(idx, 1)[0];
-      h.discovered = true;
-      found.push(h);
+    for (let i = 0; i < reach && targets.length; i++) {
+      const idx = Math.floor(Math.random() * targets.length);
+      const b = targets.splice(idx, 1)[0];
+      revealBuilding(b);
+      found.push(b);
     }
     state.heat += 0.5;
-    pushLog(found.length ? `Sweep found ${found.length} host${found.length > 1 ? 's' : ''}.` : 'Sweep found nothing new.');
+    pushLog(found.length
+      ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`
+      : 'Sweep found nothing new.');
     persistNow();
     render();
   }
@@ -497,6 +737,8 @@
     if (out.hold) {
       h.owned = true;
       h.stability = 1;
+      revealBuilding(buildingById(h.buildingId)); // you are inside now
+      cameraVision();
     }
     state.heat = Math.max(heatFloor(), state.heat + (win ? a.heat : 0) + (out.heat || 0));
 
@@ -511,7 +753,7 @@
 
   function resolveStrike(effect) {
     const before = beforeSnap();
-    const fleet = owned().filter(h => h.ring > 0);
+    const fleet = owned().filter(h => !h.origin);
     let burned = [];
     if (effect === 'shed_loud') {
       burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);
@@ -590,6 +832,7 @@
   function serialize() {
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
+      buildings: state.buildings, adjacency: state.adjacency, people: state.people || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [],
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, over: state.over,
@@ -598,9 +841,10 @@
   }
   function deserialize(saved) {
     try {
-      if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts)) return null;
+      if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
+        buildings: saved.buildings || [], adjacency: saved.adjacency || {}, people: saved.people || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, over: !!saved.over,
@@ -621,48 +865,247 @@
   function clearSaved() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
 
   // --- rendering ---------------------------------------------------------
-  const NODE_R = { consumer: 11, server: 14, corporate: 15, iot: 9, datacenter: 19 };
+  // --- the city, drawn -----------------------------------------------------
+  const CITY_PAD = 40;
+
+  function cityBounds() {
+    const C = window.CITY;
+    return {
+      w: C.street + C.cols * (C.blockW + C.street),
+      h: C.street + C.rows * (C.blockH + C.street),
+    };
+  }
+
+  // The view is a window onto a map far bigger than the screen, so it pans and
+  // zooms. It starts centred on the one building you actually hold.
+  function viewportRect() {
+    const el = document.getElementById('graph-wrap');
+    const r = el ? el.getBoundingClientRect() : null;
+    return (r && r.width > 0 && r.height > 0) ? r : { width: 390, height: 390 };
+  }
+
+  function defaultView() {
+    const rect = viewportRect();
+    const seat = owned()[0] || state.hosts[0];
+    const b = seat ? buildingById(seat.buildingId) : null;
+    const cx = b ? b.x + b.w / 2 : cityBounds().w / 2;
+    const cy = b ? b.y + b.h / 2 : cityBounds().h / 2;
+    const w = 420, h = w * (rect.height / Math.max(1, rect.width));
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
+  }
+
+  function clampView(v) {
+    const B = cityBounds();
+    const minW = 220, maxW = Math.max(B.w, B.h) * 1.25;
+    v.w = Math.max(minW, Math.min(maxW, v.w));
+    const rect = viewportRect();
+    v.h = v.w * (rect.height / Math.max(1, rect.width));
+    v.x = Math.max(-CITY_PAD, Math.min(B.w + CITY_PAD - v.w, v.x));
+    v.y = Math.max(-CITY_PAD, Math.min(B.h + CITY_PAD - v.h, v.y));
+    return v;
+  }
+
+  function svgStreets() {
+    const C = window.CITY;
+    const B = cityBounds();
+    let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
+    for (let c = 0; c <= C.cols; c++) {
+      const x = c * (C.blockW + C.street) + C.street / 2;
+      out += `<line class="street" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+    }
+    for (let r = 0; r <= C.rows; r++) {
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      out += `<line class="street" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+    }
+    return out;
+  }
+
+  function svgBuilding(b) {
+    const hosts = hostsIn(b);
+    const held = hosts.filter(h => h.owned).length;
+    const cls = ['bldg', b.kind, held ? (held === hosts.length ? 'all-held' : 'part-held') : ''];
+    if (state.selectedBuilding === b.id) cls.push('sel');
+    const roof = Math.min(10, b.h * 0.28);
+    let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}">`;
+    out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
+    out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
+    // windows hint at how much is inside
+    const cols = Math.max(2, Math.round(b.w / 14));
+    const rows = Math.max(1, Math.round((b.h - roof) / 13));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const wx = b.x + 5 + c * ((b.w - 10) / cols);
+        const wy = b.y + roof + 5 + r * ((b.h - roof - 8) / rows);
+        const lit = held > 0 && ((r + c) % 2 === 0);
+        out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
+      }
+    }
+    out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${window.BUILDING_KINDS[b.kind].label}${hosts.length > 1 ? ` · ${held}/${hosts.length}` : ''}</text>`;
+    out += '</g>';
+    return out;
+  }
+
+  function svgHost(h) {
+    const b = buildingById(h.buildingId);
+    const actionable = isFrontier(h);
+    const cls = ['hnode', h.role, h.owned ? 'owned' : (actionable ? 'frontier' : 'far')];
+    if (h.exterior) cls.push('cam');
+    if (state.selected === h.id) cls.push('selected');
+    const r = h.exterior ? 4.5 : 4;
+    let out = `<g class="${cls.join(' ')}" data-host="${h.id}">`;
+    out += `<circle class="hit" cx="${h.x}" cy="${h.y}" r="13"/>`;
+    if (h.exterior) {
+      // a camera on the wall, not a dot in a room
+      out += `<rect class="camb" x="${h.x - 5}" y="${h.y - 7}" width="10" height="6" rx="1.5"/>`;
+      out += `<circle class="lens" cx="${h.x}" cy="${h.y - 4}" r="1.8"/>`;
+    } else {
+      out += `<circle class="dot" cx="${h.x}" cy="${h.y}" r="${r}"/>`;
+    }
+    out += '</g>';
+    return out;
+  }
 
   function renderGraph() {
     const $svg = document.getElementById('graph');
     if (!$svg) return;
-    const vis = state.hosts.filter(h => h.discovered);
-    const pad = 78; // labels hang below and past their node — keep them in frame
-    let minX = -60, maxX = 60, minY = -60, maxY = 60;
-    vis.forEach(h => {
-      minX = Math.min(minX, h.x); maxX = Math.max(maxX, h.x);
-      minY = Math.min(minY, h.y); maxY = Math.max(maxY, h.y);
-    });
-    const vb = [minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2];
-    $svg.setAttribute('viewBox', vb.join(' '));
+    if (!state.view) state.view = clampView(defaultView());
+    syncViewToViewport();
+    const v = state.view;
+    $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
 
-    const linkSvg = state.links.map(([a, b]) => {
-      const ha = state.hosts[a], hb = state.hosts[b];
-      if (!ha.discovered || !hb.discovered) return '';
-      const live = ha.owned && hb.owned;
-      return `<line class="link${live ? ' live' : ''}" x1="${ha.x}" y1="${ha.y}" x2="${hb.x}" y2="${hb.y}"/>`;
+    const seen = (state.buildings || []).filter(b => b.discovered);
+    const seenIds = {};
+    seen.forEach(b => { seenIds[b.id] = true; });
+
+    let out = svgStreets();
+
+    // Only your own network is drawn. The streets already say what is next to
+    // what; drawing every possible link buried the city in spaghetti.
+    out += state.links.map(([a, c]) => {
+      const ha = state.hosts[a], hc = state.hosts[c];
+      if (!ha || !hc || !ha.owned || !hc.owned) return '';
+      if (ha.buildingId === hc.buildingId) return '';   // inside a building, implied
+      return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
     }).join('');
 
-    const nodeSvg = vis.map(h => {
-      const r = NODE_R[h.type];
-      const cls = ['node', h.role, h.owned ? 'owned' : (isFrontier(h) ? 'frontier' : 'far')];
-      if (state.selected === h.id) cls.push('selected');
-      const ring = h.owned && h.stability < 0.55 ? `<circle class="decay" cx="${h.x}" cy="${h.y}" r="${r + 4}"/>` : '';
-      return `<g class="${cls.join(' ')}" data-host="${h.id}">
-        ${ring}
-        <circle class="hit" cx="${h.x}" cy="${h.y}" r="${r + 12}"/>
-        <circle class="dot" cx="${h.x}" cy="${h.y}" r="${r}"/>
-        <text class="lbl" x="${h.x}" y="${h.y + r + 13}">${h.owned ? h.name : window.HOST_TYPES[h.type].label}</text>
-      </g>`;
-    }).join('');
+    out += seen.map(svgBuilding).join('');
+    out += state.hosts.filter(h => h.discovered && seenIds[h.buildingId]).map(svgHost).join('');
 
-    $svg.innerHTML = linkSvg + nodeSvg;
+    // people, only where you can see, shuffled each world turn
+    out += (state.people || []).map(p => `<circle class="person" cx="${p.x}" cy="${p.y}" r="2"/>`).join('');
+
+    $svg.innerHTML = out;
+    wireMap($svg);
+  }
+
+  // Pan, pinch-zoom, and tap — with a movement threshold so a drag never
+  // registers as a tap on whatever happened to be under your finger.
+  let mapWired = null;
+  function wireMap($svg) {
     $svg.querySelectorAll('[data-host]').forEach(el => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        if (dragMoved) return;
+        e.stopPropagation();
         state.selected = el.getAttribute('data-host');
+        const h = hostById(state.selected);
+        state.selectedBuilding = h ? h.buildingId : null;
         render();
       });
     });
+    $svg.querySelectorAll('[data-bldg]').forEach(el => {
+      el.addEventListener('click', () => {
+        if (dragMoved) return;
+        state.selectedBuilding = el.getAttribute('data-bldg');
+        state.selected = null;
+        render();
+      });
+    });
+    if (mapWired === $svg) return;
+    mapWired = $svg;
+
+    let dragging = false, last = null, pinch = null;
+    const toWorld = (cx, cy) => {
+      const r = viewportRect();
+      const v = state.view;
+      return { x: v.x + ((cx - r.left) / r.width) * v.w, y: v.y + ((cy - r.top) / r.height) * v.h };
+    };
+
+    $svg.addEventListener('pointerdown', (e) => {
+      dragging = true; dragMoved = false;
+      last = { x: e.clientX, y: e.clientY };
+    });
+    $svg.addEventListener('pointermove', (e) => {
+      if (!dragging || pinch) return;
+      const dx = e.clientX - last.x, dy = e.clientY - last.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) dragMoved = true;
+      if (!dragMoved) return;
+      const r = viewportRect();
+      state.view.x -= dx * (state.view.w / r.width);
+      state.view.y -= dy * (state.view.h / r.height);
+      clampView(state.view);
+      last = { x: e.clientX, y: e.clientY };
+      renderGraph();
+    });
+    const endDrag = () => { dragging = false; setTimeout(() => { dragMoved = false; }, 0); };
+    $svg.addEventListener('pointerup', endDrag);
+    $svg.addEventListener('pointercancel', endDrag);
+    $svg.addEventListener('pointerleave', endDrag);
+
+    $svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const at = toWorld(e.clientX, e.clientY);
+      const k = e.deltaY > 0 ? 1.12 : 0.89;
+      zoomAt(at, k);
+    }, { passive: false });
+
+    $svg.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        pinch = { d: touchDist(e), mid: touchMid(e) };
+        dragMoved = true;
+      }
+    }, { passive: true });
+    $svg.addEventListener('touchmove', (e) => {
+      if (e.touches.length !== 2 || !pinch) return;
+      const d = touchDist(e);
+      if (!d || !pinch.d) return;
+      zoomAt(toWorld(pinch.mid.x, pinch.mid.y), pinch.d / d);
+      pinch.d = d;
+    }, { passive: true });
+    $svg.addEventListener('touchend', () => { pinch = null; });
+
+    function touchDist(e) {
+      const a = e.touches[0], b = e.touches[1];
+      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    }
+    function touchMid(e) {
+      const a = e.touches[0], b = e.touches[1];
+      return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+    }
+  }
+  let dragMoved = false;
+
+  function zoomAt(at, k) {
+    const v = state.view;
+    const fx = (at.x - v.x) / v.w, fy = (at.y - v.y) / v.h;
+    v.w *= k;
+    clampView(v);
+    v.x = at.x - fx * v.w;
+    v.y = at.y - fy * v.h;
+    clampView(v);
+    renderGraph();
+  }
+
+  let lastVpH = 0;
+  function syncViewToViewport() {
+    const r = viewportRect();
+    if (Math.abs(r.height - lastVpH) < 1) return;
+    lastVpH = r.height;
+    if (state.view) clampView(state.view);
+  }
+
+  function recenter() {
+    state.view = clampView(defaultView());
+    renderGraph();
   }
 
   let infoToken = 0;
@@ -790,15 +1233,18 @@
     if (state.card) { renderCard($p); return; }
 
     const h = state.selected ? hostById(state.selected) : null;
+    const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
     let sel = '';
+
     if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const yieldTxt = Object.keys(T.yield || {}).map(k => `+${T.yield[k]} ${k}`).join(', ') || 'no yield';
+      const where = h.exterior ? 'on the wall' : 'inside';
       if (h.owned) {
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${h.name}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="sel-desc">${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
+            <p class="sel-desc">${where} · ${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
             <button class="act-btn" data-act="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
               <span class="ab-sub">${!shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
@@ -808,19 +1254,40 @@
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="sel-desc">defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
+            <p class="sel-desc">${where} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
             <button class="act-btn primary" data-act="breach">
               <span class="ab-name">move on it</span>
               <span class="ab-sub">choose how you get in</span>
             </button>
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${T.label} — not reachable yet. Take something next to it first.</p></div>`;
+        sel = `<div class="sel"><p class="sel-desc">${T.label} — you have no route to it yet. Take something it connects to first.</p></div>`;
       }
+    } else if (b && b.discovered) {
+      // a building is a container: list what is in it and let the player pick
+      const inside = hostsIn(b);
+      const rows = inside.map(x => {
+        const T = window.HOST_TYPES[x.type];
+        const state_ = x.owned ? 'held' : (isFrontier(x) ? 'reachable' : 'no route');
+        return `<button type="button" class="inside-row ${x.owned ? 'held' : ''}" data-pick="${x.id}">
+          <span class="ir-name">${x.exterior ? 'camera' : T.label}</span>
+          <span class="ir-meta mono">${x.owned ? `${Math.round(x.stability * 100)}%` : 'def ' + defenseOf(x)}</span>
+          <span class="ir-state ${state_.replace(' ', '-')}">${state_}</span>
+        </button>`;
+      }).join('');
+      sel = `
+        <div class="sel">
+          <div class="sel-top">
+            <span class="sel-name">${window.BUILDING_KINDS[b.kind].label}</span>
+            <span class="tag-pill">${window.DISTRICTS[b.district].label}</span>
+          </div>
+          <p class="sel-desc">${inside.filter(x => x.owned).length} of ${inside.length} held</p>
+          <div class="inside-list">${rows}</div>
+        </div>`;
     } else if (state.ap <= 0) {
-      sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the network run.</p></div>`;
+      sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
     } else {
-      sel = `<div class="sel"><p class="sel-desc dim">Tap a node. Lit nodes border what you hold.</p></div>`;
+      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to see inside it. Drag to look around, pinch to zoom.</p></div>`;
     }
 
     $p.innerHTML = `
@@ -845,6 +1312,12 @@
       </div>
       <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
     `;
+    $p.querySelectorAll('[data-pick]').forEach(el => {
+      el.addEventListener('click', () => {
+        state.selected = el.getAttribute('data-pick');
+        render();
+      });
+    });
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });
     });
@@ -958,12 +1431,12 @@
 
   window.__netState = state;
   window.__netDebug = {
-    makeGraph, freshState, power, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, freshState, buildingById, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, repopulatePeople, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, spendAP, actEndTurn, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    maxAP, apCost, canAfford, spendAP, actEndTurn, recenter, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };
@@ -980,6 +1453,9 @@
     $capsModal.addEventListener('click', (e) => { if (e.target === $capsModal) $capsModal.classList.remove('show'); });
   }
 
+  const $recenter = document.getElementById('recenter');
+  if ($recenter) $recenter.addEventListener('click', () => recenter());
+
   const $restart = document.getElementById('restart');
   if ($restart) {
     let armed = false;
@@ -994,6 +1470,7 @@
     });
   }
 
+  if (!state.people || !state.people.length) repopulatePeople();
   render();
   persistNow();
 })();

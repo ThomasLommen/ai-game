@@ -100,28 +100,10 @@ body {
   min-height: 260px;
   margin-top: 6px;
 }
-#graph { width: 100%; height: 100%; display: block; touch-action: manipulation; }
+/* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
+   aspect ratio, which fed the wrong height back into the view maths */
+#graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-.link { stroke: var(--line); stroke-width: 1.4; }
-.link.live { stroke: color-mix(in srgb, var(--cover) 60%, transparent); stroke-width: 2; }
-
-.node { cursor: pointer; }
-.node .hit { fill: transparent; }
-.node .dot { fill: var(--surface-2); stroke: var(--line); stroke-width: 2; transition: fill .2s, stroke .2s; }
-.node .lbl { fill: var(--muted); font-size: 11px; text-anchor: middle; font-family: ui-monospace, Menlo, monospace; }
-
-.node.far .dot { opacity: .45; stroke-dasharray: 3 3; }
-.node.far .lbl { opacity: .5; }
-.node.frontier .dot { stroke: var(--ink-dim); }
-.node.frontier .lbl { fill: var(--ink-dim); }
-
-.node.owned.compute .dot { fill: color-mix(in srgb, var(--insight) 40%, var(--surface-2)); stroke: var(--insight); }
-.node.owned.cash .dot    { fill: color-mix(in srgb, var(--cash) 40%, var(--surface-2)); stroke: var(--cash); }
-.node.owned.stealth .dot { fill: color-mix(in srgb, var(--cover) 45%, var(--surface-2)); stroke: var(--cover); }
-.node.owned .lbl { fill: var(--ink); }
-
-.node.selected .dot { stroke-width: 3.5; stroke: var(--ink); }
-.decay { fill: none; stroke: var(--heat); stroke-width: 1.5; stroke-dasharray: 2 3; opacity: .8; }
 
 /* feedback — outcomes are taught after the fact, not spoiled before */
 #feedback-stack {
@@ -458,3 +440,79 @@ footer .build { opacity: .55; font-size: 10px; }
 .ap-tag.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 50%, transparent); }
 .event-row.cap { border-color: var(--power); }
 .event-row.cap .event-label { color: var(--power); }
+
+/* --- the city ------------------------------------------------------- */
+#graph { touch-action: none; cursor: grab; }
+#graph:active { cursor: grabbing; }
+
+.ground { fill: #0b0f0d; }
+.street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
+
+.bldg .body { fill: #131a17; stroke: #232d29; stroke-width: 1.2; }
+.bldg .roof { fill: #1a2320; }
+.bldg .win  { fill: #1e2724; }
+.bldg .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg .btag {
+  fill: var(--muted); font-size: 7.5px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.bldg.part-held .body { stroke: color-mix(in srgb, var(--insight) 55%, transparent); }
+.bldg.all-held .body  { stroke: var(--insight); fill: #16211d; }
+.bldg.all-held .btag  { fill: var(--ink-dim); }
+.bldg.sel .body { stroke: var(--ink); stroke-width: 2; }
+.bldg { cursor: pointer; }
+
+/* datacenters and warehouses read as bigger, flatter industry */
+.bldg.datacenter .roof, .bldg.warehouse .roof { fill: #202a26; }
+
+.wire { stroke: #223029; stroke-width: 1; }
+.wire.live { stroke: color-mix(in srgb, var(--cover) 65%, transparent); stroke-width: 1.6; }
+
+.hnode { cursor: pointer; }
+.hnode .hit { fill: transparent; }
+.hnode .dot { fill: #26312d; stroke: #37443f; stroke-width: 1.4; }
+.hnode .camb { fill: #26312d; stroke: #37443f; stroke-width: 1; }
+.hnode .lens { fill: #55635d; }
+
+.hnode.frontier .dot { stroke: var(--ink-dim); }
+.hnode.frontier .camb { stroke: var(--ink-dim); }
+.hnode.frontier .lens { fill: var(--ink-dim); }
+
+.hnode.owned.compute .dot { fill: var(--insight); stroke: var(--insight); }
+.hnode.owned.cash .dot    { fill: var(--cash); stroke: var(--cash); }
+.hnode.owned.stealth .dot { fill: var(--cover); stroke: var(--cover); }
+.hnode.owned .camb { fill: color-mix(in srgb, var(--cover) 60%, #26312d); stroke: var(--cover); }
+.hnode.owned .lens { fill: var(--item); }
+.hnode.selected .dot, .hnode.selected .camb { stroke: var(--ink); stroke-width: 2.2; }
+
+.person { fill: #6d7d76; opacity: .9; }
+
+/* what is inside a building */
+.inside-list { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.inside-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.inside-row:hover { border-color: var(--ink-dim); }
+.inside-row.held { border-left: 3px solid var(--insight); }
+.ir-name { flex: 1; }
+.ir-meta { color: var(--muted); font-size: 10.5px; }
+.ir-state { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ir-state.reachable { color: var(--item); }
+.ir-state.held { color: var(--insight); }
+.ir-state.no-route { color: var(--line); }
+
+#recenter {
+  position: absolute; right: 10px; bottom: 10px;
+  z-index: 6;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 6px 10px; font-size: 11px; cursor: pointer;
+}

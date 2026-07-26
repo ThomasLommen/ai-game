@@ -26,6 +26,9 @@ function makeElement() {
     addEventListener() {}, removeEventListener() {},
     appendChild() {}, removeChild() {},
     setAttribute() {}, getAttribute() { return null; },
+    // the map measures its own viewport to work out pan/zoom; give it a
+    // plausible phone-sized box so the view maths is exercised, not skipped
+    getBoundingClientRect() { return { left: 0, top: 0, width: 390, height: 355, right: 390, bottom: 355 }; },
     querySelector() { return makeElement(); },
     querySelectorAll() { return []; },
     get textContent() { return this._text; },
