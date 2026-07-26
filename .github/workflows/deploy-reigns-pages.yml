@@ -37,6 +37,17 @@ jobs:
           cp -r reigns-prototype/. site/
           cp -r network-prototype/. site/network/
 
+          # Stamp a unique build id into the service worker and the pages. A
+          # byte-different sw.js is what makes the browser install a new worker
+          # at all — an unchanged sw.js is never reinstalled, so the old one
+          # keeps serving no matter what else changed.
+          BUILD="$(date -u +%Y%m%d-%H%M)-$(echo "$GITHUB_SHA" | cut -c1-7)"
+          echo "build id: $BUILD"
+          grep -rl '__BUILD__' site | while read -r f; do
+            sed -i "s/__BUILD__/$BUILD/g" "$f"
+          done
+          if grep -rq '__BUILD__' site; then echo "unreplaced __BUILD__ left"; exit 1; fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

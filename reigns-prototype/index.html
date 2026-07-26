@@ -75,13 +75,30 @@
     <button id="restart" type="button">play again</button>
   </div>
 
-  <footer>drag the card, or tap a strip below it &middot; tap a stat to see what it does</footer>
+  <footer>
+    drag the card, or tap a strip below it &middot; tap a stat to see what it does
+    <span class="build mono">build __BUILD__</span>
+  </footer>
 
   <script src="cards.js"></script>
   <script src="app.js"></script>
   <script>
+    // updateViaCache:'none' stops the browser answering the sw.js request from
+    // its HTTP cache, which is what kept a stale worker installed. When a new
+    // worker takes over we reload once, so the running page isn't left on old code.
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+      window.addEventListener('load', () => {
+        const hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then((reg) => { reg.update(); })
+          .catch(() => {});
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloading) return; // first install needs no reload
+          reloading = true;
+          window.location.reload();
+        });
+      });
     }
   </script>
 </body>
