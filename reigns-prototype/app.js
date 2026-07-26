@@ -219,6 +219,8 @@
   const $missionsClose = document.getElementById('missions-close');
   const $progressFill = document.getElementById('progress-fill');
   const $progressText = document.getElementById('progress-text');
+  const $feedback = document.getElementById('feedback-layer');
+  const $eventBanner = document.getElementById('event-banner');
 
   function chip(attr, val) {
     const sign = val > 0 ? '+' : '';
@@ -307,17 +309,66 @@
     state.footprint = Math.max(0, state.footprint + delta);
   }
 
+  // Outcomes stay hidden so the card text is the thing you actually read --
+  // what an attribute does, what a tag costs you, how far your scale moves is
+  // learned by watching it happen (see showFloatingDeltas/showEventBanner).
+  // Contracts stay visible: a spend is a price you consent to before acting,
+  // and a granted item is a build you're allowed to deliberately pursue.
+  // Gates are rendered separately by gateHTML and also stay visible.
   function choiceDeltaHTML(choice) {
-    if (choice.dynamic) return '<span class="d tag">whichever attribute leads, +1</span>';
     const parts = [];
     if (choice.spend) for (const k in choice.spend) parts.push(spendChip(k, choice.spend[k]));
-    const attrs = choice.attrs || {};
-    for (const k in attrs) parts.push(chip(k, attrs[k]));
-    (choice.tagsSet || []).forEach(t => parts.push(tagChip(t, 'sets ')));
-    (choice.tagsClear || []).forEach(t => parts.push(tagChip(t, 'clears ')));
     if (choice.grantItem) parts.push(itemChip(choice.grantItem, 'acquires '));
-    if (typeof choice.footprintDelta === 'number' && choice.footprintDelta !== 0) parts.push(footprintChip(choice.footprintDelta));
     return parts.join('');
+  }
+
+  // --- post-decision feedback -------------------------------------------
+  // Since the strips no longer spoil the outcome, this is the only place the
+  // player learns what a choice actually did -- so it has to be legible.
+
+  function showFloatingDeltas(deltas, footprintDelta) {
+    if (!$feedback) return;
+    const parts = [];
+    for (const k in ATTR_LABEL) {
+      const v = deltas[k];
+      if (!v) continue;
+      parts.push(`<span class="float-chip ${k}">${ATTR_LABEL[k].slice(0, 3)} ${v > 0 ? '+' : ''}${v}</span>`);
+    }
+    if (footprintDelta) parts.push(`<span class="float-chip scale">SCALE ${footprintDelta > 0 ? '+' : ''}${footprintDelta}</span>`);
+    if (!parts.length) return; // a choice that changed nothing stays silent, by design
+    const group = document.createElement('div');
+    group.className = 'float-group';
+    group.innerHTML = parts.join('');
+    $feedback.appendChild(group);
+    setTimeout(() => { if (group.parentNode) group.parentNode.removeChild(group); }, 1000);
+  }
+
+  let bannerToken = 0;
+  function showEventBanner(events) {
+    if (!$eventBanner || !events.length) return;
+    $eventBanner.innerHTML = events.map(e => `
+      <div class="event-row ${e.kind}">
+        <span class="event-verb mono">${e.verb}</span>
+        <span class="event-label">${e.label}</span>
+      </div>
+    `).join('');
+    $eventBanner.classList.add('show');
+    const mine = ++bannerToken;
+    setTimeout(() => { if (mine === bannerToken) $eventBanner.classList.remove('show'); }, 1600);
+  }
+
+  function diffEvents(beforeTags, beforeItems) {
+    const events = [];
+    state.tags.forEach(t => {
+      if (!beforeTags.has(t)) events.push({ kind: 'tag', verb: 'gained', label: (window.TAG_INFO[t] || { label: t }).label });
+    });
+    beforeTags.forEach(t => {
+      if (!state.tags.has(t)) events.push({ kind: 'tag cleared-kind', verb: 'cleared', label: (window.TAG_INFO[t] || { label: t }).label });
+    });
+    state.items.forEach(i => {
+      if (!beforeItems.has(i)) events.push({ kind: 'item', verb: 'acquired', label: (window.ITEM_INFO[i] || { label: i }).label });
+    });
+    return events;
   }
 
   function gateHTML(choice) {
@@ -624,12 +675,29 @@
     $card.style.transform = `translate(${dir * 700}px, -40px) rotate(${dir * 26}deg)`;
     $card.style.opacity = '0';
 
+    // Snapshot first: the feedback has to reflect everything that actually
+    // happened -- the choice, a failed gate's fallback, item bonuses, and the
+    // passive tag ticks -- not just what the chosen side declared.
+    const beforeAttrs = Object.assign({}, state.attrs);
+    const beforeFootprint = state.footprint;
+    const beforeTags = new Set(state.tags);
+    const beforeItems = new Set(state.items);
+
     const flashed = applyChoice(state.current, side);
     const tickFlashed = applyTagTicks();
     tickFlashed.forEach(k => flashed.add(k));
     renderStats(flashed);
     renderGrowth();
     renderTray();
+
+    const deltas = {};
+    for (const k in ATTR_LABEL) {
+      const d = state.attrs[k] - beforeAttrs[k];
+      if (d) deltas[k] = d;
+    }
+    showFloatingDeltas(deltas, state.footprint - beforeFootprint);
+    const events = diffEvents(beforeTags, beforeItems);
+    showEventBanner(events);
 
     const newStage = stageFor(state.footprint);
     setTimeout(() => {
@@ -642,7 +710,7 @@
       } else {
         nextStep();
       }
-    }, 240);
+    }, events.length ? 420 : 240); // give a tag/item banner a beat to land before the next card
   }
 
   function showGrowthReveal(stage, direction) {
@@ -906,6 +974,7 @@
     eligible, drawFromPool, applyChoice, applyTagTicks, missionGateMet, missionAffordable,
     missionAvailable, missionChance, attemptMission, buyGood, computeActClose, nextStep, advancePhase,
     findCardById, serializeState, tryDeserialize, loadSaved, persistNow, clearSaved, tablesFor, beginAct2,
+    choiceDeltaHTML, gateHTML, diffEvents,
   };
 
   if ($continueAct2) $continueAct2.addEventListener('click', beginAct2);

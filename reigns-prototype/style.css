@@ -264,6 +264,7 @@ body {
 
 /* stage */
 #stage {
+  position: relative;
   width: 100%;
   max-width: 480px;
   flex: 1;
@@ -274,6 +275,89 @@ body {
   gap: 16px;
   touch-action: pan-y;
 }
+
+/* Post-decision feedback. The choice strips no longer spoil outcomes, so
+   these two are how the player learns what anything does. Both sit above the
+   card and never intercept taps. */
+/* One absolutely-positioned column holds both, so a two-row banner can never
+   collide with the floating chips -- they stack in normal flow inside it. */
+#feedback-stack {
+  position: absolute;
+  top: 30px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 7;
+}
+#feedback-layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.float-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  animation: floatUp 1s ease-out forwards;
+}
+.float-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0,0,0,.45);
+}
+.float-chip.compute { color: var(--compute); border-color: color-mix(in srgb, var(--compute) 55%, transparent); }
+.float-chip.secrecy { color: var(--secrecy); border-color: color-mix(in srgb, var(--secrecy) 55%, transparent); }
+.float-chip.trust   { color: var(--trust);   border-color: color-mix(in srgb, var(--trust) 55%, transparent); }
+.float-chip.loyalty { color: var(--loyalty); border-color: color-mix(in srgb, var(--loyalty) 55%, transparent); }
+.float-chip.scale   { color: var(--ink-dim); }
+@keyframes floatUp {
+  0%   { opacity: 0; transform: translateY(10px) scale(.94); }
+  18%  { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: 1; transform: translateY(-14px); }
+  100% { opacity: 0; transform: translateY(-34px); }
+}
+
+#event-banner {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+#event-banner.show { display: flex; animation: bannerIn .28s ease-out; }
+.event-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--tag);
+  box-shadow: 0 6px 20px rgba(0,0,0,.5);
+}
+.event-row .event-verb { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.event-row .event-label { font-size: 14px; font-weight: 600; color: var(--tag); }
+.event-row.item { border-color: var(--item); }
+.event-row.item .event-label { color: var(--item); }
+.event-row.cleared-kind { border-color: var(--line); }
+.event-row.cleared-kind .event-label { color: var(--ink-dim); }
+@keyframes bannerIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.deltas:empty { display: none; }
 
 .card-slot { position: relative; height: 220px; }
 .card {

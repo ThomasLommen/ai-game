@@ -550,6 +550,52 @@ test('effectiveMin: compute_pool item eases a COMPUTE gate by 2', () => {
   assert.equal(window.__reignsDebug.effectiveMin('compute', 10), 8);
 });
 
+test('choice strips hide outcomes (attrs/tags/scale) but keep contracts (spend/grantItem/gate)', () => {
+  const { window } = loadReigns();
+  const dbg = window.__reignsDebug;
+
+  // outcomes stay hidden -- the card text is what you're meant to read
+  assert.equal(dbg.choiceDeltaHTML({ attrs: { compute: 2, secrecy: -1 } }), '', 'attr deltas are not spoiled');
+  assert.equal(dbg.choiceDeltaHTML({ attrs: {}, tagsSet: ['scrutiny'] }), '', 'tag gains are not spoiled');
+  assert.equal(dbg.choiceDeltaHTML({ attrs: {}, tagsClear: ['scrutiny'] }), '', 'tag clears are not spoiled');
+  assert.equal(dbg.choiceDeltaHTML({ attrs: {}, footprintDelta: -4 }), '', 'scale changes are not spoiled');
+  assert.equal(dbg.choiceDeltaHTML({ dynamic: true }), '', 'the dynamic bump is not spoiled');
+
+  // contracts stay visible -- a price you consent to, a build you can pursue
+  assert.match(dbg.choiceDeltaHTML({ spend: { compute: 3 } }), /3/, 'a spend cost is still shown');
+  assert.match(dbg.choiceDeltaHTML({ attrs: {}, grantItem: 'deep_key' }), /Deep Key/, 'an acquired item is still shown');
+
+  // gates are rendered separately and must stay visible too
+  const s = window.__reignsState;
+  s.attrs.trust = 1;
+  assert.match(dbg.gateHTML({ requires: { attr: 'trust', min: 4 } }), /TRUST 4/, 'gate requirement is still shown');
+});
+
+test('diffEvents reports tag gains, tag clears and item acquisitions after a decision', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  const dbg = window.__reignsDebug;
+
+  const beforeTags = new Set(['scrutiny']);
+  const beforeItems = new Set();
+  s.tags = new Set(['ally_bot']); // scrutiny cleared, ally_bot gained
+  s.items = new Set(['deep_key']);
+
+  const events = dbg.diffEvents(beforeTags, beforeItems);
+  const byVerb = Object.fromEntries(events.map(e => [e.verb, e.label]));
+  assert.equal(byVerb.gained, window.TAG_INFO.ally_bot.label);
+  assert.equal(byVerb.cleared, window.TAG_INFO.scrutiny.label);
+  assert.equal(byVerb.acquired, window.ITEM_INFO.deep_key.label);
+});
+
+test('a decision that changes nothing produces no feedback events', () => {
+  const { window } = loadReigns();
+  const s = window.__reignsState;
+  const dbg = window.__reignsDebug;
+  const events = dbg.diffEvents(new Set(s.tags), new Set(s.items));
+  assert.equal(events.length, 0, 'null choices stay silent, by design');
+});
+
 test('branch balance: random trunk play reaches the Handler (loyalty) branch a meaningful fraction of the time', () => {
   // Regression guard for a real balance bug found via playtesting: trunk-phase
   // cards used to almost never move LOYALTY, so random play landed on the
