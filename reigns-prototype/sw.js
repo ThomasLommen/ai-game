@@ -4,7 +4,7 @@
 // when offline. Cache name isn't versioned per-deploy on purpose -- staleness
 // only matters for the offline fallback, and network-first already keeps the
 // live cache fresh on every successful fetch.
-const CACHE = 'reigns-cache-v1';
+const CACHE = 'reigns-cache-v2';
 const ASSETS = ['./', './index.html', './style.css', './cards.js', './app.js', './manifest.json'];
 
 self.addEventListener('install', (event) => {
