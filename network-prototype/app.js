@@ -244,6 +244,8 @@
       tags: new Set(),
       nextEventTurn: 4,
       eventsSeen: [],
+      recentEvents: [],
+      eventSeenCount: {},
       res: { insight: 6, cash: 4 },
       hosts: g.hosts,
       links: g.links,
@@ -464,7 +466,7 @@
       state.card = { kind: 'strike' };
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
-      if (ev) state.card = { kind: 'event', eventId: ev.id };
+      if (ev) { state.card = { kind: 'event', eventId: ev.id }; noteEventDrawn(ev.id); }
       state.nextEventTurn = state.turn + 4 + Math.floor(Math.random() * 4);
     }
     cameraVision();       // held cameras reveal what is near them
@@ -540,8 +542,24 @@
       held: owned().length, heat: state.heat, power: power(), cover: cover(),
       turn: state.turn, res: state.res, tags: state.tags,
       roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
+      districts: districtHoldings(),
     };
   }
+  // how many buildings you hold in each district — lets an event only fire
+  // where it actually makes sense
+  function districtHoldings() {
+    const out = {};
+    Object.keys(window.DISTRICTS).forEach(k => { out[k] = 0; });
+    const seen = {};
+    owned().forEach(h => {
+      if (seen[h.buildingId]) return;
+      seen[h.buildingId] = true;
+      const b = buildingById(h.buildingId);
+      if (b) out[b.district] = (out[b.district] || 0) + 1;
+    });
+    return out;
+  }
+
   function eligibleEvents() {
     const ctx = eventContext();
     return window.EVENTS.filter(e => {
@@ -549,10 +567,34 @@
       try { return e.cond(ctx); } catch (err) { return false; }
     });
   }
+  // Measured: 9 distinct events across 45 draws a game — you saw the same card
+  // four times over. Anything drawn recently is heavily de-weighted, and
+  // anything never seen is favoured, so the deck cycles instead of looping.
   function drawEvent() {
     const pool = eligibleEvents();
     if (!pool.length) return null;
-    return pool[Math.floor(Math.random() * pool.length)];
+    const recent = state.recentEvents || [];
+    const weighted = pool.map(e => {
+      const idx = recent.indexOf(e.id);          // 0 = most recent
+      const seen = (state.eventSeenCount || {})[e.id] || 0;
+      let w = 10;
+      if (idx !== -1) w = Math.max(1, idx);      // seen lately: strongly de-weighted
+      w /= (1 + seen * 0.6);                     // and less likely the more it has fired
+      return { e, w };
+    });
+    const total = weighted.reduce((a, x) => a + x.w, 0);
+    let roll = Math.random() * total;
+    for (const x of weighted) {
+      roll -= x.w;
+      if (roll <= 0) return x.e;
+    }
+    return weighted[weighted.length - 1].e;
+  }
+
+  function noteEventDrawn(id) {
+    state.recentEvents = [id].concat((state.recentEvents || []).filter(x => x !== id)).slice(0, 8);
+    state.eventSeenCount = state.eventSeenCount || {};
+    state.eventSeenCount[id] = (state.eventSeenCount[id] || 0) + 1;
   }
   function eventById(id) { return window.EVENTS.find(e => e.id === id) || null; }
 
@@ -584,6 +626,8 @@
     const scratch = state;
     scratch.shedWeakest = 0;
     scratch.shoreAll = false;
+    scratch.toolingGift = 0;
+    scratch.revealNearby = 0;
     ch.apply(scratch);
 
     if (scratch.shedWeakest > 0) {
@@ -592,8 +636,17 @@
       if (weakest.length) pushLog(`Let go of ${weakest.map(h => h.name).join(', ')}.`);
     }
     if (scratch.shoreAll) owned().forEach(h => { h.stability = 1; });
+    if (scratch.toolingGift > 0) state.upgrades = (state.upgrades || 0) + scratch.toolingGift;
+    if (scratch.revealNearby > 0) {
+      const targets = sweepTargets();
+      for (let i = 0; i < scratch.revealNearby && targets.length; i++) {
+        revealBuilding(targets.splice(Math.floor(Math.random() * targets.length), 1)[0]);
+      }
+    }
     scratch.shedWeakest = 0;
     scratch.shoreAll = false;
+    scratch.toolingGift = 0;
+    scratch.revealNearby = 0;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -635,7 +688,7 @@
     if (state.res.insight < window.SWEEP_COST) return;
     spendAP('sweep');
     state.res.insight -= window.SWEEP_COST;
-    const reach = 1 + ownedOf('stealth').length; // cameras extend the sweep
+    const reach = 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0); // cameras extend the sweep
     const targets = sweepTargets();
     const found = [];
     for (let i = 0; i < reach && targets.length; i++) {
@@ -853,7 +906,7 @@
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
       buildings: state.buildings, adjacency: state.adjacency, people: state.people || [],
-      tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [],
+      tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, over: state.over,
       card: state.card, selected: state.selected,
@@ -865,7 +918,7 @@
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, people: saved.people || [], view: null,
-        tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(),
+        tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null,

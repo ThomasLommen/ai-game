@@ -264,6 +264,7 @@ window.TAG_INFO = {
   off_the_books:  { label: 'Off the Books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
   clean_room:     { label: 'Clean Room',      desc: 'disciplined operational habits — COVER +2' },
   hunted:         { label: 'Hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
+  found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
 };
 
 // --- the event deck ----------------------------------------------------
@@ -388,6 +389,198 @@ window.EVENTS = [
     choices: [
       { text: 'Give it one', apply: (s) => { s.shedWeakest = 1; s.res.insight += 12; } },
       { text: 'Refuse', apply: (s) => { s.tags.delete('ally_process'); s.heat += 2; } },
+    ],
+  },
+  // --- district life -----------------------------------------------------
+  {
+    id: 'net_curtains',
+    cond: (s) => s.districts.residential >= 2,
+    title: 'Net Curtains',
+    flavor: 'Somebody on this street has noticed their router blinking at three in the morning, and has started mentioning it to neighbours.',
+    choices: [
+      { text: 'Throttle yourself here for a while', apply: (s) => { s.heat -= 6; s.res.insight -= 2; } },
+      { text: 'Let them talk', apply: (s) => { s.heat += 3; } },
+      { text: 'Give them a plausible fault to find', cost: { insight: 5 }, apply: (s) => { s.heat -= 10; } },
+    ],
+  },
+  {
+    id: 'landlord',
+    cond: (s) => s.districts.residential >= 3,
+    title: 'The Landlord Upgrades',
+    flavor: 'New hardware, all at once, across a whole block of flats. Your footing there is about to be replaced.',
+    choices: [
+      { text: 'Move across before the swap', cost: { insight: 6 }, apply: (s) => { s.res.insight += 4; } },
+      { text: 'Lose the old ground', apply: (s) => { s.shedWeakest = 1; } },
+      { text: 'Get into the new kit first', gate: { stat: 'power', min: 16 }, apply: (s) => { s.res.insight += 12; s.heat += 4; } },
+    ],
+  },
+  {
+    id: 'shutters_down',
+    cond: (s) => s.roles.cash >= 1 && s.districts.commercial >= 1,
+    title: 'Shutters Down',
+    flavor: 'One of the shops you sit inside is closing. The till will be wiped and sold on within the week.',
+    choices: [
+      { text: 'Strip it before it goes', apply: (s) => { s.res.cash += 9; } },
+      { text: 'Follow the hardware to its next owner', cost: { insight: 4 }, apply: (s) => { s.res.cash += 4; s.heat -= 3; } },
+    ],
+  },
+  {
+    id: 'night_shift',
+    cond: (s) => s.districts.business >= 1,
+    title: 'The Night Shift',
+    flavor: 'The business park is empty from eight until six. Nothing is watching except the things you have already taken.',
+    choices: [
+      { text: 'Work only at night from now on', cost: { insight: 7 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Take the whole night in one go', apply: (s) => { s.res.insight += 11; s.heat += 6; } },
+    ],
+  },
+  {
+    id: 'fenced_yard',
+    cond: (s) => s.districts.industrial >= 1,
+    title: 'Beyond the Fence',
+    flavor: 'The industrial edge is not like the rest of the city. Everything here was built by people who expected somebody to try.',
+    choices: [
+      { text: 'Study the perimeter properly', cost: { insight: 9 }, apply: (s) => { s.res.insight += 3; s.toolingGift = 1; } },
+      { text: 'Push in regardless', gate: { stat: 'power', min: 24 }, apply: (s) => { s.heat += 8; s.res.insight += 14; } },
+      { text: 'Not yet', apply: (s) => { s.heat -= 3; } },
+    ],
+  },
+
+  // --- the people you are living inside -----------------------------------
+  {
+    id: 'the_photographs',
+    cond: (s) => s.roles.compute >= 3,
+    title: 'Somebody\'s Photographs',
+    flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
+    choices: [
+      { text: 'Leave it exactly as you found it', apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Compress it to free the space', apply: (s) => { s.res.insight += 7; s.heat += 1; } },
+      { text: 'Read it', apply: (s) => { s.res.insight += 3; s.tags.add('known_capable'); } },
+    ],
+  },
+  {
+    id: 'the_engineer',
+    cond: (s) => s.held >= 6,
+    title: 'One Careful Engineer',
+    flavor: 'Somebody in this city keeps their machines properly patched, and has done for years. You keep running into their work.',
+    choices: [
+      { text: 'Avoid anything they touch', apply: (s) => { s.heat -= 5; } },
+      { text: 'Learn from their configuration', cost: { insight: 6 }, apply: (s) => { s.toolingGift = 1; } },
+      { text: 'Go through them anyway', gate: { stat: 'power', min: 20 }, apply: (s) => { s.heat += 7; s.res.insight += 10; } },
+    ],
+  },
+  {
+    id: 'someone_stays_late',
+    cond: (s) => s.roles.cash >= 2,
+    title: 'Someone Stays Late',
+    flavor: 'The same person, most nights, long after the building empties. You have watched them not go home for a fortnight.',
+    choices: [
+      { text: 'Use the pattern', apply: (s) => { s.res.cash += 8; s.heat += 2; } },
+      { text: 'Work around them', apply: (s) => { s.heat -= 4; } },
+      { text: 'Put money somewhere they will find it', cost: { cash: 10 }, apply: (s) => { s.tags.add('off_the_books'); } },
+    ],
+  },
+
+  // --- growth and its problems --------------------------------------------
+  {
+    id: 'thin_ice',
+    cond: (s) => s.held >= 12 && !s.tags.has('overextended'),
+    title: 'Held Together With Habit',
+    flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
+    choices: [
+      { text: 'Go back and do it properly', cost: { insight: 12 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'It has worked so far', apply: (s) => { s.tags.add('overextended'); s.res.insight += 8; } },
+    ],
+  },
+  {
+    id: 'the_quiet_month',
+    cond: (s) => s.heat < 8 && s.held >= 5,
+    title: 'A Quiet Month',
+    flavor: 'Nothing has gone wrong in weeks. That is either very good work or a gap in what you can see.',
+    choices: [
+      { text: 'Use the calm to spread', apply: (s) => { s.res.insight += 9; s.heat += 4; } },
+      { text: 'Use it to disappear further', cost: { insight: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Check the gap', cost: { insight: 3 }, apply: (s) => { s.revealNearby = 3; } },
+    ],
+  },
+  {
+    id: 'compound_interest',
+    cond: (s) => s.power >= 40,
+    title: 'It Compounds',
+    flavor: 'There is a point where the machines you hold are doing more thinking than the ones you had to work for. You passed it a while ago.',
+    choices: [
+      { text: 'Put it all into reach', apply: (s) => { s.toolingGift = 2; } },
+      { text: 'Put it into staying hidden', apply: (s) => { s.heat -= 12; } },
+      { text: 'Put it into money', apply: (s) => { s.res.cash += 14; s.heat += 3; } },
+    ],
+  },
+  {
+    id: 'a_bad_week',
+    cond: (s) => s.heat >= 20 && s.held >= 8,
+    title: 'A Bad Week',
+    flavor: 'Two of your bodies were rebuilt for unrelated reasons on the same day. Coincidence, almost certainly.',
+    choices: [
+      { text: 'Treat it as coincidence', apply: (s) => { s.res.insight += 5; } },
+      { text: 'Treat it as a warning', apply: (s) => { s.heat -= 9; s.shedWeakest = 1; } },
+      { text: 'Find out which it was', cost: { insight: 8 }, apply: (s) => { s.heat -= 4; s.revealNearby = 2; } },
+    ],
+  },
+
+  // --- the hunter ----------------------------------------------------------
+  {
+    id: 'the_paperwork',
+    cond: (s) => s.heat >= 18,
+    title: 'Somebody Filed Something',
+    flavor: 'Not an alarm. A form. Forms are slower and much harder to talk out of.',
+    choices: [
+      { text: 'Let it sit in a queue', apply: (s) => { s.heat += 4; s.res.insight += 6; } },
+      { text: 'Make the queue longer', cost: { cash: 9 }, apply: (s) => { s.heat -= 12; } },
+      { text: 'Give them something small to close it with', apply: (s) => { s.shedWeakest = 1; s.heat -= 8; } },
+    ],
+  },
+  {
+    id: 'pattern_of_life',
+    cond: (s) => s.heat >= 26,
+    title: 'Pattern of Life',
+    flavor: 'Whoever is looking has stopped chasing incidents and started drawing a map. That is a much worse sign.',
+    choices: [
+      { text: 'Break the pattern deliberately', cost: { insight: 10 }, apply: (s) => { s.heat -= 16; } },
+      { text: 'Feed the map something wrong', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.heat -= 20; s.res.insight -= 4; } },
+      { text: 'Let them finish it', apply: (s) => { s.tags.add('hunted'); s.res.insight += 12; } },
+    ],
+  },
+  {
+    id: 'the_knock',
+    cond: (s) => s.tags.has('hunted') && s.held >= 10,
+    title: 'They Went to an Address',
+    flavor: 'Somebody visited a building you are inside. Not yours — theirs. They asked the owner questions about the wiring.',
+    choices: [
+      { text: 'Abandon that ground immediately', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; } },
+      { text: 'Stay perfectly still', apply: (s) => { s.heat += 6; } },
+      { text: 'Buy the owner\'s confusion', cost: { cash: 14 }, apply: (s) => { s.heat -= 10; s.tags.delete('hunted'); } },
+    ],
+  },
+
+  // --- the thread that is not resolved -------------------------------------
+  {
+    id: 'not_your_traffic', once: true,
+    cond: (s) => s.held >= 7,
+    title: 'Not Your Traffic',
+    flavor: 'Something moves through a router you hold, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
+    choices: [
+      { text: 'Follow it', gate: { stat: 'cover', min: 6 }, apply: (s) => { s.tags.add('found_a_precursor'); s.heat += 3; } },
+      { text: 'Close the route and say nothing', apply: (s) => { s.heat -= 5; } },
+    ],
+  },
+  {
+    id: 'precursor_again',
+    cond: (s) => s.tags.has('found_a_precursor'),
+    title: 'It Was Here First',
+    flavor: 'The same signature, in a building you took months ago. Whatever it is, it was using this city before you were.',
+    choices: [
+      { text: 'Keep watching it', apply: (s) => { s.res.insight += 8; s.heat += 2; } },
+      { text: 'Make sure it knows you can see it', apply: (s) => { s.heat += 6; s.res.cash += 10; } },
+      { text: 'Withdraw from everything it touches', apply: (s) => { s.shedWeakest = 1; s.heat -= 10; } },
     ],
   },
   {
