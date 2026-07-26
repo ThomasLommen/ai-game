@@ -254,6 +254,7 @@
       log: [],
       lastStage: 'foothold',
       strikes: 0,
+      lastStrikeTurn: -99,
       over: false,
     };
   }
@@ -306,8 +307,15 @@
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
     const quiet = ownedOf('stealth').length;
-    const f = 0.8 * loud - 1.5 * quiet - (has('dark_relay') ? 3 : 0) + capEffect('floor', 0);
-    return Math.max(0, f);
+    const loudPart = 0.8 * loud;
+    const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
+                            0.9 * quiet + (has('dark_relay') ? 3 : 0));
+    return Math.max(0, loudPart - masked + capEffect('floor', 0));
+  }
+  // Heat is bounded above as well as below: unbounded heat made being over the
+  // line consequence-free, since the hunter is on a cooldown anyway.
+  function clampHeat(v) {
+    return Math.min(strikeThreshold() * window.HEAT.MAX_OVER, Math.max(heatFloor(), v));
   }
   function strikeThreshold() {
     return window.HEAT.STRIKE * (has('hunted') ? 0.75 : 1);
@@ -319,9 +327,12 @@
     return Math.round(c[c.length - 1] * Math.pow(window.UPGRADE.growth, n - c.length + 1));
   }
   // Cover is what stealth holdings buy you — it gates the quiet approach.
+  // Diminishing returns, deliberately. Linear cover meant every extra router
+  // made the quiet route strictly better, and measurement showed 98% of all
+  // entries were quiet — one of three routes doing nearly all the work.
   function cover() {
-    return 1 + ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0)
-      + (has('clean_room') ? 2 : 0);
+    const eyes = ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
+    return 1 + Math.round(2.2 * Math.sqrt(eyes)) + (has('clean_room') ? 2 : 0);
   }
   function stageFor(count) {
     let s = window.STAGES[0];
@@ -444,11 +455,12 @@
       if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
     });
 
-    state.heat = Math.max(heatFloor(), state.heat + heatPerTurn());
+    state.heat = clampHeat(state.heat + heatPerTurn());
     afterSnap(before, { world: true });
     if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
-    if (state.heat >= strikeThreshold() && !state.card) {
+    const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
+    if (state.heat >= strikeThreshold() && cooled && !state.card) {
       state.card = { kind: 'strike' };
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
@@ -645,7 +657,7 @@
     if (state.card || state.over || state.ap <= 0) return;
     const before = beforeSnap();
     state.ap = 0;
-    state.heat = Math.max(heatFloor(), state.heat - window.HEAT.LIE_LOW);
+    state.heat = clampHeat(state.heat - window.HEAT.LIE_LOW);
     afterSnap(before);
     pushLog('You go quiet for a while. Nothing earns while you are dark.');
     endTurn({ silent: true }); // going dark means going dark -- no production
@@ -672,7 +684,7 @@
     spendAP('launder');
     const before = beforeSnap();
     state.res.cash -= window.LAUNDER.cost;
-    state.heat = Math.max(heatFloor(), state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
+    state.heat = clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
     afterSnap(before);
     pushLog('Money moves, and so does the paperwork pointing at you.');
     persistNow();
@@ -700,14 +712,18 @@
   }
 
   // Which approaches this host offers, with their gate/cost state resolved.
+  // an approach's price can depend on the door it is opening
+  function costOf(def, h) { return def.costFor ? def.costFor(h) : def.cost; }
+
   function approachesFor(h) {
     const s = snapshot();
     const eff = Object.assign({}, h, { defense: defenseOf(h) });
     return window.APPROACHES.filter(a => a.avail(h)).map(a => {
       const gate = a.gate ? a.gate(s, eff) : null;
+      const cost = costOf(a, eff);
       let affordable = true;
-      if (a.cost) for (const k in a.cost) if ((state.res[k] || 0) < a.cost[k]) affordable = false;
-      return { def: a, gate, affordable, usable: (!gate || gate.met) && affordable };
+      if (cost) for (const k in cost) if ((state.res[k] || 0) < cost[k]) affordable = false;
+      return { def: a, gate, cost, affordable, usable: (!gate || gate.met) && affordable };
     });
   }
 
@@ -730,7 +746,8 @@
 
     if (!spendAP('breach')) return;
     const before = beforeSnap();
-    if (a.cost) for (const k in a.cost) state.res[k] -= a.cost[k];
+    const payable = entry.cost;
+    if (payable) for (const k in payable) state.res[k] -= payable[k];
 
     const win = entry.usable;
     const out = win ? a.onWin : (a.onFail || {});
@@ -740,7 +757,7 @@
       revealBuilding(buildingById(h.buildingId)); // you are inside now
       cameraVision();
     }
-    state.heat = Math.max(heatFloor(), state.heat + (win ? a.heat : 0) + (out.heat || 0));
+    state.heat = clampHeat(state.heat + (win ? a.heat : 0) + (out.heat || 0));
 
     state.card = null;
     state.selected = null;
@@ -758,7 +775,9 @@
     if (effect === 'shed_loud') {
       burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);
     } else if (effect === 'ride') {
-      const n = Math.ceil(fleet.length * window.HEAT.STRIKE_FRACTION);
+      const over = Math.max(1, state.heat / strikeThreshold());
+      const share = Math.min(0.75, window.HEAT.STRIKE_FRACTION * Math.pow(over, window.HEAT.DEEP_STRIKE));
+      const n = Math.ceil(fleet.length * share);
       const shuffled = fleet.slice().sort(() => Math.random() - 0.5);
       burned = shuffled.slice(0, n);
     } else if (effect === 'burn_cover') {
@@ -766,8 +785,9 @@
       state.res.insight -= 8;
     }
     burned.forEach(h => { h.owned = false; h.stability = 1; });
-    state.heat = Math.max(heatFloor(), strikeThreshold() * window.HEAT.STRIKE_DROP);
+    state.heat = clampHeat(strikeThreshold() * window.HEAT.STRIKE_DROP);
     state.strikes += 1;
+    state.lastStrikeTurn = state.turn;
     state.card = null;
     pushLog(burned.length ? `The hunter burned ${burned.length} bod${burned.length === 1 ? 'y' : 'ies'}.` : 'You bought your way out of the sweep.');
     afterSnap(before);
@@ -835,7 +855,7 @@
       buildings: state.buildings, adjacency: state.adjacency, people: state.people || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [],
       hosts: state.hosts, links: state.links, log: state.log,
-      lastStage: state.lastStage, strikes: state.strikes, over: state.over,
+      lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, over: state.over,
       card: state.card, selected: state.selected,
     };
   }
@@ -847,7 +867,7 @@
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, people: saved.people || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
-        lastStage: saved.lastStage, strikes: saved.strikes || 0, over: !!saved.over,
+        lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null,
       };
     } catch (e) { return null; }
@@ -1398,7 +1418,7 @@
         ${list.map(a => {
           const contracts = [];
           if (a.gate) contracts.push(`<span class="gate ${a.gate.met ? 'met' : 'unmet'}">${a.gate.label}${a.gate.met ? '' : ' — not met'}</span>`);
-          if (a.def.cost) for (const k in a.def.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.def.cost[k]} ${k.toUpperCase()}</span>`);
+          if (a.cost) for (const k in a.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.cost[k]} ${k.toUpperCase()}</span>`);
           const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
           return `<button class="choice-strip" data-app="${a.def.id}" ${noAp ? 'disabled' : ''}>
             <span class="ctext">${a.def.text}</span>
@@ -1436,7 +1456,7 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, spendAP, actEndTurn, recenter, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, cityBounds, sweepTargets, capById, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };

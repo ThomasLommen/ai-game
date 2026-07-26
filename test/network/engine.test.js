@@ -730,7 +730,8 @@ test('strike branches differ: ride burns a share, shed drops the loud ones, cove
     s.card = { kind: 'strike' };
     const before = d.owned().length;
     d.resolveStrike(effect);
-    return { before, after: d.owned().length, heat: s.heat, insight: s.res.insight, strikes: s.strikes };
+    return { before, after: d.owned().length, heat: s.heat, floor: d.heatFloor(),
+             insight: s.res.insight, strikes: s.strikes };
   }
 
   const ride = primed('ride');
@@ -745,7 +746,11 @@ test('strike branches differ: ride burns a share, shed drops the loud ones, cove
 
   for (const r of [ride, cover, shed]) {
     assert.equal(r.strikes, 1);
-    assert.ok(r.heat < HEAT.STRIKE, 'heat drops back below the line afterwards');
+    // heat falls as far as the rules allow. Holding most of the city can put
+    // the floor above the strike line — permanently hunted is a real state,
+    // not a bug — so the claim is "it dropped to the floor", not "below 40".
+    const lowest = Math.max(r.floor, HEAT.STRIKE * HEAT.STRIKE_DROP);
+    assert.ok(r.heat <= lowest + 0.001, `heat ${r.heat} did not fall to ${lowest}`);
   }
 });
 

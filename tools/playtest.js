@@ -27,11 +27,12 @@ const JSON_OUT = argOf('json', null);
 // --- strategies ---------------------------------------------------------
 // Each returns the name of the action it took, or null if it wants the turn
 // ended. They deliberately play differently so role balance can be compared.
+let OFFERED = null;
 const STRATEGIES = {
   // take whatever is cheapest to take, as fast as possible
   greedy(d) {
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
-    if (target) return breach(d, target);
+    if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
@@ -40,7 +41,7 @@ const STRATEGIES = {
   ghost(d) {
     if (d.state.heat > d.strikeThreshold() * 0.5) { d.actLieLow(); return 'lielow'; }
     const cam = pickTarget(d, (a, b) => (b.exterior - a.exterior) || (a.defense - b.defense));
-    if (cam) return breach(d, cam, ['quiet', 'force']);
+    if (cam) return breach(d, cam, ['quiet', 'force'], OFFERED);
     if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
@@ -49,7 +50,7 @@ const STRATEGIES = {
   money(d) {
     if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.55) { d.actLaunder(); return 'launder'; }
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
-    if (rich) return breach(d, rich);
+    if (rich) return breach(d, rich, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
@@ -59,7 +60,7 @@ const STRATEGIES = {
     if (buyCapability(d, 'parallel_ops')) return 'cap';
     if (buyTooling(d)) return 'tooling';
     const big = pickTarget(d, (a, b) => b.threads - a.threads);
-    if (big) return breach(d, big);
+    if (big) return breach(d, big, null, OFFERED);
     return sweepOrNull(d);
   },
 
@@ -72,7 +73,7 @@ const STRATEGIES = {
     if (sick && s.res.insight >= 2 && s.ap > 0) { d.actShore(sick.id); return 'shore'; }
     if (buyCapability(d)) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
-    if (target) return breach(d, target);
+    if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
@@ -87,11 +88,17 @@ function pickTarget(d, cmp) {
   return usable.sort(cmp)[0];
 }
 
-function breach(d, host, prefer) {
+function breach(d, host, prefer, offered) {
   d.state.selected = host.id;
   d.openBreach(host.id);
   if (!d.state.card || d.state.card.kind !== 'breach') return 'breach-failed';
   const opts = d.approachesFor(host).filter(a => a.usable && a.def.id !== 'walk');
+  // record what the player was actually *offered* — the choice that existed,
+  // not just the one this bot's preference happened to take
+  if (offered) {
+    const key = opts.map(o => o.def.id).sort().join('+') || 'none';
+    offered[key] = (offered[key] || 0) + 1;
+  }
   if (!opts.length) { d.resolveBreach('walk'); return 'walk'; }
   let chosen = opts[0];
   if (prefer) {
@@ -166,6 +173,9 @@ function playOne(strategyName) {
   const strat = STRATEGIES[strategyName];
 
   const eventsFired = {};
+  const approaches = {};
+  const offered = {};
+  OFFERED = offered;
   const heatSamples = [];
   let strikes = 0, stalledTurns = 0;
 
@@ -187,6 +197,10 @@ function playOne(strategyName) {
 
     const apBefore = d.state.ap;
     const action = strat(d);
+    if (action && action.startsWith('breach:')) {
+      const k = action.slice(7);
+      approaches[k] = (approaches[k] || 0) + 1;
+    }
     if (action === null || d.state.ap === apBefore) {
       // nothing useful to do with the remaining budget — close the turn
       stalledTurns++;
@@ -221,6 +235,8 @@ function playOne(strategyName) {
     insight: Math.round(d.state.res.insight),
     cash: Math.round(d.state.res.cash),
     eventsFired,
+    approaches,
+    offered,
     distinctEvents: Object.keys(eventsFired).length,
     eventDraws: Object.values(eventsFired).reduce((a, b) => a + b, 0),
     stalledTurns,
@@ -269,6 +285,22 @@ function run() {
   console.log(`   games where heat floor stayed 0: ${pct(all.filter(r => r.heatFloor <= 0.001).length, all.length)}`);
   console.log(`   games with at least one strike:  ${pct(all.filter(r => r.strikes > 0).length, all.length)}`);
   console.log(`   games that lost everything:      ${pct(all.filter(r => r.over).length, all.length)}`);
+
+  const offCount = {};
+  all.forEach(r => Object.entries(r.offered || {}).forEach(([k, v]) => { offCount[k] = (offCount[k] || 0) + v; }));
+  const offTotal = Object.values(offCount).reduce((a, b) => a + b, 0);
+  console.log('\n   what the player was OFFERED at each door (the real choice):');
+  Object.entries(offCount).sort((a, b) => b[1] - a[1]).slice(0, 8).forEach(([k, v]) => {
+    console.log(`     ${k.padEnd(18)} ${pct(v, offTotal).padStart(6)}`);
+  });
+
+  const apCount = {};
+  all.forEach(r => Object.entries(r.approaches).forEach(([k, v]) => { apCount[k] = (apCount[k] || 0) + v; }));
+  const apTotal = Object.values(apCount).reduce((a, b) => a + b, 0);
+  console.log('\n   how players actually get in:');
+  Object.entries(apCount).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+    console.log(`     ${k.padEnd(10)} ${pct(v, apTotal).padStart(6)}  (${v})`);
+  });
 
   const evCount = {};
   all.forEach(r => Object.entries(r.eventsFired).forEach(([k, v]) => { evCount[k] = (evCount[k] || 0) + v; }));

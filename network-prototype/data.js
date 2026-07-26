@@ -12,7 +12,8 @@
 window.HOST_TYPES = {
   consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: { insight: 1 }, churn: 0.05 },
   server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: { insight: 2 }, churn: 0.015 },
-  corporate:  { label: 'corporate',  role: 'cash',    defense: [14, 20], threads: [4, 7],  yield: { cash: 4 }, heat: 0.5, churn: 0.04 },
+  corporate:  { label: 'corporate',  role: 'cash',    defense: [14, 20], threads: [4, 7],  yield: { cash: 7 }, heat: 0.5, churn: 0.04 },
+  till:       { label: 'till',        role: 'cash',    defense: [6, 9],   threads: [1, 2],  yield: { cash: 3 }, heat: 0.2, churn: 0.03 },
   iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2, churn: 0.02 },
   datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3, churn: 0.01 },
 };
@@ -113,7 +114,7 @@ window.DISTRICTS = {
 window.BUILDING_KINDS = {
   house:      { w: [30, 38], h: [24, 30], label: 'house',      inside: { consumer: [1, 1] }, cameras: [0, 1] },
   apartment:  { w: [44, 58], h: [34, 44], label: 'apartments', inside: { consumer: [1, 3], iot: [1, 1] }, cameras: [1, 2] },
-  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',  inside: { consumer: [1, 2], corporate: [0, 1] }, cameras: [1, 1] },
+  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',  inside: { till: [1, 2], consumer: [0, 1] }, cameras: [1, 1] },
   office:     { w: [52, 68], h: [42, 56], label: 'offices',    inside: { server: [1, 2], corporate: [1, 2] }, cameras: [1, 2] },
   warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',  inside: { server: [1, 2], corporate: [0, 1] }, cameras: [1, 2] },
   datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter', inside: { datacenter: [1, 2], server: [1, 2] }, cameras: [2, 3] },
@@ -134,6 +135,7 @@ window.HOST_NAMES = {
   consumer:   ['DESKTOP', 'LAPTOP', 'HOME-PC', 'WORKSTATION', 'WIN-PC'],
   server:     ['vps', 'web', 'db', 'app', 'edge'],
   corporate:  ['CORP-FS', 'FINANCE', 'PAYROLL', 'HR-APP', 'BILLING'],
+  till:       ['POS', 'TILL', 'CARD-T', 'REG'],
   iot:        ['router', 'gateway', 'cam', 'nas', 'relay'],
   datacenter: ['DC-CORE', 'RACK', 'COLO', 'FABRIC', 'TIER3'],
 };
@@ -146,6 +148,13 @@ window.HEAT = {
   PER_HOST: 0.35,       // a sprawling network is inherently loud, per turn
   IOT_COVER: 0.8,       // each router launders traffic, per turn
   LIE_LOW: 5,           // heat removed by spending a turn dark
+  STRIKE_COOLDOWN: 9,   // turns before the hunter can strike again
+  MAX_OVER: 1.6,        // heat cannot climb past this multiple of the threshold
+  DEEP_STRIKE: 1.25,    // over the threshold, each strike takes proportionally more
+  // How much of your loud footprint stealth can hide. Without a ceiling,
+  // cameras zeroed the floor entirely and the pressure system went decorative
+  // in 72.5% of measured games.
+  MAX_STEALTH_MASK: 0.6,
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,
@@ -182,8 +191,9 @@ window.APPROACHES = [
     text: 'Slip in quietly',
     kind: 'cover',
     avail: () => true,
-    gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense / 2), met: s.cover >= Math.ceil(h.defense / 2) }),
-    cost: { insight: 3 },
+    gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * 0.6), met: s.cover >= Math.ceil(h.defense * 0.6) }),
+    // slipping into somewhere serious takes real preparation, not a flat fee
+    costFor: (h) => ({ insight: Math.max(3, Math.ceil(h.defense * 0.5)) }),
     heat: 0,
     onWin: { hold: true },
     onFail: { heat: 1 },
@@ -194,8 +204,9 @@ window.APPROACHES = [
     id: 'buy',
     text: 'Buy your way in',
     kind: 'cash',
-    avail: (h) => h.type === 'corporate' || h.type === 'consumer',
-    cost: { cash: 6 },
+    // anything with people in it can be bought; a datacenter has no one to bribe
+    avail: (h) => h.type !== 'datacenter',
+    costFor: (h) => ({ cash: Math.max(4, Math.ceil(h.defense * 0.9)) }),
     heat: 0,
     onWin: { hold: true },
     flavorWin: 'Credentials, sold by someone who needed the money more than the job.',
