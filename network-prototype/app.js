@@ -33,8 +33,10 @@
     const cols = o.cols || C.cols;
     const rows = o.rows || C.rows;
     const regionTier = o.regionTier || 0;
-    // difficulty rides the district inside a city, and the region between them
-    const regionBump = regionTier * 3;
+    // Difficulty rides the district inside a city and the region between them.
+    // The region term is the heavier of the two on purpose: a datacenter in the
+    // north has to still be a wall to something that has taken four regions.
+    const regionBump = regionTier * 9;
     const rowDistricts = o.rowDistricts
       || (o.regionTier === undefined ? C.rowDistricts : districtBand(regionTier, rows));
     const buildings = [];
@@ -431,7 +433,7 @@
   function power() {
     return 2 + owned().reduce((a, h) => a + h.threads, 0)
       + (state.upgrades || 0) * window.UPGRADE.basePower
-      + Math.round(window.COUNTRY.powerRoot * Math.sqrt(presence()))
+      + Math.round(window.COUNTRY.powerLog * Math.log(1 + presence()))
       + (has('ally_process') ? 3 : 0)
       + capEffect('power', 0);
   }
@@ -452,7 +454,8 @@
     const loudPart = 0.8 * loud;
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
                             0.9 * quiet + (has('dark_relay') ? 3 : 0));
-    const national = presence() * window.COUNTRY.heatFloorPer;
+    const national = Math.min(presence() * window.COUNTRY.heatFloorPer,
+                              strikeThreshold() * window.COUNTRY.maxFloorShare);
     return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
   }
   // Heat is bounded above as well as below: unbounded heat made being over the
@@ -461,7 +464,8 @@
     return Math.min(strikeThreshold() * window.HEAT.MAX_OVER, Math.max(heatFloor(), v));
   }
   function strikeThreshold() {
-    return window.HEAT.STRIKE * (has('hunted') ? 0.75 : 1);
+    const national = presence() * window.COUNTRY.thresholdPer;
+    return (window.HEAT.STRIKE + national) * (has('hunted') ? 0.75 : 1);
   }
   function upgradeCost() {
     const c = window.UPGRADE.costs;
@@ -557,7 +561,8 @@
     h += (ruleBroken('cameras') && !has('blind_spot'))
       ? window.HEAT.AUDITED_CAMERA * stealthCount
       : -window.HEAT.IOT_COVER * stealthCount;
-    h += presence() * window.COUNTRY.heatPer * (has('national') ? window.COUNTRY.nationalMult : 1);
+    h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
+      * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
     return h;
   }
@@ -811,6 +816,7 @@
         known: cities.filter(c => c.known).length,
       },
       seats: cities.filter(c => c.factionId && c.consolidated).length,
+      conquest: conquest(),   // share of the country's defended cities you have finished
       gone: (rule) => ruleBroken(rule),
       awake: (id) => factionAwake(id),
       wokeAgo: (id) => {
@@ -957,16 +963,22 @@
   // why sweep is unavailable, if it is — surfaced on the button itself
   function sweepBlocked() {
     if (!sweepTargets().length) return 'nothing';
-    if (state.res.insight < window.SWEEP_COST) return 'poor';
+    if (state.res.insight < window.SWEEP_COST && state.res.cash < window.SWEEP_CASH) return 'poor';
     return null;
+  }
+  // which currency this sweep would actually come out of
+  function sweepPayer() {
+    return state.res.insight >= window.SWEEP_COST ? 'insight' : 'cash';
   }
 
   function actScan() {
     if (!canAfford('sweep')) return;
     if (!sweepTargets().length) return;           // nothing to find — don't burn an action
-    if (state.res.insight < window.SWEEP_COST) return;
+    if (sweepBlocked() === 'poor') return;
+    const payer = sweepPayer();
     spendAP('sweep');
-    state.res.insight -= window.SWEEP_COST;
+    if (payer === 'insight') state.res.insight -= window.SWEEP_COST;
+    else state.res.cash -= window.SWEEP_CASH;
     const reach = 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0); // cameras extend the sweep
     const targets = sweepTargets();
     const found = [];
@@ -995,8 +1007,8 @@
     // tool back, but not nothing either.
     const watched = ruleBroken('lielow');
     const shed = watched
-      ? (has('rota_contact') ? window.HEAT.LIE_LOW * window.HEAT.ROTA_SHARE : 0)
-      : window.HEAT.LIE_LOW;
+      ? (has('rota_contact') ? lieLowShed() * window.HEAT.ROTA_SHARE : 0)
+      : lieLowShed();
     if (shed) state.heat = clampHeat(state.heat - shed);
     afterSnap(before);
     pushLog(watched
@@ -1036,10 +1048,10 @@
     const matched = ruleBroken('launder') && !has('ledger_inside');
     const neutral = ruleBroken('launder') && has('ledger_inside');
     state.heat = matched
-      ? clampHeat(state.heat + window.LAUNDER.heat * window.HEAT.LEDGER_BACKFIRE)
+      ? clampHeat(state.heat + launderShed() * window.HEAT.LEDGER_BACKFIRE)
       : neutral
         ? state.heat
-        : clampHeat(state.heat - window.LAUNDER.heat - capEffect('launderBonus', 0));
+        : clampHeat(state.heat - launderShed() - capEffect('launderBonus', 0));
     afterSnap(before);
     pushLog(matched
       ? 'The money moves, and it moves in a pattern somebody is watching for.'
@@ -1144,13 +1156,33 @@
       state.res.insight -= 8;
     }
     burned.forEach(h => { h.owned = false; h.stability = 1; });
+    // At national scale the streets are not where you live. A strike that only
+    // ever burned held hosts left a 400-presence operation standing at country
+    // scope completely untouchable, and managing heat stopped paying for
+    // anything: measured, a profile that ignored heat entirely and took 73
+    // strikes finished level with one that kept it down and took 36.
+    // Only when there is nothing on the streets for them to burn. That is the
+    // hole this closes: standing at country scope behind a pile of presence
+    // used to make you untouchable. It is not an extra tax on every strike —
+    // applied to all of them it took cities back faster than any profile could
+    // take them, and the campaign stopped moving.
+    const retaken = (effect !== 'burn_cover' && owned().length === 0) ? takeBackACity() : null;
     state.heat = clampHeat(strikeThreshold() * window.HEAT.STRIKE_DROP);
     state.strikes += 1;
     state.lastStrikeTurn = state.turn;
     state.card = null;
     pushLog(burned.length ? `The hunter burned ${burned.length} bod${burned.length === 1 ? 'y' : 'ies'}.` : 'You bought your way out of the sweep.');
+    if (retaken) {
+      pushLog(`They took ${retaken.name} back off you. −${retaken.worth} presence.`);
+      showBanner([{ kind: 'faction', verb: 'taken back', label: retaken.name }]);
+    }
     afterSnap(before);
-    if (!owned().length) state.over = true;
+    // Losing the streets you were standing in is not losing everything once
+    // there is a country: presence is held nationally, and a half-taken city
+    // elsewhere is still yours. You are only finished when there is nothing
+    // anywhere — which at country scope is never true of a strike alone.
+    if (!owned().length && !ruined()) state.over = false;
+    if (ruined()) state.over = true;
     checkStage();
     persistNow();
     render();
@@ -1206,6 +1238,44 @@
   function countryUnlocked() {
     const home = cityById(CO().homeId);
     return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
+  }
+
+  // How much a turn spent dark, or a wash of money, is actually worth right
+  // now. Both scale with the threshold so the levers keep pace with the
+  // pressure instead of falling behind it.
+  function lieLowShed() {
+    return Math.max(window.HEAT.LIE_LOW, strikeThreshold() * window.HEAT.LIE_LOW_SHARE);
+  }
+  function launderShed() {
+    return Math.max(window.LAUNDER.heat, strikeThreshold() * window.LAUNDER.share);
+  }
+
+  // Nothing held, nothing folded in, and nowhere half-taken to go back to.
+  function ruined() {
+    if (owned().length) return false;
+    if ((CO().presence || 0) > 0) return false;
+    return !(CO().cities || []).some(c => c.taken && !c.consolidated && c.snapshot);
+  }
+
+  // What a strike costs a national operation: they walk back into the last
+  // city you folded in. It becomes ground you have to take again — the map
+  // still knows it, but it is not yours and it is not paying.
+  function takeBackACity() {
+    const done = (CO().cities || []).filter(c => c.consolidated && c.kind !== 'home');
+    if (!done.length) return null;
+    // the newest one — the deepest, the one you are least able to go back for
+    const target = done[done.length - 1];
+    target.consolidated = false;
+    target.taken = false;
+    target.snapshot = null;
+    // exactly what it granted, or a city could be farmed by losing and
+    // retaking it: refunding only `worth` leaked the depth bonus every cycle
+    // and one profile reached 1838 presence off ten cities.
+    CO().presence = Math.max(0, CO().presence - (target.granted || target.worth));
+    target.granted = 0;
+    if (CO().at === target.id) CO().at = CO().homeId;
+    if (state.cityId === target.id) { unpackCity(EMPTY_CITY()); state.cityId = null; }
+    return target;
   }
 
   function presenceYield() {
@@ -1276,7 +1346,12 @@
       c.snapshot = null;
     } else {
       const K = window.CITY_KINDS[c.kind];
-      const g = makeCity({ cols: K.blocks[0], rows: K.blocks[1], regionTier: c.regionTier });
+      const grow = Math.round(c.regionTier * window.COUNTRY.blockBonusFromTier);
+      const g = makeCity({
+        cols: K.blocks[0] + grow,
+        rows: K.blocks[1] + grow,
+        regionTier: c.regionTier,
+      });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, dims: g.dims });
     }
     state.cityId = c.id;
@@ -1376,6 +1451,7 @@
     const depth = Math.round(threads / window.COUNTRY.threadsPerPresence);
     const gained = c.worth + bonus + depth;
     c.consolidated = true;
+    c.granted = gained;      // so taking it back costs exactly what it gave
     c.snapshot = null;
     CO().presence += gained;
     pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
@@ -1420,11 +1496,20 @@
   }
   function awakeFactions() { return window.FACTIONS.filter(f => factionAwake(f.id)); }
 
+  // How much of the country you have actually finished, counting only the
+  // cities somebody had to defend.
+  function conquest() {
+    const cities = CO().cities || [];
+    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest);
+    if (!defended.length) return 0;
+    return defended.filter(c => c.consolidated).length / defended.length;
+  }
+
   function checkFactions() {
     window.FACTIONS.forEach(f => {
       const st = factionState(f.id);
       if (!st || st.awake || st.broken) return;
-      if (CO().presence < f.wakes) return;
+      if (conquest() < f.wakes) return;
       st.awake = true;
       st.wokeTurn = state.turn;
       pushLog(`${f.name}. ${f.onWake}`);
@@ -2097,7 +2182,8 @@
     const gone = awakeFactions().map(f => {
       const seat = cityById(factionState(f.id).rootId);
       const where = seat ? (seat.known ? seat.name : `somewhere in ${regionById(f.region).label}`) : 'nowhere you can reach';
-      return `<div class="tray-item faction"><span class="tray-label">${f.name}</span><span class="tray-desc">${f.tell} — ends at ${where}</span></div>`;
+      const line = `${f.tell} — ends at ${where}`;
+      return `<div class="tray-item faction" title="${line}"><span class="tray-label">${f.name}</span><span class="tray-desc">${line}</span></div>`;
     });
     const rows = gone.concat(tags.map(t => {
       const info = window.TAG_INFO[t] || { label: t, desc: '' };
@@ -2278,13 +2364,19 @@
       <div class="actions">
         <button class="act-btn" data-act="scan" data-info="sweep" ${sweepBlocked() ? 'disabled' : ''}>
           <span class="ab-name">sweep</span>
-          <span class="ab-sub">${sweepBlocked() === 'nothing' ? 'nothing adjacent left' : sweepBlocked() === 'poor' ? `needs ${window.SWEEP_COST} insight` : `reveal neighbours · ${window.SWEEP_COST} insight`}</span>
+          <span class="ab-sub">${sweepBlocked() === 'nothing'
+            ? 'nothing adjacent left'
+            : sweepBlocked() === 'poor'
+              ? `needs ${window.SWEEP_COST} insight or ${window.SWEEP_CASH} cash`
+              : sweepPayer() === 'insight'
+                ? `reveal neighbours · ${window.SWEEP_COST} insight`
+                : `pay for a look · ${window.SWEEP_CASH} cash`}</span>
         </button>
         <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}" data-act="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
           <span class="ab-sub">${ruleBroken('lielow')
             ? `${factionBreaking('lielow').name} is watching the quiet`
-            : `heat &minus;${window.HEAT.LIE_LOW} · earns nothing`}</span>
+            : `heat &minus;${Math.round(lieLowShed())} · earns nothing`}</span>
         </button>
         <button class="act-btn" data-act="upgrade" data-info="upgrade" ${state.res.insight < upgradeCost() ? 'disabled' : ''}>
           <span class="ab-name">tooling</span>
@@ -2294,7 +2386,7 @@
           <span class="ab-name">launder</span>
           <span class="ab-sub">${ruleBroken('launder')
             ? `${factionBreaking('launder').name} matches the payments`
-            : `heat &minus;${window.LAUNDER.heat} · ${window.LAUNDER.cost} cash`}</span>
+            : `heat &minus;${Math.round(launderShed())} · ${window.LAUNDER.cost} cash`}</span>
         </button>
       </div>
       <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
@@ -2517,11 +2609,11 @@
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, shoreNeeded,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
-    presenceYield, presence, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
-    factionState, factionAwake, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
+    factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },

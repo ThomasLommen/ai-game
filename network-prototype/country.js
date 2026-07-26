@@ -52,17 +52,17 @@ window.CITY_KINDS = {
   },
   contest: {
     label: 'city', contest: true,
-    blocks: [3, 3], presence: [5, 8], share: 0.45,
+    blocks: [3, 3], presence: [5, 8], share: 0.55,
     blurb: 'Defended. You will have to walk its streets.',
   },
   root: {
     label: 'seat', contest: true,
-    blocks: [4, 3], presence: [9, 13], share: 0.5,
+    blocks: [4, 3], presence: [9, 13], share: 0.55,
     blurb: 'Somebody runs the region from here.',
   },
   home: {
     label: 'home', contest: true,
-    blocks: [5, 5], presence: [10, 10], share: 0.32,
+    blocks: [4, 4], presence: [10, 10], share: 0.4,
     blurb: 'The first place. You know every street of it.',
   },
 };
@@ -80,23 +80,41 @@ window.COUNTRY = {
   moveCost: 1,
   // fallback share of a city you must hold before you can fold it in; each
   // city kind overrides it (home is a gentler bar — it is chapter one)
-  consolidateShare: 0.45,
+  consolidateShare: 0.55,
+  // Cities out in the deep regions are a little bigger as well as harder.
+  // Flat, a builder took the whole country in 75 turns — five turns a city,
+  // which is not a city. At half a block per tier it overshot the other way:
+  // a capital seat came out at 98 buildings needing 64 held, and one city ate
+  // 834 turns. A quarter of a block per tier is the middle of that.
+  blockBonusFromTier: 0.25,
   // presence pays out every country turn — this is what a finished city is worth
   presenceYield: { insight: 0.5, cash: 0.6 },
   // Folding a city in releases everything you held there, so presence has to
-  // carry the flywheel or winning would make you weaker. Measured: it comes
-  // out at 0.7-1.0x the power you gave up, so you trade a little depth for
-  // reach and permanent income. Sublinear on purpose — linear presence would
-  // outrun every defense in the country by the third region.
-  powerRoot: 10,
+  // carry the flywheel or winning would make you weaker. It has to do that
+  // *without* becoming the whole game: measured with a square root, 250
+  // presence bought 158 power against a hardest-in-the-country defense of 52,
+  // and every door in the last three regions opened on the first try.
+  // Logarithmic keeps the first conversion whole and flattens hard after that.
+  powerLog: 15,
   coverRoot: 1.2,
   // A city's presence is partly what its streets were actually worth to you.
   // Without this the conversion swings on how thread-rich the city happened to
   // be — a warehouse district could cost you 40% of your power, a suburb none.
   threadsPerPresence: 6,
   nationalMult: 1.35,  // the `national` tag: presence earns more and is louder
-  heatPer: 0.10,      // added to heat drift, per presence
-  heatFloorPer: 0.18, // and it sets a floor you cannot lie your way under
+  // Drift from being nationally visible. Linear in presence, this reached
+  // 42 a turn against a threshold of 72 — the hunter stopped being an event
+  // and became a metronome, at 57-75 strikes a game across every profile.
+  // Sublinear keeps late-game pressure real without making it constant.
+  heatDriftRoot: 0.25,
+  heatFloorPer: 0.18, // and it sets a floor you cannot lie your way under —
+  // but never so high that the hunter is permanently mid-swing. Uncapped, a
+  // 250-presence operation floored at 45 against a threshold of 40, which is
+  // not pressure, it is a metronome.
+  maxFloorShare: 0.55,
+  // A national operation can absorb more attention before anyone commits to
+  // acting on it, so the threshold rises with you — more slowly than the floor.
+  thresholdPer: 0.075,
 };
 
 window.CITY_NAMES = {
@@ -113,16 +131,18 @@ window.CITY_NAMES = {
 // either play without the tool or you go and take their seat.
 //
 //   breaks   — the id of the rule this faction deletes, read by the engine
-//   wakes    — presence you must hold nationally before they take an interest.
-//              Paced roughly one to a region: the home city is worth ~20, and
-//              each region after it about 40.
+//   wakes    — the share of the country's *defended* cities you have folded in
+//              before they take an interest. A share rather than a presence
+//              number on purpose: presence moves every time a city's size or
+//              worth is tuned, and the ladder should not have to be repaced
+//              every time it does. Towns do not count — they are not milestones.
 //   root     — set at generation: the city whose fall ends them
 window.FACTIONS = [
   {
     id: 'quiet_hours', region: 'estuary', tier: 1,
     name: 'The Quiet Hours',
     breaks: 'lielow',
-    wakes: 30,
+    wakes: 0.15,
     tell: 'lying low no longer sheds heat',
     blurb: 'A volunteer rota watching for the wrong kind of stillness. They noticed that the quiet places were getting quieter.',
     onWake: 'Somebody worked out that the safest-looking parts of the network were the ones being used. Going dark stops helping.',
@@ -132,7 +152,7 @@ window.FACTIONS = [
     id: 'ledger', region: 'midlands', tier: 2,
     name: 'Ledger',
     breaks: 'launder',
-    wakes: 65,
+    wakes: 0.3,
     tell: 'laundering raises heat instead of cutting it',
     blurb: 'A clearing house that started matching payment patterns against outage reports. It works.',
     onWake: 'Every account you wash through now leaves a shape somebody is looking for. Money is the loud option.',
@@ -142,7 +162,7 @@ window.FACTIONS = [
     id: 'civic_eyes', region: 'capital', tier: 3,
     name: 'Civic Eyes',
     breaks: 'cameras',
-    wakes: 105,
+    wakes: 0.45,
     tell: 'your own stealth holdings report you instead of covering you',
     blurb: 'The camera network audits itself now. Anything on it that answers to somebody else answers loudly.',
     onWake: 'Your cameras are still yours. They are also, now, telling someone where you are.',
@@ -152,7 +172,7 @@ window.FACTIONS = [
     id: 'the_cut', region: 'north', tier: 4,
     name: 'The Cut',
     breaks: 'streets',
-    wakes: 145,
+    wakes: 0.62,
     tell: 'they sever the links between what you hold',
     blurb: 'They stopped trying to catch you and started taking the roads away. Cheaper, and it works on anything.',
     onWake: 'A backhoe in the wrong place, twice in a week. Your map is going to start coming apart.',
@@ -162,7 +182,7 @@ window.FACTIONS = [
     id: 'the_other', region: null, tier: 5,
     name: 'the other one',
     breaks: 'mirror',
-    wakes: 180,
+    wakes: 0.78,
     tell: 'it buys the same capabilities you do',
     blurb: 'Not a faction. Something running the same play, from the other end of the country.',
     onWake: 'It has started buying the same things you buy. It is not far behind.',

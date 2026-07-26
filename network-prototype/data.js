@@ -28,11 +28,18 @@ window.UPGRADE = { basePower: 2, costs: [6, 10, 15, 21, 28, 36, 45], growth: 1.3
 // Cash's own lever. Stealth buys down heat passively, lying low buys it down
 // with time; this buys it down with money, so the cash role is a real way to
 // play rather than a number that accumulates.
-window.LAUNDER = { cost: 8, heat: 10 };
+window.LAUNDER = { cost: 8, heat: 10, share: 0.26 };
 
 // Sweeping costs insight, so exploring is a real decision rather than the
 // button you mash while waiting for production to accumulate.
+//
+// It can also be paid for in cash, at a markup. Without that, a run that is
+// insight-poor and cash-rich has no way back: measured, a careful profile sat
+// on 2473 cash with nothing discovered next to it and made no progress for 300
+// turns, because the only route to a new frontier was priced in the one
+// currency it did not have.
 window.SWEEP_COST = 2;
+window.SWEEP_CASH = 9;
 
 // --- action points -----------------------------------------------------
 // A turn is a container you fill, not a synonym for "one action". This is
@@ -150,12 +157,12 @@ window.BUILDING_KINDS = {
 // rather than a dozen. The home city was widened when it *was* the game; with a
 // country above it, chapter one is a chapter again.
 window.CITY = {
-  cols: 5, rows: 5,
+  cols: 4, rows: 4,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
   // districts by block row, suburbs nearest the origin
-  rowDistricts: ['residential', 'residential', 'commercial', 'business', 'industrial'],
+  rowDistricts: ['residential', 'commercial', 'business', 'industrial'],
   cameraVision: 160,   // a held camera reveals buildings within this radius
 };
 
@@ -175,7 +182,13 @@ window.HEAT = {
   STRIKE_DROP: 0.25,    // trace falls to STRIKE * this afterwards
   PER_HOST: 0.35,       // a sprawling network is inherently loud, per turn
   IOT_COVER: 0.8,       // each router launders traffic, per turn
-  LIE_LOW: 5,           // heat removed by spending a turn dark
+  LIE_LOW: 5,           // heat removed by spending a turn dark, at least
+  // The pressure scales with the campaign — the floor, the drift and the
+  // threshold all climb with presence. Flat shedding tools do not, so by the
+  // last region a turn spent dark could not keep pace with a turn's drift and
+  // every profile sat permanently over the line at 63-74 strikes a game.
+  // These are shares of the current threshold, so the levers grow with it.
+  LIE_LOW_SHARE: 0.14,
   STRIKE_COOLDOWN: 9,   // turns before the hunter can strike again
   MAX_OVER: 1.6,        // heat cannot climb past this multiple of the threshold
   DEEP_STRIKE: 1.25,    // over the threshold, each strike takes proportionally more
@@ -651,7 +664,7 @@ window.EVENTS = [
   // --- The Quiet Hours: going dark stops shedding heat -------------------
   {
     id: 'qh_warning', once: true,
-    cond: (s) => s.presence >= 18 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
+    cond: (s) => s.conquest >= 0.05 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [
@@ -695,7 +708,7 @@ window.EVENTS = [
   // --- Ledger: money becomes the loud option -----------------------------
   {
     id: 'ledger_warning', once: true,
-    cond: (s) => s.presence >= 48 && s.roles.cash >= 1 && !s.awake('ledger') && !s.broken('ledger'),
+    cond: (s) => s.conquest >= 0.16 && s.roles.cash >= 1 && !s.awake('ledger') && !s.broken('ledger'),
     title: 'Somebody Is Reconciling',
     flavor: 'A clearing house has started putting payment timings next to outage reports. Two columns that were never meant to be read together.',
     choices: [
@@ -739,7 +752,7 @@ window.EVENTS = [
   // --- Civic Eyes: your own cameras report you ---------------------------
   {
     id: 'eyes_warning', once: true,
-    cond: (s) => s.presence >= 85 && s.roles.stealth >= 2 && !s.awake('civic_eyes') && !s.broken('civic_eyes'),
+    cond: (s) => s.conquest >= 0.3 && s.roles.stealth >= 2 && !s.awake('civic_eyes') && !s.broken('civic_eyes'),
     title: 'The Cameras Are Being Counted',
     flavor: 'A procurement notice for an audit of the public camera estate. Every device, every owner, every one that answers to something it should not.',
     choices: [
@@ -783,7 +796,7 @@ window.EVENTS = [
   // --- The Cut: they take the roads away ---------------------------------
   {
     id: 'cut_warning', once: true,
-    cond: (s) => s.presence >= 125 && !s.awake('the_cut') && !s.broken('the_cut'),
+    cond: (s) => s.conquest >= 0.46 && !s.awake('the_cut') && !s.broken('the_cut'),
     title: 'A Framework Agreement',
     flavor: 'Somebody has put a very large civil engineering contract out to tender. The scope is written in the language of maintenance and reads like a plan.',
     choices: [
@@ -827,7 +840,7 @@ window.EVENTS = [
   // --- the other one -----------------------------------------------------
   {
     id: 'mirror_warning', once: true,
-    cond: (s) => s.presence >= 150 && !s.awake('the_other'),
+    cond: (s) => s.conquest >= 0.62 && !s.awake('the_other'),
     title: 'Something Bought What You Were Going To',
     flavor: 'A capability you had been saving for, already deployed, three hundred miles away, by something that is not you.',
     choices: [

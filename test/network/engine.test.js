@@ -1169,15 +1169,23 @@ test('country: an unfinished city is still there when you come back to it', () =
   assert.equal(d.heldHere(), heldThere, 'still holding what you held');
 });
 
+// Fold in enough defended cities that `share` of the country is finished.
+function conquerTo(d, window, share) {
+  const defended = d.state.country.cities.filter(c => window.CITY_KINDS[c.kind].contest);
+  const want = Math.ceil(share * defended.length);
+  defended.slice(0, want).forEach(c => { c.taken = true; c.consolidated = true; });
+  return d.conquest();
+}
+
 test('country: taking a faction seat finishes the faction', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const f = window.FACTIONS[0];
 
-  s.country.presence = f.wakes;
+  conquerTo(d, window, f.wakes);
   d.checkFactions();
-  assert.equal(d.factionAwake(f.id), true, 'presence wakes them');
+  assert.equal(d.factionAwake(f.id), true, 'taking that much of the country wakes them');
 
   d.breakFactionAt(s.country.factions[f.id].rootId);
   assert.equal(d.factionAwake(f.id), false, 'taking their seat ends them');
@@ -1191,13 +1199,14 @@ test('persistence: the country survives a round trip', () => {
   holdToGoal(d);
   s.ap = 9;
   d.actConsolidate();
-  s.country.presence = window.FACTIONS[0].wakes;
+  conquerTo(d, window, window.FACTIONS[0].wakes);
   d.checkFactions();
+  const presence = s.country.presence;
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.ok(round, 'the save is accepted');
   assert.equal(round.scope, 'country');
-  assert.equal(round.country.presence, window.FACTIONS[0].wakes);
+  assert.equal(round.country.presence, presence);
   assert.equal(round.country.cities.length, s.country.cities.length);
   assert.equal(round.region, s.region);
   assert.equal(round.country.factions.quiet_hours.awake, true, 'woken factions stay woken');
@@ -1250,17 +1259,19 @@ test('factions: wake on presence in order, hardest last', () => {
     assert.ok(order[i].wakes > order[i - 1].wakes, 'each faction wakes later than the last');
     assert.ok(order[i].tier > order[i - 1].tier, 'and is a rung further up');
   }
+  order.forEach(f => assert.ok(f.wakes > 0 && f.wakes <= 1,
+    `${f.id} wakes at ${f.wakes}, which is not a share of the country`));
 
-  s.country.presence = 0;
+  assert.equal(d.conquest(), 0, 'you have finished none of it yet');
   d.checkFactions();
   assert.equal(d.awakeFactions().length, 0, 'nobody cares about you yet');
 
-  s.country.presence = order[0].wakes;
+  conquerTo(d, window, order[0].wakes);
   d.checkFactions();
   assert.equal(d.awakeFactions().length, 1, 'the first one notices');
   assert.equal(d.awakeFactions()[0].id, order[0].id);
 
-  s.country.presence = 999;
+  conquerTo(d, window, 1);
   d.checkFactions();
   assert.equal(d.awakeFactions().length, window.FACTIONS.length, 'eventually all of them');
 });
@@ -1297,8 +1308,8 @@ test('the quiet hours: going dark stops shedding heat, and the turn is still gon
   d.actLieLow();
   const watchedShed = start - s.heat;
 
-  assert.ok(Math.abs((openShed - watchedShed) - window.HEAT.LIE_LOW) < 1e-6,
-    `watched, the ${window.HEAT.LIE_LOW} it normally sheds is gone (shed ${openShed} vs ${watchedShed})`);
+  assert.ok(Math.abs((openShed - watchedShed) - d.lieLowShed()) < 1e-6,
+    `watched, the ${d.lieLowShed().toFixed(1)} it normally sheds is gone (shed ${openShed} vs ${watchedShed})`);
   assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
 });
 
@@ -1457,7 +1468,7 @@ test('factions: a broken faction never wakes again', () => {
   const d = window.__netDebug;
   const s = d.state;
   s.country.factions.ledger.broken = true;
-  s.country.presence = 999;
+  conquerTo(d, window, 1);
   d.checkFactions();
   assert.equal(d.factionAwake('ledger'), false, 'they are finished, not merely quiet');
   assert.equal(d.ruleBroken('launder'), false);
@@ -1529,7 +1540,7 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 function sampleContexts(window) {
   const RULES = ['lielow', 'launder', 'cameras', 'streets', 'mirror'];
   const FIDS = window.FACTIONS.map(f => f.id);
-  const WAKES = window.FACTIONS.map(f => f.wakes);
+  const WAKES = window.FACTIONS.map(f => f.wakes);   // shares of the country
   const out = [];
   const base = (o) => {
     const rules = new Set(o.brokenRules || []);
@@ -1542,30 +1553,33 @@ function sampleContexts(window) {
       districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
       scope: 'city', region: 'home', regionTier: 0, presence: 0,
       cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
-      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {},
+      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0,
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
     }, o.over || {});
   };
 
-  [0, 20, 40, 55, 70, 90, 110, 130, 155, 175, 200].forEach(presence => {
+  // fine-grained: a warning card lives in the gap between its own threshold
+  // and its faction's, and those gaps are only a few cities wide
+  [0, 0.05, 0.1, 0.16, 0.2, 0.25, 0.3, 0.35, 0.4, 0.46, 0.5, 0.55, 0.62, 0.7, 0.78, 0.85, 1].forEach(conq => {
+    const presence = Math.round(conq * 350);
     ['city', 'country'].forEach(scope => {
       [0, 3, 6, 12, 25].forEach(held => {
         [0, 8, 18, 30].forEach(heat => {
           [0, 1, 2, 3, 4].forEach(regionTier => {
             out.push(base({
-              brokenRules: RULES.filter((r, i) => presence >= WAKES[i]),
-              awakeIds: FIDS.filter((f, i) => presence >= WAKES[i]),
+              brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
+              awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
               over: {
-                held, heat, presence, scope, regionTier,
+                held, heat, presence, scope, regionTier, conquest: conq,
                 power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
                 cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
                 res: { insight: 5 + presence, cash: 5 + presence },
                 roles: { compute: Math.ceil(held / 2), cash: Math.ceil(held / 4), stealth: Math.ceil(held / 3) },
                 districts: { residential: Math.ceil(held / 3), commercial: Math.ceil(held / 4), business: Math.ceil(held / 5), industrial: Math.ceil(held / 6) },
-                cities: { total: 18, taken: Math.min(18, 1 + Math.floor(presence / 12)), consolidated: Math.floor(presence / 15), known: Math.min(18, 3 + Math.floor(presence / 8)) },
-                seats: Math.floor(presence / 60), stranded: presence > 140 ? 3 : 0,
-                cuts: presence > 140 ? 2 : 0, mirrorCities: presence > 170 ? 3 : 0,
+                cities: { total: 18, taken: Math.round(1 + conq * 16), consolidated: Math.round(conq * 14), known: Math.round(3 + conq * 15) },
+                seats: Math.floor(conq * 4), stranded: conq > 0.5 ? 3 : 0,
+                cuts: conq > 0.5 ? 2 : 0, mirrorCities: conq > 0.7 ? 3 : 0,
                 turn: 10 + presence,
               },
             }));
@@ -1586,7 +1600,7 @@ function sampleContexts(window) {
         roles: { compute: 4, cash: 3, stealth: 4 },
         districts: { residential: 5, commercial: 4, business: 3, industrial: 2 },
         cities: { total: 18, taken: 9, consolidated: 6, known: 15 },
-        seats: 2, stranded: 2, cuts: 2, mirrorCities: 3,
+        seats: 2, stranded: 2, cuts: 2, mirrorCities: 3, conquest: presence / 350,
       },
     }));
   }));
@@ -1671,6 +1685,6 @@ test('deck: working around a faction never gives the tool back', () => {
   const without = start - s.heat;
 
   assert.ok(withContact > without, 'a name on the rota buys you something');
-  assert.ok(Math.abs((withContact - without) - window.HEAT.LIE_LOW * window.HEAT.ROTA_SHARE) < 1e-6,
+  assert.ok(Math.abs((withContact - without) - d.lieLowShed() * window.HEAT.ROTA_SHARE) < 1e-6,
     'but only a share of what the tool used to do');
 });

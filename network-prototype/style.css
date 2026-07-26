@@ -555,8 +555,24 @@ footer .build { opacity: .55; font-size: 10px; }
 .event-row.faction .event-label { color: var(--heat); }
 .event-row.faction-gone { border-color: var(--insight); }
 .event-row.faction-gone .event-label { color: var(--insight); }
-.tray-item.faction { border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
-.tray-item.faction .tray-label { color: var(--heat); }
+/* A faction row is a standing condition, not a trophy: five of them stacked
+   as full-height cards pushed the map off a phone screen. One line each, with
+   the whole tell on hover and in the country panel. */
+.tray-item.faction {
+  border-color: color-mix(in srgb, var(--heat) 45%, var(--line));
+  border-left-color: var(--heat);
+  flex-direction: row;
+  align-items: baseline;
+  gap: 7px;
+  flex: 1 1 100%;
+  padding: 4px 10px;
+  min-width: 0;
+}
+.tray-item.faction .tray-label { color: var(--heat); flex: none; }
+.tray-item.faction .tray-desc {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .cnode.mirror .dot { stroke: var(--power); fill: color-mix(in srgb, var(--power) 20%, #1a2320); stroke-dasharray: 3 2; }
 .cnode.mirror .ctag { fill: var(--power); letter-spacing: .08em; }
 .event-row.rival { border-color: var(--power); }

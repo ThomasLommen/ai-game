@@ -33,6 +33,7 @@ let OFFERED = null;
 const STRATEGIES = {
   // take whatever is cheapest to take, as fast as possible
   greedy(d) {
+    const c = campaign(d, 'greedy'); if (c) return c;
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
@@ -41,15 +42,25 @@ const STRATEGIES = {
 
   // prefer cameras and quiet entries; lie low early
   ghost(d) {
-    if (d.state.heat > d.strikeThreshold() * 0.5) { d.actLieLow(); return 'lielow'; }
-    const cam = pickTarget(d, (a, b) => (b.exterior - a.exterior) || (a.defense - b.defense));
+    const c = campaign(d, 'ghost'); if (c) return c;
+    // Cover is the whole identity, so stealth first and tooling to keep the
+    // quiet door usable — quiet gates on cover against a defense that climbs
+    // all campaign, so a ghost that never builds anything stops being able to
+    // get in at all.
+    const cam = pickTarget(d, (a, b) => (rank(b) - rank(a)) || (a.defense - b.defense));
     if (cam) return breach(d, cam, ['quiet', 'force'], OFFERED);
+    if (buyCapability(d, 'quiet_protocol')) return 'cap';
     if (buyTooling(d)) return 'tooling';
-    return sweepOrNull(d);
+    const swept = sweepOrNull(d);
+    if (swept) return swept;
+    // going dark is the last resort, not the reflex
+    if (d.state.heat > d.strikeThreshold() * 0.85 && !d.ruleBroken('lielow')) { d.actLieLow(); return 'lielow'; }
+    return null;
   },
 
   // chase corporate holdings and use money as the heat valve
   money(d) {
+    const c = campaign(d, 'money'); if (c) return c;
     if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.55) { d.actLaunder(); return 'launder'; }
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
     if (rich) return breach(d, rich, null, OFFERED);
@@ -59,6 +70,7 @@ const STRATEGIES = {
 
   // buy power, then kick down the biggest doors
   builder(d) {
+    const c = campaign(d, 'builder'); if (c) return c;
     if (buyCapability(d, 'parallel_ops')) return 'cap';
     if (buyTooling(d)) return 'tooling';
     const big = pickTarget(d, (a, b) => b.threads - a.threads);
@@ -69,19 +81,76 @@ const STRATEGIES = {
   // a rough approximation of an attentive human: keep heat low, keep holdings
   // healthy, expand steadily, buy what is affordable
   balanced(d) {
+    const c = campaign(d, 'balanced'); if (c) return c;
     const s = d.state;
-    if (s.heat > d.strikeThreshold() * 0.7) { d.actLieLow(); return 'lielow'; }
-    const sick = d.owned().filter(h => d.shoreNeeded(h)).sort((a, b) => a.stability - b.stability)[0];
-    if (sick && s.res.insight >= 2 && s.ap > 0) { d.actShore(sick.id); return 'shore'; }
+    // Money and cover before time: lying low costs the whole turn, so an
+    // attentive player reaches for it last, not first. Reflexively going dark
+    // at the first warm reading stalled this profile at 1.4 cities in 600 turns.
+    const hot = s.heat > d.strikeThreshold() * 0.8;
+    if (hot && s.res.cash >= (global.LAUNDER_COST || 8) && !d.ruleBroken('launder')) { d.actLaunder(); return 'launder'; }
+    // Shore what is actually about to fall, and never at the cost of being
+    // able to look at the next street: 666 reflexive shore actions drained
+    // this profile's insight and left it with no frontier for 300 turns.
+    const sick = d.owned().filter(h => d.shoreNeeded(h) && h.stability < 0.55)
+      .sort((a, b) => a.stability - b.stability)[0];
+    if (sick && s.res.insight >= 2 + (global.SWEEP_COST || 2) && s.ap > 0) { d.actShore(sick.id); return 'shore'; }
     if (buyCapability(d)) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
-    return sweepOrNull(d);
+    const swept = sweepOrNull(d);
+    if (swept) return swept;
+    // nothing useful left this turn and it is genuinely dangerous: go dark
+    if (hot && !d.ruleBroken('lielow')) { d.actLieLow(); return 'lielow'; }
+    return null;
   },
 };
 
 function roleRank(h) { return h.role === 'cash' ? 2 : h.role === 'compute' ? 1 : 0; }
+function rank(h) { return h.role === 'stealth' ? 1 : 0; }
+
+// --- the campaign -------------------------------------------------------
+// Every strategy plays the country the same way; what differs is how they
+// play a city. The country decisions are: finish the city you are in, take
+// the next one, and go after a seat when a faction is actually costing you.
+function campaign(d, style) {
+  const s = d.state;
+
+  // a city you have taken enough of is worth more folded in than walked
+  if (s.scope === 'city' && d.canConsolidate() && d.canAffordCountry('consolidate')) {
+    return d.actConsolidate() ? 'consolidate' : null;
+  }
+  if (s.scope !== 'country') return null;
+
+  const frontier = d.countryFrontier();
+  if (!frontier.length) {
+    // nothing in reach — go back to whatever is half-finished
+    const unfinished = s.country.cities.find(c => c.taken && !c.consolidated && c.id !== s.country.at);
+    if (unfinished && d.canAffordCountry('move')) return d.actTravel(unfinished.id) ? 'travel' : null;
+    return null;
+  }
+
+  // Seats first when the faction that lives there is currently taking a tool
+  // off you — that is the whole point of the ladder being geographic.
+  const hurting = d.awakeFactions().map(f => d.factionState(f.id).rootId).filter(Boolean);
+  const seat = frontier.find(c => hurting.includes(c.id));
+  if (seat && d.canAffordCountry('reach')) return d.actReach(seat.id) ? 'reach:seat' : null;
+
+  // towns are free presence; a ghost takes them before it walks anywhere
+  const town = frontier.find(c => !CITY_KINDS[c.kind].contest);
+  if (town && (style === 'ghost' || frontier.length === 1) && d.canAffordCountry('reach')) {
+    return d.actReach(town.id) ? 'reach:town' : null;
+  }
+  if (town && d.canAffordCountry('reach') && Math.random() < 0.5) {
+    return d.actReach(town.id) ? 'reach:town' : null;
+  }
+
+  const next = frontier.filter(c => CITY_KINDS[c.kind].contest)
+    .sort((a, b) => a.regionTier - b.regionTier)[0] || frontier[0];
+  if (next && d.canAffordCountry('reach')) return d.actReach(next.id) ? 'reach' : null;
+  return null;
+}
+let CITY_KINDS = null;
 
 function pickTarget(d, cmp) {
   const usable = d.state.hosts.filter(h =>
@@ -172,6 +241,9 @@ function playOne(strategyName) {
   const w = loadNetwork().window;
   const d = w.__netDebug;
   CAPS = w.CAPABILITIES;
+  CITY_KINDS = w.CITY_KINDS;
+  global.LAUNDER_COST = w.LAUNDER.cost;
+  global.SWEEP_COST = w.SWEEP_COST;
   const strat = STRATEGIES[strategyName];
 
   const eventsFired = {};
@@ -180,6 +252,13 @@ function playOne(strategyName) {
   OFFERED = offered;
   const heatSamples = [];
   let strikes = 0, stalledTurns = 0;
+  // --- the campaign, as it happens ---
+  const wokeAt = {};        // faction id -> turn it woke
+  const brokeAt = {};       // faction id -> turn its seat fell
+  const regionAt = {};      // region id -> first turn you operated there
+  let consolidatedAt = [];  // turn each city was folded in
+  let peakPresence = 0;
+  const countryMoves = {};
 
   for (let guard = 0; guard < MAX_TURNS * 8 && d.state.turn < MAX_TURNS; guard++) {
     if (d.state.over) break;
@@ -197,8 +276,23 @@ function playOne(strategyName) {
       continue;
     }
 
+    // campaign telemetry, sampled every loop so nothing is missed
+    w.FACTIONS.forEach(f => {
+      const st = d.factionState(f.id);
+      if (!st) return;
+      if (st.awake && wokeAt[f.id] === undefined) wokeAt[f.id] = d.state.turn;
+      if (st.broken && brokeAt[f.id] === undefined) brokeAt[f.id] = d.state.turn;
+    });
+    if (regionAt[d.state.region] === undefined) regionAt[d.state.region] = d.state.turn;
+    peakPresence = Math.max(peakPresence, d.state.country.presence);
+    const doneNow = d.state.country.cities.filter(c => c.consolidated).length;
+    while (consolidatedAt.length < doneNow) consolidatedAt.push(d.state.turn);
+
     const apBefore = d.state.ap;
     const action = strat(d);
+    if (action && (action.startsWith('reach') || action === 'travel' || action === 'consolidate')) {
+      countryMoves[action] = (countryMoves[action] || 0) + 1;
+    }
     if (action && action.startsWith('breach:')) {
       const k = action.slice(7);
       approaches[k] = (approaches[k] || 0) + 1;
@@ -220,6 +314,28 @@ function playOne(strategyName) {
   return {
     strategy: strategyName,
     turns: d.state.turn,
+    presence: d.state.country.presence,
+    peakPresence,
+    citiesTotal: d.state.country.cities.length,
+    citiesTaken: d.state.country.cities.filter(c => c.taken).length,
+    citiesDone: d.state.country.cities.filter(c => c.consolidated).length,
+    seatsTaken: d.state.country.cities.filter(c => c.factionId && c.consolidated).length,
+    mirrorCities: ((d.state.country.mirror || {}).cities || []).length,
+    mirrorCaps: Object.keys((d.state.country.mirror || {}).caps || {}).length,
+    regionsReached: Object.keys(regionAt).length,
+    deepestTier: Math.max(...Object.keys(regionAt).map(r =>
+      (w.REGIONS.find(x => x.id === r) || { tier: 0 }).tier)),
+    wokeAt, brokeAt, regionAt, countryMoves,
+    // a campaign is done when there is nothing left in reach to take
+    finishedTurn: (d.countryFrontier().length === 0 &&
+      !d.state.country.cities.some(c => c.taken && !c.consolidated)) ? d.state.turn : null,
+    firstCityTurn: consolidatedAt[0] || null,
+    lastCityTurn: consolidatedAt[consolidatedAt.length - 1] || null,
+    turnsUnderEachRule: w.FACTIONS.reduce((acc, f) => {
+      const woke = wokeAt[f.id], broke = brokeAt[f.id];
+      if (woke !== undefined) acc[f.breaks] = (broke !== undefined ? broke : d.state.turn) - woke;
+      return acc;
+    }, {}),
     held: held.length,
     buildingsTouched: Object.keys(buildings).length,
     totalHosts: d.state.hosts.length,
@@ -253,8 +369,14 @@ function mean(xs) { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length
 function pct(n, total) { return total ? ((n / total) * 100).toFixed(1) + '%' : '—'; }
 function fmt(n, dp = 1) { return Number(n).toFixed(dp); }
 
+let ESC = [], ESC_REGIONS = {};
 function run() {
   const all = [];
+  {
+    const w0 = loadNetwork().window;
+    ESC = w0.FACTIONS;
+    w0.REGIONS.forEach(r => { ESC_REGIONS[r.tier] = r; });
+  }
   const names = Object.keys(STRATEGIES);
   console.log(`playtest: ${GAMES} games x ${names.length} strategies, cap ${MAX_TURNS} turns\n`);
 
@@ -275,6 +397,15 @@ function run() {
     console.log(`   rival  holds ${fmt(mean(runs.map(r => r.rivalHeld)), 1)} buildings · woke in ${pct(runs.filter(r => r.rivalAwake).length, runs.length)} of games`);
   console.log(`   power ${fmt(mean(runs.map(r => r.power)), 0)} · maxAP ${fmt(mean(runs.map(r => r.maxAP)), 2)}` +
                 ` · idle turns ${fmt(mean(runs.map(r => r.stalledTurns)), 0)}`);
+    console.log(`   country  ${fmt(mean(runs.map(r => r.citiesDone)), 1)} of ${fmt(mean(runs.map(r => r.citiesTotal)), 0)} cities folded in` +
+                ` · ${fmt(mean(runs.map(r => r.presence)), 0)} presence · reached ${fmt(mean(runs.map(r => r.regionsReached)), 1)} regions` +
+                ` (deepest tier ${fmt(mean(runs.map(r => r.deepestTier)), 1)})`);
+    const seatRuns = runs.map(r => r.seatsTaken);
+    const fin = runs.filter(r => r.finishedTurn);
+    console.log(`   done   ${pct(fin.length, runs.length)} took everything in reach` +
+      (fin.length ? ` · ${fmt(mean(fin.map(r => r.turns)), 0)} turns` : ''));
+    console.log(`   seats  ${fmt(mean(seatRuns), 2)} taken · mirror holds ${fmt(mean(runs.map(r => r.mirrorCities)), 1)} cities` +
+                ` · first city folded on turn ${fmt(mean(runs.filter(r => r.firstCityTurn).map(r => r.firstCityTurn)), 0)}`);
     console.log(`   events ${fmt(mean(runs.map(r => r.distinctEvents)), 1)} distinct of ` +
                 `${fmt(mean(runs.map(r => r.eventDraws)), 1)} draws` +
                 ` · repeats ${fmt(mean(runs.map(r => r.eventDraws - r.distinctEvents)), 1)}`);
@@ -290,6 +421,30 @@ function run() {
   console.log(`   games where heat floor stayed 0: ${pct(all.filter(r => r.heatFloor <= 0.001).length, all.length)}`);
   console.log(`   games with at least one strike:  ${pct(all.filter(r => r.strikes > 0).length, all.length)}`);
   console.log(`   games that lost everything:      ${pct(all.filter(r => r.over).length, all.length)}`);
+
+  console.log('\n   the escalation — when each faction woke, and how long it had you:');
+  ESC.forEach(f => {
+    const woke = all.filter(r => r.wokeAt[f.id] !== undefined).map(r => r.wokeAt[f.id]);
+    const broke = all.filter(r => r.brokeAt[f.id] !== undefined).map(r => r.brokeAt[f.id]);
+    const under = all.filter(r => r.turnsUnderEachRule[f.breaks] !== undefined)
+      .map(r => r.turnsUnderEachRule[f.breaks]);
+    console.log(`     ${f.name.padEnd(16)} woke in ${pct(woke.length, all.length).padStart(6)} of games` +
+      (woke.length ? ` (turn ${fmt(mean(woke), 0)})` : '           ') +
+      ` · ended in ${pct(broke.length, all.length).padStart(6)}` +
+      (under.length ? ` · had you ${fmt(mean(under), 0)} turns` : ''));
+  });
+
+  console.log('\n   how far the campaign got:');
+  const tiers = {};
+  all.forEach(r => { tiers[r.deepestTier] = (tiers[r.deepestTier] || 0) + 1; });
+  Object.keys(tiers).sort().forEach(t => {
+    const R = ESC_REGIONS[t] || { label: 'tier ' + t };
+    console.log(`     reached ${String(R.label).padEnd(18)} ${pct(tiers[t], all.length).padStart(6)}`);
+  });
+  const cmAll = {};
+  all.forEach(r => Object.entries(r.countryMoves || {}).forEach(([k, v]) => { cmAll[k] = (cmAll[k] || 0) + v; }));
+  console.log('   country moves per game: ' + Object.entries(cmAll)
+    .map(([k, v]) => `${k} ${fmt(v / all.length, 1)}`).join(' · '));
 
   const offCount = {};
   all.forEach(r => Object.entries(r.offered || {}).forEach(([k, v]) => { offCount[k] = (offCount[k] || 0) + v; }));
@@ -328,4 +483,14 @@ function run() {
   }
 }
 
-run();
+// Runs as a script; importable as a library so other tools (and one-off traces)
+// can drive the same strategies instead of re-implementing them.
+if (require.main === module) run();
+
+module.exports = {
+  STRATEGIES,
+  resolveCard,
+  campaign,
+  playOne,
+  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; global.LAUNDER_COST = w.LAUNDER.cost; global.SWEEP_COST = w.SWEEP_COST; },
+};
