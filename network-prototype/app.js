@@ -1179,6 +1179,26 @@
       cuts: (state.cuts || []).length,
       mirrorCities: ((co.mirror || {}).cities || []).length,
       regionHeat: co.regionHeat || {},
+      // What the world thinks you are, and what you actually own — so a card
+      // can be about the front, the plant, or the gap between the two.
+      standing: {
+        score: Math.round(legitScore()),
+        bought: Math.round(legitBought()),
+        spin: Math.round(LG().spin || 0),
+        tier: legitTier(),
+        footprint: Math.round(footprint()),
+        short: Math.round(footprint() - legitScore()),
+        exposure: +(LG().exposure || 0).toFixed(2),
+        audits: LG().audits || 0,
+        caught: LG().caught || 0,
+      },
+      plant: {
+        count: assets().length,
+        slots: assetSlots(),
+        room: assetRoom(),
+        flocks: assetFlocks(),
+        has: (kind) => assets().some(a => a.kind === kind),
+      },
       // The last act, so a card can be about a war rather than about a city.
       // Null until they mobilise, which is what every wartime card gates on.
       war: warOn() ? {
@@ -1194,6 +1214,13 @@
         kills: war().kills,
         losses: war().losses,
         inbound: (kind) => (war().columns || []).some(c => c.kind === kind),
+        objective: (() => {
+          const c = war().objective ? cityById(war().objective) : null;
+          return c ? c.name : null;
+        })(),
+        escalation: escalation(),
+        down: Math.round(war().down || 0),
+        rebuild: +rebuildRate().toFixed(2),
         weakest: (() => {
           const g = war().garrisons;
           const list = stagingCities().map(c => Math.ceil(g[c.id] || 0)).sort((a, b) => a - b);
@@ -1295,6 +1322,13 @@
     scratch.warTurnBack = 0;    // columns that simply go home
     scratch.warIntegrity = 0;   // how much more your cities can absorb
     scratch.warDelay = 0;       // turns before anything else leaves their cities
+    scratch.standing = 0;       // legitimacy, honestly come by
+    scratch.spin = 0;           // ...and legitimacy that is not
+    scratch.exposure = 0;       // how much of it could come apart
+    scratch.auditDelay = 0;     // turns until anyone next asks
+    scratch.plantGift = null;   // a piece of plant, from somewhere
+    scratch.plantSlots = 0;     // room to run more of it
+    scratch.rebuild = 0;        // flocks put back together at once
     ch.apply(scratch);
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
@@ -1305,6 +1339,7 @@
       if (weakest.length) pushLog(`Let go of ${weakest.map(h => h.name).join(', ')}.`);
     }
     if (scratch.shoreAll) owned().forEach(h => { h.stability = 1; });
+    applyStandingEffects(scratch);
     if (warOn()) applyWarEffects(scratch);
     if (scratch.toolingGift > 0) state.upgrades = (state.upgrades || 0) + scratch.toolingGift;
     if (scratch.revealNearby > 0) {
@@ -1327,6 +1362,13 @@
     scratch.warTurnBack = 0;    // columns that simply go home
     scratch.warIntegrity = 0;   // how much more your cities can absorb
     scratch.warDelay = 0;       // turns before anything else leaves their cities
+    scratch.standing = 0;       // legitimacy, honestly come by
+    scratch.spin = 0;           // ...and legitimacy that is not
+    scratch.exposure = 0;       // how much of it could come apart
+    scratch.auditDelay = 0;     // turns until anyone next asks
+    scratch.plantGift = null;   // a piece of plant, from somewhere
+    scratch.plantSlots = 0;     // room to run more of it
+    scratch.rebuild = 0;        // flocks put back together at once
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -2462,7 +2504,7 @@
   function legitBought() {
     return window.LEGIT.ladder.reduce((a, r) => a + (LG().owned[r.id] ? r.legit : 0), 0);
   }
-  function legitScore() { return legitBought() + (LG().spin || 0); }
+  function legitScore() { return legitBought() + (LG().spin || 0) + (LG().granted || 0); }
   function legitTier() {
     return window.LEGIT.ladder.reduce((t, r) => (LG().owned[r.id] ? Math.max(t, r.tier) : t), 0);
   }
@@ -2478,7 +2520,7 @@
   // safe, it makes you allowed to run more plant.
   function assetSlots() {
     const R = window.ASSET_RULES;
-    return R.slotsBase + R.slotsPerTier * legitTier();
+    return R.slotsBase + R.slotsPerTier * legitTier() + (LG().slotGift || 0);
   }
   function assetRoom() { return Math.max(0, assetSlots() - assets().length); }
 
@@ -2512,6 +2554,25 @@
     persistNow();
     render();
     return true;
+  }
+
+  // What a card is allowed to do to your standing and your industry.
+  function applyStandingEffects(sc) {
+    const l = LG();
+    if (sc.standing) l.granted = (l.granted || 0) + sc.standing;
+    if (sc.spin) l.spin = Math.max(0, (l.spin || 0) + sc.spin);
+    if (sc.exposure) l.exposure = Math.max(0, (l.exposure || 0) + sc.exposure);
+    if (sc.auditDelay) l.nextAudit = Math.max(l.nextAudit || state.turn, state.turn) + sc.auditDelay;
+    if (sc.plantSlots) l.slotGift = (l.slotGift || 0) + sc.plantSlots;
+    if (sc.plantGift && assetRoom() > 0) {
+      const where = myCities()[0] || currentCity();
+      if (where) {
+        assets().push({ kind: sc.plantGift, cityId: where.id, city: where.name,
+          buildingId: 'gift' + state.turn, since: state.turn });
+        pushLog(`${window.ASSETS[sc.plantGift].label} at ${where.name}, and no one had to break into it.`);
+      }
+    }
+    if (sc.rebuild && war()) war().down = Math.max(0, (war().down || 0) - sc.rebuild);
   }
 
   function auditDue() {
@@ -4836,7 +4897,7 @@
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
-    auditDue, runAudit, legitStep, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
+    auditDue, runAudit, legitStep, applyStandingEffects, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
     assetYield, assetFlocks, backlash,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

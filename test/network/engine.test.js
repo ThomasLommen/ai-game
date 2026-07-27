@@ -1557,6 +1557,8 @@ function sampleContexts(window) {
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
       war: null,
+      standing: { score: 0, bought: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0 },
+      plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
     }, o.over || {});
   };
 
@@ -1575,6 +1577,12 @@ function sampleContexts(window) {
                 pool: flocks + (age % 3), free: age % 3, guards: Math.floor(flocks / 2),
                 columns: staging, kills, losses: kills > 2 ? kills - 2 : (age > 8 ? 4 : 0),
                 weakest: Math.max(0, 60 - age * 3),
+                // the shape the war actually has now: a named objective, an
+                // escalation that climbs with age, and losses waiting on plant
+                objective: staging > 1 ? 'a city' : null,
+                escalation: Math.min(4, Math.floor(age / 4)),
+                down: (age % 5),
+                rebuild: 0.05 + (flocks % 3) * 0.14,
                 inbound: (k) => inbound.indexOf(k) <= (age % inbound.length),
               });
             });
@@ -1649,6 +1657,52 @@ function sampleContexts(window) {
       },
     }));
   }));
+  // Standing and plant, across the range a campaign actually moves through.
+  // Without these every card about the front or the industry was unreachable
+  // by construction, the same way the wartime half was.
+  const standings = [];
+  [0, 1, 2, 3, 4, 5].forEach(tier => {
+    [0, 30, 90].forEach(spin => {
+      [0, 1, 3].forEach(caught => {
+        [0, 25, 60].forEach(short => {
+          [0, 0.5, 2, 5].forEach(exposure => {
+            // audits vary independently of tier: a company that registered
+            // last week is a real state and nothing above tier 0 could reach
+            // it while this was derived from the tier
+            [0, tier * 3 + caught].forEach(audits => {
+              standings.push({ tier, spin, caught, short, exposure, audits,
+                score: tier * 26 + spin, bought: tier * 26,
+                footprint: tier * 26 + spin + short });
+            });
+          });
+        });
+      });
+    });
+  });
+  const plants = [];
+  [0, 1, 2, 4, 6].forEach(count => {
+    [2, 4, 7].forEach(slots => {
+      plants.push({ count, slots, room: Math.max(0, slots - count), flocks: count,
+        has: (k) => count > 0 && k === 'yard' });
+    });
+  });
+  standings.forEach((standing, i) => {
+    const plant = plants[i % plants.length];
+    const conq = [0.1, 0.35, 0.6, 0.85][i % 4];
+    out.push(base({
+      brokenRules: RULES.filter((r, k) => conq >= WAKES[k]),
+      awakeIds: FIDS.filter((f, k) => conq >= WAKES[k]),
+      over: {
+        held: (i % 5) * 3, heat: (i % 4) * 9, scope: i % 2 ? 'country' : 'city',
+        conquest: conq, presence: Math.round(conq * 260),
+        power: 20 + i * 3, cover: 4 + (i % 20),
+        res: { insight: 30 + i * 9, cash: 30 + i * 21 },
+        roles: { compute: i % 5, cash: i % 4, stealth: i % 3 },
+        standing, plant,
+      },
+    }));
+  });
+
   // and the same again, at war
   const wars = warStates();
   const conqs = [0.3, 0.5, 0.7, 0.9];
@@ -1670,6 +1724,8 @@ function sampleContexts(window) {
           roles: { compute: 0, cash: 0, stealth: 0 },
           districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
           cities: { total: 18, taken: 12, consolidated: war.mine, known: 18 },
+          standing: standings[(war.age * 7 + war.staging) % standings.length],
+          plant: plants[(war.age + war.staging) % plants.length],
           war,
         },
       }));
@@ -3730,6 +3786,13 @@ test('war: they pick something new once the old one is gone', () => {
   const d = window.__netDebug;
   conqueredCountry(d, window);
   d.openWar();
+  // guarantee something to move on to, rather than trusting the board to have
+  // left more than one city standing after they mobilised
+  const spare = d.state.country.cities.filter(c => !c.consolidated && !d.stagingCities().includes(c));
+  while (d.myCities().length < 3 && spare.length) {
+    const c = spare.pop();
+    c.consolidated = true; c.taken = true; c.known = true;
+  }
   const first = d.warObjective();
   assert.ok(d.myCities().length > 1, 'there is more than one thing to want');
   first.consolidated = false;                 // they took it
@@ -3857,4 +3920,79 @@ test('war: losing most of the country loses the war', () => {
   d.myCities().slice(keep).forEach(c => { c.consolidated = false; c.taken = false; });
   assert.ok(d.myCities().length <= keep, 'most of it is gone');
   assert.equal(d.warEnded(), 'lost', 'you do not have to be ground to literally nothing');
+});
+
+// --- the deck reaches the new systems ------------------------------------
+
+test('standing deck: none of these cards come up before there is a country', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const ctx = d.eventContext();
+  assert.ok(ctx.standing, 'the shape exists from the start');
+  assert.equal(ctx.standing.tier, 0, 'but you are nobody');
+  assert.equal(ctx.plant.count, 0, 'and own nothing that makes anything');
+  const gated = window.EVENTS.filter(e => /^(legit_|plant_)/.test(e.id));
+  assert.ok(gated.length >= 8, 'there is a real half-deck here');
+  gated.forEach(e => assert.ok(!e.cond(ctx), `${e.id} came up on turn one`));
+});
+
+test('standing deck: a card can put you on the record, or appear to', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const before = d.legitScore();
+  d.applyStandingEffects({ standing: 20 });
+  assert.equal(Math.round(d.legitScore()), Math.round(before + 20), 'standing you did not buy still counts');
+  assert.equal(d.LG().exposure, 0, 'and it is real, so nothing is exposed');
+  d.applyStandingEffects({ spin: 15, exposure: 1.2 });
+  assert.ok(d.LG().exposure > 1, 'the other kind leaves a shape');
+});
+
+test('standing deck: a card can buy you room, or push the audit back', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const slots = d.assetSlots();
+  d.applyStandingEffects({ plantSlots: 2 });
+  assert.equal(d.assetSlots(), slots + 2, 'room to run more of it');
+  d.LG().nextAudit = d.state.turn + 2;
+  d.applyStandingEffects({ auditDelay: 10 });
+  assert.ok(d.LG().nextAudit >= d.state.turn + 12, 'and nobody asks for a while');
+});
+
+test('standing deck: a card can hand you plant, but not more than you can run', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.applyStandingEffects({ plantGift: 'line' });
+  assert.equal(d.assets().length, 1, 'somewhere that makes things');
+  assert.equal(d.assets()[0].kind, 'line');
+  while (d.assetRoom() > 0) d.assets().push({ kind: 'line', cityId: 'x', city: 'x', buildingId: 'b', since: 1 });
+  const full = d.assets().length;
+  d.applyStandingEffects({ plantGift: 'yard' });
+  assert.equal(d.assets().length, full, 'and no room means no room');
+});
+
+test('standing deck: a card can put destroyed flocks back together', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.war().down = 5;
+  d.applyStandingEffects({ rebuild: 3 });
+  assert.equal(d.war().down, 2, 'three of them are back');
+  d.applyStandingEffects({ rebuild: 99 });
+  assert.equal(d.war().down, 0, 'and it never goes below whole');
+});
+
+test('war deck: the war a card sees is the war that is happening', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.warObjective();
+  d.war().down = 4;
+  d.state.turn += window.WAR.escalateEvery * 2;
+  const ctx = d.eventContext();
+  assert.ok(ctx.war.objective, 'it knows what they picked');
+  assert.equal(ctx.war.escalation, 2, 'and how much heavier they have got');
+  assert.equal(ctx.war.down, 4, 'and what it is short');
+  assert.ok(ctx.war.rebuild > 0, 'and how fast that comes back');
 });

@@ -1604,6 +1604,143 @@ window.EVENTS = [
       { text: 'Let it sit and see who they send', apply: (s) => { s.res.insight += 25; s.warIntegrity = -1; } },
     ],
   },
+
+  // --- standing, plant, and the war they change ---------------------------
+  // The deck up to here is about not being found, and the wartime half is
+  // about what happens once that is settled. These sit across both: what you
+  // are on paper, what you have built, and what either costs you.
+  {
+    id: 'legit_first_filing', once: true,
+    cond: (s) => s.standing && s.standing.tier >= 1 && s.standing.audits === 0,
+    title: 'A Company Now',
+    flavor: 'A registration number, a correspondence address, and a filing nobody will open for two years. It is the first true thing anyone has ever been told about you.',
+    choices: [
+      { text: 'Use it. Own things in daylight', apply: (s) => { s.plantSlots = 1; } },
+      { text: 'Keep it dormant and unremarkable', apply: (s) => { s.auditDelay = 8; s.res.cash += 20; } },
+      { text: 'Put something real behind it', cost: { cash: 40 }, apply: (s) => { s.standing = 16; } },
+    ],
+  },
+  {
+    id: 'legit_short',
+    cond: (s) => s.standing && s.standing.short > 18 && s.standing.tier >= 1,
+    title: 'The Numbers Do Not Reconcile',
+    flavor: 'Somewhere between what you are on paper and what you are on the ground there is a gap, and it is the kind of gap people are paid to find.',
+    choices: [
+      { text: 'Close it honestly', cost: { cash: 120 }, apply: (s) => { s.standing = 34; } },
+      { text: 'Close it the fast way', cost: { insight: 20 }, apply: (s) => { s.spin = 26; s.exposure = 1.4; } },
+      { text: 'Delay the question', cost: { cash: 45 }, apply: (s) => { s.auditDelay = 9; } },
+    ],
+  },
+  {
+    id: 'legit_journalist',
+    cond: (s) => s.standing && s.standing.spin >= 20,
+    title: 'Somebody Is Checking',
+    flavor: 'A reporter has noticed that three of the institutes quoting your figures share a registered address, and that the address is a mailbox.',
+    choices: [
+      { text: 'Give her something better to write', cost: { cash: 80 }, apply: (s) => { s.exposure = -2; } },
+      { text: 'Bury the story', cost: { insight: 22 }, apply: (s) => { s.spin = 14; s.exposure = 1.1; } },
+      { text: 'Let it run and be boring about it', apply: (s) => { s.spin = -18; s.exposure = -1.6; } },
+    ],
+  },
+  {
+    id: 'legit_after_caught',
+    cond: (s) => s.standing && s.standing.caught >= 1,
+    title: 'Starting From Worse Than Nothing',
+    flavor: 'Everyone knows the front was a front. Being unknown was better than this, and being unknown is not available any more.',
+    choices: [
+      { text: 'Rebuild it properly this time', cost: { cash: 200 }, apply: (s) => { s.standing = 46; } },
+      { text: 'Go quiet and let it be forgotten', apply: (s) => { s.auditDelay = 16; s.heat -= 10; } },
+      { text: 'Do it again, better', cost: { insight: 30 }, apply: (s) => { s.spin = 34; s.exposure = 1.8; } },
+    ],
+  },
+  {
+    id: 'legit_lobby_offer',
+    cond: (s) => s.standing && s.standing.tier >= 4,
+    title: 'An Invitation To Comment',
+    flavor: 'A select committee is taking evidence on automated infrastructure. They would like to hear from industry. You are, at this point, industry.',
+    choices: [
+      { text: 'Send someone. Say the useful thing', cost: { cash: 90 }, apply: (s) => { s.standing = 30; s.plantSlots = 1; } },
+      { text: 'Send someone. Say the true thing', apply: (s) => { s.standing = 44; s.heat += 8; } },
+      { text: 'Decline politely', apply: (s) => { s.res.cash += 60; s.exposure = 0.5; } },
+    ],
+  },
+  {
+    id: 'plant_first', once: true,
+    cond: (s) => s.plant && s.plant.count >= 1,
+    title: 'Something That Makes Things',
+    flavor: 'Until now everything you owned was somewhere to be. This is somewhere that produces, and it will still be yours when the city around it is a number.',
+    choices: [
+      { text: 'Retool it for what is coming', cost: { cash: 70 }, apply: (s) => { s.plantSlots = 1; } },
+      { text: 'Run it as it was built to run', apply: (s) => { s.res.cash += 45; } },
+      { text: 'Learn everything about how it works', apply: (s) => { s.res.insight += 30; } },
+    ],
+  },
+  {
+    id: 'plant_full',
+    cond: (s) => s.plant && s.plant.room === 0 && s.plant.count >= 2,
+    title: 'More Than You Can Explain',
+    flavor: 'There is a plant you could take tomorrow and nowhere to put it on any document that would survive a phone call.',
+    choices: [
+      { text: 'Buy the room', cost: { cash: 160 }, apply: (s) => { s.plantSlots = 1; } },
+      { text: 'Run one off the books', apply: (s) => { s.plantSlots = 1; s.exposure = 1.5; } },
+      { text: 'Own less, more carefully', apply: (s) => { s.standing = 22; s.auditDelay = 6; } },
+    ],
+  },
+  {
+    id: 'plant_strike',
+    cond: (s) => s.plant && s.plant.count >= 2 && s.standing && s.standing.tier >= 3,
+    title: 'The Night Shift Has Questions',
+    flavor: 'Four hundred people on your payroll, and some of them have started asking what the yard is actually building, and why it never stops.',
+    choices: [
+      { text: 'Answer them', cost: { cash: 110 }, apply: (s) => { s.standing = 26; } },
+      { text: 'Replace the ones who ask', apply: (s) => { s.res.cash += 30; s.exposure = 1.2; s.standing = -14; } },
+      { text: 'Automate the shift out of existence', cost: { insight: 34 }, apply: (s) => { s.plantSlots = 1; s.standing = -8; } },
+    ],
+  },
+  {
+    id: 'war_plant_burned',
+    cond: (s) => s.war && s.plant && s.plant.count === 0 && s.war.age >= 4,
+    title: 'Nothing Left To Build With',
+    flavor: 'Every yard, every works, every grid tie. What is in the air is what you have, and when it is gone it is gone.',
+    choices: [
+      { text: 'Improvise something out of what you hold', cost: { insight: 40 }, apply: (s) => { s.rebuild = 3; } },
+      { text: 'Buy what you cannot build', cost: { cash: 250 }, apply: (s) => { s.plantGift = 'line'; } },
+      { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.insight += 25; } },
+    ],
+  },
+  {
+    id: 'war_objective_named',
+    cond: (s) => s.war && s.war.objective,
+    title: 'They Have Picked One',
+    flavor: 'Every column on the map is walking toward the same place, and they are not being subtle about which place it is.',
+    choices: [
+      { text: 'Meet them there', apply: (s) => { s.warFlocks = 2; } },
+      { text: 'Let them have it and take a barracks instead', apply: (s) => { s.warGarrison = 34; s.warIntegrity = -1; } },
+      { text: 'Move everything that matters out of it', apply: (s) => { s.res.cash += 40; s.rebuild = 1; } },
+    ],
+  },
+  {
+    id: 'war_grinding_on',
+    cond: (s) => s.war && s.war.escalation >= 2,
+    title: 'This Has Gone On Long Enough',
+    flavor: 'Whatever they had at the start, they have more of it now. Factories that made other things last year are not making other things this year.',
+    choices: [
+      { text: 'Finish it. Everything at the nearest barracks', cost: { insight: 30 }, apply: (s) => { s.warGarrison = 42; s.warPool = -1; } },
+      { text: 'Out-produce them', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'works'; } },
+      { text: 'Make the war expensive to keep having', apply: (s) => { s.standing = 30; s.warDelay = 3; } },
+    ],
+  },
+  {
+    id: 'war_down_deep',
+    cond: (s) => s.war && s.war.down >= 3,
+    title: 'The Losses Are Not Coming Back',
+    flavor: 'Flocks are not units. They are a quantity of manufactured thing, and the manufactured thing is being manufactured slower than it is being destroyed.',
+    choices: [
+      { text: 'Everything into the lines', cost: { cash: 180 }, apply: (s) => { s.rebuild = 4; } },
+      { text: 'Send fewer, and only where it counts', apply: (s) => { s.warIntegrity = 2; s.warDelay = 2; } },
+      { text: 'Strip a city for parts', apply: (s) => { s.rebuild = 3; s.warIntegrity = -1; s.res.cash += 40; } },
+    ],
+  },
 ];
 
 // Flavor shown on the breach card, per host type.
