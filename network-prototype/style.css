@@ -442,6 +442,31 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 .ap-tag.good { color: var(--item); border-color: color-mix(in srgb, var(--item) 50%, transparent); }
 .ap-tag.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 50%, transparent); }
+.ap-tag.warn { color: var(--item); border-color: color-mix(in srgb, var(--item) 55%, transparent); }
+
+/* the capability tree — branches, and the two of them that are opposites */
+.cap-branch {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px 4px;
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.cap-branch.mine { border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
+.cap-branch.locked { opacity: .5; }
+.cap-branch-top { display: flex; align-items: baseline; gap: 8px; }
+.cap-branch-name {
+  font-family: ui-serif, Georgia, serif; font-size: 16px; color: var(--ink);
+}
+.cap-branch-state {
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.cap-branch-state.mine { color: var(--insight); }
+.cap-branch-blurb { margin: 2px 0 8px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+/* the deeper a rung, the more it is set in from the branch edge */
+.shop-good.tier-2 { margin-left: 10px; }
+.shop-good.tier-3 { margin-left: 20px; }
+.shop-good.held { border-left: 3px solid var(--insight); }
 .event-row.cap { border-color: var(--power); }
 .event-row.cap .event-label { color: var(--power); }
 

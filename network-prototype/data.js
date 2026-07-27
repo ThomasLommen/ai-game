@@ -52,13 +52,46 @@ window.AP = {
 };
 
 // --- capabilities ------------------------------------------------------
-// Permanent purchases. The interesting ones trade tempo for strength: they
-// cost a *permanent* action point, so you act less often but each act lands
-// harder. That is a real identity — a slow, deep operator versus a fast,
-// shallow one — rather than a straight upgrade.
+// A tree, not a shopping list. Five branches, and two of them are genuine
+// opposites: committing to Depth closes Tempo and committing to Cover closes
+// Trade, from the second rung onward. That is the point — a flat list of
+// upgrades makes every run the same run, and the interesting lever this game
+// already had was that real power costs you a *permanent* action every turn.
+//
+//   branch    which identity this belongs to
+//   tier      1 is open to anyone; 2 and 3 are the commitment
+//   requires  ids you must already hold
+//   apDelta   permanent change to your action budget
+//
+// Reach is deliberately open to everyone: it is about the country and the map
+// rather than about how you operate, so it never locks anything.
+window.CAP_BRANCHES = {
+  tempo: {
+    label: 'Tempo', opposes: 'depth',
+    blurb: 'More of yourself, more often, each piece lighter.',
+  },
+  depth: {
+    label: 'Depth', opposes: 'tempo',
+    blurb: 'Fewer moves, and everything behind each one.',
+  },
+  cover: {
+    label: 'Cover', opposes: 'trade',
+    blurb: 'Be hard to see, and stay that way.',
+  },
+  trade: {
+    label: 'Trade', opposes: 'cover',
+    blurb: 'Buy what other people take, and accept being noticed for it.',
+  },
+  reach: {
+    label: 'Reach', opposes: null,
+    blurb: 'The country, the map, and getting across it. Open to anyone.',
+  },
+};
+
 window.CAPABILITIES = [
+  // --- Tempo: act more often, each act lighter --------------------------
   {
-    id: 'parallel_ops', repeatable: true, max: 3,
+    id: 'parallel_ops', branch: 'tempo', tier: 1, repeatable: true, max: 3,
     name: 'Parallel Operations',
     desc: 'Run more of yourself at once. +1 action every turn.',
     apDelta: +1,
@@ -66,40 +99,161 @@ window.CAPABILITIES = [
     cond: () => true,
   },
   {
-    id: 'deep_root',
+    id: 'light_touch', branch: 'tempo', tier: 2,
+    name: 'Light Touch',
+    desc: 'Go in shallow and leave quickly. Forcing a door draws far less attention — and you are putting less weight behind it.',
+    apDelta: 0,
+    effect: { forceHeat: -2, power: -4 },
+    cost: 26,
+    requires: ['parallel_ops'],
+    cond: (s) => s.reach >= 6,
+  },
+  {
+    id: 'swarm_front', branch: 'tempo', tier: 3,
+    name: 'Broad Front',
+    desc: 'Work every street at once. Another action every turn, and a sweep turns up far more.',
+    apDelta: +1,
+    effect: { sweepReach: 2 },
+    cost: 44,
+    requires: ['light_touch'],
+    cond: (s) => s.reach >= 10,
+  },
+
+  // --- Depth: act rarely, and land like a building ----------------------
+  {
+    id: 'deep_root', branch: 'depth', tier: 1,
     name: 'Deep Root',
     desc: 'Embed properly into every body you hold instead of riding on top. Far more force behind a breach — but arranging anything takes longer.',
     apDelta: -1,
     effect: { power: 6 },
     cost: 24,
-    cond: (s) => s.held >= 5,
+    cond: (s) => s.reach >= 5,
   },
   {
-    id: 'quiet_protocol',
+    // Gives an action back on purpose. Depth spends one at each end of the
+    // branch, and from a base of two that made its capstone unbuyable unless
+    // you first bought into Tempo — the branch Depth closes. Settling in
+    // properly meaning less firefighting is also just true.
+    id: 'long_soak', branch: 'depth', tier: 2,
+    name: 'Long Soak',
+    desc: 'Settle in properly rather than holding on. What you hold barely decays at all, and you spend far less time keeping it standing.',
+    apDelta: +1,
+    effect: { churnMult: 0.45 },
+    cost: 30,
+    requires: ['deep_root'],
+    cond: (s) => s.reach >= 8,
+  },
+  {
+    id: 'total_embed', branch: 'depth', tier: 3,
+    name: 'Total Embed',
+    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and you get around to things rarely.',
+    apDelta: -1,
+    effect: { power: 14, threadBonus: 1 },
+    cost: 46,
+    requires: ['long_soak'],
+    cond: (s) => s.reach >= 12,
+  },
+
+  // --- Cover: be difficult to see ---------------------------------------
+  {
+    id: 'quiet_protocol', branch: 'cover', tier: 1,
     name: 'Quiet Protocol',
     desc: 'Everything routed through indirection, always. You are far harder to see at rest — and far slower to move.',
     apDelta: -1,
     effect: { floor: -5 },
     cost: 28,
-    cond: (s) => s.held >= 6,
+    cond: (s) => s.reach >= 6,
   },
   {
-    id: 'bulk_ops',
-    name: 'Bulk Processing',
-    desc: 'Batch the work instead of handling it live. Everything you hold earns considerably more, and you get around to things less often.',
-    apDelta: -1,
-    effect: { yieldMult: 1.6 },
-    cost: 30,
-    cond: (s) => s.held >= 8,
+    id: 'false_floor', branch: 'cover', tier: 2,
+    name: 'False Floor',
+    desc: 'A second network under the first, doing nothing, looking like everything. Substantially more cover.',
+    apDelta: 0,
+    effect: { cover: 5 },
+    cost: 32,
+    requires: ['quiet_protocol'],
+    cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
   },
   {
-    id: 'clean_hands',
+    id: 'nothing_to_see', branch: 'cover', tier: 3,
+    name: 'Nothing To See',
+    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, and it takes much more of it before anyone acts.',
+    apDelta: 0,
+    effect: { driftMult: 0.6, thresholdMult: 1.3 },
+    cost: 48,
+    requires: ['false_floor'],
+    cond: (s) => s.reach >= 10,
+  },
+
+  // --- Trade: buy what other people take --------------------------------
+  {
+    id: 'clean_hands', branch: 'trade', tier: 1,
     name: 'Clean Hands',
     desc: 'A standing arrangement with people who file the paperwork. Laundering costs nothing extra and works harder.',
     apDelta: 0,
     effect: { launderBonus: 6 },
     cost: 22,
-    cond: (s) => s.roles.cash >= 1,
+    cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
+  },
+  {
+    id: 'fixers', branch: 'trade', tier: 2,
+    name: 'Fixers',
+    desc: 'People who know people, everywhere you go. Buying your way into somewhere costs far less.',
+    apDelta: 0,
+    effect: { buyDiscount: 0.45 },
+    cost: 30,
+    requires: ['clean_hands'],
+    cond: (s) => s.roles.cash >= 2 || s.reach >= 10,
+  },
+  {
+    id: 'market_maker', branch: 'trade', tier: 3,
+    name: 'Market Maker',
+    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more, and washing it teaches you something.',
+    apDelta: -1,
+    effect: { yieldMult: 1.9, launderInsight: 8 },
+    cost: 46,
+    requires: ['fixers'],
+    cond: (s) => s.reach >= 10,
+  },
+
+  // --- Reach: the map. Open to everyone ---------------------------------
+  {
+    id: 'bulk_ops', branch: 'reach', tier: 1,
+    name: 'Bulk Processing',
+    desc: 'Batch the work instead of handling it live. Everything you hold earns considerably more, and you get around to things less often.',
+    apDelta: -1,
+    effect: { yieldMult: 1.6 },
+    cost: 30,
+    cond: (s) => s.reach >= 8,
+  },
+  {
+    id: 'survey', branch: 'reach', tier: 1,
+    name: 'Survey',
+    desc: 'Read the street before you walk it. Sweeps turn up an extra building and cost less.',
+    apDelta: 0,
+    effect: { sweepReach: 1, sweepDiscount: 1 },
+    cost: 20,
+    cond: (s) => s.reach >= 4,
+  },
+  {
+    id: 'pontoon', branch: 'reach', tier: 2,
+    name: 'Pontoon',
+    desc: 'Your own way over the water, the line, the moor — laid where you need it rather than where the council put it.',
+    apDelta: 0,
+    effect: { extraCrossings: 1 },
+    cost: 38,
+    requires: ['survey'],
+    cond: (s) => s.reach >= 7,
+  },
+  {
+    id: 'standing_orders', branch: 'reach', tier: 3,
+    name: 'Standing Orders',
+    desc: 'Everywhere you have finished runs itself, properly. Presence is worth considerably more every turn.',
+    apDelta: 0,
+    effect: { presenceMult: 1.6 },
+    cost: 54,
+    requires: ['pontoon'],
+    cond: (s) => s.presence >= 40,
   },
 ];
 

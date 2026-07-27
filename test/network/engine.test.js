@@ -1870,3 +1870,222 @@ test('persistence: terrain survives a round trip', () => {
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(JSON.stringify(round.bands), before, 'the same water, in the same place');
 });
+
+// --- the capability tree -------------------------------------------------
+// A flat list of upgrades makes every run the same run. The claim here is that
+// the branches are real commitments: taking the second rung of one closes the
+// one it opposes, and every effect on a card changes something the engine
+// actually reads.
+
+test('tree: branches are coherent and the oppositions are mutual', () => {
+  const { window } = loadNetwork();
+  const keys = Object.keys(window.CAP_BRANCHES);
+  keys.forEach(k => {
+    const B = window.CAP_BRANCHES[k];
+    assert.ok(B.label && B.blurb, `${k} does not say what it is`);
+    if (B.opposes) {
+      assert.ok(window.CAP_BRANCHES[B.opposes], `${k} opposes a branch that does not exist`);
+      assert.equal(window.CAP_BRANCHES[B.opposes].opposes, k,
+        `${k} opposes ${B.opposes}, but not the other way round`);
+    }
+  });
+  // at least one branch open to everyone, or every run forks the same way
+  assert.ok(keys.some(k => !window.CAP_BRANCHES[k].opposes), 'nothing is open to all');
+
+  window.CAPABILITIES.forEach(c => {
+    assert.ok(window.CAP_BRANCHES[c.branch], `${c.id} is in no branch`);
+    assert.ok(c.tier >= 1 && c.tier <= 3, `${c.id} has no rung`);
+    assert.ok(c.name && c.desc, `${c.id} does not say what it does`);
+    (c.requires || []).forEach(r => {
+      const req = window.CAPABILITIES.find(x => x.id === r);
+      assert.ok(req, `${c.id} requires ${r}, which does not exist`);
+      assert.equal(req.branch, c.branch, `${c.id} requires something from another branch`);
+      assert.ok(req.tier < c.tier, `${c.id} requires something no earlier than itself`);
+    });
+  });
+});
+
+test('tree: the first rung is open to anyone, the second is the commitment', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  assert.equal(d.branchLocked('depth'), false);
+  assert.equal(d.branchLocked('tempo'), false);
+
+  // a tier 1 commits you to nothing
+  s.caps = { parallel_ops: 1 };
+  assert.equal(d.branchLocked('depth'), false, 'one action point is not an identity');
+
+  // before committing, a deeper rung reports what it is waiting for
+  assert.equal(d.capBlocked(d.capById('long_soak')), 'needs:deep_root');
+
+  // a tier 2 does commit
+  s.caps = { parallel_ops: 1, light_touch: 1 };
+  assert.equal(d.branchLocked('depth'), true, 'committing to Tempo closes Depth');
+  assert.equal(d.capBlocked(d.capById('deep_root')), 'locked',
+    'and closes the whole of it, not just the rungs you had not reached');
+  assert.equal(d.capBlocked(d.capById('long_soak')), 'locked',
+    'a closed branch reads as closed, not as a missing prerequisite');
+
+  // the open branch never closes
+  assert.equal(d.branchLocked('reach'), false, 'Reach is open whatever you are');
+});
+
+test('tree: you cannot skip a rung', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = {};
+  s.res.insight = 9999;
+  s.hosts.slice(0, 14).forEach(h => { h.owned = true; });
+
+  assert.equal(d.capBlocked(d.capById('total_embed')), 'needs:long_soak');
+  d.buyCap('total_embed');
+  assert.equal(d.capCount('total_embed'), 0, 'and buying it does nothing');
+
+  d.buyCap('deep_root');
+  d.buyCap('long_soak');
+  assert.equal(d.capCount('long_soak'), 1, 'the rungs below it went in');
+  d.buyCap('total_embed');
+  assert.equal(d.capCount('total_embed'), 1, 'and now the top one does too');
+});
+
+test('tree: every effect on a card changes something the engine reads', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const measure = () => ({
+    power: d.power(), cover: d.cover(), threshold: d.strikeThreshold(),
+    drift: d.heatPerTurn(), sweep: d.sweepPrice(),
+    presence: d.presenceYield().insight,
+    force: d.approachHeat(window.APPROACHES.find(a => a.id === 'force')),
+    buy: d.costOf(window.APPROACHES.find(a => a.id === 'buy'), { defense: 20, type: 'corporate' }).cash,
+  });
+
+  s.country.presence = 40;
+  const base = measure();
+
+  const checks = [
+    ['total_embed', 'power', (a, b) => b > a],
+    ['false_floor', 'cover', (a, b) => b > a],
+    ['nothing_to_see', 'threshold', (a, b) => b > a],
+    ['nothing_to_see', 'drift', (a, b) => Math.abs(b) < Math.abs(a)],
+    ['survey', 'sweep', (a, b) => b < a],
+    ['standing_orders', 'presence', (a, b) => b > a],
+    ['light_touch', 'force', (a, b) => b < a],
+    ['fixers', 'buy', (a, b) => b < a],
+  ];
+  checks.forEach(([id, key, ok]) => {
+    s.caps = { [id]: 1 };
+    const after = measure();
+    assert.ok(ok(base[key], after[key]),
+      `${id} was supposed to move ${key}: ${base[key]} -> ${after[key]}`);
+  });
+
+  // churn is read in the turn, not in a getter
+  s.caps = {};
+  const victim = d.owned().find(h => !h.origin);
+  const before = victim.stability;
+  s.card = null;
+  d.endTurn({ silent: true });
+  const plain = before - victim.stability;
+  victim.stability = 1;
+  s.caps = { long_soak: 1 };
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.ok(1 - victim.stability < plain, 'Long Soak was supposed to slow decay');
+});
+
+test('tree: multipliers compose, they do not add up', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = { bulk_ops: 1, market_maker: 1 };
+  const expected = 1.6 * 1.9;
+  assert.ok(Math.abs(d.capEffect('yieldMult', 1) - expected) < 1e-9,
+    `two yield multipliers should compose to ${expected}, got ${d.capEffect('yieldMult', 1)}`);
+  s.caps = { nothing_to_see: 1 };
+  assert.ok(d.capEffect('driftMult', 1) < 1, 'a lone multiplier still reads as a multiplier');
+});
+
+test('tree: Pontoon lays your own way across the terrain', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.ok(s.bands.length >= 1, 'the home city has terrain to cross');
+
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
+
+  const gapsBefore = s.bands.reduce((a, b) => a + b.gaps.length, 0);
+  const linksBefore = s.links.length;
+  d.layOwnCrossings();
+  const gapsAfter = s.bands.reduce((a, b) => a + b.gaps.length, 0);
+
+  assert.ok(gapsAfter > gapsBefore, 'it laid a crossing');
+  assert.ok(s.links.length >= linksBefore, 'and never removed a route');
+
+  // and every route it opened is a legal one
+  const byId = {};
+  s.buildings.forEach(b => { byId[b.id] = b; });
+  Object.keys(s.adjacency).forEach(a => (s.adjacency[a] || []).forEach(b => {
+    const A = byId[a], B = byId[b];
+    if (!A || !B) return;
+    assert.equal(
+      d.segmentBlocked(s.bands, A.x + A.w / 2, A.y + A.h / 2, B.x + B.w / 2, B.y + B.h / 2),
+      false, 'Pontoon wired something straight through the water');
+  }));
+});
+
+test('tree: a purchase never leaves you unable to act', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 9999;
+  s.hosts.slice(0, 14).forEach(h => { h.owned = true; });
+  // stack every action-costing capability the tree allows
+  s.caps = {};
+  ['deep_root', 'long_soak', 'total_embed', 'bulk_ops'].forEach(id => d.buyCap(id));
+  assert.ok(d.maxAP() >= window.AP.min, `maxAP fell to ${d.maxAP()}`);
+});
+
+test('persistence: the tree survives a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.caps = { quiet_protocol: 1, false_floor: 1, parallel_ops: 2 };
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.caps.false_floor, 1);
+  assert.equal(round.caps.parallel_ops, 2);
+});
+
+test('tree: every branch can actually be finished from a standing start', () => {
+  const { window } = loadNetwork();
+  // Depth spends an action at each end of its chain. From a base of two that
+  // made its capstone unbuyable unless you first bought into Tempo — the very
+  // branch Depth closes. A branch you cannot finish is not a choice.
+  Object.keys(window.CAP_BRANCHES).forEach(bk => {
+    const d = loadNetwork().window.__netDebug;
+    const s = d.state;
+    s.caps = {};
+    s.res.insight = 99999;
+    // a holding that actually covers every role — the first N hosts in
+    // generation order are whatever the opening blocks happened to be, and
+    // Trade's second rung wants two cash holdings before it will open
+    ['compute', 'cash', 'stealth'].forEach(role => {
+      s.hosts.filter(h => h.role === role).slice(0, 5).forEach(h => { h.owned = true; });
+    });
+    s.country.presence = 60;
+
+    const chain = window.CAPABILITIES.filter(c => c.branch === bk).sort((a, b) => a.tier - b.tier);
+    chain.forEach(c => d.buyCap(c.id));
+    const missed = chain.filter(c => !d.capCount(c.id));
+    assert.equal(missed.length, 0,
+      `${bk} cannot be completed: stuck at ${missed.map(c => c.id + ' (' + d.capBlocked(c) + ')').join(', ')}`);
+    assert.ok(d.maxAP() >= window.AP.min, `${bk} leaves you with ${d.maxAP()} actions`);
+  });
+});

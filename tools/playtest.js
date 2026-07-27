@@ -34,6 +34,7 @@ const STRATEGIES = {
   // take whatever is cheapest to take, as fast as possible
   greedy(d) {
     const c = campaign(d, 'greedy'); if (c) return c;
+    if (buyCapability(d, null, 'greedy')) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
@@ -49,7 +50,7 @@ const STRATEGIES = {
     // get in at all.
     const cam = pickTarget(d, (a, b) => (rank(b) - rank(a)) || (a.defense - b.defense));
     if (cam) return breach(d, cam, ['quiet', 'force'], OFFERED);
-    if (buyCapability(d, 'quiet_protocol')) return 'cap';
+    if (buyCapability(d, null, 'ghost')) return 'cap';
     if (buyTooling(d)) return 'tooling';
     const swept = sweepOrNull(d);
     if (swept) return swept;
@@ -62,6 +63,7 @@ const STRATEGIES = {
   money(d) {
     const c = campaign(d, 'money'); if (c) return c;
     if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.55) { d.actLaunder(); return 'launder'; }
+    if (buyCapability(d, null, 'money')) return 'cap';
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
     if (rich) return breach(d, rich, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
@@ -71,7 +73,7 @@ const STRATEGIES = {
   // buy power, then kick down the biggest doors
   builder(d) {
     const c = campaign(d, 'builder'); if (c) return c;
-    if (buyCapability(d, 'parallel_ops')) return 'cap';
+    if (buyCapability(d, null, 'builder')) return 'cap';
     if (buyTooling(d)) return 'tooling';
     const big = pickTarget(d, (a, b) => b.threads - a.threads);
     if (big) return breach(d, big, null, OFFERED);
@@ -94,7 +96,7 @@ const STRATEGIES = {
     const sick = d.owned().filter(h => d.shoreNeeded(h) && h.stability < 0.55)
       .sort((a, b) => a.stability - b.stability)[0];
     if (sick && s.res.insight >= 2 + (global.SWEEP_COST || 2) && s.ap > 0) { d.actShore(sick.id); return 'shore'; }
-    if (buyCapability(d)) return 'cap';
+    if (buyCapability(d, null, 'balanced')) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
     if (buyTooling(d)) return 'tooling';
@@ -192,10 +194,40 @@ function buyTooling(d) {
   return d.state.ap !== before;
 }
 
-function buyCapability(d, only) {
+// Each profile now has a branch it is actually trying to walk, so the tree is
+// exercised as a set of identities rather than as a shopping list.
+const BRANCH_FOR = {
+  greedy: ['tempo', 'reach'],
+  ghost: ['cover', 'reach'],
+  money: ['trade', 'reach'],
+  builder: ['depth', 'reach'],
+  balanced: ['reach', 'cover'],
+};
+
+function buyCapability(d, only, style) {
   const caps = CAPS || [];
-  for (const c of caps) {
+  const want = BRANCH_FOR[style] || [];
+  const ordered = caps.slice().sort((a, b) => {
+    const ai = want.indexOf(a.branch), bi = want.indexOf(b.branch);
+    const ar = ai === -1 ? 9 : ai, br = bi === -1 ? 9 : bi;
+    return (ar - br) || ((a.tier || 1) - (b.tier || 1));
+  });
+  // Stay in your own branches, and keep enough of an action budget to still
+  // afford your own capstone. Buying every -1 across five branches left this
+  // profile permanently at one action and unable to complete the very branch
+  // it was supposed to be walking — which is the budget doing its job, and
+  // the bot playing badly.
+  // Judge a purchase by the whole remaining chain, not one rung at a time:
+  // Depth spends an action at each end and hands one back in the middle, so
+  // checking each step alone refuses the first rung and the branch never
+  // starts.
+  const chainNet = (branch) => caps
+    .filter(c => c.branch === branch && !d.capCount(c.id))
+    .reduce((a, c) => a + (c.apDelta || 0), 0);
+  for (const c of ordered) {
     if (only && c.id !== only) continue;
+    if (want.length && !want.includes(c.branch)) continue;
+    if ((c.apDelta || 0) < 0 && d.maxAP() + chainNet(c.branch) < 1) continue;
     if (d.capAvailable(c) && d.capAffordable(c)) {
       const before = JSON.stringify(d.state.caps);
       d.buyCap(c.id);

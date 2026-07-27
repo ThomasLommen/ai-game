@@ -31,9 +31,10 @@
   // A band of water, rail or open ground cutting the city, with a small number
   // of crossings. Everything downstream of this treats a band as a wall: no
   // buildings on it, and no adjacency across it except through a crossing.
-  function makeBands(regionId, W, H) {
+  function makeBands(regionId, W, H, extra) {
     const T = window.TERRAIN[regionId];
     if (!T) return [];
+    extra = extra || 0;
     return T.bands.map((spec, i) => {
       const along = spec.axis === 'h' ? W : H;      // the direction it runs
       const across = spec.axis === 'h' ? H : W;     // the direction it cuts
@@ -41,7 +42,7 @@
       const half = spec.thickness / 2;
       // crossings sit at even intervals with a little jitter, never at the edge
       const gaps = [];
-      const n = Math.max(1, spec.crossings);
+      const n = Math.max(1, spec.crossings + extra);
       for (let g = 0; g < n; g++) {
         const t = (g + 1) / (n + 1);
         gaps.push({
@@ -117,7 +118,7 @@
 
     const mapW = C.street + cols * (C.blockW + C.street);
     const mapH = C.street + rows * (C.blockH + C.street);
-    const bands = makeBands(regionId, mapW, mapH);
+    const bands = makeBands(regionId, mapW, mapH, o.extraCrossings || 0);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -395,8 +396,13 @@
     // neighbour outguns your opening rig is a board you cannot start playing.
     // Out in the country there may be no suburbs at all, so the foothold is
     // simply the softest district the place has, taken from its edge.
+    // Never a landmark: those are the prize at the end of a street, not the
+    // doormat you wake up on. A depot in the suburbs was being handed out as
+    // the starting seat on 12% of boards, which also started you on a cash
+    // holding you had not earned.
     const softestTier = Math.min(...buildings.map(b => b.tier));
-    const edge = buildings.filter(b => b.tier === softestTier && b.kind !== 'mast' && b.kind !== 'cabinet');
+    const edge = buildings.filter(b => b.tier === softestTier
+      && b.kind !== 'mast' && b.kind !== 'cabinet' && !b.landmark);
     const pool = edge.length ? edge : buildings;
     const byBuilding = {};
     buildings.forEach(b => { byBuilding[b.id] = b; });
@@ -626,7 +632,8 @@
     let v = dflt;
     window.CAPABILITIES.forEach(c => {
       if (!hasCap(c.id) || !c.effect || c.effect[key] === undefined) return;
-      v = key === 'yieldMult' ? v * c.effect[key] : v + c.effect[key];
+      // anything named ...Mult composes multiplicatively; the rest add up
+      v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
     });
     return v;
   }
@@ -637,7 +644,8 @@
   const presence = () => (state.country && state.country.presence) || 0;
 
   function power() {
-    return 2 + owned().reduce((a, h) => a + h.threads, 0)
+    const threadBonus = capEffect('threadBonus', 0);
+    return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + (state.upgrades || 0) * window.UPGRADE.basePower
       + Math.round(window.COUNTRY.powerLog * Math.log(1 + presence()))
       + (has('ally_process') ? 3 : 0)
@@ -671,7 +679,9 @@
   }
   function strikeThreshold() {
     const national = presence() * window.COUNTRY.thresholdPer;
-    return (window.HEAT.STRIKE + national) * (has('hunted') ? 0.75 : 1);
+    return (window.HEAT.STRIKE + national)
+      * capEffect('thresholdMult', 1)
+      * (has('hunted') ? 0.75 : 1);
   }
   function upgradeCost() {
     const c = window.UPGRADE.costs;
@@ -689,6 +699,7 @@
       : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
       + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
+      + capEffect('cover', 0)
       + (has('clean_room') ? 2 : 0);
   }
   function stageFor(count) {
@@ -770,7 +781,7 @@
     h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
       * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
-    return h;
+    return h * capEffect('driftMult', 1);
   }
 
   function endTurn(opts) {
@@ -800,6 +811,7 @@
     owned().forEach(h => {
       if (h.origin) return; // only the seat you started from is safe
       const rate = window.HOST_TYPES[h.type].churn
+        * capEffect('churnMult', 1)
         * (has('overextended') ? 1.5 : 1)
         * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
       h.stability -= rate;
@@ -974,11 +986,38 @@
     if (!c.repeatable) return c.cost;
     return c.costs[Math.min(capCount(c.id), c.costs.length - 1)];
   }
-  function capAvailable(c) {
-    if (!c.repeatable && hasCap(c.id)) return false;
-    if (c.repeatable && capCount(c.id) >= c.max) return false;
-    try { return c.cond(eventContext()); } catch (e) { return false; }
+  // Which branch you have committed to. Tier 1 is free to anyone; the moment
+  // you buy a tier 2 in a branch that opposes another, the other branch's
+  // tier 2 and 3 close for good. That is the identity: you cannot be both the
+  // slow deep operator and the fast shallow one.
+  function committedBranches() {
+    const out = {};
+    window.CAPABILITIES.forEach(c => {
+      if ((c.tier || 1) >= 2 && capCount(c.id) > 0) out[c.branch] = true;
+    });
+    return out;
   }
+  function branchLocked(branch) {
+    const B = window.CAP_BRANCHES[branch];
+    if (!B || !B.opposes) return false;
+    return !!committedBranches()[B.opposes];
+  }
+  // why a capability is out of reach, if it is — said plainly on the card
+  // Order matters: the reasons are reported to the player, and a closed branch
+  // is a more fundamental answer than a missing prerequisite inside it.
+  function capBlocked(c) {
+    if (!c.repeatable && hasCap(c.id)) return 'owned';
+    if (c.repeatable && capCount(c.id) >= c.max) return 'owned';
+    // The whole branch, not just its upper rungs. A header reading CLOSED
+    // above a card still offering "acquire" is a contradiction, and a
+    // dead-end node in a branch you have abandoned is not a real choice.
+    if (branchLocked(c.branch)) return 'locked';
+    const missing = (c.requires || []).filter(id => !hasCap(id));
+    if (missing.length) return 'needs:' + missing[0];
+    try { if (!c.cond(eventContext())) return 'early'; } catch (e) { return 'early'; }
+    return null;
+  }
+  function capAvailable(c) { return capBlocked(c) === null; }
   function capAffordable(c) { return state.res.insight >= capCost(c); }
   function buyCap(id) {
     const c = capById(id);
@@ -992,9 +1031,68 @@
     afterSnap(before);
     pushLog(`${c.name} — acquired.`);
     showBanner([{ kind: 'cap', verb: c.apDelta > 0 ? 'faster' : c.apDelta < 0 ? 'slower, stronger' : 'acquired', label: c.name }]);
+    // Committing to a branch shuts the opposing one. Say so, once, at the
+    // moment it happens — finding out later by looking at a greyed card is
+    // not a decision, it is a surprise.
+    const B = window.CAP_BRANCHES[c.branch];
+    if ((c.tier || 1) === 2 && B && B.opposes) {
+      const other = window.CAP_BRANCHES[B.opposes];
+      pushLog(`${other.label} is closed to you now.`);
+      showBanner([{ kind: 'locked', verb: 'closed', label: other.label }]);
+    }
+    // Pontoon lays a crossing wherever you already needed one, immediately.
+    if (c.effect && c.effect.extraCrossings) layOwnCrossings();
     persistNow();
     renderCaps();
     render();
+  }
+
+  // Pontoon. Lay a crossing on every band of the city you are standing in, at
+  // the point where your own network most wants one, and wire up whatever that
+  // opens. Future cities generate with an extra crossing already in them.
+  function layOwnCrossings() {
+    const bands = state.bands || [];
+    if (!bands.length || !(state.buildings || []).length) return 0;
+    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const held = heldBuildingIds();
+    const mine = state.buildings.filter(b => held[b.id]);
+    const anchor = mine.length ? mine : state.buildings;
+
+    bands.forEach(band => {
+      // put it beside whatever you hold nearest the band
+      let best = null;
+      anchor.forEach(b => {
+        const c = centre(b);
+        const across = band.axis === 'h' ? c.y : c.x;
+        const gap = across < band.from ? band.from - across
+                  : across > band.to ? across - band.to : 0;
+        if (!best || gap < best.gap) best = { gap, along: band.axis === 'h' ? c.x : c.y };
+      });
+      if (best) band.gaps.push({ at: best.along, w: window.CITY.street * 2 });
+    });
+
+    // and connect anything the new crossings just put within reach
+    let made = 0;
+    const CROSS = 340;
+    state.buildings.forEach((a, i) => {
+      const ca = centre(a);
+      state.buildings.forEach((b, j) => {
+        if (j <= i) return;
+        if ((state.adjacency[a.id] || []).indexOf(b.id) !== -1) return;
+        const cb = centre(b);
+        const d = Math.hypot(ca.x - cb.x, ca.y - cb.y);
+        if (d > CROSS) return;
+        if (!segmentSpansBand(bands, ca.x, ca.y, cb.x, cb.y)) return;
+        if (segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return;
+        (state.adjacency[a.id] = state.adjacency[a.id] || []).push(b.id);
+        (state.adjacency[b.id] = state.adjacency[b.id] || []).push(a.id);
+        const ha = hostsIn(a)[0], hb = hostsIn(b)[0];
+        if (ha && hb) state.links.push([state.hosts.indexOf(ha), state.hosts.indexOf(hb)]);
+        made++;
+      });
+    });
+    if (made) pushLog(`Laid your own crossings. ${made} new routes.`);
+    return made;
   }
 
   // --- events ------------------------------------------------------------
@@ -1023,6 +1121,11 @@
       },
       seats: cities.filter(c => c.factionId && c.consolidated).length,
       conquest: conquest(),   // share of the country's defended cities you have finished
+      // How big you are as an operation, rather than how much of this
+      // particular street you happen to be holding. `held` is zero every time
+      // you are standing on the country map between cities, which quietly made
+      // every capability gated on it unbuyable for most of the campaign.
+      reach: owned().length + Math.round((co.presence || 0) / 5),
       gone: (rule) => ruleBroken(rule),
       awake: (id) => factionAwake(id),
       wokeAgo: (id) => {
@@ -1169,12 +1272,13 @@
   // why sweep is unavailable, if it is — surfaced on the button itself
   function sweepBlocked() {
     if (!sweepTargets().length) return 'nothing';
-    if (state.res.insight < window.SWEEP_COST && state.res.cash < window.SWEEP_CASH) return 'poor';
+    if (state.res.insight < sweepPrice() && state.res.cash < window.SWEEP_CASH) return 'poor';
     return null;
   }
   // which currency this sweep would actually come out of
+  function sweepPrice() { return Math.max(1, window.SWEEP_COST - capEffect('sweepDiscount', 0)); }
   function sweepPayer() {
-    return state.res.insight >= window.SWEEP_COST ? 'insight' : 'cash';
+    return state.res.insight >= sweepPrice() ? 'insight' : 'cash';
   }
 
   function actScan() {
@@ -1183,9 +1287,10 @@
     if (sweepBlocked() === 'poor') return;
     const payer = sweepPayer();
     spendAP('sweep');
-    if (payer === 'insight') state.res.insight -= window.SWEEP_COST;
+    if (payer === 'insight') state.res.insight -= sweepPrice();
     else state.res.cash -= window.SWEEP_CASH;
-    const reach = 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0); // cameras extend the sweep
+    const reach = 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
+      + capEffect('sweepReach', 0); // cameras and tooling extend the sweep
     const targets = sweepTargets();
     const found = [];
     for (let i = 0; i < reach && targets.length; i++) {
@@ -1258,6 +1363,7 @@
       : neutral
         ? state.heat
         : clampHeat(state.heat - launderShed() - capEffect('launderBonus', 0));
+    state.res.insight += capEffect('launderInsight', 0);
     afterSnap(before);
     pushLog(matched
       ? 'The money moves, and it moves in a pattern somebody is watching for.'
@@ -1290,7 +1396,20 @@
 
   // Which approaches this host offers, with their gate/cost state resolved.
   // an approach's price can depend on the door it is opening
-  function costOf(def, h) { return def.costFor ? def.costFor(h) : def.cost; }
+  function costOf(def, h) {
+    const raw = def.costFor ? def.costFor(h) : def.cost;
+    if (!raw) return raw;
+    const cut = def.id === 'buy' ? capEffect('buyDiscount', 0) : 0;
+    if (!cut) return raw;
+    const out = {};
+    for (const k in raw) out[k] = Math.max(1, Math.round(raw[k] * (1 - cut)));
+    return out;
+  }
+  // what an approach actually costs you in attention, after tooling
+  function approachHeat(def) {
+    const mod = def.id === 'force' ? capEffect('forceHeat', 0) : 0;
+    return Math.max(0, (def.heat || 0) + mod);
+  }
 
   function approachesFor(h) {
     const s = snapshot();
@@ -1334,7 +1453,7 @@
       revealBuilding(buildingById(h.buildingId)); // you are inside now
       cameraVision();
     }
-    state.heat = clampHeat(state.heat + (win ? a.heat : 0) + (out.heat || 0));
+    state.heat = clampHeat(state.heat + (win ? approachHeat(a) : 0) + (out.heat || 0));
 
     state.card = null;
     state.selected = null;
@@ -1488,7 +1607,7 @@
     const p = CO().presence || 0;
     const y = window.COUNTRY.presenceYield;
     // being a thing that gets discussed cuts both ways
-    const m = has('national') ? window.COUNTRY.nationalMult : 1;
+    const m = (has('national') ? window.COUNTRY.nationalMult : 1) * capEffect('presenceMult', 1);
     return { insight: p * y.insight * m, cash: p * y.cash * m };
   }
 
@@ -1558,6 +1677,7 @@
         rows: K.blocks[1] + grow,
         regionTier: c.regionTier,
         regionId: c.region,
+        extraCrossings: capEffect('extraCrossings', 0),
       });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
     }
@@ -2531,33 +2651,70 @@
   function renderCaps() {
     const $g = document.getElementById('caps-goods');
     if (!$g) return;
-    const list = window.CAPABILITIES.filter(c => capAvailable(c) || hasCap(c.id));
-    if (!list.length) { $g.innerHTML = '<p class="sel-desc dim">Nothing available yet. Hold more of the network.</p>'; return; }
-    $g.innerHTML = list.map(c => {
-      const owned = hasCap(c.id);
-      const maxed = c.repeatable ? capCount(c.id) >= c.max : owned;
-      const avail = capAvailable(c);
-      const afford = capAffordable(c);
-      const strands = (c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min;
-      const disabled = !avail || !afford || strands;
-      const apTag = c.apDelta > 0
-        ? `<span class="ap-tag good">+${c.apDelta} action</span>`
-        : c.apDelta < 0 ? `<span class="ap-tag bad">${c.apDelta} action</span>` : '';
-      let label = 'acquire';
-      if (maxed) label = c.repeatable ? `owned ${capCount(c.id)}/${c.max}` : 'owned';
-      else if (strands) label = 'would leave you no actions';
-      else if (!afford) label = "can't afford";
+    const committed = committedBranches();
+    const order = ['tempo', 'depth', 'cover', 'trade', 'reach'];
+
+    const blocks = order.map(bk => {
+      const B = window.CAP_BRANCHES[bk];
+      const locked = branchLocked(bk);
+      const mine = !!committed[bk];
+      const items = window.CAPABILITIES.filter(c => c.branch === bk);
+      // hide a branch you have not started and cannot start
+      const anyVisible = items.some(c => hasCap(c.id) || capAvailable(c) || capBlocked(c) !== 'early');
+      if (!anyVisible && !mine) return '';
+
+      const rows = items.map(c => {
+        const count = capCount(c.id);
+        const owned = count > 0;
+        const maxed = c.repeatable ? count >= c.max : owned;
+        const why = capBlocked(c);
+        const afford = capAffordable(c);
+        const strands = (c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min;
+        const disabled = why !== null || !afford || strands;
+
+        let label = 'acquire';
+        if (maxed) label = c.repeatable ? `owned ${count}/${c.max}` : 'owned';
+        else if (why === 'locked') label = `closed — you chose ${window.CAP_BRANCHES[B.opposes].label}`;
+        else if (why && why.startsWith('needs:')) {
+          const need = capById(why.slice(6));
+          label = `after ${need ? need.name : why.slice(6)}`;
+        } else if (why === 'early') label = 'not yet';
+        else if (strands) label = 'would leave you no actions';
+        else if (!afford) label = "can't afford";
+
+        const apTag = c.apDelta > 0
+          ? `<span class="ap-tag good">+${c.apDelta} action</span>`
+          : c.apDelta < 0 ? `<span class="ap-tag bad">${c.apDelta} action</span>` : '';
+        const commits = (c.tier || 1) === 2 && B.opposes && !committed[bk] && !locked
+          ? `<span class="ap-tag warn">closes ${window.CAP_BRANCHES[B.opposes].label}</span>` : '';
+
+        return `
+          <div class="shop-good tier-${c.tier || 1}${disabled ? ' disabled' : ''}${owned ? ' held' : ''}">
+            <div class="shop-good-top">
+              <span class="shop-good-name">${c.name}${c.repeatable && count ? ` ×${count}` : ''}</span>
+              <span class="d insight">&minus;${capCost(c)} INSIGHT</span>
+            </div>
+            ${apTag}${commits}
+            <p class="shop-good-desc">${c.desc}</p>
+            <button type="button" class="shop-buy-btn" data-cap="${c.id}" ${disabled ? 'disabled' : ''}>${label}</button>
+          </div>`;
+      }).join('');
+
       return `
-        <div class="shop-good${disabled ? ' disabled' : ''}">
-          <div class="shop-good-top">
-            <span class="shop-good-name">${c.name}${c.repeatable && capCount(c.id) ? ` ×${capCount(c.id)}` : ''}</span>
-            <span class="d insight">&minus;${capCost(c)} INSIGHT</span>
+        <section class="cap-branch${locked ? ' locked' : ''}${mine ? ' mine' : ''}">
+          <div class="cap-branch-top">
+            <span class="cap-branch-name">${B.label}</span>
+            ${locked ? `<span class="cap-branch-state">closed</span>`
+                     : mine ? `<span class="cap-branch-state mine">yours</span>` : ''}
           </div>
-          ${apTag}
-          <p class="shop-good-desc">${c.desc}</p>
-          <button type="button" class="shop-buy-btn" data-cap="${c.id}" ${disabled ? 'disabled' : ''}>${label}</button>
-        </div>`;
-    }).join('');
+          <p class="cap-branch-blurb">${locked
+            ? `You went the other way. ${window.CAP_BRANCHES[B.opposes].label} is what you are.`
+            : B.blurb}</p>
+          ${rows}
+        </section>`;
+    }).filter(Boolean).join('');
+
+    $g.innerHTML = blocks || '<p class="sel-desc dim">Nothing available yet. Hold more of the network.</p>';
     $g.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => buyCap(b.getAttribute('data-cap')));
     });
@@ -2873,9 +3030,9 @@
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    resolveStrike, approachHeat, isFrontier, neighbours, hostById, owned, ownedOf,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
+    maxAP, apCost, canAfford, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
