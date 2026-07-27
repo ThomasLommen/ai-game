@@ -1651,7 +1651,11 @@ window.EVENTS = [
   },
   {
     id: 'legit_short',
-    cond: (s) => s.standing && s.standing.short > 18 && s.standing.tier >= 1,
+    // Was 18. You are short 29% of the turns you spend on the map and the
+    // average worst gap in a whole campaign is 27, so the card that is the
+    // spine of this system fired four times in 150 games. It was gated above
+    // where the system actually lives.
+    cond: (s) => s.standing && s.standing.short > 6 && s.standing.tier >= 1,
     title: 'The Numbers Do Not Reconcile',
     flavor: 'Somewhere between what you are on paper and what you are on the ground there is a gap, and it is the kind of gap people are paid to find.',
     choices: [
@@ -1662,7 +1666,10 @@ window.EVENTS = [
   },
   {
     id: 'legit_journalist',
-    cond: (s) => s.standing && s.standing.spin >= 20,
+    // and this above where the ceiling lets you reach: the spin ceiling is 17
+    // at the first rung and 23 at the second, so twenty asked for a front you
+    // could not legally have built yet
+    cond: (s) => s.standing && s.standing.spin >= 11,
     title: 'Somebody Is Checking',
     flavor: 'A reporter has noticed that three of the institutes quoting your figures share a registered address, and that the address is a mailbox.',
     choices: [
@@ -1706,7 +1713,7 @@ window.EVENTS = [
   },
   {
     id: 'plant_full',
-    cond: (s) => s.plant && s.plant.room === 0 && s.plant.count >= 2,
+    cond: (s) => s.plant && s.plant.room === 0 && s.plant.count >= 1,
     title: 'More Than You Can Explain',
     flavor: 'There is a plant you could take tomorrow and nowhere to put it on any document that would survive a phone call.',
     choices: [
@@ -1768,6 +1775,103 @@ window.EVENTS = [
       { text: 'Everything into the lines', cost: { cash: 180 }, apply: (s) => { s.rebuild = 4; } },
       { text: 'Send fewer, and only where it counts', apply: (s) => { s.warIntegrity = 2; s.warDelay = 2; } },
       { text: 'Strip a city for parts', apply: (s) => { s.rebuild = 3; s.warIntegrity = -1; s.res.cash += 40; } },
+    ],
+  },
+
+  // --- standing, as something that happens to you ------------------------
+  // The panel is where you act on purpose. These are where the system comes
+  // and finds you, which it barely did: eight cards out of a hundred and six
+  // for a whole pillar, and the one about being short was gated above the
+  // pressure it was written for. A card earns its place here by offering a
+  // trade the panel cannot — a rung out of order, standing bought with heat,
+  // an auditor bought with a favour — because a card that just hands you what
+  // the sheet sells is a shortcut, not a decision.
+  {
+    id: 'legit_settling',
+    cond: (s) => s.standing && s.standing.settling >= 12,
+    title: 'Filed, Not Believed',
+    flavor: 'The paperwork is correct and nobody has read it. Somewhere in a building you have never been to, a form is ageing at exactly the rate forms age.',
+    choices: [
+      { text: 'Buy the years', cost: { cash: 190 }, apply: (s) => { s.standing = 30; } },
+      { text: 'Talk over the gap', cost: { insight: 22 }, apply: (s) => { s.spin = 20; s.exposure = 1.3; } },
+      { text: 'Wait, like a real company', apply: (s) => { s.auditDelay = 11; s.res.cash += 40; } },
+    ],
+  },
+  {
+    id: 'legit_early_rung',
+    cond: (s) => s.standing && s.standing.tier >= 1 && s.standing.tier <= 3 && s.standing.short > 0,
+    title: 'Somebody Owes Somebody',
+    flavor: 'A man who signs things is prepared to sign one of yours out of order. He is not doing it for you; he is doing it because of who asked.',
+    choices: [
+      { text: 'Take the favour', cost: { cash: 60 }, apply: (s) => { s.standing = 26; s.exposure = 1.6; } },
+      { text: 'Pay him properly', cost: { cash: 210 }, apply: (s) => { s.standing = 30; } },
+      { text: 'Owe him instead', apply: (s) => { s.standing = 18; s.heat += 9; } },
+    ],
+  },
+  {
+    id: 'legit_quiet_year',
+    cond: (s) => s.standing && s.standing.audits >= 3 && s.standing.short <= 0,
+    title: 'A Very Boring Year',
+    flavor: 'Three audits, three reconciliations, and a filing history so unremarkable that a bank has started sending you offers.',
+    choices: [
+      { text: 'Borrow against it', apply: (s) => { s.res.cash += 320; s.standing = -12; } },
+      { text: 'Bank the reputation', apply: (s) => { s.standing = 20; s.auditDelay = 8; } },
+      { text: 'Use the cover for something', cost: { cash: 130 }, apply: (s) => { s.plantSlots = 1; s.heat += 5; } },
+    ],
+  },
+  {
+    id: 'legit_exposure_warning',
+    cond: (s) => s.standing && s.standing.exposure >= 2.4 && s.standing.spin >= 10,
+    title: 'Two People Have Compared Notes',
+    flavor: 'Not journalists. Worse: two ordinary people at two ordinary firms who each thought they were the only one who found it odd.',
+    choices: [
+      { text: 'Let it cool and say nothing', apply: (s) => { s.exposure = -2.2; s.auditDelay = -4; } },
+      { text: 'Bury it under something real', cost: { cash: 170 }, apply: (s) => { s.standing = 22; s.exposure = -1.4; } },
+      { text: 'Double down', cost: { insight: 26 }, apply: (s) => { s.spin = 22; s.exposure = 1.5; } },
+    ],
+  },
+  {
+    id: 'plant_choice',
+    cond: (s) => s.plant && s.plant.count >= 1 && s.plant.room >= 1 && s.standing && s.standing.tier >= 2,
+    title: 'Two Sites, One Signature',
+    flavor: 'A receiver is selling the contents of a failed group and will do the whole lot as one lot, or the good half as two.',
+    choices: [
+      { text: 'Take the yard', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'yard'; } },
+      { text: 'Take the grid', cost: { cash: 240 }, apply: (s) => { s.plantGift = 'grid'; } },
+      { text: 'Take the paperwork instead', cost: { cash: 90 }, apply: (s) => { s.plantSlots = 1; s.standing = 10; } },
+    ],
+  },
+  {
+    id: 'plant_idle',
+    cond: (s) => s.plant && s.plant.room >= 2 && s.standing && s.standing.tier >= 3,
+    title: 'Registered, Empty, Heated',
+    flavor: 'You are paying to keep the lights on in addresses that manufacture nothing. On paper this is a group in the middle of an expansion.',
+    choices: [
+      { text: 'Fill one properly', cost: { cash: 260 }, apply: (s) => { s.plantGift = 'works'; } },
+      { text: 'Sublet the empties', apply: (s) => { s.res.cash += 190; s.plantSlots = -1; } },
+      { text: 'Let the expansion story run', cost: { insight: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
+    ],
+  },
+  {
+    id: 'plant_war_lines',
+    cond: (s) => s.war && s.war.on && s.plant && s.plant.count >= 1,
+    title: 'The Line Runs Either Way',
+    flavor: 'What the floor is tooled for and what it is being asked to build have drifted apart. The foreman has stopped asking which one is the real product.',
+    choices: [
+      { text: 'Everything to the front', apply: (s) => { s.warPool = 1; s.standing = -14; } },
+      { text: 'Keep up appearances', cost: { cash: 140 }, apply: (s) => { s.standing = 24; } },
+      { text: 'Run both shifts', cost: { cash: 220 }, apply: (s) => { s.warPool = 1; s.exposure = 1.4; } },
+    ],
+  },
+  {
+    id: 'legit_seized_back',
+    cond: (s) => s.standing && s.standing.caught >= 1 && s.plant && s.plant.count >= 1,
+    title: 'It Is Sitting In A Compound',
+    flavor: 'The plant they took is still there, under a tarpaulin, in an impound yard staffed by two people and a dog with a job title.',
+    choices: [
+      { text: 'Buy it back at auction', cost: { cash: 230 }, apply: (s) => { s.plantGift = 'works'; s.standing = 8; } },
+      { text: 'Take it back at night', apply: (s) => { s.plantGift = 'yard'; s.heat += 12; s.exposure = 1.3; } },
+      { text: 'Let it go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; } },
     ],
   },
 

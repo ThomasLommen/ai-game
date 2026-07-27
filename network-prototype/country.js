@@ -202,16 +202,22 @@ window.FACTIONS = [
 //   axis 'v'   a band running top to bottom, positioned across the map
 //   at         where it sits, as a fraction of the map in that direction
 //   crossings  how many gaps in it — the bridges and level crossings
+// Landmarks are where plant comes from, and a city used to offer exactly one
+// candidate — the estuary offered two of the same kind, which is not two. So
+// the ladder's slot payoff was backed by nothing: measured, 3.3 plant filled
+// against 6.9 slots, and `assetRoom() === 0` essentially never happened. Two
+// different kinds per region makes claiming a choice, and a choice is what
+// makes the slot worth having.
 window.TERRAIN = {
   home: {
     label: 'parkland',
     bands: [{ kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 }],
-    landmarks: ['depot'],
+    landmarks: ['depot', 'substation'],
   },
   estuary: {
     label: 'the water',
     bands: [{ kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 }],
-    landmarks: ['docks', 'docks'],
+    landmarks: ['docks', 'station'],
   },
   midlands: {
     label: 'the line',
@@ -234,7 +240,7 @@ window.TERRAIN = {
       { kind: 'moor', axis: 'h', at: 0.34, thickness: 62, crossings: 1 },
       { kind: 'moor', axis: 'h', at: 0.74, thickness: 54, crossings: 1 },
     ],
-    landmarks: ['substation'],
+    landmarks: ['substation', 'depot'],
   },
 };
 
@@ -495,7 +501,13 @@ window.ASSETS = {
 };
 
 window.ASSET_RULES = {
-  slotsBase: 2,          // how many you can run before anyone is impressed by you
+  // Was 2. The ladder's whole payoff is slots, so a slot that never binds is a
+  // rung that bought nothing: measured at 3.6 plant filled against 7.0 slots,
+  // with room hitting zero on 5% of turns even after the profiles were taught
+  // to go out of their way for a landmark. Plant supply is capped by how many
+  // cities you actually walk — two landmarks each, six or seven cities — so
+  // the slots had to come down to meet it rather than the other way round.
+  slotsBase: 1,          // how many you can run before anyone is impressed by you
   slotsPerTier: 1,       // ...and one more for every rung of the ladder you are on
   retoolTier: 2,         // the rung at which you can convert a holding in the open
   retoolCost: 90,        // cash, and no break-in — this is the legitimate route
@@ -541,7 +553,7 @@ window.CITY_PRIZES = {
   pool: {
     label: 'the yards along the water',
     blurb: 'Frontage, cranes, and a workforce who have built stranger things than this.',
-    at: 4, effect: { plantSlots: 1, poolGift: 1 },
+    at: 4, effect: { poolGift: 1 },
   },
   audit: {
     label: 'a very tired inspector',

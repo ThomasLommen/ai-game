@@ -235,6 +235,21 @@ function pickTarget(d, cmp) {
   const usable = d.state.hosts.filter(h =>
     d.isFrontier(h) && d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk'));
   if (!usable.length) return null;
+  // A landmark you can still house is worth going out of your way for: it is
+  // the only source of plant, plant is what the flocks come out of, and it
+  // does not survive you folding the city in unless you were holding it.
+  // Without this the profiles never took one on purpose — landmarks are the
+  // hardest doors in a city, so a bot sorting on defense walked past every one
+  // of them, and the report read as though plant slots were not scarce when
+  // what was actually being measured was the bot's indifference to them.
+  if (d.assetRoom() > 0) {
+    const lm = usable.filter(h => {
+      const b = d.buildingById(h.buildingId);
+      return b && d.assetKindFor(b)
+        && !d.assets().some(a => a.buildingId === b.id);
+    });
+    if (lm.length) return lm.sort(cmp)[0];
+  }
   return usable.sort(cmp)[0];
 }
 
@@ -394,7 +409,7 @@ function playOne(strategyName) {
   // totals cannot see this: by then every filing has matured and the honest
   // route always reads as comfortable, which is exactly how a dead covert
   // route hid for 150 games.
-  let shortTurns = 0, countedTurns = 0, peakShort = 0;
+  let shortTurns = 0, countedTurns = 0, peakShort = 0, roomZeroTurns = 0;
   let lastCounted = -1;
   const countryMoves = {};
 
@@ -428,6 +443,9 @@ function playOne(strategyName) {
       countedTurns++;
       const short = d.footprint() - d.legitScore();
       if (short > 0) { shortTurns++; peakShort = Math.max(peakShort, short); }
+      // whether the ladder's slot payoff is backed by anything: if room is
+      // never zero, a rung bought you nothing you needed
+      if (d.assetRoom() === 0) roomZeroTurns++;
     }
     const doneNow = d.state.country.cities.filter(c => c.consolidated).length;
     while (consolidatedAt.length < doneNow) consolidatedAt.push(d.state.turn);
@@ -474,7 +492,9 @@ function playOne(strategyName) {
     presence: d.state.country.presence,
     peakPresence,
     delegated: (d.state.country.cities || []).filter(c => c.cell).length,
+    roomZero: roomZeroTurns,
     prizesTaken: (d.state.country.cities || []).filter(c => c.prize && c.prizeTaken && !c.cell).length,
+    countedTurns,
     shortShare: countedTurns ? shortTurns / countedTurns : 0,
     peakShort: Math.round(peakShort),
     citiesTotal: d.state.country.cities.length,
@@ -664,6 +684,7 @@ function run() {
     ` · ${fmt(mean(all.map(r => r.prizesTaken)), 1)} prizes taken by walking one`);
   console.log(`     short ${pct(mean(all.map(r => r.shortShare)), 1)} of the turns you are on the map` +
     ` · worst gap ${fmt(mean(all.map(r => r.peakShort)), 0)}`);
+  console.log(`     plant slots full ${pct(mean(all.map(r => r.countedTurns ? r.roomZero / r.countedTurns : 0)), 1)} of the turns you are on the map`);
   console.log(`     ${fmt(mean(all.map(r => r.assets)), 1)} of ${fmt(mean(all.map(r => r.assetSlots)), 1)} plant slots filled` +
     ` · ${fmt(mean(all.map(r => r.audits)), 1)} audits · caught in ` +
     `${pct(all.filter(r => r.caught > 0).length, all.length)} of games`);

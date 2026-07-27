@@ -1557,7 +1557,7 @@ function sampleContexts(window) {
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
       war: null,
-      standing: { score: 0, bought: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0 },
+      standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0 },
       plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
     }, o.over || {});
   };
@@ -1670,9 +1670,15 @@ function sampleContexts(window) {
             // last week is a real state and nothing above tier 0 could reach
             // it while this was derived from the tier
             [0, tier * 3 + caught].forEach(audits => {
-              standings.push({ tier, spin, caught, short, exposure, audits,
-                score: tier * 26 + spin, bought: tier * 26,
-                footprint: tier * 26 + spin + short });
+              // filed and settling too: a rung is real the moment you file it
+              // and believed twenty-two turns later, so a campaign spends real
+              // time with standing outstanding and cards may be about that
+              [0, 14, tier * 26].forEach(settling => {
+                standings.push({ tier, spin, caught, short, exposure, audits, settling,
+                  score: tier * 26 + spin, bought: tier * 26,
+                  filed: tier * 26 + settling,
+                  footprint: tier * 26 + spin + short });
+              });
             });
           });
         });
@@ -2329,6 +2335,85 @@ test('prizes: a pool gift taken in peacetime is still there when they mobilise',
   d.state.country.poolGift = 2;
   d.openWar();
   assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
+});
+
+// --- the two systems that were quietly switched off ----------------------
+
+test('deck: standing and plant are gated where the pressure actually is', () => {
+  const { window } = loadNetwork();
+  const at = (over) => window.EVENTS.find(e => e.id === over);
+
+  // You are short about 30% of the turns you spend on the map and the average
+  // worst gap in a whole campaign is 26, so a card gated at "short > 18" fired
+  // four times in 150 games — the spine of the system, asleep.
+  const short = at('legit_short');
+  const typical = { standing: { tier: 2, short: 10, spin: 0, exposure: 0, audits: 2, caught: 0, settling: 0 } };
+  assert.equal(short.cond(typical), true,
+    'the card about being short does not fire at a gap the game actually produces');
+  assert.equal(short.cond({ standing: { tier: 2, short: 0, spin: 0, exposure: 0, audits: 2, caught: 0, settling: 0 } }),
+    false, 'and it still does not fire when you reconcile');
+
+  // and the one about a fabricated front asked for more spin than the ceiling
+  // allows you to have at the rung it is written for
+  const jour = at('legit_journalist');
+  const d = window.__netDebug;
+  d.state.scope = 'country';
+  const home = d.cityById(d.state.country.homeId);
+  home.consolidated = true; home.taken = true;
+  d.state.res.cash = 100000; d.state.ap = 999;
+  d.buyRung('register');
+  const ceiling = d.spinCeil();
+  assert.ok(jour.cond({ standing: { tier: 1, spin: Math.round(ceiling), short: 0, exposure: 0, audits: 0, caught: 0, settling: 0 } }),
+    `it wants more spin than the first rung's ceiling of ${ceiling} allows`);
+});
+
+test('deck: the standing and plant pillar is a real share of the deck', () => {
+  const { window } = loadNetwork();
+  const pillar = window.EVENTS.filter(e => /^legit_|^plant_/.test(e.id));
+  // eight of a hundred and six was 7.5% for a system that is meant to be one
+  // of the three things the country layer is about
+  assert.ok(pillar.length >= 15,
+    `only ${pillar.length} cards for standing and plant, of ${window.EVENTS.length}`);
+});
+
+test('plant: a city offers a choice of landmark, not a single checkbox', () => {
+  const { window } = loadNetwork();
+  Object.keys(window.TERRAIN).forEach(region => {
+    const lm = window.TERRAIN[region].landmarks || [];
+    assert.ok(lm.length >= 2, `${region} offers ${lm.length} landmark(s)`);
+    assert.equal(new Set(lm).size, lm.length,
+      `${region} offers the same landmark twice, which is not a choice`);
+    lm.forEach(kind => {
+      const asset = Object.keys(window.ASSETS).find(k => window.ASSETS[k].from === kind);
+      assert.ok(asset, `${region}'s ${kind} can never become plant`);
+    });
+  });
+});
+
+test('plant: a generated city has more than one thing worth keeping', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const lm = d.state.buildings.filter(b => d.assetKindFor(b));
+  assert.ok(lm.length >= 2, `a city offers ${lm.length} candidates`);
+  assert.ok(new Set(lm.map(b => d.assetKindFor(b))).size >= 2,
+    'and they are different kinds, so keeping one is a decision');
+});
+
+test('plant: room is scarce enough that a rung is worth buying for it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const R = window.ASSET_RULES;
+  // every rung adds exactly one, so the chip on the rung button cannot lie
+  const slotsAt = (tier) => R.slotsBase + R.slotsPerTier * tier;
+  for (let t = 1; t <= window.LEGIT.ladder.length; t++) {
+    assert.equal(slotsAt(t) - slotsAt(t - 1), 1, `rung ${t} does not add a slot`);
+  }
+  // and a full ladder must not hand out more room than a campaign can fill.
+  // Measured: about 3.5 pieces of plant against what the ladder allows, and
+  // room reaching zero on 12% of turns. At the old base of two it was 5%.
+  const full = slotsAt(window.LEGIT.ladder.length);
+  assert.ok(full <= 6, `a finished ladder allows ${full} plants, which nothing will fill`);
+  assert.equal(d.assetSlots(), R.slotsBase, 'and you start with the base');
 });
 
 // --- handing a city to somebody else -------------------------------------
