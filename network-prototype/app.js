@@ -975,6 +975,17 @@
   // never touch this. Only committing actions do.
   function apCost(kind) { return (window.AP.costs && window.AP.costs[kind]) || 1; }
   function canAfford(kind) { return !state.card && !state.over && state.ap >= apCost(kind); }
+  // "Refused specifically because the turn is spent", as opposed to refused
+  // because a card is open or the run is over — those are different answers and
+  // deserve different words.
+  function apShort(kind) {
+    if (state.card || state.over) return false;
+    return state.ap < apCost(kind);
+  }
+  function countryApShort(kind) {
+    if (state.card || state.over) return false;
+    return state.ap < countryCost(kind);
+  }
   function spendAP(kind) {
     const c = apCost(kind);
     if (state.ap < c) return false;
@@ -2805,6 +2816,29 @@
     applyView();
   }
 
+  // Pressing something that costs an action with none left used to do nothing
+  // at all: the button looked live, the tap landed, and the game ignored it.
+  // Say so, point at the answer, and make the action budget itself flash so
+  // the cause is attached to the effect.
+  let refuseToken = 0;
+  function refuseForAP(el) {
+    const $pips = document.getElementById('ap-pips');
+    const $end = document.getElementById('end-turn');
+    [el, $pips, $end].forEach(node => {
+      if (!node) return;
+      node.classList.remove('refused');
+      void node.offsetWidth;        // restart the animation on a repeat press
+      node.classList.add('refused');
+    });
+    showInfo(window.ACTION_INFO.noActions);
+    const mine = ++refuseToken;
+    setTimeout(() => {
+      if (mine !== refuseToken) return;
+      [el, $pips, $end].forEach(node => node && node.classList.remove('refused'));
+    }, 700);
+    return false;
+  }
+
   let infoToken = 0;
   function showInfo(text) {
     const $i = document.getElementById('info-strip');
@@ -2882,7 +2916,14 @@
     }
     const $end = document.getElementById('end-turn');
     if ($end) {
-      $end.classList.toggle('urgent', state.ap <= 0 && !state.card && !state.over);
+      // Re-arm the nudge on the turn the budget actually runs out, so it draws
+      // the eye exactly when it becomes true instead of moving forever.
+      const urgent = state.ap <= 0 && !state.card && !state.over;
+      if (urgent && !$end.classList.contains('urgent')) {
+        $end.classList.remove('urgent');
+        void $end.offsetWidth;
+      }
+      $end.classList.toggle('urgent', urgent);
       $end.disabled = !!state.card || state.over;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
@@ -3014,9 +3055,9 @@
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="sel-desc">${where} · ${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
-            <button class="act-btn" data-act="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) ? 'disabled' : ''}>
+            <button class="act-btn${apShort('shore') ? ' no-ap' : ''}" data-act="shore" data-ap="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) && !apShort('shore') ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
-              <span class="ab-sub">${!shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
+              <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
             </button>
           </div>`;
       } else if (isFrontier(h)) {
@@ -3024,9 +3065,9 @@
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
-            <button class="act-btn primary" data-act="breach">
+            <button class="act-btn ${apShort('breach') ? 'no-ap' : 'primary'}" data-act="breach" data-ap="breach">
               <span class="ab-name">move on it</span>
-              <span class="ab-sub">choose how you get in</span>
+              <span class="ab-sub">${apShort('breach') ? 'no actions left' : 'choose how you get in'}</span>
             </button>
           </div>`;
       } else {
@@ -3045,18 +3086,22 @@
       const goal = cityGoal(cur);
       const held = heldHere();
       sel += `
-        <button class="act-btn consolidate ${canConsolidate() ? 'primary' : ''}" data-act="consolidate" ${canConsolidate() && canAffordCountry('consolidate') ? '' : 'disabled'}>
+        <button class="act-btn consolidate ${countryApShort('consolidate') ? 'no-ap' : canConsolidate() ? 'primary' : ''}" data-act="consolidate" data-ap="consolidate" ${canConsolidate() || countryApShort('consolidate') ? '' : 'disabled'}>
           <span class="ab-name">consolidate ${cur.name}</span>
-          <span class="ab-sub">${held >= goal ? 'fold it in and move on · 1 action' : `hold ${goal - held} more of its ${state.buildings.length} buildings`}</span>
+          <span class="ab-sub">${countryApShort('consolidate')
+            ? 'no actions left'
+            : held >= goal ? 'fold it in and move on · 1 action' : `hold ${goal - held} more of its ${state.buildings.length} buildings`}</span>
         </button>`;
     }
 
     $p.innerHTML = `
       ${sel}
       <div class="actions">
-        <button class="act-btn" data-act="scan" data-info="sweep" ${sweepBlocked() ? 'disabled' : ''}>
+        <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scan" data-ap="sweep" data-info="sweep" ${sweepBlocked() && !apShort('sweep') ? 'disabled' : ''}>
           <span class="ab-name">sweep</span>
-          <span class="ab-sub">${sweepBlocked() === 'nothing'
+          <span class="ab-sub">${apShort('sweep')
+            ? 'no actions left'
+            : sweepBlocked() === 'nothing'
             ? 'nothing adjacent left'
             : sweepBlocked() === 'poor'
               ? `needs ${window.SWEEP_COST} insight or ${window.SWEEP_CASH} cash`
@@ -3064,19 +3109,23 @@
                 ? `reveal neighbours · ${window.SWEEP_COST} insight`
                 : `pay for a look · ${window.SWEEP_CASH} cash`}</span>
         </button>
-        <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}" data-act="lielow" data-info="lielow">
+        <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
-          <span class="ab-sub">${ruleBroken('lielow')
+          <span class="ab-sub">${apShort('lielow')
+            ? 'no actions left'
+            : ruleBroken('lielow')
             ? `${factionBreaking('lielow').name} is watching the quiet`
             : `heat &minus;${Math.round(lieLowShed())} · earns nothing`}</span>
         </button>
-        <button class="act-btn" data-act="upgrade" data-info="upgrade" ${state.res.insight < upgradeCost() ? 'disabled' : ''}>
+        <button class="act-btn${apShort('tooling') ? ' no-ap' : ''}" data-act="upgrade" data-ap="tooling" data-info="upgrade" ${state.res.insight < upgradeCost() && !apShort('tooling') ? 'disabled' : ''}>
           <span class="ab-name">tooling</span>
-          <span class="ab-sub">power +${window.UPGRADE.basePower} · ${upgradeCost()} insight</span>
+          <span class="ab-sub">${apShort('tooling') ? 'no actions left' : `power +${window.UPGRADE.basePower} · ${upgradeCost()} insight`}</span>
         </button>
-        <button class="act-btn ${ruleBroken('launder') ? 'broken' : ''}" data-act="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost ? 'disabled' : ''}>
+        <button class="act-btn ${ruleBroken('launder') ? 'broken' : ''}${apShort('launder') ? ' no-ap' : ''}" data-act="launder" data-ap="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost && !apShort('launder') ? 'disabled' : ''}>
           <span class="ab-name">launder</span>
-          <span class="ab-sub">${ruleBroken('launder')
+          <span class="ab-sub">${apShort('launder')
+            ? 'no actions left'
+            : ruleBroken('launder')
             ? `${factionBreaking('launder').name} matches the payments`
             : `heat &minus;${Math.round(launderShed())} · ${window.LAUNDER.cost} cash`}</span>
         </button>
@@ -3088,6 +3137,12 @@
     });
     $p.querySelectorAll('[data-act]').forEach(b => {
       b.addEventListener('click', () => {
+        // a press that cannot be paid for is answered, not swallowed
+        const kind = b.getAttribute('data-ap');
+        if (kind && (kind === 'consolidate' ? countryApShort(kind) : apShort(kind))) {
+          refuseForAP(b);
+          return;
+        }
         const a = b.getAttribute('data-act');
         if (a === 'scan') actScan();
         else if (a === 'lielow') actLieLow();
@@ -3121,21 +3176,21 @@
 
       const acts = [];
       if (!sel.taken && cityReachable(sel)) {
-        acts.push(`<button class="act-btn primary" data-cact="reach" data-city="${sel.id}" ${canAffordCountry('reach') ? '' : 'disabled'}>
+        acts.push(`<button class="act-btn ${countryApShort('reach') ? 'no-ap' : 'primary'}" data-cact="reach" data-ap="reach" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
-          <span class="ab-sub">${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action</span>
+          <span class="ab-sub">${countryApShort('reach') ? 'no actions left' : `${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action`}</span>
         </button>`);
       }
       if (sel.taken && !sel.consolidated && sel.id !== CO().at) {
-        acts.push(`<button class="act-btn" data-cact="travel" data-city="${sel.id}" ${canAffordCountry('move') ? '' : 'disabled'}>
+        acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
-          <span class="ab-sub">go back to it · 1 action</span>
+          <span class="ab-sub">${countryApShort('move') ? 'no actions left' : 'go back to it · 1 action'}</span>
         </button>`);
       }
       if (sel.consolidated && sel.id !== CO().at) {
-        acts.push(`<button class="act-btn" data-cact="travel" data-city="${sel.id}" ${canAffordCountry('move') ? '' : 'disabled'}>
+        acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
-          <span class="ab-sub">stand in ${R.label} · 1 action</span>
+          <span class="ab-sub">${countryApShort('move') ? 'no actions left' : `stand in ${R.label} · 1 action`}</span>
         </button>`);
       }
       if (!sel.taken && !cityReachable(sel)) {
@@ -3173,6 +3228,8 @@
     `;
     $p.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
+        const kind = b.getAttribute('data-ap');
+        if (kind && countryApShort(kind)) { refuseForAP(b); return; }
         const a = b.getAttribute('data-cact');
         const id = b.getAttribute('data-city');
         if (a === 'reach') actReach(id);
@@ -3302,7 +3359,7 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    maxAP, apCost, canAfford, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

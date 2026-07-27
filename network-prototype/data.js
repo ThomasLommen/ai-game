@@ -506,6 +506,7 @@ window.STAT_INFO = {
 };
 
 window.ACTION_INFO = {
+  noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
   upgrade: 'Permanently raise POWER. The only way to grow strength without taking another host.',

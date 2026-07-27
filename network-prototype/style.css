@@ -204,6 +204,48 @@ body {
 .act-btn.broken { border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
 .act-btn.broken .ab-sub { color: var(--heat); }
 
+/* Out of actions. Deliberately still pressable and not styled as dead: a
+   disabled control cannot tell you why it is disabled, and pressing one used
+   to do nothing at all. It says what is wrong, and pressing it says it louder. */
+.act-btn.no-ap {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--muted) 55%, var(--line));
+  opacity: .75;
+}
+.act-btn.no-ap .ab-name { color: var(--muted); }
+.act-btn.no-ap .ab-sub { color: var(--muted); }
+
+/* the beat when you press one anyway */
+.refused { animation: refuseShake 480ms cubic-bezier(.36, .07, .19, .97) both; }
+@keyframes refuseShake {
+  0%, 100% { transform: translateX(0); }
+  12%  { transform: translateX(-5px); }
+  28%  { transform: translateX(5px); }
+  44%  { transform: translateX(-3px); }
+  62%  { transform: translateX(3px); }
+  80%  { transform: translateX(-1px); }
+}
+/* the action budget itself flashes, so the cause is attached to the effect */
+#ap-pips.refused .pip { animation: pipFlash 480ms ease-out 2; }
+@keyframes pipFlash {
+  0%, 100% { box-shadow: none; }
+  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--item) 45%, transparent); }
+}
+.end-turn-btn.refused {
+  border-color: var(--item);
+  color: var(--item);
+  animation: endTurnFlash 620ms ease-out 1;
+}
+@keyframes endTurnFlash {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--item) 60%, transparent); }
+  40%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--item) 30%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refused { animation: none; }
+  #ap-pips.refused .pip { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--item) 45%, transparent); }
+}
+
 .log { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
 .log-row { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 .log-row .mono { color: var(--line); margin-right: 6px; }
@@ -386,7 +428,10 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 .caps-btn { flex: none; border-color: var(--power); color: var(--power); }
 .end-turn-btn { flex: 1; }
-.end-turn-btn.urgent { border-color: var(--item); color: var(--item); animation: nudge 1.6s ease-in-out infinite; }
+/* Nudges when it becomes true and then rests, rather than bobbing forever.
+   A control that never stops moving is fidgety to sit next to, and it can
+   never settle enough to be clicked by anything driving the page. */
+.end-turn-btn.urgent { border-color: var(--item); color: var(--item); animation: nudge 1.5s ease-in-out 2; }
 .end-turn-btn[disabled] { opacity: .4; cursor: default; animation: none; }
 @keyframes nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 

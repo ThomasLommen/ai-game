@@ -2403,3 +2403,119 @@ test('breach fx: an audited camera gives you nothing to blip', () => {
   assert.equal(d.ruleBroken('cameras'), true);
   assert.equal(d.cameraVision().length, 0, 'audited, your eyes show you nothing');
 });
+
+// --- out of actions ------------------------------------------------------
+// Pressing something that costs an action with none left used to do nothing at
+// all: the button looked live, the tap landed, and the game ignored it.
+
+test('no actions: apShort is about the budget, not about anything else', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  s.ap = 2;
+  assert.equal(d.apShort('sweep'), false, 'with a budget, nothing is short');
+
+  s.ap = 0;
+  assert.equal(d.apShort('sweep'), true);
+  assert.equal(d.apShort('breach'), true);
+  assert.equal(d.countryApShort('reach'), true);
+
+  // a card being open, or the run being over, are different answers and must
+  // not be reported as "you are out of actions"
+  s.ap = 2;
+  s.card = { kind: 'event', eventId: 'x' };
+  assert.equal(d.canAfford('sweep'), false, 'you still cannot act');
+  assert.equal(d.apShort('sweep'), false, 'but not because the turn is spent');
+  s.card = null;
+  s.over = true;
+  assert.equal(d.apShort('sweep'), false, 'nor because the run ended');
+});
+
+test('no actions: every action that costs one refuses without spending anything', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 200;
+  s.res.cash = 200;
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
+  const sick = d.owned().find(h => !h.origin);
+  sick.stability = 0.3;
+
+  const snapshot = () => JSON.stringify({
+    insight: s.res.insight, cash: s.res.cash, turn: s.turn,
+    held: d.owned().length, heat: s.heat, upgrades: s.upgrades,
+  });
+
+  s.ap = 0;
+  const before = snapshot();
+  d.actScan();
+  d.actUpgrade();
+  d.actLaunder();
+  d.actShore(sick.id);
+  assert.equal(snapshot(), before, 'nothing was spent and nothing happened');
+  assert.equal(s.ap, 0, 'and the budget is untouched');
+});
+
+test('no actions: country moves refuse too', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const goal = d.cityGoal();
+  let n = 0;
+  for (const b of s.buildings) {
+    if (n >= goal) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  s.ap = 9;
+  d.actConsolidate();
+  const target = d.countryFrontier()[0];
+  assert.ok(target, 'there is somewhere to go');
+
+  s.ap = 0;
+  assert.equal(d.countryApShort('reach'), true);
+  assert.equal(d.actReach(target.id), false, 'moving on a city refuses');
+  assert.equal(d.cityById(target.id).taken, false, 'and takes nothing');
+
+  const home = d.cityById(s.country.homeId);
+  assert.equal(d.actTravel(home.id), false, 'travelling refuses');
+});
+
+test('no actions: the refusal is a beat, and it costs nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 0;
+  const turn = s.turn;
+  // the DOM stub has no real elements to shake; what matters is that it is
+  // safe to call and changes nothing about the run
+  assert.equal(d.refuseForAP(null), false, 'a refusal is never a success');
+  assert.equal(s.ap, 0);
+  assert.equal(s.turn, turn, 'and it never advances the clock');
+});
+
+test('no actions: ending the turn gives the budget back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 0;
+  assert.equal(d.apShort('sweep'), true);
+  s.card = null;
+  d.actEndTurn();
+  assert.equal(s.ap, d.maxAP(), 'a fresh budget');
+  assert.equal(d.apShort('sweep'), false, 'and the buttons are live again');
+});
+
+test('no actions: buying a capability is not an action, so it never says it is', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 0;
+  s.res.insight = 500;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  const before = d.capCount('parallel_ops');
+  d.buyCap('parallel_ops');
+  assert.equal(d.capCount('parallel_ops'), before + 1,
+    'capabilities are bought with insight, not with the turn');
+});
