@@ -2608,3 +2608,123 @@ test('selection: the city reticle is not drawn on the country map', () => {
   s.scope = 'country';
   assert.equal(d.svgSelection(), '', 'and not while you are looking at the country');
 });
+
+// --- what you hold -------------------------------------------------------
+// A held building used to differ from an empty one by a stroke colour alone,
+// and a holding about to fall off looked exactly like a healthy one until you
+// tapped it.
+
+// the biggest building on the board, so the window grid is large enough to
+// show a gradient at all — a two-window cabinet cannot
+function widestBuilding(d) {
+  return d.state.buildings.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h))[0];
+}
+
+function holdOne(d, b) {
+  const h = d.hostsIn(b)[0];
+  h.owned = true;
+  b.discovered = true;
+  return h;
+}
+
+test('held: a building you hold wears a halo and a roof aerial', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  const before = d.svgBuilding(b);
+  assert.ok(!before.includes('class="glow"'), 'nothing you do not hold gets a halo');
+  assert.ok(!before.includes('aerial'), 'nor a mast on the roof');
+
+  holdOne(d, b);
+  const after = d.svgBuilding(b);
+  assert.ok(after.includes('all-held'), 'and it reads as held');
+  assert.ok(after.includes('class="glow"'), 'a halo appears once it is yours');
+  assert.ok(after.includes('aerial'), 'and your kit goes up on the roof');
+});
+
+test('held: the halo is drawn outside the building, not over it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  holdOne(d, b);
+  const m = d.svgBuilding(b).match(/<rect class="glow" x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+  assert.ok(m, 'the halo is a rect of its own');
+  const [x, y, w, h] = m.slice(1).map(Number);
+  assert.ok(x < b.x && y < b.y, 'it starts above and left of the building');
+  assert.ok(x + w > b.x + b.w && y + h > b.y + b.h, 'and finishes past the far corners');
+});
+
+test('held: the lights go out as your grip slips', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  const h = holdOne(d, b);
+  const lit = () => (d.svgBuilding(b).match(/class="win lit"/g) || []).length;
+
+  h.stability = 1;
+  const full = lit();
+  assert.ok(full >= 4, 'a building this size has a window grid worth reading');
+
+  h.stability = 0.5;
+  const half = lit();
+  h.stability = 0.05;
+  const nearly = lit();
+
+  assert.ok(half < full, 'half a grip is half a building lit');
+  assert.ok(nearly < half, 'and a grip about to go is nearly dark');
+  assert.ok(nearly >= 1, 'but never fully dark while it is still yours');
+});
+
+test('held: an unheld building is dark whatever its hosts think', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  b.discovered = true;
+  const h = d.hostsIn(b)[0];
+  h.owned = false;
+  h.stability = 1;
+  assert.ok(!d.svgBuilding(b).includes('win lit'), 'lights are what your presence looks like');
+});
+
+test('held: slipping and failing show up before you lose the building', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  const h = holdOne(d, b);
+  const cls = () => d.svgBuilding(b).match(/<g class="([^"]+)"/)[1].split(' ');
+
+  h.stability = 1;
+  assert.ok(!cls().includes('fading') && !cls().includes('failing'), 'a solid holding looks solid');
+  h.stability = 0.8;
+  assert.ok(!cls().includes('fading'), 'and so does one merely off its best');
+  h.stability = 0.45;
+  assert.ok(cls().includes('fading'), 'past halfway it starts to show');
+  assert.ok(!cls().includes('failing'), 'but it is not lost yet');
+  h.stability = 0.2;
+  assert.ok(cls().includes('failing'), 'and low enough, it is plainly going');
+  assert.ok(!cls().includes('fading'), 'the two states do not stack');
+});
+
+test('held: a building with no stability recorded is treated as solid', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = widestBuilding(d);
+  const h = holdOne(d, b);
+  delete h.stability;
+  const svg = d.svgBuilding(b);
+  assert.ok(!svg.includes('fading') && !svg.includes('failing'),
+    'a missing number is not a failing holding');
+});
+
+test('held: the rival keeps its own look, no halo and no lights', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const b = widestBuilding(d);
+  b.discovered = true;
+  s.rival = { awake: true, buildings: [b.id], lastActed: 0, seen: true };
+  const svg = d.svgBuilding(b);
+  assert.ok(svg.includes('rival'), 'it reads as theirs');
+  assert.ok(!svg.includes('class="glow"'), 'their holdings are not haloed like yours');
+  assert.ok(!svg.includes('win lit'), 'and their lights are not on for you');
+});

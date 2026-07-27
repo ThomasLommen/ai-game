@@ -2570,24 +2570,51 @@
     // got you in
     const bf = breachFx && breachFx.targetId === b.id ? breachFx : null;
     if (bf) cls.push('breached', bf.approach, bf.win ? 'took' : 'bounced');
+    // A holding that is slipping should look like it. Stability was only ever
+    // visible by tapping each building in turn, which is no way to find the one
+    // that is about to fall off.
+    const grip = mine ? (h.stability === undefined ? 1 : h.stability) : 1;
+    if (mine && grip < 0.6) cls.push(grip < 0.35 ? 'failing' : 'fading');
+
     const roof = Math.min(10, b.h * 0.28);
     const styles = [];
     if (fx !== null) styles.push(`animation-delay:${fx}ms`);
     if (bf) styles.push(`--breach-land:${breachDelay(bf.dur)}ms`);
     let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}"`
       + (styles.length ? ` style="${styles.join(';')}"` : '') + '>';
+    // a soft halo in the role's colour, so what you hold reads at a glance
+    if (mine) {
+      out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
+    }
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
-    // windows hint at how much is inside
+
+    // windows hint at how much is inside, and go out as your grip on it does
     const cols = Math.max(2, Math.round(b.w / 14));
     const rows = Math.max(1, Math.round((b.h - roof) / 13));
+    const litCells = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) if ((r + c) % 2 === 0) litCells.push(r * cols + c);
+    }
+    const litCount = mine ? Math.ceil(litCells.length * Math.max(0, Math.min(1, grip))) : 0;
+    const lightUp = {};
+    litCells.slice(0, litCount).forEach(i => { lightUp[i] = true; });
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const wx = b.x + 5 + c * ((b.w - 10) / cols);
         const wy = b.y + roof + 5 + r * ((b.h - roof - 8) / rows);
-        const lit = mine && ((r + c) % 2 === 0);
+        const lit = !!lightUp[r * cols + c];
         out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
       }
+    }
+
+    // your kit on the roof: something you put there, readable without colour
+    if (mine) {
+      const ax = b.x + b.w - 6.5;
+      const ay = b.y + 1;
+      out += `<g class="aerial"><line x1="${ax}" y1="${ay}" x2="${ax}" y2="${(ay - 5.5).toFixed(1)}"/>`
+        + `<circle cx="${ax}" cy="${(ay - 6.6).toFixed(1)}" r="1.5"/></g>`;
     }
     const tag = theirs ? window.RIVAL.name : window.BUILDING_KINDS[b.kind].label;
     out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${tag}</text>`;
@@ -3404,7 +3431,7 @@
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, approachHeat, svgSelection, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
+    resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,

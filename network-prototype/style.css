@@ -815,8 +815,44 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.landmark .btag { fill: var(--item); letter-spacing: .04em; }
 .bldg.landmark.all-held .body { stroke: var(--insight); }
 
+/* --- what you hold ------------------------------------------------------
+   Held buildings used to differ from unheld ones by a stroke colour and a
+   checkerboard of lit windows. They now read as somewhere you are actually
+   operating out of. */
+
 .wire { stroke: #223029; stroke-width: 1; }
-.wire.live { stroke: color-mix(in srgb, var(--cover) 65%, transparent); stroke-width: 1.6; }
+/* the network carries something: a slow drift along every route you own */
+.wire.live {
+  stroke: color-mix(in srgb, var(--cover) 65%, transparent);
+  stroke-width: 1.6;
+  stroke-dasharray: 7 5;
+  animation: wireFlow 1.9s linear infinite;
+}
+@keyframes wireFlow { to { stroke-dashoffset: -12; } }
+
+/* a soft halo in the role's colour, so your territory reads at a glance */
+.bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
+.bldg.all-held .glow { opacity: .22; stroke: var(--insight); }
+.bldg.all-held.cash .glow { stroke: var(--cash); }
+.bldg.all-held.stealth .glow { stroke: var(--cover); }
+
+/* your kit on the roof — readable without relying on colour at all */
+.aerial line { stroke: var(--insight); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.aerial circle { fill: var(--insight); }
+.bldg.cash .aerial line { stroke: var(--cash); }
+.bldg.cash .aerial circle { fill: var(--cash); }
+.bldg.stealth .aerial line { stroke: var(--cover); }
+.bldg.stealth .aerial circle { fill: var(--cover); }
+
+/* Losing your grip. Stability was only visible by tapping each building in
+   turn, which is no way to find the one about to fall off — the windows go out
+   as it slips, and the outline breaks up before it goes. */
+@keyframes gripSlip { 0%, 100% { opacity: .18; } 50% { opacity: .04; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wire.live { animation: none; }
+  .bldg.all-held.failing .glow { animation: none; }
+}
 
 /* a building's own colour says what it earns you once it is yours */
 .bldg.all-held.compute .body { stroke: var(--insight); }
@@ -825,6 +861,24 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
 .bldg.all-held.cash .win.lit    { fill: color-mix(in srgb, var(--cash) 55%, #1e2724); }
 .bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
+
+/* Losing your grip, after the per-role colours on purpose: these rules and
+   the role ones are the same specificity, so whichever comes last wins, and
+   above them a holding about to fall off still drew in perfect health. */
+.bldg.all-held.fading .body { stroke-dasharray: 5 3; }
+.bldg.all-held.fading .glow { opacity: .1; }
+.bldg.all-held.failing .body { stroke: var(--heat); stroke-dasharray: 3 3; }
+.bldg.all-held.failing .glow {
+  stroke: var(--heat);
+  opacity: .18;
+  animation: gripSlip 2.4s ease-in-out infinite;
+}
+.bldg.all-held.failing .win.lit { fill: color-mix(in srgb, var(--heat) 45%, #1e2724); }
+/* the label is filled text, not stroked — setting `stroke` on it outlined the
+   glyphs instead of colouring them */
+.bldg.all-held.failing .aerial line { stroke: var(--heat); }
+.bldg.all-held.failing .aerial circle { fill: var(--heat); }
+.bldg.all-held.failing .btag { fill: var(--heat); }
 
 #recenter {
   position: absolute; right: 10px; bottom: 10px;
