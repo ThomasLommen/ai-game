@@ -322,12 +322,14 @@ window.WAR = {
   // them
   spawnEvery: 4,        // turns between sorties out of one staging city
   spawnFloor: 2,        // however much they escalate, never faster than this
-  garrison: [95, 150],  // Raising this used to do nothing but lengthen the war,
-                        // because their columns scattered and could not use the
-                        // extra time. Now that they converge on one objective,
-                        // every turn you spend grinding a barracks is a turn
-                        // they spend taking a city off you — so the size of a
-                        // garrison is finally a real clock.   // what holds a staging city against you
+  garrison: [88, 140],  // Has to stay in scale with flockStrength. At [95,150]
+                        // the last barracks standing held 113 and 147 against a
+                        // flock worth 22, which takes 51 back off it and dies —
+                        // so a starved player could never finish one and the
+                        // war hung with 166 turns left on the clock. The
+                        // difficulty lives in converging columns, burnable
+                        // plant and escalation now, not in a number a flock
+                        // cannot dent.   // what holds a staging city against you
   garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back

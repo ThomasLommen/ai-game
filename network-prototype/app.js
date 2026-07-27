@@ -3175,10 +3175,14 @@
       if (held === undefined || city.consolidated) return true;  // nothing left to fight
       const after = held - fl.strength;
       w.garrisons[city.id] = Math.max(0, after);
-      // a flock thrown off a barracks is spent, not destroyed — it has to be
-      // able to come back, or grinding a garrison down over two runs is
-      // impossible and every staging city is a wall
-      fl.strength -= held * 0.35;
+      // What it costs to be thrown off, proportional to the fight rather than
+      // to the whole garrison. Taking 35% of the garrison's full strength
+      // meant anything holding more than about 63 deleted a 22-strength flock
+      // outright, so a big barracks was not a grind, it was a wall: the last
+      // two standing sat at 113 and 147 and could never be finished, and the
+      // war hung with two thirds of the campaign left. Now the size of a
+      // garrison decides how many runs it takes, not whether you survive one.
+      fl.strength -= Math.min(held, fl.strength * 1.6) * 0.45;
       if (after <= 0) {
         delete w.garrisons[city.id];
         city.known = true;

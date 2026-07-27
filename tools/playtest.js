@@ -163,7 +163,12 @@ function campaign(d, style) {
     const bare = d.myCities()
       .filter(c => !guarding[c.id])
       .sort((a, b) => (threat[b.id] || 0) - (threat[a.id] || 0))[0];
-    if (Object.keys(guarding).length < 2 && bare && d.canGuard(bare.id)) {
+    // Never guard yourself into having nothing to attack with. Starved of
+    // flocks, this used to spend every one it rebuilt on a picket and never
+    // launch again, which is how a war sat unresolved with a third of the
+    // campaign still to run.
+    const spare = d.flocksFree();
+    if (Object.keys(guarding).length < 2 && spare > 1 && bare && d.canGuard(bare.id)) {
       return d.actGuard(bare.id) ? 'guard' : null;
     }
     const soft = d.stagingCities()
