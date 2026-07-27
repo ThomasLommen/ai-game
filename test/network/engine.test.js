@@ -3189,3 +3189,52 @@ test('war: the map does not remember forces that are gone', () => {
   const svg = d.svgForces();
   assert.equal((svg.match(/data-force=/g) || []).length, 1, 'and no ghost of the one that died');
 });
+
+test('war: being too big to police opens it even with the map untidy', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window, 0.25);
+  assert.ok(d.conquest() < window.WAR.opens, 'nowhere near finished');
+  s.country.presence = window.WAR.opensAtPresence - 1;
+  assert.equal(d.warShouldOpen(), false, 'just under, still a policing problem');
+  s.country.presence = window.WAR.opensAtPresence;
+  assert.equal(d.warShouldOpen(), true, 'and over it, something else entirely');
+});
+
+test('war: the board is a fixed size however much was still theirs', () => {
+  const { window } = loadNetwork();
+  const W = window.WAR;
+  // opened early, with most of the country still in their hands
+  const early = loadNetwork().window.__netDebug;
+  conqueredCountry(early, window, 0.2);
+  early.state.country.presence = W.opensAtPresence + 40;
+  early.openWar();
+  // and opened late, with almost nothing left
+  const { window: w2 } = loadNetwork();
+  const late = w2.__netDebug;
+  conqueredCountry(late, w2, 0.95);
+  late.openWar();
+
+  [['opened early', early], ['opened late', late]].forEach(([label, d]) => {
+    const n = d.stagingCities().length;
+    assert.ok(n <= W.maxStaging, `${label}: ${n} is a war you could not win`);
+    assert.ok(n >= Math.min(W.mobiliseFloor, n), `${label}: and not a skirmish`);
+    assert.ok(d.war().staging, `${label}: the board is fixed at the start, not derived every turn`);
+  });
+});
+
+test('war: a city outside the board is not part of the war', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window, 0.2);
+  d.state.country.presence = window.WAR.opensAtPresence + 40;
+  d.openWar();
+  const board = d.war().staging;
+  const outside = d.warCandidates().filter(c => board.indexOf(c.id) === -1);
+  outside.forEach(c => {
+    assert.equal(d.war().garrisons[c.id], undefined, `${c.name} is not garrisoned against you`);
+    assert.equal(d.canLaunch(c.id), false, 'and there is nothing there to attack');
+  });
+  assert.equal(d.stagingCities().length, board.length, 'the board is the board');
+});

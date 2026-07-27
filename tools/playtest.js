@@ -118,6 +118,29 @@ function rank(h) { return h.role === 'stealth' ? 1 : 0; }
 function campaign(d, style) {
   const s = d.state;
 
+  // Once the war opens the country verbs are gone: there is nothing left to
+  // travel to or fold in, only barracks to take off them and cities of your
+  // own to stand over. Split the pool rather than going all in — the balance
+  // runs say mixing wins most often.
+  if (d.warOn()) {
+    const w = d.war();
+    const guarding = {};
+    w.flocks.forEach(f => { if (f.mode === 'guard') guarding[f.target] = true; });
+    const threat = {};
+    w.columns.forEach(c => { threat[c.target] = (threat[c.target] || 0) + c.strength; });
+    const bare = d.myCities()
+      .filter(c => !guarding[c.id])
+      .sort((a, b) => (threat[b.id] || 0) - (threat[a.id] || 0))[0];
+    if (Object.keys(guarding).length < 2 && bare && d.canGuard(bare.id)) {
+      return d.actGuard(bare.id) ? 'guard' : null;
+    }
+    const soft = d.stagingCities()
+      .filter(c => d.canLaunch(c.id))
+      .sort((a, b) => (w.garrisons[a.id] || 0) - (w.garrisons[b.id] || 0))[0];
+    if (soft) return d.actLaunch(soft.id) ? 'launch' : null;
+    return null;
+  }
+
   // a city you have taken enough of is worth more folded in than walked
   if (s.scope === 'city' && d.canConsolidate() && d.canAffordCountry('consolidate')) {
     return d.actConsolidate() ? 'consolidate' : null;
@@ -365,9 +388,18 @@ function playOne(strategyName) {
   const buildings = {};
   held.forEach(h => { buildings[h.buildingId] = true; });
 
+  const warSt = d.war();
   return {
     strategy: strategyName,
     turns: d.state.turn,
+    // the last act: did a real campaign ever get there, and did it resolve
+    endConquest: d.conquest(),
+    defendedTotal: d.state.country.cities.filter(c => CITY_KINDS[c.kind].contest).length,
+    defendedDone: d.state.country.cities.filter(c => CITY_KINDS[c.kind].contest && c.consolidated).length,
+    warOpenedTurn: warSt ? warSt.openedTurn : null,
+    warOutcome: warSt ? (d.warEnded() || 'running') : 'never',
+    warSorties: warSt ? warSt.sorties : 0,
+    warKills: warSt ? warSt.kills : 0,
     presence: d.state.country.presence,
     peakPresence,
     citiesTotal: d.state.country.cities.length,

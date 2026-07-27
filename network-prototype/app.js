@@ -2422,10 +2422,25 @@
 
   // The cities they still hold that are worth fighting over. A town that folds
   // from the map is not a barracks; the defended ones are.
-  function stagingCities() {
+  // Everything they could conceivably fight out of. Only used to pick the
+  // board when the war opens.
+  function warCandidates() {
     if (!CO().cities) return [];
     return CO().cities.filter(c =>
       window.CITY_KINDS[c.kind].contest && !c.consolidated && !mirrorHolds(c.id));
+  }
+
+  // The board. Once the war is on this is a fixed list chosen when it opened,
+  // not "every city they happen to hold" — because the war can open at very
+  // different points depending on how somebody plays, and derived from the
+  // live map it produced a six-city war for one player and a thirteen-city one
+  // for another. The state concentrates; it cannot garrison a whole country.
+  function stagingCities() {
+    const w = war();
+    if (w && w.staging) {
+      return w.staging.map(cityById).filter(c => c && !c.consolidated);
+    }
+    return warCandidates();
   }
   function myCities() {
     return (CO().cities || []).filter(c => c.consolidated);
@@ -2436,7 +2451,9 @@
   function warShouldOpen() {
     if (warOn()) return false;
     if (state.war && state.war.over) return false;
-    return conquest() >= window.WAR.opens;
+    if (conquest() >= window.WAR.opens) return true;
+    // or simply being too big to police, however untidy the map is
+    return (CO().presence || 0) >= window.WAR.opensAtPresence;
   }
 
   // The state mobilising. This is the beat, and it has to hurt: by the time
@@ -2445,7 +2462,7 @@
   // turns long. Instead, opening the war *gives them a country back*. They
   // stop policing, they roll into the places you folded in, and everything you
   // spent the whole campaign quietly accumulating is suddenly a front line.
-  function remobilise() {
+  function remobilise(want) {
     const W = window.WAR;
     const mine = myCities().filter(c => c.kind !== 'home');
     if (!mine.length) return [];
@@ -2458,7 +2475,7 @@
       score: (c.regionTier || 0) * 100
         + (seat ? Math.hypot(c.x - seat.x, c.y - seat.y) : 0),
     })).sort((a, b) => b.score - a.score);
-    const n = Math.min(scored.length, Math.max(W.mobiliseFloor, Math.round(mine.length * W.mobilise)));
+    const n = Math.min(scored.length, Math.max(0, want));
     const taken = [];
     scored.slice(0, n).forEach(({ c }) => {
       c.consolidated = false;
@@ -2476,7 +2493,23 @@
   function openWar() {
     state.war = freshWar();
     const W = window.WAR;
-    const rolled = remobilise();
+    // Size the board first, then take back only as much as it needs. Opening
+    // on presence means the war can start while they still hold most of the
+    // country, and remobilising a flat share on top of that handed the player
+    // a thirteen-city war they could not possibly win.
+    const defended = (CO().cities || []).filter(c => window.CITY_KINDS[c.kind].contest).length;
+    const target = Math.min(W.maxStaging,
+      Math.max(W.mobiliseFloor, Math.round(defended * W.mobilise)));
+    const theirs = warCandidates();
+    const rolled = remobilise(target - theirs.length);
+    // whoever is nearest is who fights: a board picked from the far end of the
+    // country would be a war you have to walk to before you can start it
+    const seat = cityById(CO().at) || cityById(CO().homeId);
+    const board = warCandidates().sort((a, b) => {
+      if (!seat) return 0;
+      return Math.hypot(a.x - seat.x, a.y - seat.y) - Math.hypot(b.x - seat.x, b.y - seat.y);
+    }).slice(0, target);
+    state.war.staging = board.map(c => c.id);
     state.war.peak = {};
     stagingCities().forEach(c => {
       state.war.garrisons[c.id] = rndInt(W.garrison[0], W.garrison[1]);
@@ -2490,6 +2523,11 @@
     // stop being read — the player earned the right to watch it go out
     state.heat = 0;
     state.card = null;
+    // Yank the player up to the national map. The war is fought between
+    // cities, and opening it while somebody is three streets deep in a
+    // building map would run the entire last act somewhere they are not
+    // looking.
+    if (state.scope !== 'country') switchScope('country');
     pushLog('They have stopped trying to arrest you.');
     if (rolled.length) {
       pushLog(`The army is in ${rolled.length === 1 ? rolled[0].name : rolled.length + ' cities you had folded in'}. That is not policing.`);
@@ -4273,7 +4311,7 @@
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
-    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, myCities, roadPath, routeFor, forcePos, forceArrived,
+    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,

@@ -288,12 +288,25 @@ window.COUNTRY_INFO = {
 // you can get anything there in time. That is the point of the whole terrain
 // and road system finally being load-bearing in both directions.
 window.WAR = {
-  opens: 0.8,           // share of defended cities folded before the state gives up on arrests
+  opens: 0.6,           // share of defended cities folded before the state gives up on arrests.
+                        // Measured, not chosen: at 0.8 only the most aggressive
+                        // way of playing ever reached the last act at all, and
+                        // four campaigns in five ran out the clock never having
+                        // seen it.
+  opensAtPresence: 95,  // ...or this much standing presence, whatever share of the
+                        // map that is. Conquest alone was the wrong question:
+                        // measured across five ways of playing, only the most
+                        // aggressive one ever passed any useful share, while the
+                        // rest ended a full campaign sprawled over a third of the
+                        // country with plenty of presence. Something that big is
+                        // a war whether or not it has tidied up behind itself.
   warning: 2,           // turns of notice before the first column moves
-  mobilise: 0.45,       // share of the cities you folded in that the army simply walks back into
-  mobiliseFloor: 5,     // and never so few that the war is one exchange long
+  mobilise: 0.6,       // share of the cities you folded in that the army simply walks back into
+  mobiliseFloor: 6,     // and never so few that the war is one exchange long
+  maxStaging: 8,        // nor so many that it cannot be won — the board is a fixed
+                        // size however much of the country was still theirs
   // your flocks
-  flockPer: 18,         // one flock in the pool per this much standing presence
+  flockPer: 26,         // one flock in the pool per this much standing presence
   flockFloor: 3,        // however small you are, you get this many
   flockCeil: 8,         // and never more than this, so the map stays readable
   flockCost: 4,         // insight to field one
@@ -305,7 +318,7 @@ window.WAR = {
   // them
   spawnEvery: 4,        // turns between sorties out of one staging city
   spawnFloor: 2,        // however much they escalate, never faster than this
-  garrison: [46, 70],   // what holds a staging city against you
+  garrison: [60, 95],   // what holds a staging city against you
   garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
