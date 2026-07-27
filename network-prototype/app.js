@@ -2898,8 +2898,10 @@
       const R = regionById(state.region);
       const done = CO().cities.filter(c => c.consolidated).length;
       document.getElementById('stage-label').textContent = R.label;
+      // short form on purpose: the top bar has three things in it and the
+      // narrowest phone worth supporting is 320 wide
       document.getElementById('held-count').textContent =
-        `${CO().presence} presence · ${done} of ${CO().cities.length}`;
+        `${CO().presence} presence · ${done}/${CO().cities.length}`;
     } else {
       document.getElementById('stage-label').textContent = st.label;
       const theirs = rivalHeld().length;
@@ -2912,7 +2914,19 @@
       let pips = '';
       for (let i = 0; i < cap; i++) pips += `<span class="pip${i < state.ap ? ' on' : ''}"></span>`;
       $ap.innerHTML = pips;
-      $ap.title = `${state.ap} of ${cap} actions left this turn`;
+    }
+    // A row of dots is not self-explanatory. Name it, and let it be tapped for
+    // the whole rule, the same way every other number in the HUD teaches.
+    const $apLabel = document.getElementById('ap-label');
+    if ($apLabel) $apLabel.textContent = state.ap > 0 ? 'actions' : 'no actions';
+    const $apGroup = document.getElementById('ap-group');
+    if ($apGroup) {
+      $apGroup.classList.toggle('spent', state.ap <= 0);
+      $apGroup.title = `${state.ap} of ${cap} actions left this turn`;
+      if (!$apGroup.dataset.wired) {
+        $apGroup.dataset.wired = '1';
+        $apGroup.addEventListener('click', () => showInfo(window.STAT_INFO.actions));
+      }
     }
     const $end = document.getElementById('end-turn');
     if ($end) {
@@ -3359,7 +3373,7 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    maxAP, apCost, canAfford, renderHud, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

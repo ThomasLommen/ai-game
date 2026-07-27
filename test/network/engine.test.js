@@ -2519,3 +2519,22 @@ test('no actions: buying a capability is not an action, so it never says it is',
   assert.equal(d.capCount('parallel_ops'), before + 1,
     'capabilities are bought with insight, not with the turn');
 });
+
+test('the action budget names itself, and says when it is gone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // a row of dots explains nothing on its own, so it carries a word and the
+  // whole rule is one tap away
+  assert.ok(window.STAT_INFO.actions, 'there is something to say when it is tapped');
+  assert.ok(/action/i.test(window.STAT_INFO.actions));
+
+  const label = () => {
+    d.renderHud();
+    return window.document.getElementById('ap-label').textContent;
+  };
+  s.ap = 2;
+  assert.equal(label(), 'actions');
+  s.ap = 0;
+  assert.equal(label(), 'no actions', 'and it says so rather than just emptying');
+});

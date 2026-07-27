@@ -498,6 +498,7 @@ window.STRIKE_CARD = {
 // Nothing here is flavour: if the player can't say what a number does, the
 // number may as well not exist.
 window.STAT_INFO = {
+  actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, rewriting your tooling. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   insight: 'What your compute earns you. Spends on sweeping, shoring up holdings, and rewriting your tooling.',
   cash: 'Money, earned only by corporate holdings. Buys your way into some hosts, and launders heat directly.',
   power: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need POWER at or above their defense to force.',

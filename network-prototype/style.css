@@ -41,9 +41,20 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  column-gap: 8px;
   padding-top: 12px;
   font-size: 11px;
   color: var(--muted);
+}
+/* Each item breaks as a whole or not at all. Left to itself the bar split
+   "TURN 1" across two lines at 320 wide, which reads as broken rather than
+   as tight. */
+#topbar > * { white-space: nowrap; }
+@media (max-width: 360px) {
+  /* the eyebrow tracking is expensive at this width and buys nothing */
+  #turn { letter-spacing: .08em; }
 }
 
 /* heat — the pressure that stops you doing everything */
@@ -406,7 +417,30 @@ footer .build { opacity: .55; font-size: 10px; }
 .cost.free { color: var(--muted); border-color: var(--line); }
 
 /* action points: the turn's budget, always visible */
-.ap-pips { display: inline-flex; gap: 5px; align-items: center; flex: 1; justify-content: center; }
+/* The dots alone said nothing. Named, and tappable for the rule behind them. */
+.ap-group {
+  /* sized to its content, not greedy: with `flex: 1` it took the middle third
+     of the bar and pushed the country readout onto a second line at 320px */
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ap-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.ap-group.spent .ap-label { color: var(--item); }
+.ap-pips { display: inline-flex; gap: 5px; align-items: center; }
 .ap-pips .pip {
   width: 9px; height: 9px;
   border-radius: 50%;
