@@ -4704,7 +4704,9 @@
       const R = regionById(sel.region);
       const fac = sel.factionId ? window.FACTIONS.find(f => f.id === sel.factionId) : null;
       const facSt = fac ? factionState(fac.id) : null;
-      const lines = [`${R.label} · ${K.label}`];
+      // the kind is already on the pill beside the name; repeating it here is
+      // what pushed this line onto a second row
+      const lines = [R.label];
       // the peacetime description of a city is wrong once the war is on: you
       // are not going to walk its streets, you are going to send something at it
       const w = war();
@@ -4782,13 +4784,13 @@
       }
 
       block = `
-        <div class="sel">
+        <div class="sel country">
           <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'cash' : ''}">${K.label}</span></div>
           <p class="sel-desc">${lines.join(' · ')}</p>
-          ${acts.join('')}
+          ${acts.length ? `<div class="actions tight">${acts.join('')}</div>` : ''}
         </div>`;
     } else {
-      block = `<div class="sel"><p class="sel-desc dim">Tap a city. You are standing in ${at ? at.name : 'nowhere'}.</p></div>`;
+      block = `<div class="sel country"><p class="sel-desc dim">Tap a city. You are standing in ${at ? at.name : 'nowhere'}.</p></div>`;
     }
 
     // What the world thinks you are, and what you actually own. Both belong at
@@ -4808,12 +4810,11 @@
           <span class="mono ${short > 0 ? 'bad' : 'good'}">${Math.round(legit)} vs ${Math.round(foot)} footprint</span>
         </div>
         <div class="legit-bar"><div class="legit-fill" style="width:${Math.max(0, Math.min(100, foot ? (legit / foot) * 100 : 100))}%"></div></div>
-        <p class="sel-desc dim">${l.audits === 0
-          ? 'You are big enough that somebody is going to ask what you are. Standing is the answer you can give them; footprint is how much answering there is to do.'
-          : short > 0
-          ? `Short by ${Math.round(short)}. The next audit will cost you.`
-          : 'Everything you are reconciles with everything you own.'}${
-          l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'A lot of this is fabricated.' : 'Some of this is fabricated.'}</b>` : ''}</p>
+        ${l.audits === 0 ? `<p class="sel-desc dim">You are big enough that somebody is going to ask what you are. Standing is the answer you can give them; footprint is how much answering there is to do.</p>` : ''}
+        ${(l.audits > 0 && (short > 0 || l.exposure > 0.4)) ? `<p class="sel-desc dim tight-line">${
+          short > 0 ? `Short by ${Math.round(short)} at the next audit.` : ''}${
+          l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'Mostly fabricated.' : 'Partly fabricated.'}</b>` : ''}</p>` : ''}
+        <div class="actions tight">
         ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
           <span class="ab-name">${rung.label}</span>
           <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
@@ -4822,8 +4823,9 @@
         ${spinKnown() ? `<button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
           <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}<span class="dim">cheaper than the truth, and it can come apart</span>`}</span>
+            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
         </button>` : ''}
+        </div>
       </div>` : '';
 
     const own = assets();

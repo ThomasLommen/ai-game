@@ -4518,3 +4518,77 @@ test('screen: a panel with more in it than fits says so', () => {
   assert.ok(/#panel\.more \+ #turn-row::before/.test(css),
     'the fade sits on the row below the panel');
 });
+
+// --- the tallest panel in the game ----------------------------------------
+// Measured at 511px of content in a 236px box. Most of it was chrome and
+// repetition rather than information.
+
+function countryPanelHtml(window, setup) {
+  const d = window.__netDebug;
+  const s = d.state, co = s.country;
+  co.cities.filter(c => window.CITY_KINDS[c.kind].contest).slice(0, 5).forEach(c => {
+    c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; co.presence += c.worth;
+  });
+  s.scope = 'country';
+  co.selected = co.cities.find(c => c.known).id;
+  if (setup) setup(d, window);
+  d.render();
+  return window.document.getElementById('panel').innerHTML || '';
+}
+
+test('panel: a selected city does not repeat what the pill beside it says', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const html = countryPanelHtml(window);
+  const city = d.cityById(d.state.country.selected);
+  const kind = window.CITY_KINDS[city.kind].label;
+  const desc = /<p class="sel-desc[^"]*">([^<]*)<\/p>/.exec(html);
+  assert.ok(desc, 'there is a description');
+  assert.ok(!desc[1].includes(kind),
+    `the description repeats "${kind}", which is already on the pill`);
+});
+
+test('panel: the standing buttons sit beside each other, not stacked', () => {
+  const { window } = loadNetwork();
+  const html = countryPanelHtml(window, (d) => {
+    d.state.res.cash = 100000;
+    d.LG().audits = 2;                       // so the covert route is offered too
+    d.state.country.presence = 300;          // and standing is on screen at all
+  });
+  assert.ok(/class="legit"/.test(html), 'standing is showing');
+  const legit = html.slice(html.indexOf('class="legit"'));
+  assert.ok(/class="actions tight"/.test(legit),
+    'its buttons are in a row container rather than loose in the block');
+  const btns = (legit.match(/class="act-btn/g) || []).length;
+  assert.ok(btns >= 2, 'there are two of them to put side by side');
+});
+
+test('panel: everything in the country panel is drawn a notch tighter', () => {
+  const { window } = loadNetwork();
+  const html = countryPanelHtml(window);
+  assert.ok(/class="sel country"/.test(html),
+    'the selected city block is marked so it can be styled tighter than a city one');
+
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  assert.ok(/\.sel\.country\s*\{/.test(css), 'and there is a rule doing it');
+  assert.ok(/\.actions\.tight\s*\{/.test(css), 'as there is for the button rows');
+});
+
+test('panel: the long explanation of standing is only for the first time', () => {
+  const { window } = loadNetwork();
+  const first = countryPanelHtml(window, (d) => {
+    d.state.country.presence = 300;
+    d.LG().audits = 0;
+  });
+  assert.ok(/big enough that somebody is going to ask/.test(first),
+    'before any audit it explains itself at length');
+
+  const { window: w2 } = loadNetwork();
+  const later = countryPanelHtml(w2, (d) => {
+    d.state.country.presence = 300;
+    d.LG().audits = 4;
+  });
+  assert.ok(!/big enough that somebody is going to ask/.test(later),
+    'once you have been audited the numbers say it more briefly');
+});

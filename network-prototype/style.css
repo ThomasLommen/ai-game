@@ -1140,13 +1140,27 @@ footer .build { opacity: .55; font-size: 10px; }
 #stage-label { transition: color .4s ease; }
 
 /* standing, and what you own — the country panel's second half */
-.legit, .assets { margin: 10px 0 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-.legit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+/* These two blocks are the tallest thing in the game's tallest panel, so they
+   are drawn tight: measured at 212px and 130px against a 236px box. */
+.legit, .assets { margin: 8px 0 2px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.legit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.legit .sel-desc, .assets .sel-desc { margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
+.sel-desc.tight-line { margin-bottom: 6px; }
+/* the ladder and the covert route sit side by side rather than stacked */
+/* the country panel is the tallest in the game, so everything in it is drawn
+   a notch tighter than the same thing in a city */
+.sel.country { padding: 9px 11px; }
+.sel.country .sel-desc { margin-bottom: 7px; font-size: 12px; line-height: 1.4; }
+.sel.country .sel-desc:last-child { margin-bottom: 0; }
+.sel.country .sel-top { margin-bottom: 3px; }
+.actions.tight { margin-top: 0; gap: 6px; }
+.actions.tight .act-btn { padding: 8px 10px; font-size: 12.5px; }
+.actions.tight .ab-name { font-size: 12.5px; }
 .legit-top .good { color: var(--cover); }
 .legit-top .bad, .sel-desc b.bad { color: var(--heat); }
-.legit-bar { height: 5px; border-radius: 3px; background: #1b2320; overflow: hidden; margin-bottom: 6px; }
+.legit-bar { height: 4px; border-radius: 3px; background: #1b2320; overflow: hidden; margin-bottom: 6px; }
 .legit-fill { height: 100%; background: linear-gradient(90deg, var(--cover), var(--insight)); transition: width .4s ease; }
-.asset-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13px; }
+.asset-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; font-size: 12px; }
 .asset-name { color: var(--ink-dim); }
 
 /* What a thing gives you, in the colour of the thing it gives. Buried in a
