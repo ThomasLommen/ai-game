@@ -4831,14 +4831,9 @@
       </div>` : '';
 
     const p = presenceYield();
-    const awake = awakeFactions();
-    const facRow = awake.length
-      ? `<div class="fac-row">${awake.map(f => {
-          const seat = cityById(factionState(f.id).rootId);
-          const where = seat && seat.known ? seat.name : regionById(f.region).label;
-          return `<span class="fac-pill" title="${f.tell} — ends when you take ${where}">${f.name} · ${where}</span>`;
-        }).join('')}</div>`
-      : '';
+    // The awake factions used to be listed here as well as in the tray, where
+    // they already appear on every screen with more detail. Two copies of the
+    // same list in the tallest panel in the game.
 
     $p.innerHTML = `
       ${block}
@@ -4848,7 +4843,6 @@
         <span class="mono"><b>${CO().presence}</b> presence</span>
         <span class="mono">${chip('insight', '+' + p.insight.toFixed(1) + ' insight')}${chip('cash', '+' + p.cash.toFixed(1) + ' cash')}<span class="dim"> / turn</span></span>
       </div>
-      ${facRow}
     `;
     $p.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {

@@ -4455,3 +4455,32 @@ test('view: the window it shows always matches the shape of the box it is in', (
   assert.ok(Math.abs(again.h / again.w - ratio) < 0.001,
     'and it is the same shape whatever you hand it');
 });
+
+test('screen: the page itself is an app shell and does not scroll', () => {
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  // anchored to the start of a line: a bare indexOf for "body {" finds the
+  // "html, body { margin: 0 }" reset three lines above the rule under test
+  const rule = (sel) => {
+    const m = new RegExp('^' + sel.replace(/[#.]/g, '\\$&') + '\\s*\\{([\\s\\S]*?)\\}', 'm').exec(css);
+    assert.ok(m, `${sel} has a rule of its own`);
+    return m[1];
+  };
+  const body = rule('body');
+  assert.ok(/height:\s*100dvh/.test(body), 'the window is the whole of it');
+  assert.ok(/overflow:\s*hidden/.test(body), 'and it does not scroll as a document');
+
+  // the slack has to live somewhere, and it is the panel
+  const panel = rule('#panel');
+  assert.ok(/overflow-y:\s*auto/.test(panel), 'the panel takes up the slack itself');
+  assert.ok(/min-height/.test(panel), 'but can never be squeezed to nothing');
+
+  // the tray grows a row per awake faction and had starved the panel
+  const tray = rule('#tray');
+  assert.ok(/max-height/.test(tray), 'standing information gets a bounded amount of room');
+
+  // and the map keeps a fixed share rather than absorbing panel changes
+  const map = rule('#graph-wrap');
+  assert.ok(/height:\s*clamp\(/.test(map), 'the map is sized to the window, not to the leftovers');
+  assert.ok(!/flex:\s*1[^ ]/.test(map), 'it is not the flexible one any more');
+});
