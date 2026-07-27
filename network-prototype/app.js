@@ -4825,7 +4825,14 @@
     document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
   }
 
-  function renderCaps() { openSheet('caps'); }
+  // Re-render after a purchase, in place. This used to call openSheet with no
+  // section, which set sheetSection to null and dropped you back on the first
+  // tab — so buying anything on Cover or Reach threw you to Tempo, and the
+  // next tap landed on a capability you had not been looking at.
+  function renderCaps() {
+    if (sheetKind === 'caps') { renderSheet(); return; }
+    openSheet('caps');
+  }
 
   // The five branches, each as its own section rather than one 2796px scroll.
   function capSections() {
@@ -4964,6 +4971,9 @@
   // alone was 2796px of content in a 709px window, and a small box with its
   // own scrollbar inside a page that does not scroll is the worst of both.
   let sheetKind = null, sheetSection = null;
+  // which section the body currently holds, so a re-render of the same one can
+  // keep the player's place in it
+  let lastRendered = null;
 
   // Standing and plant were 222px of a 395px panel, and both are things you
   // consult rather than things you do every turn — a rung gets bought maybe
@@ -5066,6 +5076,8 @@
     if ($s) $s.hidden = true;
   }
   function sheetOpen() { return !!sheetKind; }
+  // which tab is showing, so this is assertable without going through the DOM
+  function sheetAt() { return sheetKind ? { kind: sheetKind, section: sheetSection } : null; }
 
   function renderSheet() {
     const $s = document.getElementById('sheet');
@@ -5078,6 +5090,7 @@
       document.getElementById('sheet-tabs').innerHTML = '';
       document.getElementById('sheet-body').innerHTML =
         '<p class="sel-desc dim">Nothing here yet. Hold more of the network.</p>';
+      lastRendered = null;
       wireSheet();
       return;
     }
@@ -5090,7 +5103,15 @@
     document.getElementById('sheet-tabs').innerHTML = parts.length > 1
       ? parts.map(p => `<button type="button" class="sheet-tab${p.id === sheetSection ? ' on' : ''}${p.done ? ' done' : ''}" data-section="${p.id}">${p.label}</button>`).join('')
       : '';
-    document.getElementById('sheet-body').innerHTML = cur ? cur.html : '';
+    // Replacing the body resets its scroll, which is the other half of the
+    // same complaint: staying on the right tab is no help if the list jumps
+    // back to the top and the next tap lands somewhere else. Hold the position
+    // whenever we are re-rendering the section that is already showing.
+    const $body = document.getElementById('sheet-body');
+    const keep = sheetSection === lastRendered ? $body.scrollTop : 0;
+    $body.innerHTML = cur ? cur.html : '';
+    lastRendered = sheetSection;
+    $body.scrollTop = keep;
     wireSheet();
   }
 
@@ -5678,7 +5699,7 @@
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
-    openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
+    openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,

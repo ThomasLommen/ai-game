@@ -2356,6 +2356,39 @@ test('prizes: a pool gift taken in peacetime is still there when they mobilise',
   assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
 });
 
+test('caps: buying something leaves you where you were standing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  ['compute', 'cash', 'stealth'].forEach(role => {
+    s.hosts.filter(h => h.role === role).slice(0, 6).forEach(h => { h.owned = true; });
+  });
+  s.res.insight = 9000;
+
+  d.openSheet('caps');
+  const parts = d.capSections();
+  const cover = parts.find(p => p.id === 'cover');
+  assert.ok(cover, 'there is a later tab to be on');
+
+  // stand on it, buy something, and expect to still be standing on it. This
+  // used to reset to the first tab, so the next tap landed on a capability
+  // the player had not been looking at and bought it.
+  d.openSheet('caps', 'cover');
+  const buyable = window.CAPABILITIES.find(c => c.branch === 'cover' && d.capBlocked(c) === null);
+  assert.ok(buyable, 'and something on it to buy');
+  d.buyCap(buyable.id);
+  assert.equal(d.sheetOpen(), true, 'the sheet is still open');
+  assert.equal(d.sheetAt().section, 'cover',
+    'and still on the tab you were standing on');
+
+  // and the same holds for the tab that is not a branch at all
+  d.state.tags.add('clean_room');
+  d.openSheet('caps', 'held');
+  const another = window.CAPABILITIES.find(c => d.capBlocked(c) === null);
+  if (another) d.buyCap(another.id);
+  assert.equal(d.sheetAt().section, 'held', 'including the held tab');
+});
+
 // --- what the cards left you with ----------------------------------------
 // A campaign hands out permanent things through the deck as well as the tree,
 // and the only trace of them was a count in the tray and a banner the turn you
