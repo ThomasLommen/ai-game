@@ -2305,3 +2305,101 @@ test('sweep fx: the view moves only when the sweep is off screen', () => {
   assert.equal(d.focusOn([{ x: 1400, y: 900 }]), true, 'something off screen does');
   assert.notEqual(JSON.stringify(s.view), kept);
 });
+
+// --- the breach, seen ----------------------------------------------------
+// The sweep goes outward to find; a breach goes inward to take, so it runs
+// along the wire. Same rule as the sweep: this is presentation only, and the
+// take itself happens in state whether or not anything is on screen.
+
+test('breach fx: the take happens in state, whatever is drawn', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 60; s.res.cash = 60; s.ap = 6;
+  while (s.ap > 1 && d.sweepBlocked() === null) d.actScan();
+
+  const target = s.hosts.find(h => d.isFrontier(h)
+    && d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk'));
+  if (!target) return;   // a board with nothing crackable yet; nothing to assert
+
+  s.ap = 6;
+  d.openBreach(target.id);
+  const usable = d.approachesFor(target).find(a => a.usable && a.def.id !== 'walk');
+  d.resolveBreach(usable.def.id);
+
+  assert.equal(target.owned, true, 'the building is yours the moment you take it');
+  assert.equal(d.serialize().breachFx, undefined, 'the animation is never serialized');
+  assert.ok(!('breachFx' in s), 'nor does it live on state');
+});
+
+test('breach fx: it runs from something you hold next door, and says how it went', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const seat = d.owned()[0];
+  const home = d.buildingById(seat.buildingId);
+  const nextDoorId = d.buildingNeighbours(home.id)[0];
+  const nb = d.buildingById(nextDoorId);
+  d.revealBuilding(nb);
+  const target = d.hostsIn(nb)[0];
+
+  const won = d.startBreachFx(target, 'force', true);
+  assert.ok(won, 'a breach has an animation');
+  assert.equal(won.win, true);
+  assert.equal(won.approach, 'force');
+  assert.equal(won.targetId, nb.id, 'it lands on the building you moved on');
+
+  // and it starts at the held building next door, not at some arbitrary point
+  const hc = { x: home.x + home.w / 2, y: home.y + home.h / 2 };
+  assert.ok(Math.abs(won.from.x - hc.x) < 1 && Math.abs(won.from.y - hc.y) < 1,
+    'the route starts where you already are');
+
+  const lost = d.startBreachFx(target, 'quiet', false);
+  assert.equal(lost.win, false, 'a failure is drawn as a failure');
+});
+
+test('breach fx: how you got in changes how long it takes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const target = d.state.hosts[1];
+  const dur = (ap) => d.startBreachFx(target, ap, true).dur;
+
+  assert.equal(dur('force'), window.BREACH_FX.duration.force);
+  assert.equal(dur('quiet'), window.BREACH_FX.duration.quiet);
+  assert.equal(dur('buy'), window.BREACH_FX.duration.buy);
+  assert.ok(dur('quiet') > dur('force'),
+    'slipping in takes longer than kicking the door');
+  assert.equal(d.startBreachFx(null, 'force', true), null, 'nothing taken, nothing drawn');
+});
+
+test('breach fx: taking a camera shows you the street it just gave you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // a camera with undiscovered buildings inside its range
+  const cam = s.hosts.find(h => h.role === 'stealth');
+  assert.ok(cam, 'the city has cameras');
+  cam.owned = true;
+  cam.discovered = true;
+
+  const opened = d.cameraVision();
+  assert.ok(Array.isArray(opened), 'camera vision says what it turned up');
+  opened.forEach(b => assert.equal(b.discovered, true));
+
+  // asking twice turns up nothing new — it reports what it opened, not what it sees
+  assert.equal(d.cameraVision().length, 0, 'and only reports what was new');
+});
+
+test('breach fx: an audited camera gives you nothing to blip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const cam = s.hosts.find(h => h.role === 'stealth');
+  cam.owned = true;
+  cam.discovered = true;
+  s.buildings.forEach(b => { b.discovered = false; });
+  s.country.factions.civic_eyes.awake = true;
+
+  assert.equal(d.ruleBroken('cameras'), true);
+  assert.equal(d.cameraVision().length, 0, 'audited, your eyes show you nothing');
+});

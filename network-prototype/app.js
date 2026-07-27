@@ -717,18 +717,24 @@
   // Cameras are eyes. Holding one reveals the buildings around it without
   // spending a sweep — this is what makes the stealth role spatial rather than
   // just a number that buys down heat.
+  // Returns what it turned up, so taking a camera can show you what it just
+  // gave you rather than silently widening the map.
   function cameraVision() {
     // Civic Eyes audits the camera network. Anything on it that answers to
     // you answers loudly, so your eyes stop being eyes.
-    if (ruleBroken('cameras')) return;
+    if (ruleBroken('cameras')) return [];
     const eyes = owned().filter(h => h.role === 'stealth');
-    if (!eyes.length) return;
+    if (!eyes.length) return [];
     const r2 = window.CITY.cameraVision * window.CITY.cameraVision;
+    const found = [];
     (state.buildings || []).forEach(b => {
       if (b.discovered) return;
       const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      if (eyes.some(e => (e.x - cx) ** 2 + (e.y - cy) ** 2 <= r2)) revealBuilding(b);
+      if (eyes.some(e => (e.x - cx) ** 2 + (e.y - cy) ** 2 <= r2)) {
+        if (revealBuilding(b)) found.push(b);
+      }
     });
+    return found;
   }
 
   function revealBuilding(b) {
@@ -1402,6 +1408,77 @@
   function sweepElapsed() { return sweepFx ? Date.now() - sweepFx.started : 0; }
   function sweepDelay(ms) { return Math.round(ms - sweepElapsed()); }
 
+  // --- the breach, seen ---------------------------------------------------
+  // The sweep goes outward to find things; a breach goes inward to take one.
+  // So it runs along the wire: the route establishes itself from whatever you
+  // already hold into the target, and the building comes over as it lands.
+  // How it looks depends on how you got in, because that is the actual
+  // decision the card asked you to make.
+  let breachFx = null;
+  let breachFxToken = 0;
+
+  function startBreachFx(host, approach, win) {
+    if (!host) { breachFx = null; return null; }
+    const target = buildingById(host.buildingId);
+    if (!target) { breachFx = null; return null; }
+    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const to = centre(target);
+
+    // it comes from whatever you hold that is actually next door — that is the
+    // route the breach would have run over
+    const held = state.buildings.filter(b => b.id !== target.id && hostsIn(b).some(x => x.owned));
+    const neighbours = buildingNeighbours(target.id);
+    const pool = held.filter(b => neighbours.indexOf(b.id) !== -1);
+    const from = (pool.length ? pool : held).reduce((best, b) => {
+      const c = centre(b);
+      const d = Math.hypot(c.x - to.x, c.y - to.y);
+      return (!best || d < best.d) ? { d, c } : best;
+    }, null);
+
+    const dur = window.BREACH_FX.duration[approach] || window.BREACH_FX.duration.force;
+    breachFx = {
+      from: from ? from.c : { x: to.x, y: to.y - 90 },
+      to, approach, win,
+      targetId: target.id,
+      dur,
+      started: Date.now(),
+    };
+    const out = breachFx;
+    const mine = ++breachFxToken;
+    setTimeout(() => {
+      if (mine !== breachFxToken) return;
+      breachFx = null;
+      renderGraph();
+    }, dur + window.BREACH_FX.linger);
+    return out;
+  }
+
+  function breachDelay(ms) {
+    return Math.round(ms - (breachFx ? Date.now() - breachFx.started : 0));
+  }
+
+  function svgBreach() {
+    if (!breachFx) return '';
+    const f = breachFx;
+    const len = Math.hypot(f.to.x - f.from.x, f.to.y - f.from.y) || 1;
+    const lead = breachDelay(0);
+    const cls = `breach ${f.approach} ${f.win ? 'won' : 'lost'}`;
+    let out = `<g class="${cls}" style="--breach-dur:${f.dur}ms;--breach-len:${len.toFixed(1)};`
+      + `--breach-dx:${(f.to.x - f.from.x).toFixed(1)}px;--breach-dy:${(f.to.y - f.from.y).toFixed(1)}px;`
+      + `animation-delay:${lead}ms">`;
+    // the route drawing itself in
+    out += `<line class="breach-route" x1="${f.from.x}" y1="${f.from.y}" x2="${f.to.x}" y2="${f.to.y}"`
+      + ` style="animation-delay:${lead}ms"/>`;
+    // and something travelling down it
+    out += `<g class="breach-pulse-wrap" transform="translate(${f.from.x} ${f.from.y})"`
+      + ` style="animation-delay:${lead}ms"><circle class="breach-pulse" r="3.4"/></g>`;
+    // what happens when it arrives
+    out += `<circle class="breach-land" cx="${f.to.x}" cy="${f.to.y}" r="6"`
+      + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
+    out += '</g>';
+    return out;
+  }
+
   function svgSweep() {
     if (!sweepFx) return '';
     // scaled from r=1 inside a translated group, so it expands about the sweep
@@ -1562,12 +1639,17 @@
 
     const win = entry.usable;
     const out = win ? a.onWin : (a.onFail || {});
+    let opened = [];
     if (out.hold) {
       h.owned = true;
       h.stability = 1;
       revealBuilding(buildingById(h.buildingId)); // you are inside now
-      cameraVision();
+      opened = cameraVision();
     }
+    startBreachFx(h, a.id, !!out.hold);
+    // a camera you just took shows you the street it watches, so blip those in
+    // exactly the way a sweep does
+    if (opened.length) startSweepFx(opened);
     state.heat = clampHeat(state.heat + (win ? approachHeat(a) : 0) + (out.heat || 0));
 
     state.card = null;
@@ -2444,9 +2526,16 @@
     if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
     const fx = sweepFx && sweepFx.ids[b.id] !== undefined ? sweepDelay(sweepFx.ids[b.id]) : null;
     if (fx !== null) cls.push('found');
+    // the building coming over as the breach lands, in the manner of whatever
+    // got you in
+    const bf = breachFx && breachFx.targetId === b.id ? breachFx : null;
+    if (bf) cls.push('breached', bf.approach, bf.win ? 'took' : 'bounced');
     const roof = Math.min(10, b.h * 0.28);
+    const styles = [];
+    if (fx !== null) styles.push(`animation-delay:${fx}ms`);
+    if (bf) styles.push(`--breach-land:${breachDelay(bf.dur)}ms`);
     let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}"`
-      + (fx !== null ? ` style="animation-delay:${fx}ms"` : '') + '>';
+      + (styles.length ? ` style="${styles.join(';')}"` : '') + '>';
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
     // windows hint at how much is inside
@@ -2579,6 +2668,7 @@
     }).join('');
 
     out += seen.map(svgBuilding).join('');
+    out += svgBreach();
     out += svgSweep();
 
     $svg.innerHTML = out;
@@ -3208,7 +3298,7 @@
   window.__netState = state;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
-    actScan, startSweepFx, focusOn, sweepDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
+    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,

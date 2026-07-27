@@ -42,6 +42,15 @@ window.LAUNDER = { cost: 8, heat: 10, share: 0.26 };
 // state — this only paces how it is shown.
 window.SWEEP_FX = { duration: 850, linger: 500 };
 
+// A breach runs the other way: inward, along the wire, from what you hold into
+// what you are taking. How long it takes depends on how you got in, because
+// that is the decision the card actually asked you to make — forcing a door is
+// quick and ugly, slipping in is slow and silent, buying it is neither.
+window.BREACH_FX = {
+  duration: { force: 420, quiet: 780, buy: 560 },
+  linger: 520,
+};
+
 window.SWEEP_COST = 2;
 window.SWEEP_CASH = 9;
 
