@@ -58,6 +58,12 @@ window.SWEEP_CASH = 9;
 // A turn is a container you fill, not a synonym for "one action". This is
 // what makes the turn boundary mean anything: some things are free (looking
 // at a node, backing out), and the rest are spent from a budget.
+// How far a tap reaches, in CSS pixels. Hit areas used to be sized in map
+// units, which meant that zoomed out a building was a couple of pixels across
+// and most taps landed on nothing at all. A fingertip is the same size at
+// every zoom level, so the reach is measured in the same terms.
+window.TOUCH = { reachPx: 26 };
+
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy

@@ -4292,3 +4292,113 @@ test('meeting: the hint at the bottom is about the map you are looking at', () =
   assert.ok(/city/.test($h.textContent) && !/building/.test($h.textContent),
     'on the country map there are no buildings to tap');
 });
+
+// --- tapping --------------------------------------------------------------
+// Hit areas were sized in map units, so zoomed out a building was a few pixels
+// across and a tap that missed by a fingertip selected nothing at all.
+// Measured in a browser at 10px buildings: a tap 8px off centre picked nothing
+// 25 times out of 25.
+
+test('tap: reach is measured in pixels, so zooming out widens it in map units', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.view = { x: 0, y: 0, w: 400, h: 400 };
+  const close = d.tapReach();
+  s.view = { x: 0, y: 0, w: 1600, h: 1600 };
+  const far = d.tapReach();
+  assert.ok(far > close, 'a fingertip does not shrink when the map does');
+  assert.ok(Math.abs(far / close - 4) < 0.01, 'and it scales exactly with the zoom');
+});
+
+test('tap: distance to a building is zero anywhere inside it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.distToRect(50, 50, 40, 40, 20, 20), 0, 'dead centre');
+  assert.equal(d.distToRect(40, 40, 40, 40, 20, 20), 0, 'on the corner');
+  assert.equal(d.distToRect(65, 50, 40, 40, 20, 20), 5, 'five past the right edge');
+  assert.equal(d.distToRect(35, 35, 40, 40, 20, 20), Math.hypot(5, 5), 'and off the corner diagonally');
+});
+
+test('tap: a near miss picks the nearest building, not nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  s.view = { x: 0, y: 0, w: 1600, h: 1600 };      // well zoomed out
+  // a board built for the question rather than whatever the generator dealt:
+  // with a wide reach, "just above" a building in a dense grid is honestly
+  // nearer to its neighbour, and that is correct behaviour, not a miss
+  s.buildings = [
+    { id: 'near', x: 800, y: 800, w: 40, h: 30, discovered: true },
+    { id: 'far', x: 1400, y: 1400, w: 40, h: 30, discovered: true },
+  ];
+  const b = s.buildings[0];
+  const reach = d.tapReach();
+  const just = d.nearestTarget({ x: b.x + b.w / 2, y: b.y - reach * 0.5 });
+  assert.ok(just, 'a tap short of it still finds it');
+  assert.equal(just.id, 'near', 'and finds the one you were aiming at');
+  assert.equal(just.city, false);
+  // and past the reach it finds nothing rather than grabbing the far one
+  assert.equal(d.nearestTarget({ x: b.x + b.w / 2, y: b.y - reach * 2 }), null);
+});
+
+test('tap: open ground is open ground', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  s.view = { x: 0, y: 0, w: 400, h: 400 };
+  s.buildings.forEach(b => { b.discovered = true; });
+  // a long way off the map entirely
+  const far = { x: -100000, y: -100000 };
+  assert.equal(d.nearestTarget(far), null, 'nothing is near enough to count');
+});
+
+test('tap: you cannot reach a building you have not found', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  s.view = { x: 0, y: 0, w: 1600, h: 1600 };
+  s.buildings.forEach(b => { b.discovered = false; });
+  const b = s.buildings[0];
+  assert.equal(d.nearestTarget({ x: b.x + b.w / 2, y: b.y + b.h / 2 }), null,
+    'the map does not give away what you have not swept');
+});
+
+test('tap: on the country map it reaches for cities', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  s.view = { x: 0, y: 0, w: 1600, h: 1600 };
+  const c = s.country.cities.find(x => x.known);
+  assert.ok(c, 'somewhere is on the map');
+  const near = d.nearestTarget({ x: c.x + d.tapReach() * 0.4, y: c.y });
+  assert.ok(near && near.city, 'it finds a city, not a building');
+  assert.equal(near.id, c.id);
+});
+
+test('tap: a tap on nothing lets go of what you had', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  const b = s.buildings[0];
+  s.selectedBuilding = b.id;
+  s.selected = d.hostsIn(b)[0].id;
+  d.clearSelection();
+  assert.equal(s.selectedBuilding, null, 'the building is let go');
+  assert.equal(s.selected, null, 'and the host with it');
+});
+
+test('tap: letting go works on the country map too', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  s.country.selected = s.country.cities[0].id;
+  d.clearSelection();
+  assert.equal(s.country.selected, null);
+});

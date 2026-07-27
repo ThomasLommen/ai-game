@@ -3610,6 +3610,66 @@
   // Measuring forces layout, so the rect is cached and only re-read when the
   // window changes shape. Dragging asks for it on every pointer event.
   let vpCache = null;
+  // How many map units one CSS pixel covers right now. Everything to do with
+  // touch has to be expressed through this: a fingertip does not get smaller
+  // when you zoom out, and the reach of a tap should not either.
+  function mapUnitsPerPx() {
+    const r = viewportRect();
+    const v = state.view;
+    if (!v || !r || !r.width) return 1;
+    // the view is fitted by the smaller axis, so use the looser of the two
+    return Math.max(v.w / r.width, v.h / r.height);
+  }
+  // How far from a thing a tap still counts, in map units.
+  function tapReach() { return window.TOUCH.reachPx * mapUnitsPerPx(); }
+
+  // Distance from a point to a rectangle — zero anywhere inside it.
+  function distToRect(px, py, x, y, w, h) {
+    const dx = Math.max(x - px, 0, px - (x + w));
+    const dy = Math.max(y - py, 0, py - (y + h));
+    return Math.hypot(dx, dy);
+  }
+
+  // The nearest thing worth selecting, or null if the tap was on open ground.
+  function nearestTarget(at) {
+    const reach = tapReach();
+    let best = null;
+    if (state.scope === 'country') {
+      (CO().cities || []).forEach(c => {
+        if (!c.known) return;
+        const d = Math.hypot(c.x - at.x, c.y - at.y);
+        if (d <= reach && (!best || d < best.d)) best = { d, id: c.id, city: true };
+      });
+    } else {
+      (state.buildings || []).forEach(b => {
+        if (!b.discovered) return;
+        const d = distToRect(at.x, at.y, b.x, b.y, b.w, b.h);
+        if (d <= reach && (!best || d < best.d)) best = { d, id: b.id, city: false };
+      });
+    }
+    return best;
+  }
+
+  function pickCity(id) { CO().selected = id; render(); }
+  function pickBuilding(id) {
+    const b = buildingById(id);
+    const h = b ? hostsIn(b)[0] : null;
+    state.selectedBuilding = b ? b.id : null;
+    state.selected = h ? h.id : null;
+    render();
+  }
+  function clearSelection() {
+    if (state.scope === 'country') {
+      if (CO().selected == null) return;
+      CO().selected = null;
+    } else {
+      if (state.selectedBuilding == null && state.selected == null) return;
+      state.selectedBuilding = null;
+      state.selected = null;
+    }
+    render();
+  }
+
   function viewportRect() {
     if (vpCache) return vpCache;
     const el = document.getElementById('graph-wrap');
@@ -4090,19 +4150,24 @@
     $svg.addEventListener('click', (e) => {
       if (dragMoved) return;
       const t = e.target;
+
+      // A direct hit is a direct hit.
       const city = t && t.closest ? t.closest('[data-city]') : null;
-      if (city) {
-        CO().selected = city.getAttribute('data-city');
-        render();
-        return;
-      }
+      if (city) { pickCity(city.getAttribute('data-city')); return; }
       const el = t && t.closest ? t.closest('[data-bldg]') : null;
-      if (!el) return;
-      const b = buildingById(el.getAttribute('data-bldg'));
-      const h = b ? hostsIn(b)[0] : null;
-      state.selectedBuilding = b ? b.id : null;
-      state.selected = h ? h.id : null;
-      render();
+      if (el) { pickBuilding(el.getAttribute('data-bldg')); return; }
+
+      // Otherwise: whatever is nearest, if anything is near enough. Hit areas
+      // were sized in map units, so zoomed out a building was a couple of
+      // pixels across and taps mostly landed on nothing. A finger is a fixed
+      // size in *screen* terms whatever the zoom, so the reach has to be too.
+      const at = toWorld(e.clientX, e.clientY);
+      const near = nearestTarget(at);
+      if (near) { (near.city ? pickCity : pickBuilding)(near.id); return; }
+
+      // Nothing near: that is a deselect, which there was previously no way
+      // of doing at all.
+      clearSelection();
     });
 
     let dragging = false, last = null, pinch = null;
@@ -4987,7 +5052,8 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, renderHud, renderConsolidate, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    maxAP, apCost, canAfford, renderHud, renderConsolidate,
+    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
