@@ -4475,9 +4475,12 @@ test('screen: the page itself is an app shell and does not scroll', () => {
   assert.ok(/overflow-y:\s*auto/.test(panel), 'the panel takes up the slack itself');
   assert.ok(/min-height/.test(panel), 'but can never be squeezed to nothing');
 
-  // the tray grows a row per awake faction and had starved the panel
-  const tray = rule('#tray');
-  assert.ok(/max-height/.test(tray), 'standing information gets a bounded amount of room');
+  // the tray no longer needs bounding because it can no longer grow: it is one
+  // line of pills that opens the sheet, rather than a row per awake faction
+  const css2 = css;
+  assert.ok(/\.tray-line\s*\{/.test(css2), 'the tray is a single line');
+  assert.ok(!/#tray\s*\{[^}]*max-height/.test(css2),
+    'and so needs no cap — a capped scroll is the thing we were removing');
 
   // and the map keeps a fixed share rather than absorbing panel changes
   const map = rule('#graph-wrap');
@@ -4548,19 +4551,28 @@ test('panel: a selected city does not repeat what the pill beside it says', () =
     `the description repeats "${kind}", which is already on the pill`);
 });
 
-test('panel: the standing buttons sit beside each other, not stacked', () => {
+test('panel: standing and plant are not in the panel at all any more', () => {
   const { window } = loadNetwork();
-  const html = countryPanelHtml(window, (d) => {
-    d.state.res.cash = 100000;
-    d.LG().audits = 2;                       // so the covert route is offered too
-    d.state.country.presence = 300;          // and standing is on screen at all
+  const d = window.__netDebug;
+  const html = countryPanelHtml(window, (dd) => {
+    dd.state.res.cash = 100000;
+    dd.LG().audits = 2;
+    dd.state.country.presence = 300;
+    dd.assets().push({ kind: 'yard', cityId: 'c0', city: 'x', buildingId: 'b', since: 1 });
   });
-  assert.ok(/class="legit"/.test(html), 'standing is showing');
-  const legit = html.slice(html.indexOf('class="legit"'));
-  assert.ok(/class="actions tight"/.test(legit),
-    'its buttons are in a row container rather than loose in the block');
-  const btns = (legit.match(/class="act-btn/g) || []).length;
-  assert.ok(btns >= 2, 'there are two of them to put side by side');
+  assert.ok(!/class="legit"/.test(html), 'the standing block has moved out');
+  assert.ok(!/class="assets"/.test(html), 'and so has plant');
+  // but the panel still says where they went, or nobody would ever open it
+  assert.ok(/class="ops-row"/.test(html), 'there is a line pointing at them');
+  assert.ok(/standing \d+\/\d+/.test(html), 'showing where standing stands');
+
+  const secs = d.opsSections();
+  // joined, not deepEqual: arrays built inside the sandbox realm never satisfy
+  // deepStrictEqual against ones built out here, however identical they look
+  assert.equal(secs.map(x => x.id).join(','), 'standing,plant', 'and both are sections of the sheet');
+  const standing = secs[0].html;
+  assert.ok(/class="actions tight"/.test(standing), 'its buttons are still side by side');
+  assert.ok((standing.match(/class="act-btn/g) || []).length >= 2, 'both of them');
 });
 
 test('panel: everything in the country panel is drawn a notch tighter', () => {
@@ -4575,20 +4587,96 @@ test('panel: everything in the country panel is drawn a notch tighter', () => {
   assert.ok(/\.actions\.tight\s*\{/.test(css), 'as there is for the button rows');
 });
 
-test('panel: the long explanation of standing is only for the first time', () => {
+test('panel: the sheet explains standing, the panel just points at it', () => {
   const { window } = loadNetwork();
-  const first = countryPanelHtml(window, (d) => {
-    d.state.country.presence = 300;
-    d.LG().audits = 0;
-  });
-  assert.ok(/big enough that somebody is going to ask/.test(first),
-    'before any audit it explains itself at length');
+  const d = window.__netDebug;
+  countryPanelHtml(window, (dd) => { dd.state.country.presence = 300; });
+  const standing = d.opsSections().find(x => x.id === 'standing');
+  assert.ok(standing, 'standing is a section');
+  assert.ok(standing.html.includes(window.LEGIT_INFO.score),
+    'and it carries the long explanation, where there is room for it');
+});
 
-  const { window: w2 } = loadNetwork();
-  const later = countryPanelHtml(w2, (d) => {
-    d.state.country.presence = 300;
-    d.LG().audits = 4;
+// --- one surface for everything that does not fit -------------------------
+// A 236px box with its own scrollbar, inside a page that does not scroll, is
+// the worst of both. Anything that will not fit takes the whole screen.
+
+test('sheet: it is closed until something opens it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.sheetOpen(), false);
+  d.openSheet('caps');
+  assert.equal(d.sheetOpen(), true);
+  d.closeSheet();
+  assert.equal(d.sheetOpen(), false);
+});
+
+test('sheet: capabilities are five sections, not one long scroll', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.res.insight = 100000;
+  d.state.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  const secs = d.capSections();
+  assert.ok(secs.length >= 2, 'the tree comes apart into branches');
+  secs.forEach(x => {
+    assert.ok(x.id && x.label, 'each branch is addressable and named');
+    assert.ok(x.html.includes('cap-branch'), 'and carries its own content');
   });
-  assert.ok(!/big enough that somebody is going to ask/.test(later),
-    'once you have been audited the numbers say it more briefly');
+  // and no section is the whole tree
+  const total = secs.reduce((a, x) => a + x.html.length, 0);
+  secs.forEach(x => assert.ok(x.html.length < total,
+    'no single section is everything — that was the 2796px scroll'));
+});
+
+test('sheet: your operation holds what the panel used to', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  s.country.presence = 300;
+  d.LG().audits = 1;
+  d.assets().push({ kind: 'yard', cityId: 'c0', city: 'x', buildingId: 'b', since: 1 });
+  d.checkFactions();
+  const ids = d.opsSections().map(x => x.id);
+  assert.ok(ids.includes('standing'), 'standing is in there');
+  assert.ok(ids.includes('plant'), 'and plant');
+});
+
+test('sheet: a section only exists once its system does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.scope = 'country';
+  assert.equal(d.opsSections().length, 0,
+    'nothing to show before any of it has been met');
+});
+
+test('sheet: the buttons say when there is something new behind them', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  s.country.presence = 300;
+  s.res.cash = 0;
+  assert.equal(d.noticed(), true, 'standing is a thing now');
+  assert.equal(d.opsBadge(), false, 'but there is nothing you can afford');
+  s.res.cash = 100000;
+  assert.equal(d.opsBadge(), true, 'and now there is');
+});
+
+test('sheet: the tray is one line and the detail is a section', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // wake the ladder so there is pressure to report
+  s.country.cities.filter(c => window.CITY_KINDS[c.kind].contest).slice(0, 8)
+    .forEach(c => { c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; s.country.presence += c.worth; });
+  d.checkFactions();
+  assert.ok(d.awakeFactions().length > 0, 'somebody is doing something about you');
+  d.renderTags();
+  const $t = window.document.getElementById('tray');
+  const html = $t.innerHTML || '';
+  assert.ok(/tray-line/.test(html), 'it is a single line');
+  assert.ok(!/tray-item/.test(html), 'not a row per faction any more');
+  assert.ok(d.opsSections().some(x => x.id === 'pressure'),
+    'and the detail is a section of the sheet');
 });

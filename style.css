@@ -1829,3 +1829,6 @@ body:not(.mobile-shell) #room-widget {
   position: fixed; right: 14px; bottom: 14px; width: 250px; height: 156px; aspect-ratio: auto; margin: 0; z-index: 6;
 }
 
+.ops-chip.lead { color: var(--ink); font-weight: 600; }
+.ops-yield { margin-left: auto; display: inline-flex; gap: 4px; }
+.ops-yield .yield { padding: 1px 6px; font-size: 10.5px; }

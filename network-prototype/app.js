@@ -4283,6 +4283,14 @@
   // The panel takes whatever the window has left, so on a small screen it can
   // have more in it than fits. Say so: a button sliced off by the bottom edge
   // reads as broken, the same content under a fade reads as more to come.
+  // A button that never mentions it has something new behind it is a button
+  // nobody presses — which is exactly what happened to capabilities.
+  function renderCapsBtn() {
+    const $b = document.getElementById('caps-btn');
+    if (!$b) return;
+    $b.innerHTML = 'capabilities' + (capsBadge() ? '<span class="badge"></span>' : '');
+  }
+
   function markPanelOverflow() {
     const $p = document.getElementById('panel');
     if (!$p) return;
@@ -4342,36 +4350,25 @@
   function renderTags() {
     const $t = document.getElementById('tray');
     if (!$t) return;
-    const tags = [...(state.tags || [])];
-    // A faction that has taken a tool off you has to be visible everywhere, not
-    // just on the country map — otherwise lying low simply "stops working" and
-    // reads as a bug rather than as somebody doing something about you.
-    const gone = awakeFactions().map(f => {
-      const seat = cityById(factionState(f.id).rootId);
-      const where = seat ? (seat.known ? seat.name : `somewhere in ${regionById(f.region).label}`) : 'nowhere you can reach';
-      const line = `${f.tell} — ends at ${where}`;
-      return `<div class="tray-item faction" title="${line}"><span class="tray-label">${f.name}</span><span class="tray-desc">${line}</span></div>`;
-    });
-    // The other process is a standing thing with an opinion of you, so it sits
-    // in the tray next to the factions rather than only appearing on its cards.
+    // One line, never a scroll. It used to render a full-width row per awake
+    // faction — 109px of content in a 58px box on a narrow phone, which is
+    // nobody's idea of a scrollable area. The detail lives in the sheet.
+    const awake = awakeFactions();
+    const tags = [...(state.tags || [])].filter(t => window.TAG_INFO[t]);
+    const bits = [];
+    if (awake.length) bits.push(`<span class="tray-pill bad">${awake.length} tool${awake.length === 1 ? '' : 's'} taken</span>`);
     if (allyHere()) {
       const a = state.ally;
-      const mood = a.trust >= window.ALLY.trustedAt ? 'working with you'
-                 : a.trust <= -1 ? 'has gone quiet on you'
-                 : 'alongside you, deciding';
-      const worth = allyTrusted()
-        ? `power +${window.ALLY.power}, holds one thing together each turn`
-        : `nothing yet — it is still making its mind up`;
-      gone.push(`<div class="tray-item ally" title="${mood} — ${worth}"><span class="tray-label">${a.name}</span><span class="tray-desc">${mood} · ${worth}</span></div>`);
+      bits.push(`<span class="tray-pill">${a.name}</span>`);
     }
-    const rows = gone.concat(tags.map(t => {
-      const info = window.TAG_INFO[t] || { label: t, desc: '' };
-      return `<div class="tray-item"><span class="tray-label">${info.label}</span><span class="tray-desc">${info.desc}</span></div>`;
-    }));
-    if (!rows.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
-    $t.style.display = 'flex';
-    $t.innerHTML = rows.join('');
+    if (tags.length) bits.push(`<span class="tray-pill dim">${tags.length} held</span>`);
+    if (!bits.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
+    $t.style.display = 'flex';   // the base rule hides it; '' falls back to that
+    $t.innerHTML = `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>`;
+    const btn = $t.querySelector('[data-open]');
+    if (btn) btn.addEventListener('click', () => openSheet('ops', 'pressure'));
   }
+
 
   function renderHud() {
     const held = owned().length;
@@ -4496,20 +4493,22 @@
     document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
   }
 
-  function renderCaps() {
-    const $g = document.getElementById('caps-goods');
-    if (!$g) return;
+  function renderCaps() { openSheet('caps'); }
+
+  // The five branches, each as its own section rather than one 2796px scroll.
+  function capSections() {
     const committed = committedBranches();
     const order = ['tempo', 'depth', 'cover', 'trade', 'reach'];
 
-    const blocks = order.map(bk => {
+    const blocks = [];
+    order.forEach(bk => {
       const B = window.CAP_BRANCHES[bk];
       const locked = branchLocked(bk);
       const mine = !!committed[bk];
       const items = window.CAPABILITIES.filter(c => c.branch === bk);
       // hide a branch you have not started and cannot start
       const anyVisible = items.some(c => hasCap(c.id) || capAvailable(c) || capBlocked(c) !== 'early');
-      if (!anyVisible && !mine) return '';
+      if (!anyVisible && !mine) return;
 
       const rows = items.map(c => {
         const count = capCount(c.id);
@@ -4548,7 +4547,7 @@
           </div>`;
       }).join('');
 
-      return `
+      blocks.push({ id: bk, label: B.label, mine, html: `
         <section class="cap-branch${locked ? ' locked' : ''}${mine ? ' mine' : ''}">
           <div class="cap-branch-top">
             <span class="cap-branch-name">${B.label}</span>
@@ -4559,12 +4558,164 @@
             ? `You went the other way. ${window.CAP_BRANCHES[B.opposes].label} is what you are.`
             : B.blurb}</p>
           ${rows}
-        </section>`;
-    }).filter(Boolean).join('');
+        </section>` });
+    });
 
-    $g.innerHTML = blocks || '<p class="sel-desc dim">Nothing available yet. Hold more of the network.</p>';
-    $g.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
-      b.addEventListener('click', () => buyCap(b.getAttribute('data-cap')));
+    return blocks.filter(b => b.html).map(b => ({
+      id: b.id, label: b.label, done: b.mine,
+      html: `<p class="sheet-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>` + b.html,
+    }));
+  }
+
+  // --- the sheet ----------------------------------------------------------
+  // One full-screen surface, used for anything that will not fit in the panel.
+  // Sections are switched between rather than stacked: the capability tree
+  // alone was 2796px of content in a 709px window, and a small box with its
+  // own scrollbar inside a page that does not scroll is the worst of both.
+  let sheetKind = null, sheetSection = null;
+
+  // Standing and plant were 222px of a 395px panel, and both are things you
+  // consult rather than things you do every turn — a rung gets bought maybe
+  // once in forty turns.
+  function opsSections() {
+    const L = window.LEGIT;
+    const out = [];
+    if (noticed()) {
+      const rung = nextRung();
+      const l = LG();
+      const foot = footprint(), score = legitScore(), short = foot - score;
+      const exposed = l.exposure >= L.caughtAt * 0.6;
+      out.push({ id: 'standing', label: 'standing', done: legitTier() >= L.ladder.length, html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">standing</span>
+          <span class="mono ${short > 0 ? 'bad' : 'good'}">${Math.round(score)} vs ${Math.round(foot)} footprint</span>
+        </div>
+        <div class="legit-bar"><div class="legit-fill" style="width:${Math.max(0, Math.min(100, foot ? (score / foot) * 100 : 100))}%"></div></div>
+        <p class="sheet-note">${window.LEGIT_INFO.score}</p>
+        <p class="sel-desc dim">${short > 0
+          ? `Short by ${Math.round(short)}. The next audit will cost you.`
+          : 'Everything you are reconciles with everything you own.'}${
+          l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'Mostly fabricated.' : 'Partly fabricated.'}</b>` : ''}</p>
+        <div class="actions tight">
+        ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
+          <span class="ab-name">${rung.label}</span>
+          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
+            : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
+        </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
+        ${spinKnown() ? `<button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
+          <span class="ab-name">place a story</span>
+          <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
+            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
+        </button>` : ''}
+        </div>` });
+    }
+    const awake = awakeFactions();
+    if (awake.length) {
+      out.push({ id: 'pressure', label: 'against you', done: false, html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">against you</span>
+          <span class="mono dim">${awake.length} tool${awake.length === 1 ? '' : 's'} taken</span>
+        </div>
+        <p class="sheet-note">${window.COUNTRY_INFO.factions}</p>
+        ${awake.map(f => {
+          const seat = cityById(factionState(f.id).rootId);
+          const where = seat ? (seat.known ? seat.name : `somewhere in ${regionById(f.region).label}`) : 'nowhere you can reach';
+          return `<div class="tray-item faction"><span class="tray-label">${f.name}</span>`
+            + `<span class="tray-desc">${f.tell} — ends at ${where}</span></div>`;
+        }).join('')}` });
+    }
+    if (plantKnown()) {
+      const own = assets();
+      out.push({ id: 'plant', label: 'plant', done: assetRoom() === 0, html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">plant</span>
+          <span class="mono dim">${own.length}/${assetSlots()} · +${assetFlocks()} flocks</span>
+        </div>
+        <p class="sheet-note">${window.LEGIT_INFO.assets}</p>
+        ${own.length
+          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span>`
+              + `<span class="asset-pay">${assetChips(a.kind)}</span>`
+              + `<span class="mono dim">${a.city}</span></div>`).join('')
+          : '<p class="sel-desc dim">Nothing yet. Landmarks in a city you are standing in can be kept when you fold it.</p>'}` });
+    }
+    return out;
+  }
+
+  // Something new to do in there, so a button can say so rather than relying on
+  // the player to go looking.
+  function opsBadge() {
+    if (noticed()) {
+      const rung = nextRung();
+      if (rung && state.res.cash >= rung.cost) return true;
+    }
+    if (plantKnown() && assetRoom() > 0 && claimable().length) return true;
+    return false;
+  }
+  function capsBadge() {
+    return window.CAPABILITIES.some(c => capAvailable(c) && capAffordable(c) && capBlocked(c) === null);
+  }
+
+  function sheetSections(kind) {
+    if (kind === 'caps') return capSections();
+    if (kind === 'ops') return opsSections();
+    return [];
+  }
+
+  function openSheet(kind, section) {
+    sheetKind = kind;
+    sheetSection = section || null;
+    renderSheet();
+  }
+  function closeSheet() {
+    sheetKind = null;
+    const $s = document.getElementById('sheet');
+    if ($s) $s.hidden = true;
+  }
+  function sheetOpen() { return !!sheetKind; }
+
+  function renderSheet() {
+    const $s = document.getElementById('sheet');
+    if (!$s) return;
+    if (!sheetKind) { $s.hidden = true; return; }
+    const parts = sheetSections(sheetKind);
+    if (!parts.length) {
+      $s.hidden = false;
+      document.getElementById('sheet-title').textContent = sheetKind === 'caps' ? 'capabilities' : 'your operation';
+      document.getElementById('sheet-tabs').innerHTML = '';
+      document.getElementById('sheet-body').innerHTML =
+        '<p class="sel-desc dim">Nothing here yet. Hold more of the network.</p>';
+      wireSheet();
+      return;
+    }
+    if (!parts.some(p => p.id === sheetSection)) sheetSection = parts[0].id;
+    const cur = parts.find(p => p.id === sheetSection);
+
+    $s.hidden = false;
+    document.getElementById('sheet-title').textContent =
+      sheetKind === 'caps' ? 'capabilities' : 'your operation';
+    document.getElementById('sheet-tabs').innerHTML = parts.length > 1
+      ? parts.map(p => `<button type="button" class="sheet-tab${p.id === sheetSection ? ' on' : ''}${p.done ? ' done' : ''}" data-section="${p.id}">${p.label}</button>`).join('')
+      : '';
+    document.getElementById('sheet-body').innerHTML = cur ? cur.html : '';
+    wireSheet();
+  }
+
+  function wireSheet() {
+    const $s = document.getElementById('sheet');
+    if (!$s) return;
+    $s.querySelectorAll('[data-section]').forEach(b => {
+      b.addEventListener('click', () => { sheetSection = b.getAttribute('data-section'); renderSheet(); });
+    });
+    $s.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
+      b.addEventListener('click', () => { buyCap(b.getAttribute('data-cap')); renderSheet(); });
+    });
+    $s.querySelectorAll('[data-cact]').forEach(b => {
+      b.addEventListener('click', () => {
+        const a = b.getAttribute('data-cact');
+        if (a === 'rung') buyRung(b.getAttribute('data-rung'));
+        else if (a === 'spin') actSpin();
+        renderSheet();
+      });
     });
   }
 
@@ -4803,44 +4954,22 @@
     const short = foot - legit;
     const l = LG();
     const exposed = l.exposure >= L.caughtAt * 0.6;
-    const legitBlock = (countryUnlocked() && noticed()) ? `
-      <div class="legit">
-        <div class="legit-top">
-          <span class="eyebrow mono">standing</span>
-          <span class="mono ${short > 0 ? 'bad' : 'good'}">${Math.round(legit)} vs ${Math.round(foot)} footprint</span>
-        </div>
-        <div class="legit-bar"><div class="legit-fill" style="width:${Math.max(0, Math.min(100, foot ? (legit / foot) * 100 : 100))}%"></div></div>
-        ${l.audits === 0 ? `<p class="sel-desc dim">You are big enough that somebody is going to ask what you are. Standing is the answer you can give them; footprint is how much answering there is to do.</p>` : ''}
-        ${(l.audits > 0 && (short > 0 || l.exposure > 0.4)) ? `<p class="sel-desc dim tight-line">${
-          short > 0 ? `Short by ${Math.round(short)} at the next audit.` : ''}${
-          l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'Mostly fabricated.' : 'Partly fabricated.'}</b>` : ''}</p>` : ''}
-        <div class="actions tight">
-        ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
-          <span class="ab-name">${rung.label}</span>
-          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
-            : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
-        </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
-        ${spinKnown() ? `<button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
-          <span class="ab-name">place a story</span>
-          <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
-        </button>` : ''}
-        </div>
-      </div>` : '';
-
-    const own = assets();
-    const assetBlock = plantKnown() ? `
-      <div class="assets">
-        <div class="legit-top">
-          <span class="eyebrow mono">plant</span>
-          <span class="mono dim">${own.length}/${assetSlots()} · +${assetFlocks()} flocks</span>
-        </div>
-        ${own.length
-          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span>`
-              + `<span class="asset-pay">${assetChips(a.kind)}</span>`
-              + `<span class="mono dim">${a.city}</span></div>`).join('')
-          : '<p class="sel-desc dim">Nothing yet. Landmarks in a city you are standing in can be kept when you fold it.</p>'}
-      </div>` : '';
+    // Standing and plant live in the sheet now. What stays here is a line
+    // saying where they are, because a system behind a button that never
+    // mentions itself is a system nobody opens.
+    const chips = [];
+    // presence belongs with the other standing totals rather than in a row of
+    // its own — it is the same kind of thing, and it was 30px
+    chips.push(`<span class="ops-chip lead">${CO().presence} presence</span>`);
+    if (noticed()) {
+      const foot = Math.round(footprint()), score = Math.round(legitScore());
+      chips.push(`<span class="ops-chip ${score < foot ? 'bad' : ''}">standing ${score}/${foot}</span>`);
+    }
+    if (plantKnown()) chips.push(`<span class="ops-chip">plant ${assets().length}/${assetSlots()}</span>`);
+    const py = presenceYield();
+    const opsRow = `<button type="button" class="ops-row" data-cact="ops">${chips.join('')}`
+      + `<span class="ops-yield">${chip('insight', '+' + py.insight.toFixed(1))}${chip('cash', '+' + py.cash.toFixed(1))}</span>`
+      + `${opsBadge() ? '<span class="badge"></span>' : ''}</button>`;
 
     const p = presenceYield();
     // The awake factions used to be listed here as well as in the tray, where
@@ -4849,12 +4978,8 @@
 
     $p.innerHTML = `
       ${block}
-      ${legitBlock}
-      ${assetBlock}
-      <div class="country-meta">
-        <span class="mono"><b>${CO().presence}</b> presence</span>
-        <span class="mono">${chip('insight', '+' + p.insight.toFixed(1) + ' insight')}${chip('cash', '+' + p.cash.toFixed(1) + ' cash')}<span class="dim"> / turn</span></span>
-      </div>
+      ${opsRow}
+
     `;
     $p.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
@@ -4867,8 +4992,7 @@
         else if (a === 'launch') actLaunch(id);
         else if (a === 'guard') actGuard(id);
         else if (a === 'recall') actRecall(b.getAttribute('data-force'));
-        else if (a === 'rung') buyRung(b.getAttribute('data-rung'));
-        else if (a === 'spin') actSpin();
+        else if (a === 'ops') openSheet('ops');
       });
     });
   }
@@ -5038,6 +5162,8 @@
     renderTags();
     renderScopeBtn();
     renderPanel();
+    renderCapsBtn();
+    if (sheetOpen()) renderSheet();
     // last: whether the panel overflows depends on what renderPanel just put
     // in it, so asking before it runs measures the previous turn's panel
     markPanelOverflow();
@@ -5062,6 +5188,7 @@
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
+    openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
@@ -5081,13 +5208,9 @@
   if ($endTurn) $endTurn.addEventListener('click', () => actEndTurn());
 
   const $capsBtn = document.getElementById('caps-btn');
-  const $capsModal = document.getElementById('caps-modal');
-  const $capsClose = document.getElementById('caps-close');
-  if ($capsBtn && $capsModal) {
-    $capsBtn.addEventListener('click', () => { renderCaps(); $capsModal.classList.add('show'); });
-    if ($capsClose) $capsClose.addEventListener('click', () => $capsModal.classList.remove('show'));
-    $capsModal.addEventListener('click', (e) => { if (e.target === $capsModal) $capsModal.classList.remove('show'); });
-  }
+  if ($capsBtn) $capsBtn.addEventListener('click', () => openSheet('caps'));
+  const $sheetClose = document.getElementById('sheet-close');
+  if ($sheetClose) $sheetClose.addEventListener('click', () => closeSheet());
 
   const $consolidate = document.getElementById('consolidate');
   if ($consolidate) {

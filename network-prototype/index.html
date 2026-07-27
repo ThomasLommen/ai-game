@@ -61,14 +61,17 @@
     <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
   </div>
 
-  <div id="caps-modal">
-    <div class="caps-panel">
-      <div class="caps-panel-top">
-        <span class="eyebrow mono">capabilities</span>
-        <button id="caps-close" type="button" class="caps-close-btn">&times;</button>
+  <!-- One full-screen surface for everything that does not fit in the panel.
+       Sections are switched between rather than scrolled past, so nothing ever
+       lives in a small box with its own scrollbar. -->
+  <div id="sheet" hidden>
+    <div class="sheet-panel">
+      <div class="sheet-top">
+        <span id="sheet-title" class="eyebrow mono"></span>
+        <button id="sheet-close" type="button" class="sheet-close">&times;</button>
       </div>
-      <p class="caps-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>
-      <div id="caps-goods"></div>
+      <div id="sheet-tabs" class="sheet-tabs"></div>
+      <div id="sheet-body" class="sheet-body"></div>
     </div>
   </div>
 
