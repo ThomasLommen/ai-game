@@ -942,6 +942,7 @@
     // an arrest, and nobody is arresting you any more.
     if (warShouldOpen()) openWar();
 
+    cellStep();           // whoever you sent, and whether they have finished
     const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
     // Clearing a stale arrest is not a substitute for drawing a card. As an
     // `else if` this swallowed the event draw for the entire war: measured,
@@ -951,6 +952,13 @@
     if (warOn() && state.card && state.card.kind === 'strike') state.card = null;
     if (!warOn() && state.heat >= strikeThreshold() && cooled && !state.card) {
       state.card = { kind: 'strike' };
+    } else if (!state.card && (state.forced || []).length) {
+      // a report that has to be delivered rather than drawn: it is about
+      // something that has already happened, so it does not wait for the
+      // deck's own timer and does not consult its own cond
+      const id = state.forced.shift();
+      state.card = { kind: 'event', eventId: id };
+      noteEventDrawn(id);
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
       if (ev) { state.card = { kind: 'event', eventId: ev.id }; noteEventDrawn(ev.id); }
@@ -2287,6 +2295,9 @@
   function actReach(id) {
     const c = cityById(id);
     if (!c || !cityReachable(c) || !canAffordCountry('reach')) return false;
+    // you handed this one over; walking into it yourself is not a second
+    // route in, it is two of you working the same streets
+    if (c.cell && !c.cell.done) return false;
     state.ap -= countryCost('reach');
     const K = window.CITY_KINDS[c.kind];
     if (!K.contest) {
@@ -2336,6 +2347,82 @@
     persistNow();
     render();
     return true;
+  }
+
+  // --- handing a city to somebody else ------------------------------------
+  // The counterweight to the prize. Walking a city is forty turns; a cell
+  // takes six to ten of them without your attention, and keeps what was in it.
+  // So a city carrying something you want is a city you go to yourself, and a
+  // city that is only presence is one you buy your way out of.
+  function cells() { return (CO().cities || []).filter(c => c.cell); }
+  function cellsOpen() { return cells().filter(c => !c.cell.done).length; }
+  function cellsKnown() {
+    return (CO().cities || []).filter(c => c.consolidated).length >= window.CELLS.at;
+  }
+  // Each one costs more than the last: they have seen what the one before got.
+  function cellsDone() { return (CO().cities || []).filter(c => c.cell).length; }
+  function cellCost() {
+    const C = window.CELLS;
+    return Math.round(C.cost * (1 + cellsDone() * C.costGrowth));
+  }
+  function canDelegate(cityId) {
+    const C = window.CELLS;
+    if (warOn() || state.card || state.over) return false;
+    if (!cellsKnown()) return false;
+    const c = cityById(cityId);
+    if (!c || c.taken || c.cell) return false;
+    if (!window.CITY_KINDS[c.kind].contest) return false;   // towns already fold as a card
+    if (mirrorHolds(c.id)) return false;
+    if (!cityReachable(c)) return false;
+    if (cellsOpen() >= C.maxOpen) return false;
+    if (cellsDone() >= C.maxTotal) return false;
+    return state.res.cash >= cellCost();
+  }
+  function actDelegate(cityId) {
+    if (!canDelegate(cityId)) return false;
+    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
+    const C = window.CELLS;
+    const c = cityById(cityId);
+    state.res.cash -= cellCost();
+    state.ap -= countryCost('move');
+    c.cell = { since: state.turn, doneAt: state.turn + rndInt(C.turns[0], C.turns[1]), done: false };
+    c.known = true;
+    pushLog(`${C.name} takes ${c.name}. ${C.blurb}`);
+    showBanner([{ kind: 'stage', verb: 'handed over', label: c.name }]);
+    persistNow();
+    render();
+    return true;
+  }
+  // Every turn, whoever has finished reports. The city is already yours by
+  // then — the card is about what it cost you to not have been there.
+  const CELL_REPORTS = ['cell_kept_it', 'cell_burned_it', 'cell_wants_more', 'cell_clean'];
+  function cellStep() {
+    const C = window.CELLS;
+    const out = [];
+    cells().forEach(c => {
+      if (c.cell.done || state.turn < c.cell.doneAt) return;
+      c.cell.done = true;
+      c.taken = true;
+      c.consolidated = true;
+      // their cut comes off the top, and the prize was never yours
+      const gained = Math.max(1, Math.round(c.worth * C.share));
+      c.granted = gained;
+      c.prizeTaken = true;
+      CO().presence += gained;
+      // an operation running under your name that you have never visited is
+      // still an operation running under your name
+      LG().cellFoot = (LG().cellFoot || 0) + C.footprint;
+      pushLog(`${c.name} is yours. ${gained} presence, which is what is left after their share.`);
+      out.push(c);
+      breakFactionAt(c.id);
+    });
+    if (out.length) {
+      checkFactions();
+      // one report a turn: two cards back to back is a queue, not an event
+      state.forced = (state.forced || []).concat(
+        out.map(() => CELL_REPORTS[Math.floor(Math.random() * CELL_REPORTS.length)]));
+    }
+    return out;
   }
 
   // --- the war, played ----------------------------------------------------
@@ -2755,7 +2842,8 @@
   }
   function footprint() {
     const L = window.LEGIT;
-    return (presence() * L.footPerPresence) + (assets().length * L.footPerAsset);
+    return (presence() * L.footPerPresence) + (assets().length * L.footPerAsset)
+      + (LG().cellFoot || 0);
   }
   // Being able to explain yourself is what lets you own things in the open.
   // This is the join between the two systems: the ladder does not make you
@@ -3770,7 +3858,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
-      war: state.war || null, seen: state.seen || [],
+      war: state.war || null, seen: state.seen || [], forced: state.forced || [],
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -3783,7 +3871,7 @@
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
-        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [],
+        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -4152,6 +4240,9 @@
     // A city carrying something worth having is marked on the map itself, not
     // only in the panel: which city to walk next is a decision you make while
     // looking at the country, and it should be answerable at a glance.
+    if (c.cell && !c.cell.done) {
+      out += `<circle class="working" cx="${c.x}" cy="${c.y}" r="${r + 5}"/>`;
+    }
     if (c.known && cityPrize(c) && !c.prizeTaken && !theirs && !warOn()) {
       out += `<circle class="prize" cx="${c.x + r * 0.86}" cy="${c.y - r * 0.86}" r="3.6"/>`;
     }
@@ -5094,6 +5185,8 @@
       } else if (warOn() && sel.consolidated) {
         const left = w.integrity[sel.id];
         lines.push(`yours · ${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls`);
+      } else if (sel.cell && !sel.cell.done) {
+        lines.push(`${window.CELLS.name} is on it · ${Math.max(0, sel.cell.doneAt - state.turn)} turns`);
       } else if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
       else if (sel.taken) lines.push('you have a foothold here');
       else if (warOn()) lines.push('out of the war — nothing stages from here');
@@ -5102,7 +5195,7 @@
       if (fac && facSt.broken) lines.push(`${fac.name} is finished`);
 
       const acts = [];
-      if (!sel.taken && cityReachable(sel) && !warOn()) {
+      if (!sel.taken && !(sel.cell && !sel.cell.done) && cityReachable(sel) && !warOn()) {
         acts.push(`<button class="act-btn ${countryApShort('reach') ? 'no-ap' : 'primary'}" data-cact="reach" data-ap="reach" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
           <span class="ab-sub">${countryApShort('reach') ? 'no actions left' : `${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action`}</span>
@@ -5118,6 +5211,21 @@
         acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
           <span class="ab-sub">${countryApShort('move') ? 'no actions left' : `stand in ${R.label} · 1 action`}</span>
+        </button>`);
+      }
+      // The counterweight to the prize, offered on the same city, so the two
+      // are read against each other rather than in different places.
+      if (!sel.taken && !sel.cell && cellsKnown() && cityReachable(sel)
+          && window.CITY_KINDS[sel.kind].contest && !warOn() && !mirrorHolds(sel.id)) {
+        const able = canDelegate(sel.id);
+        const busy = cellsOpen() >= window.CELLS.maxOpen;
+        const P = cityPrize(sel);
+        acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="delegate" data-city="${sel.id}">
+          <span class="ab-name">hand it to ${window.CELLS.name}</span>
+          <span class="ab-sub">${cellsDone() >= window.CELLS.maxTotal ? 'you have used up what they will do for you'
+            : busy ? 'they are already on something'
+            : state.res.cash < cellCost() ? `needs ${cellCost()} cash`
+            : `${chip('cover', Math.max(1, Math.round(sel.worth * window.CELLS.share)) + ' presence')}${chip('cost cash', '&minus;' + cellCost() + ' cash')}${P && !sel.prizeTaken ? chip('cost none', 'they keep it') : ''}`}</span>
         </button>`);
       }
       if (!sel.taken && !cityReachable(sel) && !warOn()) {
@@ -5225,6 +5333,7 @@
         const a = b.getAttribute('data-cact');
         const id = b.getAttribute('data-city');
         if (a === 'reach') actReach(id);
+        else if (a === 'delegate') actDelegate(id);
         else if (a === 'travel') actTravel(id);
         else if (a === 'launch') actLaunch(id);
         else if (a === 'guard') actGuard(id);
@@ -5494,7 +5603,8 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
+    makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity,
+    cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,

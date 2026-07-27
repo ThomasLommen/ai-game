@@ -1770,6 +1770,53 @@ window.EVENTS = [
       { text: 'Strip a city for parts', apply: (s) => { s.rebuild = 3; s.warIntegrity = -1; s.res.cash += 40; } },
     ],
   },
+
+  // --- what the cell did with the city you gave it -----------------------
+  // These are never drawn. They are delivered, when a cell finishes, which is
+  // why their cond is false — a report is about something that already
+  // happened rather than something the deck felt like saying. The city is
+  // already yours by the time you read one; what is on the table is what your
+  // relationship with them costs from here.
+  {
+    id: 'cell_kept_it', cond: () => false,
+    title: 'They Kept the Best Part',
+    flavor: 'The city is yours and the paperwork is immaculate. The one building in it worth having is not mentioned anywhere in the paperwork.',
+    choices: [
+      { text: 'Buy it off them', cost: { cash: 200 }, apply: (s) => { s.plantSlots = 1; s.plantGift = 'works'; } },
+      { text: 'Let them keep it', apply: (s) => { s.res.cash += 90; s.standing = 8; } },
+      { text: 'Take it back', apply: (s) => { s.heat += 8; s.plantGift = 'yard'; s.exposure = 1.2; } },
+    ],
+  },
+  {
+    id: 'cell_burned_it', cond: () => false,
+    title: 'Thorough',
+    flavor: 'They took it in nine days. Four streets are not coming back and somebody has been talking to a reporter about who owns what now.',
+    choices: [
+      { text: 'Pay for the damage', cost: { cash: 150 }, apply: (s) => { s.standing = 14; } },
+      { text: 'Say nothing and let it settle', apply: (s) => { s.heat += 10; s.exposure = 1.4; } },
+      { text: 'Put your name on the rebuild', cost: { cash: 90 }, apply: (s) => { s.standing = 24; s.heat += 4; } },
+    ],
+  },
+  {
+    id: 'cell_wants_more', cond: () => false,
+    title: 'They Would Like a Word',
+    flavor: 'It went well. It went well enough that they have started using the word "we", and they have a suggestion about the next one.',
+    choices: [
+      { text: 'Put them on the books', cost: { cash: 180 }, apply: (s) => { s.standing = 20; s.plantSlots = 1; } },
+      { text: 'Keep it at arm\'s length', apply: (s) => { s.res.insight += 30; s.exposure = 1.1; } },
+      { text: 'End the arrangement', apply: (s) => { s.res.cash += 120; s.standing = -10; } },
+    ],
+  },
+  {
+    id: 'cell_clean', cond: () => false,
+    title: 'No Notes',
+    flavor: 'A city changed hands and the only record of it is a set of filings so dull that three separate people have now signed them without reading.',
+    choices: [
+      { text: 'Pay the bonus', cost: { cash: 120 }, apply: (s) => { s.standing = 18; } },
+      { text: 'Take the win', apply: (s) => { s.res.cash += 60; } },
+      { text: 'Ask how they did it', cost: { insight: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
+    ],
+  },
 ];
 
 // Flavor shown on the breach card, per host type.

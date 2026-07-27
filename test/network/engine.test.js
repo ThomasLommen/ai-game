@@ -1746,8 +1746,34 @@ test('deck: every card is reachable somewhere in a campaign', () => {
     catch (err) { assert.fail(`${e.id} cond threw: ${err.message}`); }
     if (ok) seen[e.id]++;
   }));
-  const dead = Object.keys(seen).filter(id => !seen[id]);
+  // Delivered cards are not drawn — they are handed to you when something has
+  // already happened, so their cond is deliberately false and the deck must
+  // never pick them. They are reachable through the other door, which the next
+  // test checks.
+  const delivered = new Set(window.__netDebug.CELL_REPORTS);
+  const dead = Object.keys(seen).filter(id => !seen[id] && !delivered.has(id));
   assert.equal(dead.length, 0, `unreachable cards: ${dead.join(', ')}`);
+});
+
+test('deck: a delivered card is never drawn, and every one of them is delivered', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const reports = d.CELL_REPORTS;
+  assert.ok(reports.length, 'there are reports to deliver');
+
+  // none of them can come up on their own, whatever the board looks like
+  sampleContexts(window).forEach(st => reports.forEach(id => {
+    const e = window.EVENTS.find(x => x.id === id);
+    assert.ok(e, `${id} is not in the deck at all`);
+    assert.equal(e.cond(st), false, `${id} can be drawn, and it should only be delivered`);
+  }));
+
+  // and each is a real card by the same standard as the rest of the deck
+  reports.forEach(id => {
+    const e = window.EVENTS.find(x => x.id === id);
+    assert.ok(e.title && e.flavor, `${id} has no prose`);
+    assert.ok(e.choices.length >= 2, `${id} is not a choice`);
+  });
 });
 
 test('deck: card ids are unique and every card is a real decision', () => {
@@ -2303,6 +2329,152 @@ test('prizes: a pool gift taken in peacetime is still there when they mobilise',
   d.state.country.poolGift = 2;
   d.openWar();
   assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
+});
+
+// --- handing a city to somebody else -------------------------------------
+
+function readyToDelegate(d, W) {
+  const s = d.state, co = s.country;
+  // enough folded in that somebody will take work from you, and the cash for it
+  co.cities.filter(c => W.CITY_KINDS[c.kind].contest).slice(0, W.CELLS.at)
+    .forEach(c => { c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; co.presence += c.worth; });
+  co.cities.forEach(c => { c.known = true; });
+  s.res.cash = 100000;
+  s.ap = 99;
+  s.scope = 'country';
+  return co.cities.find(c => W.CITY_KINDS[c.kind].contest && !c.taken
+    && d.cityReachable(c) && !d.mirrorHolds(c.id));
+}
+
+test('cells: nobody takes work from you until you are worth working for', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.res.cash = 100000;
+  d.state.ap = 99;
+  assert.equal(d.cellsKnown(), false, 'you are nobody yet');
+  const any = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest);
+  assert.equal(d.canDelegate(any.id), false, 'and so there is no one to hand it to');
+  readyToDelegate(d, window);
+  assert.equal(d.cellsKnown(), true, 'a few cities in, there is');
+});
+
+test('cells: they take the city, and they keep what was in it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = readyToDelegate(d, window);
+  assert.ok(target, 'there is a city to hand over');
+  target.prize = 'slot';                        // something worth having
+  const slots = d.assetSlots();
+  const cash = s.res.cash;
+  const price = d.cellCost();          // read before, because the next one costs more
+
+  assert.equal(d.actDelegate(target.id), true);
+  assert.equal(s.res.cash, cash - price, 'it is paid for');
+  assert.ok(d.cellCost() > price, 'and the next one has seen what this one got');
+  assert.ok(target.cell && !target.cell.done, 'and somebody is on it');
+  assert.equal(d.canDelegate(target.id), false, 'you cannot hand over the same city twice');
+  assert.equal(d.actReach(target.id), false, 'nor walk into a city you gave away');
+
+  // it finishes on its own
+  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
+  assert.ok(target.cell.done, 'they finish');
+  assert.ok(target.consolidated, 'and it is yours');
+
+  // at a cut, and without the prize
+  assert.ok(target.granted < target.worth, `they took no cut: ${target.granted} of ${target.worth}`);
+  assert.equal(d.assetSlots(), slots, 'the prize did not come to you');
+  assert.equal(target.prizeTaken, true, 'and it is gone rather than still waiting');
+});
+
+test('cells: walking it yourself is what the prize is for', () => {
+  const { window } = loadNetwork();
+  const a = loadNetwork().window.__netDebug;
+  const d = window.__netDebug;
+  const target = readyToDelegate(d, window);
+  target.prize = 'slot';
+  const slots = d.assetSlots();
+
+  // the same city, folded in by hand
+  target.taken = true;
+  d.awardPrize(target);
+  assert.ok(d.assetSlots() > slots, 'going yourself is what hands it over');
+  assert.ok(a, 'and the two routes are genuinely different outcomes');
+});
+
+test('cells: one at a time, so it is a delegation and not a second army', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const first = readyToDelegate(d, window);
+  assert.equal(d.actDelegate(first.id), true);
+  const other = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest
+    && !c.taken && !c.cell && d.cityReachable(c) && !d.mirrorHolds(c.id));
+  if (other) assert.equal(d.canDelegate(other.id), false, 'they are already on something');
+  assert.equal(d.cellsOpen(), 1);
+});
+
+test('cells: there is a ceiling on how much of the country you hand out', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  readyToDelegate(d, window);
+  let handed = 0;
+  for (let i = 0; i < 12; i++) {
+    const next = s.country.cities.find(c => d.canDelegate(c.id));
+    if (!next) break;
+    d.actDelegate(next.id);
+    handed++;
+    // run it out so the slot frees up for the next one
+    for (let t = 0; t < 40 && !next.cell.done; t++) { s.turn += 1; d.cellStep(); }
+    s.ap = 99;
+  }
+  assert.equal(handed, window.CELLS.maxTotal,
+    `handed over ${handed} cities against a ceiling of ${window.CELLS.maxTotal}`);
+  assert.ok(s.country.cities.some(c => window.CITY_KINDS[c.kind].contest && !c.taken),
+    'and there is still a country left for you to walk');
+});
+
+test('cells: an operation you never visited is still one they can see', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = readyToDelegate(d, window);
+  const before = d.footprint();
+  d.actDelegate(target.id);
+  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
+  assert.ok(d.footprint() > before + window.CELLS.footprint * 0.9,
+    'running a city you have never been to should be harder to miss, not easier');
+});
+
+test('cells: finishing hands you a report, and it is one of the delivered cards', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = readyToDelegate(d, window);
+  d.actDelegate(target.id);
+  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
+  assert.ok((s.forced || []).length, 'they report back');
+  assert.ok(d.CELL_REPORTS.indexOf(s.forced[0]) !== -1,
+    `${s.forced[0]} is not a report`);
+});
+
+test('cells: a report survives a save, because it is owed to you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.forced = ['cell_clean'];
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.deepEqual(back.forced, ['cell_clean']);
+});
+
+test('cells: nobody is taking cities once they have mobilised', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const target = readyToDelegate(d, window);
+  assert.equal(d.canDelegate(target.id), true, 'in peacetime, yes');
+  conqueredCountry(d, window);
+  d.openWar();
+  const still = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest && !c.taken);
+  if (still) assert.equal(d.canDelegate(still.id), false, 'and not once it is a war');
 });
 
 // --- the other process ---------------------------------------------------

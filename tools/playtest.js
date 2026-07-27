@@ -155,6 +155,15 @@ function campaign(d, style) {
       const atAudit = l.exposure + LEGIT.spinExposure - until * LEGIT.spinDecay;
       if (atAudit < LEGIT.caughtAt) { if (d.actSpin()) return 'spin'; }
     }
+    // Keep somebody working in the background at all times. That is what the
+    // feature is for and what a player would actually do: the cell takes the
+    // city whose prize you care least about while you walk the one you do.
+    if (d.cellsKnown() && d.cellsOpen() === 0 && s.res.cash > d.cellCost() * 2.5) {
+      const spare = (s.country.cities || [])
+        .filter(c => d.canDelegate(c.id))
+        .sort((a, b) => (a.prize ? 1 : 0) - (b.prize ? 1 : 0) || a.worth - b.worth)[0];
+      if (spare && d.actDelegate(spare.id)) return 'delegate';
+    }
   }
 
   // Once the war opens the country verbs are gone: there is nothing left to
@@ -464,6 +473,8 @@ function playOne(strategyName) {
     warKills: warSt ? warSt.kills : 0,
     presence: d.state.country.presence,
     peakPresence,
+    delegated: (d.state.country.cities || []).filter(c => c.cell).length,
+    prizesTaken: (d.state.country.cities || []).filter(c => c.prize && c.prizeTaken && !c.cell).length,
     shortShare: countedTurns ? shortTurns / countedTurns : 0,
     peakShort: Math.round(peakShort),
     citiesTotal: d.state.country.cities.length,
@@ -648,6 +659,9 @@ function run() {
     .map(t => `${t}: ${pct(rungs[t], all.length)}`).join(' · '));
   console.log(`     footprint ${fmt(mean(all.map(r => r.footprint)), 0)} against a standing of ` +
     `${fmt(mean(all.map(r => r.legitScore)), 0)} · spin ${fmt(mean(all.map(r => r.spin)), 1)}`);
+  console.log(`\n   the back half — walking a city against handing it over:`);
+  console.log(`     ${fmt(mean(all.map(r => r.delegated)), 1)} cities handed to a cell` +
+    ` · ${fmt(mean(all.map(r => r.prizesTaken)), 1)} prizes taken by walking one`);
   console.log(`     short ${pct(mean(all.map(r => r.shortShare)), 1)} of the turns you are on the map` +
     ` · worst gap ${fmt(mean(all.map(r => r.peakShort)), 0)}`);
   console.log(`     ${fmt(mean(all.map(r => r.assets)), 1)} of ${fmt(mean(all.map(r => r.assetSlots)), 1)} plant slots filled` +

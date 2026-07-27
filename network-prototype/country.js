@@ -268,6 +268,51 @@ window.COUNTRY_ACTIONS = {
   consolidate: { label: 'consolidate', ap: 1, info: 'Fold a city you have taken enough of into standing presence, and leave it behind.' },
 };
 
+// --- handing it to somebody else ----------------------------------------
+// Walking your ninth city is forty turns of decisions you have already made.
+// Delegation is the answer to that, but only once a city carries something
+// worth walking it for — otherwise it is a skip button, and a skip button on
+// the main game means the main game was not worth playing.
+//
+// So: they take the city, and they keep what was in it. That is the whole
+// decision. A prize you want means you go yourself; a city that is just
+// presence means you send someone and spend the turns elsewhere.
+//
+// It is paid for in cash on purpose. Income is linear in presence while every
+// other reward decays, so by the back half cash is the resource nobody can
+// spend — a greedy profile finishes on 61 idle turns. The currency that
+// stopped mattering is exactly the right thing to buy your attention back
+// with.
+window.CELLS = {
+  at: 3,                 // cities folded in before anybody will take work from you
+  // Flat, this was a skip button. Measured at 240: 4.6 cities a campaign
+  // handed over against 0.4 prizes taken by walking one, the war reached in
+  // 96% of games instead of 65% and won in 92% instead of 60%. Cash income is
+  // linear and unspendable, so a flat price is no price at all.
+  //
+  // Escalating instead — 240, 384, 528, 768 — because the second cell has seen
+  // what the first one got. It puts delegation where it belongs: two or three
+  // cities you have decided are not worth your attention, not the back half of
+  // the country.
+  cost: 240,             // cash, for the first
+  costGrowth: 0.6,       // and this much more of the base for each one after
+  turns: [6, 10],        // how long they take
+  share: 0.6,            // the presence you get; they keep the rest
+  footprint: 6,          // an operation you do not personally run is still yours on paper
+  maxOpen: 1,            // one at a time. It is a delegation, not a second army.
+  // And a hard ceiling on how many you may ever hand over, because pricing it
+  // cannot do this job: cash income is linear in presence while every other
+  // reward decays, so even an escalating price came to about a tenth of what a
+  // campaign earns and the back half of the country still went out to
+  // contractors — 3.8 cities handed over against 0.4 prizes taken by walking
+  // one, and the war won in 85% of games instead of 60%. Two is the number
+  // that makes this what it was meant to be: the cities you have looked at and
+  // decided are not worth your attention.
+  maxTotal: 2,
+  name: 'a cell',
+  blurb: 'Nobody you have met. They came recommended by something that does not have a name either.',
+};
+
 window.COUNTRY_INFO = {
   presence: 'What finished cities are worth to you: a standing yield every turn, and the measure the country uses to decide how worried to be.',
   region: 'Heat is regional. What you did in the estuary does not follow you to the north — but it is still there when you go back.',
