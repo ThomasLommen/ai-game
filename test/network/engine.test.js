@@ -4125,3 +4125,43 @@ test('screen: the log is still kept even though it is not on the panel', () => {
   d.runAudit();
   assert.ok(s.log.length > before, 'and things still write to it');
 });
+
+test('screen: what you are is written on the map, not on a row of its own', () => {
+  const html = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/index.html'), 'utf8');
+  assert.ok(!/id="stage-row"/.test(html), 'the row it used to have is gone');
+  // both of these describe the map, so both live on it
+  const wrap = html.slice(html.indexOf('id="graph-wrap"'), html.indexOf('id="panel"'));
+  ['stage-label', 'scope-btn', 'consolidate', 'recenter'].forEach(id =>
+    assert.ok(wrap.includes(`id="${id}"`), `${id} belongs on the map`));
+});
+
+test('screen: the stage name still says how big you are', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $l = window.document.getElementById('stage-label');
+  assert.ok($l, 'it survived the move');
+  d.state.scope = 'city';
+  d.renderHud();
+  const small = $l.textContent;
+  assert.ok(small && small.length, 'a foothold has a name');
+
+  // and grows with you
+  d.state.hosts.slice(0, 14).forEach(h => { h.owned = true; });
+  d.renderHud();
+  assert.notEqual($l.textContent, small, 'holding more of a city renames what you are');
+});
+
+test('screen: at country scale it names the country, not the street', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $l = window.document.getElementById('stage-label');
+  d.state.scope = 'country';
+  d.renderHud();
+  const region = window.REGIONS.find(r => r.id === d.state.region);
+  assert.equal($l.textContent, region.label, 'it is the region you are standing in');
+  conqueredCountry(d, window);
+  d.openWar();
+  d.renderHud();
+  assert.equal($l.textContent, 'open war', 'and the war outranks the geography');
+});

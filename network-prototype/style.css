@@ -32,7 +32,7 @@ body {
 .eyebrow { letter-spacing: .18em; text-transform: uppercase; font-size: 11px; color: var(--muted); }
 .dim { color: var(--muted); }
 
-#topbar, #heat-row, #res-row, #stage-row, #panel, footer, #info-strip, #tray, #turn-row {
+#topbar, #heat-row, #res-row, #panel, footer, #info-strip, #tray, #turn-row {
   width: 100%;
   max-width: 480px;
   padding: 0 16px;
@@ -99,8 +99,17 @@ body {
 .res.power b { color: var(--power); }
 .res.cover b { color: var(--cover); }
 
-#stage-row { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
-.stage-label { font-family: ui-serif, Georgia, serif; font-size: 17px; color: var(--ink); }
+/* What you are, on the thing you are looking at. It named the scale of the
+   whole operation from its own row above the map, which is a lot of screen
+   for two or three words — and the map is what it is describing. */
+.stage-label {
+  position: absolute; top: 8px; left: 10px;
+  z-index: 6;
+  font-family: ui-serif, Georgia, serif; font-size: 16px; color: var(--ink);
+  pointer-events: none;
+  text-shadow: 0 0 8px var(--bg), 0 0 3px var(--bg);
+  transition: color .4s ease;
+}
 
 /* the graph — your territory is the progress bar */
 #graph-wrap {
@@ -109,7 +118,7 @@ body {
   max-width: 480px;
   flex: 1;
   min-height: 260px;
-  margin-top: 6px;
+  margin-top: 10px;
 }
 /* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
    aspect ratio, which fed the wrong height back into the view maths */
@@ -119,7 +128,8 @@ body {
 /* feedback — outcomes are taught after the fact, not spoiled before */
 #feedback-stack {
   position: absolute;
-  top: 4px;
+  /* below the stage label and the scope button, which now live up here too */
+  top: 36px;
   left: 12px;
   right: 12px;
   display: flex;
@@ -928,13 +938,15 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode.home .dot   { stroke: var(--cover); }
 
 .scope-btn {
-  margin-left: auto;
+  position: absolute; top: 6px; right: 10px;
+  z-index: 6;
   background: var(--surface); border: 1px solid var(--line);
   color: var(--ink-dim); border-radius: 8px;
   padding: 4px 10px; font-size: 11px; cursor: pointer;
 }
 .scope-btn.up { border-color: color-mix(in srgb, var(--insight) 40%, var(--line)); color: var(--insight); }
 .scope-btn[disabled] { opacity: .4; cursor: default; }
+.scope-btn[hidden] { display: none; }
 
 .country-meta {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
