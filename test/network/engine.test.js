@@ -2538,3 +2538,73 @@ test('the action budget names itself, and says when it is gone', () => {
   s.ap = 0;
   assert.equal(label(), 'no actions', 'and it says so rather than just emptying');
 });
+
+// --- what you have tapped ------------------------------------------------
+// Selection used to be a stroke colour on the building, competing with three
+// other stroke treatments that already carry meaning — held is blue, a
+// landmark gold, the rival dashed purple — so at map scale it disappeared.
+
+test('selection: nothing tapped, nothing drawn', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.selected = null;
+  d.state.selectedBuilding = null;
+  assert.equal(d.svgSelection(), '', 'no reticle without a selection');
+});
+
+test('selection: the reticle frames whatever you tapped, whatever kind it is', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const kinds = [
+    ['plain', s.buildings.find(b => !b.landmark)],
+    ['landmark', s.buildings.find(b => b.landmark)],
+    ['held', s.buildings.find(b => d.hostsIn(b).some(h => h.owned))],
+  ];
+  kinds.forEach(([label, b]) => {
+    if (!b) return;
+    s.selectedBuilding = b.id;
+    s.selected = (d.hostsIn(b)[0] || {}).id || null;
+    const svg = d.svgSelection();
+    assert.ok(svg.includes(`data-pick-for="${b.id}"`), `${label}: the reticle is on the wrong building`);
+    // and it is drawn around it, not on it
+    const nums = svg.match(/-?\d+(\.\d+)?/g).map(Number);
+    assert.ok(Math.min.apply(null, nums) <= b.x, `${label}: the frame does not reach past the left edge`);
+  });
+});
+
+test('selection: a host selected without its building still frames the building', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const h = s.hosts[3];
+  s.selectedBuilding = null;
+  s.selected = h.id;
+  assert.ok(d.svgSelection().includes(`data-pick-for="${h.buildingId}"`),
+    'selecting the host frames the building it lives in');
+});
+
+test('selection: nothing is framed on a building you have not found', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const hidden = s.buildings.find(b => !b.discovered);
+  assert.ok(hidden, 'most of the city is undiscovered at the start');
+  s.selectedBuilding = hidden.id;
+  s.selected = null;
+  assert.equal(d.svgSelection(), '', 'you cannot have tapped what you cannot see');
+});
+
+test('selection: the city reticle is not drawn on the country map', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.selectedBuilding = s.buildings[0].id;
+  assert.ok(d.svgSelection().length > 0, 'drawn in a city');
+  s.scope = 'country';
+  assert.equal(d.svgSelection(), '', 'and not while you are looking at the country');
+});

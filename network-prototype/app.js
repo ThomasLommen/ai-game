@@ -1490,6 +1490,35 @@
     return out;
   }
 
+  // What you have tapped. Drawn as brackets around the thing rather than as
+  // yet another stroke colour on it: held is blue, a landmark is gold, the
+  // rival is dashed purple, and a fourth stroke treatment competing with those
+  // three was invisible at map scale. Rendered after every building so it is
+  // never hidden under a neighbour.
+  function svgSelection() {
+    if (state.scope === 'country') return '';
+    const h = state.selected ? hostById(state.selected) : null;
+    const b = state.selectedBuilding
+      ? buildingById(state.selectedBuilding)
+      : (h ? buildingById(h.buildingId) : null);
+    if (!b || !b.discovered) return '';
+
+    const p = 4;
+    const arm = Math.max(5, Math.min(13, Math.min(b.w, b.h) * 0.36));
+    const x0 = b.x - p, y0 = b.y - p, x1 = b.x + b.w + p, y1 = b.y + b.h + p;
+    const path = [
+      `M${x0} ${(y0 + arm).toFixed(1)} L${x0} ${y0} L${(x0 + arm).toFixed(1)} ${y0}`,
+      `M${(x1 - arm).toFixed(1)} ${y0} L${x1} ${y0} L${x1} ${(y0 + arm).toFixed(1)}`,
+      `M${x1} ${(y1 - arm).toFixed(1)} L${x1} ${y1} L${(x1 - arm).toFixed(1)} ${y1}`,
+      `M${(x0 + arm).toFixed(1)} ${y1} L${x0} ${y1} L${x0} ${(y1 - arm).toFixed(1)}`,
+    ].join(' ');
+
+    return `<g class="pick" data-pick-for="${b.id}">`
+      + `<rect class="pick-wash" x="${x0}" y="${y0}" width="${(x1 - x0).toFixed(1)}" height="${(y1 - y0).toFixed(1)}" rx="3"/>`
+      + `<path class="pick-frame" d="${path}"/>`
+      + '</g>';
+  }
+
   function svgSweep() {
     if (!sweepFx) return '';
     // scaled from r=1 inside a translated group, so it expands about the sweep
@@ -2622,6 +2651,9 @@
       out += `<circle class="dot" cx="${c.x}" cy="${c.y}" r="${r}"/>`;
     }
     if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${r + 6}"/>`;
+    if (CO().selected === c.id) {
+      out += `<circle class="pick-ring" cx="${c.x}" cy="${c.y}" r="${r + 10}"/>`;
+    }
     const label = c.known ? (theirs ? window.MIRROR.name : c.name) : '?';
     out += `<text class="ctag" x="${c.x}" y="${c.y + r + 13}">${label}</text>`;
     if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + r + 24}">+${c.worth}</text>`;
@@ -2679,6 +2711,7 @@
     }).join('');
 
     out += seen.map(svgBuilding).join('');
+    out += svgSelection();
     out += svgBreach();
     out += svgSweep();
 
@@ -3371,7 +3404,7 @@
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
+    resolveStrike, approachHeat, svgSelection, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,

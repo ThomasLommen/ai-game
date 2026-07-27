@@ -570,6 +570,28 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.all-held .body  { stroke: var(--insight); fill: #16211d; }
 .bldg.all-held .btag  { fill: var(--ink-dim); }
 .bldg.sel .body { stroke: var(--ink); stroke-width: 2; }
+
+/* What you have tapped. Brackets around the thing, not a fourth stroke colour
+   on it — held is blue, a landmark gold, the rival dashed purple, and a
+   selection competing with those three could not be seen at map scale. */
+.pick { pointer-events: none; }
+.pick-wash {
+  fill: color-mix(in srgb, var(--ink) 7%, transparent);
+  stroke: none;
+}
+.pick-frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  animation: pickIn 260ms cubic-bezier(.2, .9, .3, 1);
+}
+@keyframes pickIn {
+  0%   { opacity: 0; stroke-width: 5; }
+  100% { opacity: 1; stroke-width: 2; }
+}
 .bldg { cursor: pointer; }
 
 /* datacenters and warehouses read as bigger, flatter industry */
@@ -841,6 +863,14 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode.seat.folded .dot { stroke: var(--insight); }
 .cnode.seat:not(.folded) .dot { stroke: var(--power); }
 .cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
+.pick-ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+  animation: pickIn 260ms cubic-bezier(.2, .9, .3, 1);
+}
 .cnode.home .dot   { stroke: var(--cover); }
 
 .scope-btn {
