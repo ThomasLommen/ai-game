@@ -813,6 +813,31 @@
   }
 
   // --- turn resolution ---------------------------------------------------
+  // What a turn pays, worked out before it is paid. Extracted from endTurn so
+  // that anything quoting income to the player runs the same arithmetic the
+  // turn will run — every yield in the game is multiplied by yieldMult, and a
+  // panel transcribing the raw table said "+2 insight" for a server that had
+  // been paying 3.2 since the player bought Bulk Processing.
+  function perTurnIncome() {
+    const mult = capEffect('yieldMult', 1);
+    const out = {};
+    const add = (k, v) => { out[k] = (out[k] || 0) + v; };
+    owned().forEach(h => {
+      const y = window.HOST_TYPES[h.type].yield || {};
+      for (const k in y) add(k, y[k] * mult);
+    });
+    // finished cities pay whether or not you are standing in them — that is
+    // the whole point of folding one in. presenceYield already carries the
+    // multiplier, because the panel quotes it directly.
+    const p = presenceYield();
+    for (const k in p) add(k, p[k]);
+    // plant pays whether or not you are standing in the city it is in —
+    // that is the whole point of it having survived the fold
+    const a = assetYield();
+    for (const k in a) add(k, a[k] * mult);
+    return out;
+  }
+
   function heatPerTurn() {
     // Heat retires when the war opens. Not softened, not rescaled — the whole
     // question it measured ("do they know") is answered, so the meter stops.
@@ -840,19 +865,8 @@
 
     // production — suppressed when the player deliberately went dark
     if (!o.silent) {
-      const mult = capEffect('yieldMult', 1);
-      owned().forEach(h => {
-        const y = window.HOST_TYPES[h.type].yield || {};
-        for (const k in y) state.res[k] = (state.res[k] || 0) + y[k] * mult;
-      });
-      // finished cities pay whether or not you are standing in them — that is
-      // the whole point of folding one in
-      const p = presenceYield();
-      for (const k in p) state.res[k] = (state.res[k] || 0) + p[k] * mult;
-      // plant pays whether or not you are standing in the city it is in —
-      // that is the whole point of it having survived the fold
-      const a = assetYield();
-      for (const k in a) state.res[k] = (state.res[k] || 0) + a[k] * mult;
+      const inc = perTurnIncome();
+      for (const k in inc) state.res[k] = (state.res[k] || 0) + inc[k];
     }
 
     // churn — holdings decay unless shored up, so sprawl has upkeep.
@@ -1127,6 +1141,18 @@
       // complaint this was fixing
       'flocks you could field': flockCap(),
       'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
+      // Four capabilities used to report nothing at all on purchase, because
+      // nothing here measured what they touched: the two income multipliers,
+      // the launder bonus and the buy discount.
+      'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
+      'cash a turn': Math.round((perTurnIncome().cash || 0) * 10) / 10,
+      'a wash sheds': Math.round(launderShed() * 10) / 10,
+      'a wash pays': capEffect('launderInsight', 0),
+      'a door costs to buy': Math.round((1 - capEffect('buyDiscount', 0)) * 100) + '% of list',
+      'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force')) * 10) / 10 + ' heat',
+      'a sweep turns up': sweepReach(),
+      'crossings you can lay': capEffect('extraCrossings', 0),
+      'holdings decay at': Math.round(capEffect('churnMult', 1) * 100) + '%',
     };
   }
   function readoutDiff(before, after) {
@@ -1537,8 +1563,7 @@
     spendAP('sweep');
     if (payer === 'insight') state.res.insight -= sweepPrice();
     else state.res.cash -= window.SWEEP_CASH;
-    const reach = 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
-      + capEffect('sweepReach', 0); // cameras and tooling extend the sweep
+    const reach = sweepReach();
     const targets = sweepTargets();
     const found = [];
     for (let i = 0; i < reach && targets.length; i++) {
@@ -1814,7 +1839,7 @@
       ? clampHeat(state.heat + launderShed() * window.HEAT.LEDGER_BACKFIRE)
       : neutral
         ? state.heat
-        : clampHeat(state.heat - launderShed() - capEffect('launderBonus', 0));
+        : clampHeat(state.heat - launderShed());
     state.res.insight += capEffect('launderInsight', 0);
     afterSnap(before);
     pushLog(matched
@@ -2028,8 +2053,21 @@
   function lieLowShed() {
     return Math.max(window.HEAT.LIE_LOW, strikeThreshold() * window.HEAT.LIE_LOW_SHARE);
   }
+  // capEffect folded in here rather than at the call site: this is the
+  // function that answers "how much does a wash shed", so anything quoting it
+  // to the player — a chip, a purchase report — gets the real number. Applied
+  // at the call site instead, Clean Hands could raise it by six and report
+  // absolutely nothing.
+  // How many buildings a sweep turns up. Extracted for the same reason as the
+  // rest of these: capabilities claim to widen it, and until this existed
+  // nothing could check whether they had. Cameras and tooling extend it.
+  function sweepReach() {
+    return 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
+      + capEffect('sweepReach', 0);
+  }
   function launderShed() {
-    return Math.max(window.LAUNDER.heat, strikeThreshold() * window.LAUNDER.share);
+    return Math.max(window.LAUNDER.heat, strikeThreshold() * window.LAUNDER.share)
+      + capEffect('launderBonus', 0);
   }
 
   // Nothing held, nothing folded in, and nowhere half-taken to go back to.
@@ -2063,8 +2101,13 @@
   function presenceYield() {
     const p = CO().presence || 0;
     const y = window.COUNTRY.presenceYield;
-    // being a thing that gets discussed cuts both ways
-    const m = (has('national') ? window.COUNTRY.nationalMult : 1) * capEffect('presenceMult', 1);
+    // being a thing that gets discussed cuts both ways.
+    // yieldMult belongs here rather than only at the point of payment: the
+    // country panel quotes this function directly, and with the multiplier
+    // applied downstream it understated what presence pays by the whole of
+    // Bulk Processing.
+    const m = (has('national') ? window.COUNTRY.nationalMult : 1)
+      * capEffect('presenceMult', 1) * capEffect('yieldMult', 1);
     return { insight: p * y.insight * m, cash: p * y.cash * m };
   }
 
@@ -4876,7 +4919,7 @@
     if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
-      const yieldTxt = yieldChips(T);
+      const yieldTxt = yieldChips(h);
       const where = b ? window.DISTRICTS[b.district].label : '';
       if (h.owned) {
         sel = `
@@ -4921,10 +4964,10 @@
             : sweepBlocked() === 'nothing'
             ? 'nothing adjacent left'
             : sweepBlocked() === 'poor'
-              ? `needs ${window.SWEEP_COST} insight or ${window.SWEEP_CASH} cash`
+              ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} cash`
               : sweepPayer() === 'insight'
-                ? `reveal neighbours ${chip('cost insight', '&minus;' + window.SWEEP_COST + ' insight')}`
-                : `pay for a look ${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
+                ? `${chip('insight', 'turns up ' + sweepReach())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
+                : `${chip('insight', 'turns up ' + sweepReach())}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
         </button>
         <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
@@ -4945,7 +4988,9 @@
             ? 'no actions left'
             : ruleBroken('launder')
             ? `${factionBreaking('launder').name} matches the payments`
-            : `${chip('cover', 'heat &minus;' + Math.round(launderShed()))}${chip('cost cash', '&minus;' + window.LAUNDER.cost + ' cash')}`}</span>
+            : `${chip('cover', 'heat &minus;' + Math.round(launderShed()))}${
+                capEffect('launderInsight', 0) ? chip('insight', '+' + capEffect('launderInsight', 0) + ' insight') : ''
+              }${chip('cost cash', '&minus;' + window.LAUNDER.cost + ' cash')}`}</span>
         </button>
       </div>
     `;
@@ -5135,22 +5180,89 @@
   // reported "no yield" while quietly being the only reason you were not
   // being found, because cover is not stored in the yield object.
   function chip(kind, text) { return `<span class="yield ${kind}">${text}</span>`; }
-  function yieldChips(T) {
-    const out = [];
-    const y = T.yield || {};
-    Object.keys(y).forEach(k => { if (y[k]) out.push(chip(k, `+${y[k]} ${k}`)); });
-    if (T.cover) out.push(chip('cover', `+${T.cover} cover`));
-    if (T.heat) out.push(chip('heat', `+${T.heat} heat`));
+  // What a node is actually worth, measured rather than transcribed.
+  //
+  // The type table's numbers are inputs to curves, not answers, and the panel
+  // used to print them as though they were. A router advertising "+2 cover"
+  // feeds a square root: the first one you take is worth +3, the fourth +1.
+  // A corporate advertising "+0.5 heat" costs 0.85, because every host carries
+  // HEAT.PER_HOST on top of its own. A server advertising "+2 insight" pays
+  // 3.2 once Bulk Processing is bought. And the three types with no heat chip
+  // at all were each quietly costing 0.35 a turn, while a router was quietly
+  // paying 0.45 back.
+  //
+  // So: flip the node and read the engine's own functions on both sides. The
+  // chip cannot drift from the rule because it is the rule, run twice.
+  function hostMarginal(h) {
+    const was = h.owned;
+    const read = () => {
+      const inc = perTurnIncome();
+      return { cover: cover(), heat: heatPerTurn(), insight: inc.insight || 0, cash: inc.cash || 0 };
+    };
+    h.owned = true;
+    const on = read();
+    h.owned = false;
+    const off = read();
+    h.owned = was;
+    return {
+      cover: on.cover - off.cover,
+      heat: on.heat - off.heat,
+      insight: on.insight - off.insight,
+      cash: on.cash - off.cash,
+    };
+  }
+  // a tenth is the finest distinction worth drawing on a chip
+  function num(n) {
+    const r = Math.round(n * 10) / 10;
+    return (Number.isInteger(r) ? r : r.toFixed(1));
+  }
+  function gainChip(kind, n, unit) {
+    if (Math.abs(n) < 0.05) return '';
+    return n > 0
+      ? chip(kind, `+${num(n)} ${unit}`)
+      : chip('cost ' + kind, `&minus;${num(-n)} ${unit}`);
+  }
+  function yieldChips(h) {
+    const m = hostMarginal(h);
+    const out = [
+      gainChip('insight', m.insight, 'insight'),
+      gainChip('cash', m.cash, 'cash'),
+      gainChip('cover', m.cover, 'cover'),
+      // Heat runs the other way: less of it is the good outcome. A node that
+      // shouts reads as a cost, and one that quietens you takes the cover
+      // colour — which is the idiom the lie low button already uses for
+      // exactly this, rather than a red chip warning you about good news.
+      m.heat > 0.05 ? chip('cost heat', `+${num(m.heat)} heat`)
+        : m.heat < -0.05 ? chip('cover', `heat &minus;${num(-m.heat)}`) : '',
+    ].filter(Boolean);
     return out.length ? out.join('') : '<span class="yield none">nothing on its own</span>';
   }
 
-  // Same idea for a piece of plant, which pays nationally rather than locally.
+  // Same idea for a piece of plant, which pays nationally rather than locally,
+  // and the same problem: its yield goes through yieldMult like everything
+  // else, and its flocks land in a pool with a floor and a ceiling, so a works
+  // advertising "+2 flocks" delivers nothing at all once the pool is capped.
+  function assetMarginal(kind) {
+    const list = assets();
+    const read = () => {
+      const inc = perTurnIncome();
+      return { insight: inc.insight || 0, cash: inc.cash || 0, flocks: flockCap() };
+    };
+    const off = read();
+    list.push({ kind, cityId: '__probe', city: '', buildingId: '__probe', since: state.turn });
+    const on = read();
+    list.pop();
+    return { insight: on.insight - off.insight, cash: on.cash - off.cash, flocks: on.flocks - off.flocks };
+  }
   function assetChips(kind) {
-    const A = window.ASSETS[kind];
-    const out = [];
-    const y = A.yield || {};
-    Object.keys(y).forEach(k => { if (y[k]) out.push(chip(k, `+${y[k]} ${k}`)); });
-    if (A.flocks) out.push(chip('flocks', `+${A.flocks} flock${A.flocks === 1 ? '' : 's'}`));
+    const m = assetMarginal(kind);
+    const out = [
+      gainChip('insight', m.insight, 'insight'),
+      gainChip('cash', m.cash, 'cash'),
+      gainChip('flocks', m.flocks, `flock${Math.abs(m.flocks) === 1 ? '' : 's'}`),
+    ].filter(Boolean);
+    // a full pool is a fact about the plant you already have, not a nothing
+    if (!out.length) return '<span class="yield none">nothing more than you already field</span>';
     return out.join('');
   }
 
@@ -5320,7 +5432,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

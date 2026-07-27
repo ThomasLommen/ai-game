@@ -4170,49 +4170,138 @@ test('war deck: the war a card sees is the war that is happening', () => {
 // A yield used to be plain text in the middle of a run-on line of dim grey,
 // which made buildings look as though they paid nothing at all.
 
-test('yields: every resource a building pays is marked as that resource', () => {
+// The chips used to transcribe the type table, and the type table holds inputs
+// to curves rather than answers. A router advertised "+2 cover" and delivered
+// +3 for the first one and +1 for the sixth; a corporate advertised "+0.5
+// heat" and cost 0.85; three types advertised no heat at all while each cost
+// 0.35 a turn. These tests are about the claim matching the effect, which is a
+// property the old ones could not have caught because they compared the label
+// to the same table the label was copied from.
+const chipNum = (html, kind) => {
+  const m = new RegExp(`class="yield (?:cost )?${kind}">([^<]*)`).exec(html);
+  if (!m) return null;
+  const t = m[1].replace(/&minus;/g, '-').replace(/[^0-9.\-]/g, '');
+  const v = parseFloat(t);
+  return /class="yield cost ${kind}"/.test(html) ? v : v;
+};
+
+test('yields: a chip says what taking the node will actually do', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   Object.keys(window.HOST_TYPES).forEach(type => {
-    const T = window.HOST_TYPES[type];
-    const html = d.yieldChips(T);
-    Object.keys(T.yield || {}).forEach(k => {
-      assert.ok(html.includes(`class="yield ${k}"`), `${type} pays ${k} without saying so in ${k}`);
-      assert.ok(html.includes(`+${T.yield[k]} ${k}`), `${type} does not say how much ${k}`);
+    const pool = d.state.hosts.filter(h => h.type === type);
+    if (!pool.length) return;
+    const h = pool[0];
+    const m = d.hostMarginal(h);
+    const html = d.yieldChips(h);
+    ['insight', 'cash', 'cover'].forEach(k => {
+      if (Math.abs(m[k]) < 0.05) return;
+      const said = chipNum(html, k);
+      assert.ok(said !== null, `${type} moves ${k} by ${m[k]} and says nothing`);
+      assert.ok(Math.abs(Math.abs(said) - Math.abs(m[k])) < 0.06,
+        `${type} claims ${said} ${k} and delivers ${m[k]}`);
     });
   });
 });
 
-test('yields: a router says it buys cover rather than claiming to pay nothing', () => {
+test('yields: a router advertises the cover it adds, which falls as you take more', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const iot = window.HOST_TYPES.iot;
-  // by key count, not deepStrictEqual: the data lives in the sandbox realm, so
-  // an empty object from in there is never reference-equal to one from out here
-  assert.equal(Object.keys(iot.yield).length, 0, 'it has no yield in the data');
-  assert.ok(iot.cover > 0, 'but it is the reason you are not being found');
-  const html = d.yieldChips(iot);
-  assert.ok(html.includes('class="yield cover"'), 'and that is what it says');
-  assert.ok(!html.includes('yield none'), 'not "nothing"');
+  const pool = d.state.hosts.filter(h => h.type === 'iot');
+  assert.ok(pool.length >= 3, 'the board has routers to take');
+
+  const first = d.hostMarginal(pool[0]).cover;
+  assert.ok(first > 0, 'the first one is worth something');
+  assert.ok(d.yieldChips(pool[0]).includes(`+${first} cover`),
+    `it does not say ${first}: ${d.yieldChips(pool[0])}`);
+
+  // the curve is the whole point: the table value is the same for all of them
+  pool.slice(0, 3).forEach(h => { h.owned = true; });
+  const later = d.hostMarginal(pool[3] || pool[0]).cover;
+  assert.ok(later < first, `cover should thin out: ${first} then ${later}`);
+  if (later > 0) {
+    assert.ok(d.yieldChips(pool[3]).includes(`+${later} cover`), 'and the chip follows it down');
+  }
 });
 
-test('yields: what a building costs you is marked too, and differently', () => {
+test('yields: everything loud says so as a cost, and the quiet thing as a gain', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const loud = Object.keys(window.HOST_TYPES).filter(k => window.HOST_TYPES[k].heat);
-  assert.ok(loud.length, 'some things are loud');
-  loud.forEach(k => {
-    const html = d.yieldChips(window.HOST_TYPES[k]);
-    assert.ok(html.includes('class="yield heat"'), `${k} raises heat without saying so`);
+  // every host carries HEAT.PER_HOST whether or not its type declares heat, so
+  // the three types with no heat in the table were each costing you 0.35
+  ['consumer', 'server', 'corporate', 'till', 'datacenter'].forEach(type => {
+    const h = d.state.hosts.find(x => x.type === type);
+    if (!h) return;
+    assert.ok(d.hostMarginal(h).heat > 0, `${type} should cost heat`);
+    assert.ok(d.yieldChips(h).includes('class="yield cost heat"'),
+      `${type} raises heat and does not say it is a cost`);
+  });
+  // and a router pays heat back, which nothing on screen used to mention
+  const iot = d.state.hosts.find(x => x.type === 'iot');
+  assert.ok(d.hostMarginal(iot).heat < 0, 'a router quietens you');
+  const html = d.yieldChips(iot);
+  // the cover colour, which is what the lie low button already uses for heat
+  // coming down — a red chip warning you about good news reads as a problem
+  assert.ok(/class="yield cover">heat &minus;/.test(html),
+    `a router should read as a heat gain: ${html}`);
+  assert.ok(!html.includes('class="yield cost heat"'), 'and never as a cost');
+});
+
+test('yields: a multiplier a capability bought shows up in what a node claims', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const h = d.state.hosts.find(x => x.type === 'server');
+  const before = d.hostMarginal(h).insight;
+  d.state.caps.bulk_ops = 1;
+  const after = d.hostMarginal(h).insight;
+  assert.ok(after > before, `the multiplier should raise it: ${before} -> ${after}`);
+  // to a tenth, which is as fine a distinction as a chip draws
+  const rounded = Math.round(after * 10) / 10;
+  assert.ok(d.yieldChips(h).includes(`+${rounded} insight`),
+    `the chip still quotes the table: ${d.yieldChips(h)}`);
+});
+
+test('yields: no node on the board reads as paying nothing at all', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.hosts.forEach(h => {
+    assert.ok(!d.yieldChips(h).includes('yield none'),
+      `${h.type} reads as worthless`);
   });
 });
 
-test('yields: something that pays nothing says so once, not blankly', () => {
+test('yields: the presence readout matches what the turn actually pays', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const html = d.yieldChips({ yield: {} });
-  assert.ok(html.includes('yield none'), 'it is still a chip, not an empty gap');
-  assert.ok(/nothing/i.test(html));
+  const co = d.state.country;
+  co.cities.slice(0, 5).forEach(c => {
+    c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; co.presence += c.worth;
+  });
+  // nothing held, so the whole of income is presence — which is what the
+  // country panel quotes, and it used to quote it without the multiplier
+  d.state.hosts.forEach(h => { h.owned = false; });
+  d.state.caps.bulk_ops = 1;
+  const shown = d.presenceYield();
+  const paid = d.perTurnIncome();
+  assert.ok(Math.abs(shown.insight - paid.insight) < 0.001,
+    `panel says ${shown.insight}, the turn pays ${paid.insight}`);
+  assert.ok(Math.abs(shown.cash - paid.cash) < 0.001,
+    `panel says ${shown.cash}, the turn pays ${paid.cash}`);
+});
+
+test('yields: income is worked out once, so the turn cannot disagree with the panel', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; });
+  s.caps.bulk_ops = 1;
+  const expect = d.perTurnIncome();
+  const before = { insight: s.res.insight, cash: s.res.cash };
+  s.ap = 0;
+  d.actEndTurn();
+  // churn and events can move other things; income is the floor of what landed
+  assert.ok(s.res.insight >= before.insight + expect.insight - 0.001,
+    `expected +${expect.insight} insight, got ${s.res.insight - before.insight}`);
 });
 
 test('yields: plant says what it pays and what it lets you field', () => {
