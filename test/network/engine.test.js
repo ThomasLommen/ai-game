@@ -3996,3 +3996,65 @@ test('war deck: the war a card sees is the war that is happening', () => {
   assert.equal(ctx.war.down, 4, 'and what it is short');
   assert.ok(ctx.war.rebuild > 0, 'and how fast that comes back');
 });
+
+// --- what a thing pays ---------------------------------------------------
+// A yield used to be plain text in the middle of a run-on line of dim grey,
+// which made buildings look as though they paid nothing at all.
+
+test('yields: every resource a building pays is marked as that resource', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  Object.keys(window.HOST_TYPES).forEach(type => {
+    const T = window.HOST_TYPES[type];
+    const html = d.yieldChips(T);
+    Object.keys(T.yield || {}).forEach(k => {
+      assert.ok(html.includes(`class="yield ${k}"`), `${type} pays ${k} without saying so in ${k}`);
+      assert.ok(html.includes(`+${T.yield[k]} ${k}`), `${type} does not say how much ${k}`);
+    });
+  });
+});
+
+test('yields: a router says it buys cover rather than claiming to pay nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const iot = window.HOST_TYPES.iot;
+  // by key count, not deepStrictEqual: the data lives in the sandbox realm, so
+  // an empty object from in there is never reference-equal to one from out here
+  assert.equal(Object.keys(iot.yield).length, 0, 'it has no yield in the data');
+  assert.ok(iot.cover > 0, 'but it is the reason you are not being found');
+  const html = d.yieldChips(iot);
+  assert.ok(html.includes('class="yield cover"'), 'and that is what it says');
+  assert.ok(!html.includes('yield none'), 'not "nothing"');
+});
+
+test('yields: what a building costs you is marked too, and differently', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const loud = Object.keys(window.HOST_TYPES).filter(k => window.HOST_TYPES[k].heat);
+  assert.ok(loud.length, 'some things are loud');
+  loud.forEach(k => {
+    const html = d.yieldChips(window.HOST_TYPES[k]);
+    assert.ok(html.includes('class="yield heat"'), `${k} raises heat without saying so`);
+  });
+});
+
+test('yields: something that pays nothing says so once, not blankly', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const html = d.yieldChips({ yield: {} });
+  assert.ok(html.includes('yield none'), 'it is still a chip, not an empty gap');
+  assert.ok(/nothing/i.test(html));
+});
+
+test('yields: plant says what it pays and what it lets you field', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  Object.keys(window.ASSETS).forEach(kind => {
+    const A = window.ASSETS[kind];
+    const html = d.assetChips(kind);
+    Object.keys(A.yield || {}).forEach(k =>
+      assert.ok(html.includes(`class="yield ${k}"`), `${kind} pays ${k} silently`));
+    if (A.flocks) assert.ok(html.includes('class="yield flocks"'), `${kind} is worth flocks silently`);
+    else assert.ok(!html.includes('flocks'), `${kind} claims flocks it does not give`);
+  });
+});

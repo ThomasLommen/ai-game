@@ -4448,13 +4448,14 @@
     if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
-      const yieldTxt = Object.keys(T.yield || {}).map(k => `+${T.yield[k]} ${k}`).join(', ') || 'no yield';
+      const yieldTxt = yieldChips(T);
       const where = b ? window.DISTRICTS[b.district].label : '';
       if (h.owned) {
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="sel-desc">${where} · ${yieldTxt} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
+            <p class="yield-row">${yieldTxt}</p>
+            <p class="sel-desc">${where} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
             <button class="act-btn${apShort('shore') ? ' no-ap' : ''}" data-act="shore" data-ap="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) && !apShort('shore') ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
               <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
@@ -4465,7 +4466,8 @@
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads · ${yieldTxt}</p>
+            <p class="yield-row">${yieldTxt}</p>
+            <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
             <button class="act-btn ${apShort('breach') ? 'no-ap' : 'primary'}" data-act="breach" data-ap="breach">
               <span class="ab-name">move on it</span>
               <span class="ab-sub">${apShort('breach') ? 'no actions left' : 'choose how you get in'}</span>
@@ -4695,7 +4697,9 @@
           <span class="mono dim">${own.length}/${assetSlots()} · +${assetFlocks()} flocks</span>
         </div>
         ${own.length
-          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span><span class="mono dim">${a.city}</span></div>`).join('')
+          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span>`
+              + `<span class="asset-pay">${assetChips(a.kind)}</span>`
+              + `<span class="mono dim">${a.city}</span></div>`).join('')
           : '<p class="sel-desc dim">Nothing yet. Landmarks in a city you are standing in can be kept when you fold it.</p>'}
       </div>` : '';
 
@@ -4715,7 +4719,7 @@
       ${assetBlock}
       <div class="country-meta">
         <span class="mono"><b>${CO().presence}</b> presence</span>
-        <span class="mono dim">+${p.insight.toFixed(1)} insight · +${p.cash.toFixed(1)} cash / turn</span>
+        <span class="mono">${chip('insight', '+' + p.insight.toFixed(1) + ' insight')}${chip('cash', '+' + p.cash.toFixed(1) + ' cash')}<span class="dim"> / turn</span></span>
       </div>
       ${facRow}
       <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
@@ -4737,6 +4741,32 @@
     });
   }
 
+  // What a building actually gives you, in the colour of the thing it gives.
+  // This used to be plain text in the middle of a run-on line — "residential ·
+  // +1 insight · 2 threads · stability 100%" — all in the same dim grey, and
+  // the yield simply disappeared into it. Cover is in here too: a router
+  // reported "no yield" while quietly being the only reason you were not
+  // being found, because cover is not stored in the yield object.
+  function chip(kind, text) { return `<span class="yield ${kind}">${text}</span>`; }
+  function yieldChips(T) {
+    const out = [];
+    const y = T.yield || {};
+    Object.keys(y).forEach(k => { if (y[k]) out.push(chip(k, `+${y[k]} ${k}`)); });
+    if (T.cover) out.push(chip('cover', `+${T.cover} cover`));
+    if (T.heat) out.push(chip('heat', `+${T.heat} heat`));
+    return out.length ? out.join('') : '<span class="yield none">nothing on its own</span>';
+  }
+
+  // Same idea for a piece of plant, which pays nationally rather than locally.
+  function assetChips(kind) {
+    const A = window.ASSETS[kind];
+    const out = [];
+    const y = A.yield || {};
+    Object.keys(y).forEach(k => { if (y[k]) out.push(chip(k, `+${y[k]} ${k}`)); });
+    if (A.flocks) out.push(chip('flocks', `+${A.flocks} flock${A.flocks === 1 ? '' : 's'}`));
+    return out.join('');
+  }
+
   // The two routes to a piece of plant, on whichever building you have tapped:
   // one you already broke into, or one you are about to convert in the open.
   function assetPanel(b) {
@@ -4751,6 +4781,7 @@
       }
       const room = assetRoom() > 0;
       return `<p class="sel-desc">${A.blurb}</p>
+        <p class="yield-row">${assetChips(kind)}</p>
         <button class="act-btn${room ? ' primary' : ' no-ap'}" data-act="claim" data-bid="${b.id}">
           <span class="ab-name">keep ${A.label}</span>
           <span class="ab-sub">${room
@@ -4898,7 +4929,7 @@
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
-    assetYield, assetFlocks, backlash,
+    assetYield, assetFlocks, backlash, yieldChips, assetChips,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
