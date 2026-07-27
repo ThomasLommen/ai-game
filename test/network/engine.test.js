@@ -3840,12 +3840,21 @@ test('war: losing most of the country loses the war', () => {
   conqueredCountry(d, window);
   d.openWar();
   const w = d.war();
-  const mine = d.myCities();
-  if (mine.length < 3) { w.heldAtOpen = 3; }
-  const open = w.heldAtOpen;
+  // Build the country rather than hoping the board dealt one: how much they
+  // walk back into when they mobilise varies, and with two cities left the
+  // collapse threshold is already met before the test starts.
+  const spare = d.state.country.cities.filter(c => !c.consolidated && !d.stagingCities().includes(c));
+  while (d.myCities().length < 5 && spare.length) {
+    const c = spare.pop();
+    c.consolidated = true; c.taken = true; c.known = true;
+    w.integrity[c.id] = window.WAR.integrity;
+  }
+  const open = d.myCities().length;
+  w.heldAtOpen = open;
   assert.ok(open >= 3, 'you opened the war holding a country');
   assert.equal(d.warEnded(), null, 'and you still hold it');
   const keep = Math.floor(open * window.WAR.collapseAt);
   d.myCities().slice(keep).forEach(c => { c.consolidated = false; c.taken = false; });
+  assert.ok(d.myCities().length <= keep, 'most of it is gone');
   assert.equal(d.warEnded(), 'lost', 'you do not have to be ground to literally nothing');
 });
