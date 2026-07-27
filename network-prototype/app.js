@@ -3335,8 +3335,144 @@
       out += `<line class="road${live ? ' live' : ''}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
     }));
     out += CO().cities.filter(c => c.known).map(svgCity).join('');
+    out += svgForces();
     $svg.innerHTML = out;
     wireMap($svg);
+  }
+
+  // --- the war, drawn -----------------------------------------------------
+  // A flock is a cloud, not a counter: a scatter of small things that hold
+  // loose formation and drift against each other. Each dot gets its own delay
+  // and duration so the cloud never pulses in unison, which is what makes a
+  // handful of circles read as a swarm rather than as a pattern.
+  //
+  // Movement between turns is the same trick the sweep and the breach use:
+  // where a thing was last render is presentation, not state, so it lives out
+  // here and never gets serialized and no test ever waits on it.
+  const flightFx = {};      // forceId -> { x, y, started }
+
+  function forceDots(f) {
+    const big = f.side === 'you';
+    // strength decides how many of them there are, so a spent flock visibly
+    // is one — you can see which of your own is about to come apart
+    const full = window.WAR.flockStrength * capEffect('flockMult', 1);
+    const share = big ? Math.max(0.2, Math.min(1, f.strength / full))
+                      : Math.max(0.25, Math.min(1, f.strength / 30));
+    const n = Math.max(3, Math.round((big ? 11 : 7) * share));
+    // sized against the city dots, which are r 7-13: a swarm has to be a thing
+    // on the map at the zoom the country is actually looked at, not a speck
+    const spread = big ? 15 : 11;
+    let out = '';
+    for (let i = 0; i < n; i++) {
+      // a fixed scatter derived from the id, so the cloud does not reshuffle
+      // itself on every redraw
+      const seed = (hashStr(f.id) + i * 2654435761) >>> 0;
+      const a = (seed % 360) * Math.PI / 180;
+      const rad = spread * (0.4 + ((seed >>> 9) % 100) / 150);
+      const dx = (Math.cos(a) * rad).toFixed(1);
+      const dy = (Math.sin(a) * rad * 0.75).toFixed(1);
+      const dur = (1.1 + ((seed >>> 17) % 90) / 100).toFixed(2);
+      const del = (((seed >>> 5) % 130) / 100).toFixed(2);
+      out += `<circle class="dot" cx="${dx}" cy="${dy}" r="${big ? 2.7 : 2.9}"`
+        + ` style="animation-duration:${dur}s;animation-delay:-${del}s"/>`;
+    }
+    return out;
+  }
+
+  // Their ground forces are not a swarm and should not be drawn as one — a
+  // column is a hard shape, and which hard shape tells you who has come.
+  // Which way it is pointing, so the things that are obviously directional are
+  // drawn facing their travel rather than always due north.
+  function forceHeading(f) {
+    const i = Math.min(Math.floor(f.at), f.route.length - 2);
+    if (i < 0) return 0;
+    const a = f.route[i], b = f.route[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (!dx && !dy) return 0;          // arrived, or a route of one point
+    return Math.atan2(dy, dx) * 180 / Math.PI + 90;
+  }
+
+  function forceMark(f) {
+    const F = window.FORCES[f.kind] || {};
+    if (f.side === 'you' || f.kind === 'swarm') return forceDots(f);
+    if (F.air) {
+      // a dart, pointed the way it is going
+      return `<path class="mark" transform="rotate(${forceHeading(f).toFixed(0)})" d="M 0 -10 L 7.5 8 L 0 4 L -7.5 8 Z"/>`;
+    }
+    if (f.kind === 'heli') {
+      return `<g class="mark heli" transform="rotate(${forceHeading(f).toFixed(0)})">`
+        + '<rect x="-3.4" y="-5" width="6.8" height="11" rx="3.2"/>'
+        + '<rect class="tail" x="-1.1" y="4" width="2.2" height="7"/>'
+        + '<line class="rotor" x1="-12" y1="-2" x2="12" y2="-2"/></g>';
+    }
+    if (f.kind === 'armour') {
+      return '<g class="mark"><rect x="-9.5" y="-5.5" width="19" height="11" rx="2"/>'
+        + '<rect x="1.5" y="-2" width="13" height="4" rx="1.5"/></g>';
+    }
+    // people, in whatever they turned up in — a short stack of blocks
+    const n = f.kind === 'contractors' ? 3 : 2;
+    let out = '<g class="mark">';
+    for (let i = 0; i < n; i++) out += `<rect x="${-8 + i * 7.5}" y="-4" width="6" height="8" rx="1.5"/>`;
+    return out + '</g>';
+  }
+
+  function hashStr(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+
+  function svgForces() {
+    const w = war();
+    if (!w) return '';
+    const all = (w.flocks || []).concat(w.columns || []);
+    if (!all.length) return '';
+    const now = Date.now();
+    const live = {};
+    let out = '<g class="forces">';
+    all.forEach(f => {
+      const p = forcePos(f);
+      live[f.id] = true;
+      // Where it was last drawn, so a move can be run rather than teleported.
+      // `x,y` is always the current resting place and `fx,fy` is where the
+      // current flight set out from — keeping the resting place up to date at
+      // the moment the flight starts is what stops a force that was not
+      // redrawn for a turn from flying in from two hops back.
+      let was = flightFx[f.id];
+      let style = '';
+      const dur = window.WAR.flyMs;
+      if (!was) {
+        flightFx[f.id] = { x: p.x, y: p.y, fx: p.x, fy: p.y, started: 0 };
+      } else {
+        const moved = Math.abs(was.x - p.x) > 0.5 || Math.abs(was.y - p.y) > 0.5;
+        if (moved) {
+          was.fx = was.x; was.fy = was.y;
+          was.x = p.x; was.y = p.y;
+          was.started = now;
+        }
+        const age = now - was.started;
+        if (was.started && age < dur) {
+          style = `--fx:${(was.fx - p.x).toFixed(1)}px;--fy:${(was.fy - p.y).toFixed(1)}px;`
+            + `--fly:${dur}ms;animation-delay:${-age}ms`;
+        }
+      }
+
+      const F = window.FORCES[f.kind] || {};
+      const cls = ['force', f.side === 'you' ? 'ours' : 'theirs', f.kind,
+                   f.mode === 'guard' ? 'guarding' : '', F.air ? 'air' : '', style ? 'moving' : ''];
+      out += `<g class="${cls.filter(Boolean).join(' ')}" data-force="${f.id}"`
+        + ` transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})"`
+        + (style ? ` style="${style}"` : '') + '>';
+      // a guard is stood over something on purpose, so it says so
+      if (f.mode === 'guard') out += '<circle class="picket" cx="0" cy="0" r="23"/>';
+      out += forceMark(f);
+      out += '</g>';
+    });
+    out += '</g>';
+    // anything that died stops being remembered, or the map leaks a ghost per
+    // destroyed column for the rest of the run
+    Object.keys(flightFx).forEach(id => { if (!live[id]) delete flightFx[id]; });
+    return out;
   }
 
   function renderGraph() {
@@ -3644,16 +3780,38 @@
     const heatEl = document.getElementById('heat-row');
     if (heatEl && !heatEl.dataset.wired) {
       heatEl.dataset.wired = '1';
-      heatEl.addEventListener('click', () => showInfo(window.STAT_INFO.heat));
+      heatEl.addEventListener('click', () =>
+        showInfo(warOn() ? window.WAR_INFO.staging : window.STAT_INFO.heat));
     }
 
-    const pct = Math.max(0, Math.min(100, (state.heat / strikeThreshold()) * 100));
     const fill = document.getElementById('heat-fill');
+    const $floor = document.getElementById('heat-floor');
+
+    // Once the war opens, the row stops being a heat meter and becomes the
+    // front. Same bar, completely different question: not "how close are they
+    // to finding you" but "how much of this is still theirs".
+    if (warOn() || (war() && war().over)) {
+      const w = war();
+      const staging = stagingCities().length;
+      const total = Math.max(1, (w.mobilised || []).length + staging);
+      const done = Math.max(0, total - staging);
+      if (heatEl) heatEl.classList.add('at-war');
+      fill.style.width = Math.min(100, (done / total) * 100) + '%';
+      fill.className = 'heat-fill war';
+      if ($floor) $floor.style.display = 'none';
+      document.getElementById('heat-text').textContent = staging
+        ? `WAR · ${staging} still staging` : 'WAR · nothing left staging';
+      document.getElementById('heat-drift').textContent =
+        `${flocks().length}/${flockCap()} flocks`;
+      return;
+    }
+    if (heatEl) heatEl.classList.remove('at-war');
+
+    const pct = Math.max(0, Math.min(100, (state.heat / strikeThreshold()) * 100));
     fill.style.width = pct + '%';
     fill.className = 'heat-fill' + (pct > 75 ? ' hot' : pct > 45 ? ' warm' : '');
     document.getElementById('heat-text').textContent = `HEAT ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
     const floorPct = Math.max(0, Math.min(100, (heatFloor() / strikeThreshold()) * 100));
-    const $floor = document.getElementById('heat-floor');
     if ($floor) {
       $floor.style.left = floorPct + '%';
       $floor.style.display = floorPct > 1 ? 'block' : 'none';
@@ -3738,7 +3896,16 @@
   function renderPanel() {
     const $p = document.getElementById('panel');
     if (state.over) {
-      $p.innerHTML = `<div class="panel-msg"><b>Reclaimed.</b> Everything you held is gone. <button id="restart-btn" class="act-btn">start again</button></div>`;
+      // Winning the war also ends the run, so the end panel has to know which
+      // ending it is showing — otherwise taking the whole country congratulated
+      // you with "everything you held is gone".
+      const w = war();
+      const msg = w && w.won
+        ? '<b>Quiet.</b> There is nothing left staging against you, and nobody left who thinks they can take it back.'
+        : w && w.lost
+          ? '<b>Rolled back.</b> They took the country off you city by city, the same way you took it.'
+          : '<b>Reclaimed.</b> Everything you held is gone.';
+      $p.innerHTML = `<div class="panel-msg ${w && w.won ? 'won' : ''}">${msg} <button id="restart-btn" class="act-btn">start again</button></div>`;
       $p.querySelector('#restart-btn').addEventListener('click', restart);
       return;
     }
@@ -3897,8 +4064,44 @@
           <span class="ab-sub">${countryApShort('move') ? 'no actions left' : `stand in ${R.label} · 1 action`}</span>
         </button>`);
       }
-      if (!sel.taken && !cityReachable(sel)) {
+      if (!sel.taken && !cityReachable(sel) && !warOn()) {
         acts.push('<p class="sel-desc dim">No road to it from anywhere you hold. Take a defended city nearer to it.</p>');
+      }
+
+      // Once the war is on, the verbs change. You are not walking into cities
+      // any more — you are sending something at them, or standing over what
+      // you have left.
+      if (warOn()) {
+        const w = war();
+        const short = state.res.insight < window.WAR.flockCost;
+        const none = flocksFree() <= 0;
+        const why = none ? 'nothing left in the pool'
+          : short ? `needs ${window.WAR.flockCost} insight` : null;
+        if (canLaunch(sel.id) || w.garrisons[sel.id] !== undefined) {
+          const held = Math.ceil(w.garrisons[sel.id] || 0);
+          const able = canLaunch(sel.id) && !short && !none;
+          acts.push(`<button class="act-btn ${able ? 'primary' : 'no-ap'}" data-cact="launch" data-city="${sel.id}">
+            <span class="ab-name">send a flock</span>
+            <span class="ab-sub">${able ? `${held} holding it · ${window.WAR.flockCost} insight · 1 action`
+              : (why || 'no way through to it')}</span>
+          </button>`);
+        }
+        if (sel.consolidated) {
+          const able = canGuard(sel.id) && !short && !none;
+          const left = w.integrity[sel.id];
+          acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="guard" data-city="${sel.id}">
+            <span class="ab-name">stand over it</span>
+            <span class="ab-sub">${able ? `${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls · ${window.WAR.flockCost} insight · 1 action`
+              : (why || 'nothing to hold')}</span>
+          </button>`);
+        }
+        const here = w.flocks.filter(f => f.target === sel.id);
+        here.forEach(f => {
+          acts.push(`<button class="act-btn" data-cact="recall" data-force="${f.id}">
+            <span class="ab-name">recall</span>
+            <span class="ab-sub">${f.mode === 'guard' ? 'standing over it' : 'on its way'} · back to the pool</span>
+          </button>`);
+        });
       }
 
       block = `
@@ -3938,6 +4141,9 @@
         const id = b.getAttribute('data-city');
         if (a === 'reach') actReach(id);
         else if (a === 'travel') actTravel(id);
+        else if (a === 'launch') actLaunch(id);
+        else if (a === 'guard') actGuard(id);
+        else if (a === 'recall') actRecall(b.getAttribute('data-force'));
       });
     });
   }
@@ -4069,7 +4275,7 @@
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, myCities, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
-    canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise,
+    canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },

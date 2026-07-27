@@ -3102,3 +3102,90 @@ test('war: it survives being saved and loaded', () => {
   assert.equal(back.war.flocks.length, d.war().flocks.length, 'with what you had in the air');
   assert.deepEqual(Object.keys(back.war.garrisons).sort(), Object.keys(d.war().garrisons).sort());
 });
+
+test('war: nothing is drawn before there is a war', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.svgForces(), '', 'no war, no forces');
+  conqueredCountry(d, window);
+  d.openWar();
+  assert.equal(d.svgForces(), '', 'and none the moment it opens, before anyone has moved');
+});
+
+test('war: yours are drawn as clouds, theirs as hard shapes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const target = d.stagingCities()[0];
+  const seat = d.launchSeat(target.id);
+  d.fieldFlock(seat.id, target.id, 'strike');
+  const route = d.routeFor('armour', target.id, seat.id);
+  w.columns.push({ id: 'x1', kind: 'armour', side: 'them', route, at: 0,
+    from: target.id, target: seat.id, strength: 24, raised: 24, slowTick: 0 });
+  const svg = d.svgForces();
+  assert.ok(/class="force ours[^"]*"/.test(svg), 'yours are marked as yours');
+  assert.ok(/class="force theirs[^"]*armour/.test(svg), 'and theirs by what they are');
+  const ours = svg.slice(svg.indexOf('force ours'), svg.indexOf('force theirs'));
+  assert.ok((ours.match(/class="dot"/g) || []).length >= 3, 'a flock is a cloud of things');
+  assert.ok(svg.includes('class="mark'), 'a column is one shape');
+});
+
+test('war: a spent flock is visibly a smaller cloud', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const target = d.stagingCities()[0];
+  const seat = d.launchSeat(target.id);
+  const f = d.fieldFlock(seat.id, target.id, 'strike');
+  const count = () => (d.svgForces().match(/class="dot"/g) || []).length;
+  const full = count();
+  f.strength = window.WAR.flockStrength * 0.25;
+  const spent = count();
+  assert.ok(spent < full, 'you can see which of your own is coming apart');
+  assert.ok(spent >= 3, 'but it is still a cloud while it is still alive');
+});
+
+test('war: a guard is drawn standing over its city', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const mine = d.myCities()[0];
+  d.fieldFlock(mine.id, mine.id, 'guard');
+  const svg = d.svgForces();
+  assert.ok(svg.includes('guarding'), 'it reads as parked, not passing through');
+  assert.ok(svg.includes('class="picket"'), 'with a picket around it');
+});
+
+test('war: directional things point where they are going', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const east = { at: 0, route: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
+  const south = { at: 0, route: [{ x: 0, y: 0 }, { x: 0, y: 100 }] };
+  assert.equal(Math.round(d.forceHeading(east)), 90, 'heading east');
+  assert.equal(Math.round(d.forceHeading(south)), 180, 'heading south');
+  assert.equal(d.forceHeading({ at: 0, route: [{ x: 5, y: 5 }, { x: 5, y: 5 }] }), 0,
+    'and something going nowhere is not pointed in an arbitrary direction');
+});
+
+test('war: the map does not remember forces that are gone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const target = d.stagingCities()[0];
+  const seat = d.launchSeat(target.id);
+  const f = d.fieldFlock(seat.id, target.id, 'strike');
+  assert.ok(d.svgForces().includes('data-force="' + f.id + '"'));
+  w.flocks.length = 0;
+  assert.equal(d.svgForces(), '', 'nothing left to draw');
+  d.fieldFlock(seat.id, target.id, 'strike');
+  const svg = d.svgForces();
+  assert.equal((svg.match(/data-force=/g) || []).length, 1, 'and no ghost of the one that died');
+});

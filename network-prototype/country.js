@@ -313,6 +313,7 @@ window.WAR = {
   airHop: 260,          // map units a flying thing covers in a turn — must beat
                         // roadReach, or the helicopters are slower than the vans
   planesAfter: 12,      // turns of war before the air force is committed
+  flyMs: 900,           // how long a thing takes to visibly cross to where it now is
   maxInflight: 6,       // hard cap on their columns at once — readability over realism
   sortiesPerTurn: 2,    // and however many cities they hold, only this many leave in a turn
 };
