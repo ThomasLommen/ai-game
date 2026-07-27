@@ -4484,3 +4484,37 @@ test('screen: the page itself is an app shell and does not scroll', () => {
   assert.ok(/height:\s*clamp\(/.test(map), 'the map is sized to the window, not to the leftovers');
   assert.ok(!/flex:\s*1[^ ]/.test(map), 'it is not the flexible one any more');
 });
+
+test('screen: the bottom of the screen belongs to the system, and we stay off it', () => {
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  const root = /:root\s*\{([\s\S]*?)\}/.exec(css)[1];
+  assert.ok(/--safe-bottom:\s*max\(/.test(root),
+    'there is a floor as well as an env() — plenty of gesture-nav phones report an inset of 0');
+  assert.ok(/env\(safe-area-inset-bottom/.test(root), 'and it does use the real inset where there is one');
+
+  const body = /^body\s*\{([\s\S]*?)\}/m.exec(css)[1];
+  assert.ok(/var\(--safe-bottom\)/.test(body),
+    'the body carries it, so everything inside is above the bar');
+
+  // the html says the page draws under the system bars, which is what makes
+  // the inset necessary in the first place
+  const html = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/index.html'), 'utf8');
+  assert.ok(/viewport-fit=cover/.test(html));
+});
+
+test('screen: a panel with more in it than fits says so', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+  assert.ok($p, 'the panel is addressable');
+  assert.doesNotThrow(() => d.markPanelOverflow(), 'and asking is safe with no layout');
+
+  // the fade is hung off the controls below it, since a pseudo-element on a
+  // scrolling box would scroll away with the content
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  assert.ok(/#panel\.more \+ #turn-row::before/.test(css),
+    'the fade sits on the row below the panel');
+});

@@ -4280,6 +4280,16 @@
   // The way out of a city belongs on the city, not in the panel. It is about
   // the whole map rather than whatever you have tapped, and down in the panel
   // it was competing for room with the decision you were actually making.
+  // The panel takes whatever the window has left, so on a small screen it can
+  // have more in it than fits. Say so: a button sliced off by the bottom edge
+  // reads as broken, the same content under a fade reads as more to come.
+  function markPanelOverflow() {
+    const $p = document.getElementById('panel');
+    if (!$p) return;
+    const more = $p.scrollHeight > $p.clientHeight + 2;
+    $p.classList.toggle('more', more);
+  }
+
   function renderConsolidate() {
     const $b = document.getElementById('consolidate');
     if (!$b) return;
@@ -5026,6 +5036,9 @@
     renderTags();
     renderScopeBtn();
     renderPanel();
+    // last: whether the panel overflows depends on what renderPanel just put
+    // in it, so asking before it runs measures the previous turn's panel
+    markPanelOverflow();
   }
 
   function restart() {
@@ -5046,7 +5059,7 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, renderHud, renderConsolidate,
+    maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
