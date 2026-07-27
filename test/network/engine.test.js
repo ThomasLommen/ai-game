@@ -3590,16 +3590,75 @@ test('standing: the story can be moved, and it is not real', () => {
 test('standing: an audit on top of a fabricated front takes the front', () => {
   const { window } = loadNetwork();
   const d = withCountry(window.__netDebug);
-  d.state.res.insight = 5000; d.state.ap = 999;
+  d.state.res.insight = 5000; d.state.res.cash = 500000; d.state.ap = 999;
   const L = window.LEGIT;
-  while (d.LG().exposure < L.caughtAt) d.actSpin();
-  const standing = d.legitScore();
+  // enough real standing behind it that the ceiling allows a front big enough
+  // to be worth exposing — with nothing filed you cannot get there at all,
+  // which is the point of the ceiling
+  ['register', 'accounts'].forEach(id => { d.state.ap = 999; d.buyRung(id); });
+  // bounded: the ceiling can refuse, and a while loop on a refusable action
+  // hangs the suite rather than failing it
+  for (let i = 0; i < 40 && d.LG().exposure < L.caughtAt; i++) {
+    d.state.ap = 999;
+    if (!d.actSpin()) break;
+  }
+  assert.ok(d.LG().exposure >= L.caughtAt, 'you can still push it far enough to be caught');
+  const bought = d.legitBought();
   const heat = d.state.heat;
   const r = d.runAudit();
   assert.equal(r.kind, 'caught');
-  assert.ok(d.legitScore() < standing, 'most of it goes');
+  assert.equal(Math.round(d.legitScore()), Math.round(bought),
+    'all of the invented part goes, and only what you actually bought is left');
   assert.ok(d.state.heat > heat, 'and it is very loud');
   assert.equal(d.LG().exposure, 0, 'there is nothing left to expose');
+});
+
+test('standing: being caught takes plant, which is the part you feel', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.insight = 5000; s.res.cash = 500000; s.ap = 999;
+  const co = s.country;
+  d.assets().push({ kind: 'yard', cityId: co.cities[0].id, city: co.cities[0].name, buildingId: 'x1', since: 1 });
+  d.assets().push({ kind: 'works', cityId: co.cities[1].id, city: co.cities[1].name, buildingId: 'x2', since: 1 });
+  const plant = d.assets().length;
+  d.LG().exposure = window.LEGIT.caughtAt;
+  const r = d.runAudit();
+  assert.equal(r.kind, 'caught');
+  assert.equal(d.assets().length, plant - window.LEGIT.caughtSeizes, 'they take the plant with the front');
+  assert.equal((r.seized || []).length, window.LEGIT.caughtSeizes, 'and say which');
+});
+
+test('standing: you cannot invent more of yourself than you can stand behind', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.insight = 500000; s.res.cash = 500000; s.ap = 999;
+
+  // with nothing filed anywhere there is a floor's worth of story and no more
+  const bare = d.spinCeil();
+  assert.ok(bare > 0, 'you can always push it a little');
+  let pushed = 0;
+  for (let i = 0; i < 40; i++) { s.ap = 999; if (!d.actSpin()) break; pushed++; }
+  assert.ok(pushed > 0, 'at least one push lands');
+  assert.equal(d.spinRoom(), 0, 'and then it refuses');
+  assert.ok(d.usableSpin() <= bare + 0.001, `over the ceiling: ${d.usableSpin()} of ${bare}`);
+
+  // buying real standing is what buys you room to invent more
+  s.ap = 999;
+  d.buyRung('register');
+  assert.ok(d.spinCeil() > bare, 'a rung raises the ceiling');
+  assert.ok(d.spinRoom() > 0, 'and there is room again');
+  s.ap = 999;
+  assert.equal(d.actSpin(), true, 'so the story can move again');
+});
+
+test('standing: a card cannot push the story past the ceiling either', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.applyStandingEffects({ spin: 9999 });
+  assert.ok(d.LG().spin <= d.spinCeil() + 0.001,
+    `a card walked through the ceiling: ${d.LG().spin} of ${d.spinCeil()}`);
 });
 
 test('standing: exposure fades if you stop pushing', () => {

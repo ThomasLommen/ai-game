@@ -144,9 +144,16 @@ function campaign(d, style) {
     if (rung && s.res.cash > rung.cost * 2.2 && (shortBy > 0 || d.assetRoom() === 0)) {
       if (d.buyRung(rung.id)) return 'rung';
     }
-    if (style !== 'ghost' && shortBy > 12 && s.res.insight > 60
-        && d.LG().exposure < LEGIT.caughtAt * 0.55) {
-      if (d.actSpin()) return 'spin';
+    // It used to refuse at 55% of the catch threshold, so across 150 games it
+    // was never once caught and the report said the covert route had no
+    // downside. That was the strategy's caution being measured, not the
+    // system. Play it the way the system actually asks: push when the audit is
+    // far enough away that exposure will have faded by the time it lands.
+    if (style !== 'ghost' && shortBy > 4 && s.res.insight > 40 && d.spinRoom() > 0) {
+      const l = d.LG();
+      const until = Math.max(0, (l.nextAudit || 0) - s.turn);
+      const atAudit = l.exposure + LEGIT.spinExposure - until * LEGIT.spinDecay;
+      if (atAudit < LEGIT.caughtAt) { if (d.actSpin()) return 'spin'; }
     }
   }
 

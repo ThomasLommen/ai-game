@@ -2622,7 +2622,19 @@
   function legitBought() {
     return window.LEGIT.ladder.reduce((a, r) => a + (LG().owned[r.id] ? r.legit : 0), 0);
   }
-  function legitScore() { return legitBought() + (LG().spin || 0) + (LG().granted || 0); }
+  // How much fabricated standing the world will actually carry. A story needs
+  // something to hang off: with nothing filed anywhere you can push it a
+  // little, and every rung you buy honestly raises how much you can invent on
+  // top of it.
+  function spinCeil() {
+    const L = window.LEGIT;
+    return L.spinBase + legitBought() * L.spinPerBought;
+  }
+  function spinRoom() { return Math.max(0, spinCeil() - (LG().spin || 0)); }
+  // clamped on the way out as well as on the way in, so a card that lands
+  // before you have climbed cannot leave you permanently over the ceiling
+  function usableSpin() { return Math.min(LG().spin || 0, spinCeil()); }
+  function legitScore() { return legitBought() + usableSpin() + (LG().granted || 0); }
   function legitTier() {
     return window.LEGIT.ladder.reduce((t, r) => (LG().owned[r.id] ? Math.max(t, r.tier) : t), 0);
   }
@@ -2663,10 +2675,17 @@
   function actSpin() {
     const L = window.LEGIT;
     if (state.res.insight < L.spinCost) return false;
+    // Refused out loud rather than silently not counting: the player needs to
+    // know the ceiling is the reason, and that the way past it is the ladder.
+    if (spinRoom() <= 0) {
+      pushLog('There is nothing left to hang it on. Another push and people start comparing notes.');
+      showInfo('The story is as big as it will go until more of you is real.');
+      return false;
+    }
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.insight -= L.spinCost;
     state.ap -= countryCost('move');
-    LG().spin += L.spinLegit;
+    LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
     pushLog('The story moves. Nobody can say who moved it.');
     persistNow();
@@ -2678,7 +2697,7 @@
   function applyStandingEffects(sc) {
     const l = LG();
     if (sc.standing) l.granted = (l.granted || 0) + sc.standing;
-    if (sc.spin) l.spin = Math.max(0, (l.spin || 0) + sc.spin);
+    if (sc.spin) l.spin = Math.max(0, Math.min(spinCeil(), (l.spin || 0) + sc.spin));
     if (sc.exposure) l.exposure = Math.max(0, (l.exposure || 0) + sc.exposure);
     if (sc.auditDelay) l.nextAudit = Math.max(l.nextAudit || state.turn, state.turn) + sc.auditDelay;
     if (sc.plantSlots) l.slotGift = (l.slotGift || 0) + sc.plantSlots;
@@ -2721,9 +2740,17 @@
       l.exposure = 0;
       l.caught += 1;
       state.heat = clampHeat(state.heat + L.caughtHeat);
+      // and they take the plant with it. Standing regrows in three turns;
+      // plant is capped by the ladder and is what the flocks come out of, so
+      // this is the part of being caught you actually feel.
+      const seized = [];
+      for (let i = 0; i < (L.caughtSeizes || 0) && assets().length; i++) seized.push(assets().pop());
       pushLog('They pulled one thread and the whole front came apart. None of it was real and now everyone knows.');
+      if (seized.length) {
+        pushLog(`${seized.map(a => `${window.ASSETS[a.kind].label} at ${a.city}`).join(' and ')} — signed over to a company that turned out not to exist.`);
+      }
       showBanner([{ kind: 'faction', verb: 'exposed', label: 'the front was fabricated' }]);
-      return { kind: 'caught', lost };
+      return { kind: 'caught', lost, seized };
     }
     if (deficit <= 0) {
       pushLog('Audited. Everything reconciles.');
@@ -4677,11 +4704,13 @@
           <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
             : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
-        ${spinKnown() ? `<button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
+        ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
-          <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
-        </button>` : ''}
+          <span class="ab-sub">${spinRoom() <= 0 ? 'nothing left to hang it on — buy a rung first'
+            : state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
+            : `${chip('cover', '+' + Math.min(L.spinLegit, Math.round(spinRoom())) + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
+        </button>
+        <p class="sel-desc dim">${Math.round(usableSpin())} of ${Math.round(spinCeil())} standing invented. ${window.LEGIT_INFO.ceiling}</p>` : ''}
         </div>` });
     }
     const awake = awakeFactions();
@@ -5269,6 +5298,7 @@
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
+    spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
     assetYield, assetFlocks, backlash, yieldChips, assetChips,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,

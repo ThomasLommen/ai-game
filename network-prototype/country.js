@@ -492,19 +492,42 @@ window.LEGIT = {
   auditFootK: 0.09,       // every point of footprint brings the next one forward
   finePerPoint: 4,        // cash, per point you are short
   seizeAt: 22,            // short by this much and they take something off you
-  // the other route
+  // The other route. Measured before these numbers moved: 720 pushes over 120
+  // turns, caught nine times, and it finished with a standing of 1086 against
+  // a footprint that cannot exceed about 150. It was not that being caught did
+  // nothing — it was that the supply was infinite, so nothing could matter.
   spinCost: 14,           // insight, per push
   spinLegit: 11,
   spinExposure: 1.15,
-  spinDecay: 0.06,        // exposure fades slowly if you stop
+  // One push used to take nineteen turns to fade against audits that land
+  // every six to thirteen, so from the third push onward you were permanently
+  // over the line and every audit was a catch. There was no push-hard-then-go-
+  // quiet play, which is the entire point of having a covert route. At 0.18 a
+  // push clears in about six turns — the audit floor — so timing pushes
+  // against the audit clock is the skill.
+  spinDecay: 0.18,
   caughtAt: 4.5,          // exposure this high when an audit lands and the front falls over
-  caughtLoss: 0.65,       // share of your bought legitimacy that goes with it
+  // All of it. A front that "was never real and now everyone knows" does not
+  // leave a third of itself standing; the old 0.65 wrote a sentence the number
+  // contradicted.
+  caughtLoss: 1,
   caughtHeat: 14,
+  // and they cannot discover the company is a fiction and leave the factory in
+  // your name. Plant is slot-capped and it is what the war is built out of, so
+  // it is the one loss you cannot spend your way back out of in three turns.
+  caughtSeizes: 1,
+  // Nobody believes a story with nothing behind it. Spin above this does not
+  // count, which makes the ladder the thing the covert route hangs off rather
+  // than an alternative to it: buying real standing raises how much you can
+  // fabricate on top of it.
+  spinBase: 12,
+  spinPerBought: 0.75,
 };
 
 window.LEGIT_INFO = {
   score: 'What the world believes you are. Buy it honestly and it is slow and expensive; buy the appearance of it and it is fast, cheap, and can be taken away all at once.',
   footprint: 'How impossible you are to miss. It rises with everything you hold and every piece of plant you run. Legitimacy has to stay ahead of it.',
   assets: 'Industrial plant that survives a city being folded in. It is what your flocks are built out of, and there is only room for so much of it.',
-  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you.',
+  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you — it takes the front and a piece of your plant with it.',
+  ceiling: 'A story needs something to hang off: every rung you buy honestly raises how much you can invent on top of it.',
 };
