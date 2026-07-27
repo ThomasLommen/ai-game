@@ -1129,7 +1129,10 @@ window.EVENTS = [
   // --- The Quiet Hours: going dark stops shedding heat -------------------
   {
     id: 'qh_warning', once: true,
-    cond: (s) => s.conquest >= 0.05 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
+    // Doors, not conquest. They now wake at fourteen doors — inside your first
+    // city — so a warning gated on having conquered anything could never fire
+    // before the thing it was warning about had already happened.
+    cond: (s) => s.doors >= 8 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [

@@ -1193,6 +1193,11 @@ function conquerTo(d, window, share) {
   const defended = d.state.country.cities.filter(c => window.CITY_KINDS[c.kind].contest);
   const want = Math.ceil(share * defended.length);
   defended.slice(0, want).forEach(c => { c.taken = true; c.consolidated = true; });
+  // You cannot fold a city in without having taken most of its doors — about
+  // nineteen of forty-six — and the ladder's first rung is keyed to doors
+  // rather than to cities. A helper that conquered without ever holding
+  // anything described a state no game can be in, and left that rung asleep.
+  if (want > 0) d.state.everHeld = Math.max(d.state.everHeld || 0, want * 19);
   return d.conquest();
 }
 
@@ -1202,7 +1207,7 @@ test('country: taking a faction seat finishes the faction', () => {
   const s = d.state;
   const f = window.FACTIONS[0];
 
-  conquerTo(d, window, f.wakes);
+  conquerTo(d, window, d.wakeShare(f));
   d.checkFactions();
   assert.equal(d.factionAwake(f.id), true, 'taking that much of the country wakes them');
 
@@ -1218,7 +1223,7 @@ test('persistence: the country survives a round trip', () => {
   holdToGoal(d);
   s.ap = 9;
   d.actConsolidate();
-  conquerTo(d, window, window.FACTIONS[0].wakes);
+  conquerTo(d, window, d.wakeShare(window.FACTIONS[0]));
   d.checkFactions();
   const presence = s.country.presence;
 
@@ -1273,20 +1278,28 @@ test('factions: wake on presence in order, hardest last', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const order = window.FACTIONS.slice().sort((a, b) => a.wakes - b.wakes);
+  // the ladder's order, read through the engine — a rung can now be keyed to
+  // doors taken rather than to a share of the country, so it fires inside your
+  // first city and reports as earlier than any share
+  const d0 = window.__netDebug;
+  const order = window.FACTIONS.slice().sort((a, b) => d0.wakeShare(a) - d0.wakeShare(b));
   for (let i = 1; i < order.length; i++) {
-    assert.ok(order[i].wakes > order[i - 1].wakes, 'each faction wakes later than the last');
+    assert.ok(d0.wakeShare(order[i]) > d0.wakeShare(order[i - 1]), 'each faction wakes later than the last');
     assert.ok(order[i].tier > order[i - 1].tier, 'and is a rung further up');
   }
-  order.forEach(f => assert.ok(f.wakes > 0 && f.wakes <= 1,
-    `${f.id} wakes at ${f.wakes}, which is not a share of the country`));
+  order.forEach(f => assert.ok(d0.wakeShare(f) > 0 && d0.wakeShare(f) <= 1,
+    `${f.id} wakes at ${d0.wakeShare(f)}, which is not a share of the country`));
 
   assert.equal(d.conquest(), 0, 'you have finished none of it yet');
   d.checkFactions();
   assert.equal(d.awakeFactions().length, 0, 'nobody cares about you yet');
 
-  conquerTo(d, window, order[0].wakes);
+  // The first rung is doors, not cities, so it is crossed inside your first
+  // city — before you have finished anything. Reaching it the way the game
+  // does is the point: this used to be gated two whole cities in.
+  s.everHeld = 14;
   d.checkFactions();
+  assert.equal(d.conquest(), 0, 'and you still have not finished a city');
   assert.equal(d.awakeFactions().length, 1, 'the first one notices');
   assert.equal(d.awakeFactions()[0].id, order[0].id);
 
@@ -1559,14 +1572,14 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 function sampleContexts(window) {
   const RULES = ['lielow', 'launder', 'cameras', 'streets', 'mirror'];
   const FIDS = window.FACTIONS.map(f => f.id);
-  const WAKES = window.FACTIONS.map(f => f.wakes);   // shares of the country
+  const WAKES = window.FACTIONS.map(f => window.__netDebug.wakeShare(f));  // shares of the country
   const out = [];
   const base = (o) => {
     const rules = new Set(o.brokenRules || []);
     const awake = new Set(o.awakeIds || []);
     const done = new Set(o.brokenIds || []);
     return Object.assign({
-      held: 0, heat: 0, power: 2, cover: 1, turn: 1,
+      held: 0, doors: 0, heat: 0, power: 2, cover: 1, turn: 1,
       res: { insight: 0, cash: 0 }, tags: new Set(o.tags || []),
       roles: { compute: 0, cash: 0, stealth: 0 },
       districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
@@ -1624,7 +1637,8 @@ function sampleContexts(window) {
               brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
               awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
               over: {
-                held, heat, presence, scope, regionTier, conquest: conq,
+                held, doors: Math.max(held, Math.round(conq * 95)),
+                heat, presence, scope, regionTier, conquest: conq,
                 power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
                 cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
                 res: { insight: 5 + presence, cash: 5 + presence },
@@ -2389,9 +2403,10 @@ test('prizes: the opening is presence, the back half is something you need', () 
   const defended = d.state.country.cities
     .filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
   assert.ok(defended.length >= 4, 'a country has a back half to speak of');
-  assert.ok(!defended[0].prize && !defended[1].prize,
-    'the first two are just cities');
-  const later = defended.slice(2);
+  // one plain city, then something in every other. There are four of these
+  // now rather than eight, so two plain ones was half the country.
+  assert.ok(!defended[0].prize, 'the first one is just a city');
+  const later = defended.slice(1);
   assert.ok(later.every(c => c.prize), 'and everything after carries something');
   later.forEach(c => assert.ok(window.CITY_PRIZES[c.prize], `${c.prize} is not a prize`));
 });

@@ -47,7 +47,7 @@ window.REGIONS = [
 window.CITY_KINDS = {
   fold: {
     label: 'town', contest: false,
-    blocks: [2, 2], presence: [2, 4], share: 0,
+    blocks: [2, 2], presence: [3, 5], share: 0,
     blurb: 'Small enough to take without going there yourself.',
   },
   contest: {
@@ -57,18 +57,33 @@ window.CITY_KINDS = {
   },
   root: {
     label: 'seat', contest: true,
-    blocks: [4, 3], presence: [9, 13], share: 0.55,
+    // Worth what two cities used to be. There are five defended cities now
+    // rather than nine, and everything downstream — power, cover, the heat
+    // floor, footprint, the war — is tuned against a country that totals
+    // around a hundred presence. Measured at the old values: 26 presence a
+    // campaign instead of 100, and the whole back half starved.
+    blocks: [4, 3], presence: [12, 18], share: 0.55,
     blurb: 'Somebody runs the region from here.',
   },
   home: {
     label: 'home', contest: true,
-    blocks: [4, 4], presence: [10, 10], share: 0.4,
+    // Consolidating must never gut you — presence has to buy back most of the
+    // power the streets were giving, or the next region is unplayable. At 14
+    // a thread-poor first city dropped you to 0.71 of the power you had, on
+    // 2.5% of boards.
+    blocks: [4, 4], presence: [20, 20], share: 0.4,
     blurb: 'The first place. You know every street of it.',
   },
 };
 
 window.COUNTRY = {
-  // cities per region, excluding the root each region always gets
+  // One defended city per region and nothing else. It was nine, and nine was
+  // the wrong number for two reasons: the campaign's whole escalation ladder
+  // is keyed to shares of it, so the first rung sat two completed cities away
+  // — past the point players actually stop — and nine near-identical cities is
+  // eight repetitions of a loop that is only novel once. Five means every
+  // defended city is a regional seat, every one of them is somebody's home
+  // ground, and taking it finishes a faction.
   perRegion: [2, 3],
   // national map geometry — cities are laid out in region bands
   bandH: 150, mapW: 620, pad: 60,
@@ -131,18 +146,39 @@ window.CITY_NAMES = {
 // either play without the tool or you go and take their seat.
 //
 //   breaks   — the id of the rule this faction deletes, read by the engine
-//   wakes    — the share of the country's *defended* cities you have folded in
-//              before they take an interest. A share rather than a presence
-//              number on purpose: presence moves every time a city's size or
-//              worth is tuned, and the ladder should not have to be repaced
-//              every time it does. Towns do not count — they are not milestones.
+//   wakes    — what has to be true before they take an interest, as either:
+//                { held: n }    doors you have ever taken, cumulative, so this
+//                               can be crossed inside your first city
+//                { cities: s }  share of the country's *defended* cities folded
+//                               in. Towns do not count — they are not milestones.
+//              whichever fires first.
+//
+//              This used to be a share and nothing else, and 15% of nine
+//              defended cities rounded to two — so the first thing in the world
+//              that ever reacted to you could not happen until you had finished
+//              two whole cities. Measured: turn 59, in 54% of games. Players
+//              stop before that, which meant the entire escalation ladder — the
+//              best-designed thing in the game — was content nobody saw. The
+//              first two rungs are now keyed to doors, not cities, so the world
+//              answers you while you are still learning what the tools are, and
+//              your second city is the first one you play without them.
 //   root     — set at generation: the city whose fall ends them
 window.FACTIONS = [
   {
     id: 'quiet_hours', region: 'estuary', tier: 1,
     name: 'The Quiet Hours',
     breaks: 'lielow',
-    wakes: 0.15,
+    // Late in your first city, not early in it: at eight doors this fired on
+    // turn 8 and took lying low away before the player had anything to lie low
+    // from, and every profile drowned — strikes tripled and nobody reached a
+    // third city. Fourteen puts it near the end of city one, and the estuary
+    // seat is the natural city two, so the world takes a tool and the very
+    // next place you go is where you take it back.
+    // Doors only, and deliberately no city fallback: folding your first city
+    // in needs about nineteen of its buildings, so fourteen is crossed by
+    // anyone who ever finishes one. Giving it a share as well collided with
+    // Ledger's — with five defended cities, 0.15 and 0.2 are both "one city".
+    wakes: { held: 14 },
     tell: 'lying low no longer sheds heat',
     blurb: 'A volunteer rota watching for the wrong kind of stillness. They noticed that the quiet places were getting quieter.',
     onWake: 'Somebody worked out that the safest-looking parts of the network were the ones being used. Going dark stops helping.',
@@ -152,7 +188,8 @@ window.FACTIONS = [
     id: 'ledger', region: 'midlands', tier: 2,
     name: 'Ledger',
     breaks: 'launder',
-    wakes: 0.3,
+    // your second city
+    wakes: { cities: 0.2 },
     tell: 'laundering raises heat instead of cutting it',
     blurb: 'A clearing house that started matching payment patterns against outage reports. It works.',
     onWake: 'Every account you wash through now leaves a shape somebody is looking for. Money is the loud option.',
@@ -162,7 +199,7 @@ window.FACTIONS = [
     id: 'civic_eyes', region: 'capital', tier: 3,
     name: 'Civic Eyes',
     breaks: 'cameras',
-    wakes: 0.45,
+    wakes: { cities: 0.4 },
     tell: 'your own stealth holdings report you instead of covering you',
     blurb: 'The camera network audits itself now. Anything on it that answers to somebody else answers loudly.',
     onWake: 'Your cameras are still yours. They are also, now, telling someone where you are.',
@@ -172,7 +209,7 @@ window.FACTIONS = [
     id: 'the_cut', region: 'north', tier: 4,
     name: 'The Cut',
     breaks: 'streets',
-    wakes: 0.62,
+    wakes: { cities: 0.6 },
     tell: 'they sever the links between what you hold',
     blurb: 'They stopped trying to catch you and started taking the roads away. Cheaper, and it works on anything.',
     onWake: 'A backhoe in the wrong place, twice in a week. Your map is going to start coming apart.',
@@ -182,7 +219,7 @@ window.FACTIONS = [
     id: 'the_other', region: null, tier: 5,
     name: 'the other one',
     breaks: 'mirror',
-    wakes: 0.78,
+    wakes: { cities: 0.8 },
     tell: 'it buys the same capabilities you do',
     blurb: 'Not a faction. Something running the same play, from the other end of the country.',
     onWake: 'It has started buying the same things you buy. It is not far behind.',
@@ -290,7 +327,7 @@ window.COUNTRY_ACTIONS = {
 // stopped mattering is exactly the right thing to buy your attention back
 // with.
 window.CELLS = {
-  at: 3,                 // cities folded in before anybody will take work from you
+  at: 2,                 // cities folded in before anybody will take work from you
   // Flat, this was a skip button. Measured at 240: 4.6 cities a campaign
   // handed over against 0.4 prizes taken by walking one, the war reached in
   // 96% of games instead of 65% and won in 92% instead of 60%. Cash income is
@@ -353,8 +390,10 @@ window.WAR = {
                         // a war whether or not it has tidied up behind itself.
   warning: 2,           // turns of notice before the first column moves
   mobilise: 0.6,       // share of the cities you folded in that the army simply walks back into
-  mobiliseFloor: 6,     // and never so few that the war is one exchange long
-  maxStaging: 8,        // nor so many that it cannot be won — the board is a fixed
+  // never more than the country holds: at six, against five defended cities,
+  // mobilising took every city you owned back off you
+  mobiliseFloor: 3,     // and never so few that the war is one exchange long
+  maxStaging: 4,        // nor so many that it cannot be won — the board is a fixed
                         // size however much of the country was still theirs
   // your flocks
   flockPer: 60,         // one flock in the pool per this much standing presence.
@@ -604,27 +643,27 @@ window.CITY_PRIZES = {
     blurb: 'Somebody built it, ran it for nine years, and stopped answering the phone. The line still turns over.',
     // with the room to run it: a prize you are shown and then cannot take
     // because the ladder is one rung short is a promise the game broke
-    at: 2, effect: { plantGift: 'works', plantSlots: 1 },
+    at: 1, effect: { plantGift: 'works', plantSlots: 1 },
   },
   slot: {
     label: 'room for one more',
     blurb: 'A registered address with a history, which is the part you cannot manufacture. What you put in it is your business.',
-    at: 2, effect: { plantSlots: 1 },
+    at: 1, effect: { plantSlots: 1 },
   },
   standing: {
     label: 'a name people know',
     blurb: 'Forty years of being the firm that fixed things here. It transfers with the paperwork.',
-    at: 3, effect: { standing: 16 },
+    at: 2, effect: { standing: 16 },
   },
   pool: {
     label: 'the yards along the water',
     blurb: 'Frontage, cranes, and a workforce who have built stranger things than this.',
-    at: 4, effect: { poolGift: 1 },
+    at: 3, effect: { poolGift: 1 },
   },
   audit: {
     label: 'a very tired inspector',
     blurb: 'He has three years to run and no interest whatsoever in running them hard.',
-    at: 3, effect: { auditDelay: 14 },
+    at: 2, effect: { auditDelay: 14 },
   },
 };
 
@@ -676,7 +715,11 @@ window.LEGIT = {
   noticeAt: 26,           // footprint at which anyone starts asking. Below this the
                           // whole standing system stays off the screen — arriving
                           // with the country map it was six new nouns at once.
-  footPerPresence: 0.5,   // being large is not something you can file your way out of
+  // 0.5 against the old nine-city country. Five cities means presence arrives
+  // in much larger steps, and standing — which matures over twenty-two turns —
+  // cannot follow a step that size: measured, short on 51% of turns, which is
+  // a tax rather than a decision.
+  footPerPresence: 0.38,  // being large is not something you can file your way out of
   footPerAsset: 9,        // and industrial plant is the least deniable thing you can own
   auditEvery: 13,         // turns between audits at a small footprint
   auditFloor: 6,          // never more often than this

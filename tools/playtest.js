@@ -601,7 +601,11 @@ function run() {
   console.log(`   role share  compute ${pct(roleAll.compute, roleSum)}  cash ${pct(roleAll.cash, roleSum)}  stealth ${pct(roleAll.stealth, roleSum)}`);
   console.log(`   games where heat floor stayed 0: ${pct(all.filter(r => r.heatFloor <= 0.001).length, all.length)}`);
   console.log(`   games with at least one strike:  ${pct(all.filter(r => r.strikes > 0).length, all.length)}`);
-  console.log(`   games that lost everything:      ${pct(all.filter(r => r.over).length, all.length)}`);
+  // `over` is set by winning the war as well as by being wiped out, so this
+  // line read 93% "lost everything" in a build where 92% of wars were won.
+  const wiped = all.filter(r => r.over && r.warOutcome !== 'won');
+  console.log(`   games that ended, one way or another: ${pct(all.filter(r => r.over).length, all.length)}`);
+  console.log(`   games that lost everything:          ${pct(wiped.length, all.length)}`);
 
   console.log('\n   the escalation — when each faction woke, and how long it had you:');
   ESC.forEach(f => {

@@ -469,6 +469,9 @@
     const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
     let last = null;
     defended.forEach((c, i) => {
+      // `at` was written against nine defended cities. With five there are
+      // four of these, so the first is plain and the other three each carry
+      // something — the thresholds came down to match rather than the index.
       const pool = Object.keys(P).filter(k => P[k].at <= i && k !== last);
       if (!pool.length) return;
       last = pool[Math.floor(Math.random() * pool.length)];
@@ -540,7 +543,10 @@
         kinds.push('home', 'fold', 'fold');
       } else {
         const n = rndInt(K.perRegion[0], K.perRegion[1]);
-        for (let i = 0; i < n; i++) kinds.push(Math.random() < 0.45 ? 'fold' : 'contest');
+        // towns, and one seat. Nothing else in a region is worth walking: a
+        // second defended city in the same region was a repeat of the one you
+        // had just done, at the same tier, for the same reward.
+        for (let i = 0; i < n; i++) kinds.push('fold');
         kinds.push('root');
       }
       shuffleArr(kinds);
@@ -1376,6 +1382,11 @@
     const cities = co.cities || [];
     return {
       held: owned().length, heat: state.heat, power: power(), cover: cover(),
+      // doors you have ever taken. `held` empties every time you fold a city
+      // in, so anything that wants to be about the shape of your whole run —
+      // the escalation's first rung, and the card that foreshadows it — has to
+      // read this instead.
+      doors: everHeld(),
       turn: state.turn, res: state.res, tags: state.tags,
       roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
@@ -2020,6 +2031,10 @@
     let opened = [];
     if (out.hold) {
       h.owned = true;
+      // cumulative and never reset — owned() empties every time you fold a
+      // city in, so anything keyed to it can only ever measure the city you
+      // are standing in
+      state.everHeld = (state.everHeld || 0) + 1;
       h.stability = 1;
       revealBuilding(buildingById(h.buildingId)); // you are inside now
       opened = cameraVision();
@@ -2645,11 +2660,34 @@
     return defended.filter(c => c.consolidated).length / defended.length;
   }
 
+  // Doors you have ever taken. The escalation's early rungs hang off this
+  // rather than off cities, so they can be crossed inside your first one.
+  function everHeld() { return Math.max(state.everHeld || 0, owned().length); }
+  // The share of the country at which a faction takes an interest, for
+  // anything that needs to reason about the ladder's order rather than about
+  // one game's state. A rung keyed only to doors reports as the share you
+  // would have reached by the time you had taken that many.
+  function wakeShare(f) {
+    const w = f.wakes;
+    if (typeof w === 'number') return w;
+    if (w && w.cities !== undefined) return w.cities;
+    // doors-only: it fires inside your first city, so it is earlier than any
+    // share the country can express
+    return 0.01;
+  }
+  function factionDue(f) {
+    const w = f.wakes;
+    if (typeof w === 'number') return conquest() >= w;      // an older save's shape
+    if (!w) return false;
+    if (w.held !== undefined && everHeld() >= w.held) return true;
+    if (w.cities !== undefined && conquest() >= w.cities) return true;
+    return false;
+  }
   function checkFactions() {
     window.FACTIONS.forEach(f => {
       const st = factionState(f.id);
       if (!st || st.awake || st.broken) return;
-      if (conquest() < f.wakes) return;
+      if (!factionDue(f)) return;
       st.awake = true;
       st.wokeTurn = state.turn;
       pushLog(`${f.name}. ${f.onWake}`);
@@ -3908,7 +3946,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
-      war: state.war || null, seen: state.seen || [], forced: state.forced || [],
+      war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -3922,7 +3960,7 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
-        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
+        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -5763,7 +5801,7 @@
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
-    factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
