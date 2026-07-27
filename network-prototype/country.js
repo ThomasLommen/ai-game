@@ -482,6 +482,9 @@ window.LEGIT = {
     { id: 'lobby',    tier: 5, cost: 3500, legit: 118, label: 'a lobbyist on retainer',
       blurb: 'It is cheaper than the fines and considerably cheaper than the legislation.' },
   ],
+  noticeAt: 26,           // footprint at which anyone starts asking. Below this the
+                          // whole standing system stays off the screen — arriving
+                          // with the country map it was six new nouns at once.
   footPerPresence: 0.5,   // being large is not something you can file your way out of
   footPerAsset: 9,        // and industrial plant is the least deniable thing you can own
   auditEvery: 13,         // turns between audits at a small footprint

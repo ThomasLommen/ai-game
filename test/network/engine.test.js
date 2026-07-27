@@ -4165,3 +4165,130 @@ test('screen: at country scale it names the country, not the street', () => {
   d.renderHud();
   assert.equal($l.textContent, 'open war', 'and the war outranks the geography');
 });
+
+// --- meeting the country -------------------------------------------------
+// Arriving at the national map used to hand you standing, footprint, audits,
+// plant, presence and flocks in one panel, plus a button offering to fabricate
+// a reputation you had not yet been asked to have.
+
+function atTheCountry(d) {
+  const s = d.state;
+  const goal = d.cityGoal();
+  let n = d.heldHere();
+  for (const b of s.buildings) {
+    if (n >= goal) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  s.ap = 6;
+  assert.equal(d.actConsolidate(), true, 'the home city folds in');
+  return d;
+}
+
+test('meeting: the first look at the country is not a briefing', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  assert.equal(d.state.scope, 'country');
+  assert.equal(d.noticed(), false, 'nobody is asking what you are yet');
+  assert.equal(d.plantKnown(), false, 'you hold nothing that would survive a fold');
+  assert.equal(d.spinKnown(), false, 'and no reason to fake anything');
+});
+
+test('meeting: standing turns up once you are hard to miss', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  const co = d.state.country;
+  assert.ok(d.footprint() < window.LEGIT.noticeAt, 'one city is not a national concern');
+  while (d.footprint() < window.LEGIT.noticeAt) {
+    const c = co.cities.find(x => !x.consolidated);
+    if (!c) break;
+    c.consolidated = true; c.taken = true; c.granted = c.worth; co.presence += c.worth;
+  }
+  assert.equal(d.noticed(), true, 'and several are');
+});
+
+test('meeting: once met, it stays met', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  d.state.country.presence = 400;
+  assert.equal(d.noticed(), true);
+  d.state.country.presence = 0;                 // they took it all back
+  assert.equal(d.noticed(), true, 'you do not un-learn what standing is');
+  assert.ok(d.hasSeen('standing'));
+});
+
+test('meeting: buying onto the record counts as meeting it', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  d.state.res.cash = 100000;
+  d.state.ap = 9;
+  assert.equal(d.noticed(), false);
+  d.buyRung(window.LEGIT.ladder[0].id);
+  assert.equal(d.noticed(), true, 'you are on a register now');
+});
+
+test('meeting: the covert route waits for an audit to have happened', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  d.state.country.presence = 300;
+  d.state.res.cash = 500;
+  assert.equal(d.spinKnown(), false, 'nothing has asked you to prove anything');
+  d.runAudit();
+  assert.equal(d.spinKnown(), true, 'now buying your way out of the next one means something');
+});
+
+test('meeting: plant turns up when you are holding something worth keeping', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(d.plantKnown(), false);
+  // a landmark you hold, noticed for you rather than only if you tap it
+  let lm = s.buildings.find(b => b.landmark);
+  if (!lm) { lm = s.buildings[0]; lm.kind = 'docks'; }
+  assert.ok(d.assetKindFor(lm), 'a landmark is a piece of plant');
+  d.hostsIn(lm).forEach(h => { h.owned = true; });
+  s.scope = 'city';
+  d.endTurn({ silent: true });
+  assert.equal(d.plantKnown(), true, 'and you are told so without having to go looking');
+});
+
+test('meeting: what you have met survives a save', () => {
+  const { window } = loadNetwork();
+  const d = atTheCountry(window.__netDebug);
+  d.noteSeen('standing');
+  d.noteSeen('spin');
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.deepEqual(back.seen.slice().sort(), ['spin', 'standing']);
+});
+
+test('meeting: an old save with no record of it does not crash', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const raw = JSON.parse(JSON.stringify(d.serialize()));
+  delete raw.seen;                               // saved before any of this existed
+  const back = d.deserialize(raw);
+  assert.ok(Array.isArray(back.seen), 'it comes back with an empty record');
+  d.setState(back);
+  assert.doesNotThrow(() => { d.noticed(); d.plantKnown(); d.spinKnown(); });
+});
+
+test('meeting: laundering no longer claims to buy cover', () => {
+  const { window } = loadNetwork();
+  const txt = window.ACTION_INFO.launder;
+  assert.ok(/heat/i.test(txt), 'it says what it actually does');
+  assert.ok(!/^Turn cash into cover/.test(txt), 'and not what it does not');
+});
+
+test('meeting: the hint at the bottom is about the map you are looking at', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $h = window.document.getElementById('footer-hint');
+  assert.ok($h, 'the hint is addressable');
+  d.state.scope = 'city';
+  d.renderHud();
+  assert.ok(/building/.test($h.textContent), 'in a city you tap buildings');
+  d.state.scope = 'country';
+  d.renderHud();
+  assert.ok(/city/.test($h.textContent) && !/building/.test($h.textContent),
+    'on the country map there are no buildings to tap');
+});

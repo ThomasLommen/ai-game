@@ -604,6 +604,7 @@
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
       ally: null,          // { name, trust } once something else joins you
       war: null,           // the last act — null until they stop trying to arrest you
+      seen: [],            // systems the player has actually met, so none arrive unasked
       over: false,
     };
   }
@@ -620,6 +621,42 @@
   // This is the whole point of weaving the two together: a decision on a card
   // has to change how the board behaves afterwards, or it was just flavour.
   const has = (t) => state.tags && state.tags.has(t);
+
+  // --- what the player has met --------------------------------------------
+  // Nothing in this game used to track what you had been shown, so the whole
+  // national layer arrived in one panel: standing, footprint, audits, plant,
+  // presence and flocks, six invented nouns at once, with a button offering to
+  // fake a reputation you had not yet been asked to have. Systems now turn up
+  // when they first mean something, and not before.
+  function hasSeen(id) { return (state.seen || []).indexOf(id) !== -1; }
+  function noteSeen(id) {
+    if (!state.seen) state.seen = [];
+    if (state.seen.indexOf(id) !== -1) return false;
+    state.seen.push(id);
+    return true;                 // first time — the caller may want to say so
+  }
+
+  // The state has started taking an interest: either you are big enough to be
+  // hard to miss, or somebody has already asked you a question about it.
+  function noticed() {
+    if (hasSeen('standing')) return true;
+    if ((LG().audits || 0) > 0 || legitTier() > 0) { noteSeen('standing'); return true; }
+    if (footprint() >= window.LEGIT.noticeAt) { noteSeen('standing'); return true; }
+    return false;
+  }
+  // You are holding something that would survive the city being folded in.
+  function plantKnown() {
+    if (hasSeen('plant')) return true;
+    if (assets().length) { noteSeen('plant'); return true; }
+    return false;
+  }
+  // Buying a reputation you have not earned only makes sense once you have
+  // been asked to prove one.
+  function spinKnown() {
+    if (hasSeen('spin')) return true;
+    if ((LG().audits || 0) > 0) { noteSeen('spin'); return true; }
+    return false;
+  }
   const capCount = (id) => (state.caps && state.caps[id]) || 0;
   const hasCap = (id) => capCount(id) > 0;
 
@@ -873,6 +910,13 @@
       pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
     }
     mirrorStep();
+    // Holding something that would survive the city being folded in is the
+    // moment plant is worth explaining — and it has to be noticed for you,
+    // because nothing guarantees you ever tap the building.
+    if (!hasSeen('plant') && state.scope === 'city'
+        && (state.buildings || []).some(b => assetKindFor(b) && hostsIn(b).some(h => h.owned))) {
+      noteSeen('plant');
+    }
     legitStep();          // exposure fades, and the auditors keep their own diary
     warStep();            // columns move, flocks move, whatever met fights
     cameraVision();       // held cameras reveal what is near them
@@ -3510,7 +3554,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
-      war: state.war || null,
+      war: state.war || null, seen: state.seen || [],
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -3523,7 +3567,7 @@
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
-        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null,
+        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [],
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -4264,6 +4308,13 @@
       void $turn.offsetWidth; // restart the animation
       $turn.classList.add('tick');
     }
+    // the hint at the bottom has to be about whichever map you are looking at:
+    // at country scale there are no buildings to tap
+    const $hint = document.getElementById('footer-hint');
+    if ($hint) {
+      $hint.textContent = 'drag to look around · pinch to zoom · tap a '
+        + (state.scope === 'country' ? 'city' : 'building') + ' to size it up';
+    }
     // at country scale the words have to be about the country, not the street
     if (state.scope === 'country') {
       const R = regionById(state.region);
@@ -4675,14 +4726,16 @@
     const short = foot - legit;
     const l = LG();
     const exposed = l.exposure >= L.caughtAt * 0.6;
-    const legitBlock = countryUnlocked() ? `
+    const legitBlock = (countryUnlocked() && noticed()) ? `
       <div class="legit">
         <div class="legit-top">
           <span class="eyebrow mono">standing</span>
           <span class="mono ${short > 0 ? 'bad' : 'good'}">${Math.round(legit)} vs ${Math.round(foot)} footprint</span>
         </div>
         <div class="legit-bar"><div class="legit-fill" style="width:${Math.max(0, Math.min(100, foot ? (legit / foot) * 100 : 100))}%"></div></div>
-        <p class="sel-desc dim">${short > 0
+        <p class="sel-desc dim">${l.audits === 0
+          ? 'You are big enough that somebody is going to ask what you are. Standing is the answer you can give them; footprint is how much answering there is to do.'
+          : short > 0
           ? `Short by ${Math.round(short)}. The next audit will cost you.`
           : 'Everything you are reconciles with everything you own.'}${
           l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'A lot of this is fabricated.' : 'Some of this is fabricated.'}</b>` : ''}</p>
@@ -4691,15 +4744,15 @@
           <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
             : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
-        <button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
-          <span class="ab-name">move the story</span>
+        ${spinKnown() ? `<button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
+          <span class="ab-name">place a story</span>
           <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}<span class="dim">none of it real</span>`}</span>
-        </button>
+            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}<span class="dim">cheaper than the truth, and it can come apart</span>`}</span>
+        </button>` : ''}
       </div>` : '';
 
     const own = assets();
-    const assetBlock = own.length || countryUnlocked() ? `
+    const assetBlock = plantKnown() ? `
       <div class="assets">
         <div class="legit-top">
           <span class="eyebrow mono">plant</span>
@@ -4939,7 +4992,7 @@
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
-    auditDue, runAudit, legitStep, applyStandingEffects, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
+    auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
     assetYield, assetFlocks, backlash, yieldChips, assetChips,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

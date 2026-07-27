@@ -511,7 +511,7 @@ window.ACTION_INFO = {
   sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
   upgrade: 'Permanently raise POWER. The only way to grow strength without taking another host.',
-  launder: 'Turn cash into cover. Cuts heat immediately, no waiting.',
+  launder: 'Spend cash to cut heat immediately, with no waiting and no turn lost. It does not touch COVER — the money buys silence, not invisibility.',
   shore: 'Reset a holding\'s stability. Neglected bodies decay and are eventually reclaimed.',
 };
 
