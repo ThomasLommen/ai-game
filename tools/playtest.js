@@ -606,6 +606,31 @@ function run() {
     console.log(`     ${k.padEnd(18)} ${fmt(v / all.length, 2)}`);
   });
 
+  // The last act was being recorded on every run and printed on none of it,
+  // so a balance pass over the war and the ladder had nothing to read.
+  const outcomes = {};
+  all.forEach(r => { outcomes[r.warOutcome] = (outcomes[r.warOutcome] || 0) + 1; });
+  const fought = all.filter(r => r.warOutcome !== 'never');
+  console.log('\n   the last act — how often it happens and how it lands:');
+  Object.entries(outcomes).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+    console.log(`     ${k.padEnd(12)} ${pct(v, all.length).padStart(6)}  (${v})`);
+  });
+  if (fought.length) {
+    console.log(`     opened on turn ${fmt(mean(fought.map(r => r.warOpenedTurn)), 0)}` +
+      ` · ${fmt(mean(fought.map(r => r.warSorties)), 1)} sorties · ${fmt(mean(fought.map(r => r.warKills)), 1)} kills`);
+  }
+
+  console.log('\n   standing and plant:');
+  const rungs = {};
+  all.forEach(r => { rungs[r.legitTier] = (rungs[r.legitTier] || 0) + 1; });
+  console.log('     ladder rungs reached: ' + Object.keys(rungs).sort()
+    .map(t => `${t}: ${pct(rungs[t], all.length)}`).join(' · '));
+  console.log(`     footprint ${fmt(mean(all.map(r => r.footprint)), 0)} against a standing of ` +
+    `${fmt(mean(all.map(r => r.legitScore)), 0)} · spin ${fmt(mean(all.map(r => r.spin)), 1)}`);
+  console.log(`     ${fmt(mean(all.map(r => r.assets)), 1)} of ${fmt(mean(all.map(r => r.assetSlots)), 1)} plant slots filled` +
+    ` · ${fmt(mean(all.map(r => r.audits)), 1)} audits · caught in ` +
+    `${pct(all.filter(r => r.caught > 0).length, all.length)} of games`);
+
   if (JSON_OUT) {
     require('fs').writeFileSync(JSON_OUT, JSON.stringify(all, null, 2));
     console.log(`\nwrote ${JSON_OUT}`);
