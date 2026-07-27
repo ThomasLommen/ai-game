@@ -1071,3 +1071,5 @@ footer .build { opacity: .55; font-size: 10px; }
 .heat-fill.war { background: linear-gradient(90deg, var(--cover), var(--insight)); }
 #heat-row.at-war .heat-track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--insight) 22%, transparent); }
 .panel-msg.won b { color: var(--cover); }
+/* the stage label is the loudest word on the screen once it says this */
+#stage-label { transition: color .4s ease; }

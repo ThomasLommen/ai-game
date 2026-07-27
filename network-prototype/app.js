@@ -2981,8 +2981,11 @@
     const dh = state.heat - before.heat;
     const dp = power() - before.power;
     const dHeld = owned().length - before.held;
-    if (di) parts.push({ cls: 'insight', text: `INSIGHT ${di > 0 ? '+' : ''}${di}` });
-    if (dc) parts.push({ cls: 'cash', text: `CASH ${dc > 0 ? '+' : ''}${dc}` });
+    // presence pays fractional yields, so these are floats — printed raw they
+    // came out as "CASH +17.400000000000006"
+    const num = (v) => (Math.round(v * 10) / 10).toString();
+    if (di) parts.push({ cls: 'insight', text: `INSIGHT ${di > 0 ? '+' : ''}${num(di)}` });
+    if (dc) parts.push({ cls: 'cash', text: `CASH ${dc > 0 ? '+' : ''}${num(dc)}` });
     if (dp) parts.push({ cls: 'power', text: `POWER ${dp > 0 ? '+' : ''}${dp}` });
     if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
     if (dHeld) parts.push({ cls: 'held', text: `HELD ${dHeld > 0 ? '+' : ''}${dHeld}` });
@@ -3761,7 +3764,11 @@
     if (state.scope === 'country') {
       const R = regionById(state.region);
       const done = CO().cities.filter(c => c.consolidated).length;
-      document.getElementById('stage-label').textContent = R.label;
+      // and once the war is on, about the war — the region you happen to be
+      // standing in stopped being the headline the moment they mobilised
+      document.getElementById('stage-label').textContent =
+        warOn() ? 'open war' : (war() && war().won) ? 'the country is yours'
+          : (war() && war().lost) ? 'rolled back' : R.label;
       // short form on purpose: the top bar has three things in it and the
       // narrowest phone worth supporting is 320 wide
       document.getElementById('held-count').textContent =
@@ -4077,26 +4084,35 @@
       const fac = sel.factionId ? window.FACTIONS.find(f => f.id === sel.factionId) : null;
       const facSt = fac ? factionState(fac.id) : null;
       const lines = [`${R.label} · ${K.label}`];
-      if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
+      // the peacetime description of a city is wrong once the war is on: you
+      // are not going to walk its streets, you are going to send something at it
+      const w = war();
+      if (warOn() && w.garrisons[sel.id] !== undefined) {
+        lines.push(`staging against you · ${Math.ceil(w.garrisons[sel.id])} holding it`);
+      } else if (warOn() && sel.consolidated) {
+        const left = w.integrity[sel.id];
+        lines.push(`yours · ${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls`);
+      } else if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
       else if (sel.taken) lines.push('you have a foothold here');
+      else if (warOn()) lines.push('out of the war — nothing stages from here');
       else lines.push(K.blurb);
       if (fac && !facSt.broken) lines.push(`<b>${fac.name}</b> runs the region from here`);
       if (fac && facSt.broken) lines.push(`${fac.name} is finished`);
 
       const acts = [];
-      if (!sel.taken && cityReachable(sel)) {
+      if (!sel.taken && cityReachable(sel) && !warOn()) {
         acts.push(`<button class="act-btn ${countryApShort('reach') ? 'no-ap' : 'primary'}" data-cact="reach" data-ap="reach" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
           <span class="ab-sub">${countryApShort('reach') ? 'no actions left' : `${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action`}</span>
         </button>`);
       }
-      if (sel.taken && !sel.consolidated && sel.id !== CO().at) {
+      if (sel.taken && !sel.consolidated && sel.id !== CO().at && !warOn()) {
         acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
           <span class="ab-sub">${countryApShort('move') ? 'no actions left' : 'go back to it · 1 action'}</span>
         </button>`);
       }
-      if (sel.consolidated && sel.id !== CO().at) {
+      if (sel.consolidated && sel.id !== CO().at && !warOn()) {
         acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
           <span class="ab-sub">${countryApShort('move') ? 'no actions left' : `stand in ${R.label} · 1 action`}</span>
