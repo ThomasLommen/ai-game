@@ -116,8 +116,14 @@ body {
   position: relative;
   width: 100%;
   max-width: 480px;
-  flex: 1;
-  min-height: 260px;
+  /* A fixed share of the window, not whatever the panel leaves over. Selecting
+     a building adds about 94px to the panel, and while the map was flexible
+     that came straight off the map: the box shrank by a quarter and the same
+     viewBox was refitted into it, so every building on screen rescaled and
+     slid. The map is the thing you are reading — it should not move because
+     you tapped something. */
+  flex: 0 0 auto;
+  height: clamp(240px, 42vh, 440px);
   margin-top: 10px;
 }
 /* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox

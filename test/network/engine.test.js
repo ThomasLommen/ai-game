@@ -4402,3 +4402,56 @@ test('tap: letting go works on the country map too', () => {
   d.clearSelection();
   assert.equal(s.country.selected, null);
 });
+
+// --- the map holds still ---------------------------------------------------
+// Selecting a building adds about 94px to the panel. While the map was the
+// flexible part of the layout that came straight off the map, and the same
+// viewBox refitted into a shorter box rescaled everything on screen.
+
+test('view: selecting and letting go never moves the map', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.renderGraph();
+  const before = JSON.stringify(s.view);
+
+  d.pickBuilding(s.buildings[3].id);
+  assert.equal(JSON.stringify(s.view), before, 'tapping a building is not a camera move');
+  d.clearSelection();
+  assert.equal(JSON.stringify(s.view), before, 'and neither is letting go');
+  d.pickBuilding(s.buildings[7].id);
+  d.pickBuilding(s.buildings[2].id);
+  assert.equal(JSON.stringify(s.view), before, 'however many times you do it');
+});
+
+test('view: the same on the country map', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  d.renderGraph();
+  const before = JSON.stringify(s.view);
+  const c = s.country.cities.find(x => x.known);
+  d.pickCity(c.id);
+  assert.equal(JSON.stringify(s.view), before);
+  d.clearSelection();
+  assert.equal(JSON.stringify(s.view), before);
+});
+
+test('view: the window it shows always matches the shape of the box it is in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.view = { x: 0, y: 0, w: 500, h: 10 };        // deliberately the wrong shape
+  d.clampView(s.view);
+  // the view's aspect must equal the box's, or the browser letterboxes it and
+  // everything on the map silently rescales
+  const ratio = s.view.h / s.view.w;
+  assert.ok(ratio > 0, 'it has a shape at all');
+  const again = { x: 0, y: 0, w: s.view.w, h: 99999 };
+  d.clampView(again);
+  assert.ok(Math.abs(again.h / again.w - ratio) < 0.001,
+    'and it is the same shape whatever you hand it');
+});

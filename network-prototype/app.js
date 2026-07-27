@@ -5053,7 +5053,7 @@
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate,
-    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
@@ -5086,6 +5086,23 @@
       if (countryApShort('consolidate')) { refuseForAP($consolidate); return; }
       actConsolidate();
     });
+  }
+
+  // A genuine resize — rotating the phone, the address bar collapsing — has to
+  // be noticed, because the viewport rect is cached and nothing was
+  // invalidating it. Without this the box changes size and the same viewBox is
+  // quietly refitted into it, which rescales the whole map.
+  const $wrap = document.getElementById('graph-wrap');
+  if ($wrap && typeof ResizeObserver === 'function') {
+    let lastH = 0, lastW = 0;
+    const ro = new ResizeObserver(() => {
+      const r = $wrap.getBoundingClientRect();
+      if (Math.abs(r.height - lastH) < 1 && Math.abs(r.width - lastW) < 1) return;
+      lastH = r.height; lastW = r.width;
+      invalidateViewport();
+      if (state.view) { clampView(state.view); applyView(); }
+    });
+    ro.observe($wrap);
   }
 
   const $recenter = document.getElementById('recenter');
