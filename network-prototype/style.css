@@ -504,6 +504,76 @@ footer .build { opacity: .55; font-size: 10px; }
 .ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10; }
 .sleeper { stroke: #202826; stroke-width: 2; }
 .scrub   { fill: #1b2a1e; }
+/* --- the sweep, seen ---------------------------------------------------
+   A ring going out from whatever you swept from, with each new building
+   blipping in as it passes over. Scaled from r=1 inside a translated group,
+   so it expands about the sweep origin without needing transform-origin on
+   an SVG element — which is the part that is patchy on older Safari. */
+.sweep { pointer-events: none; }
+.sweep-ring {
+  fill: none;
+  stroke: var(--insight);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  /* Expansion is linear and the fade is not, deliberately, and they are two
+     animations so they can carry different timing functions. Eased expansion
+     put the ring at 70% of its radius in a quarter of the time, so the
+     furthest building blipped in long after the ring had passed it and gone —
+     which is the one illusion this exists to create. */
+  animation:
+    sweepOut var(--sweep-dur) linear forwards,
+    sweepFade var(--sweep-dur) ease-in forwards;
+}
+.sweep-ring.trail {
+  stroke: color-mix(in srgb, var(--insight) 40%, transparent);
+  stroke-width: 5;
+  animation-delay: 70ms, 70ms;
+}
+@keyframes sweepOut {
+  0%   { transform: scale(0); }
+  100% { transform: scale(var(--sweep-r)); }
+}
+@keyframes sweepFade {
+  0%   { opacity: .95; }
+  78%  { opacity: .65; }
+  100% { opacity: 0; }
+}
+
+/* the blip itself: a ping where something turned up */
+.sweep-ping {
+  fill: none;
+  stroke: var(--insight);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pingOut 620ms ease-out backwards;
+  pointer-events: none;
+}
+@keyframes pingOut {
+  0%   { transform: scale(.4); opacity: 0; }
+  25%  { transform: scale(1);  opacity: 1; }
+  100% { transform: scale(4.2); opacity: 0; }
+}
+
+/* and the building arriving with it */
+.bldg.found {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blipIn 460ms cubic-bezier(.2, .9, .3, 1) backwards;
+}
+@keyframes blipIn {
+  0%   { opacity: 0; transform: scale(.55); }
+  55%  { opacity: 1; transform: scale(1.09); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* somebody who does not want motion still needs to see what was found */
+@media (prefers-reduced-motion: reduce) {
+  .sweep-ring, .sweep-ping { animation-duration: 1ms; opacity: 0; }
+  .bldg.found { animation: foundFlash 500ms ease-out backwards; transform: none; }
+  @keyframes foundFlash { 0% { opacity: 0; } 100% { opacity: 1; } }
+}
+
 /* the only way across, so it is the loudest thing on the band */
 .crossing { fill: #232d29; }
 

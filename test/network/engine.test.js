@@ -2218,3 +2218,90 @@ test('persistence: the other process survives a round trip', () => {
   assert.equal(round.ally.name, 'SECOND');
   assert.equal(round.ally.trust, d.state.ally.trust);
 });
+
+// --- the sweep, seen -----------------------------------------------------
+// The ring is presentation only. The reveal itself happens in state the moment
+// you sweep, so a save, a reload, or a test never waits on an animation.
+
+test('sweep fx: the reveal is immediate in state, whatever is on screen', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const before = s.buildings.filter(b => b.discovered).length;
+
+  s.res.insight = 40;
+  s.ap = 3;
+  d.actScan();
+
+  assert.ok(s.buildings.filter(b => b.discovered).length > before,
+    'the buildings are discovered the moment the sweep happens');
+  // and none of it is in the save
+  const saved = d.serialize();
+  assert.equal(saved.sweepFx, undefined, 'the animation is never serialized');
+  assert.ok(!('sweepFx' in s), 'nor does it live on state');
+});
+
+test('sweep fx: blips are staggered by how far the ring has to travel', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const origin = d.buildingById(d.owned()[0].buildingId);
+
+  const near = { id: 'fx-near', x: origin.x + 30, y: origin.y, w: 10, h: 10, hostIds: [] };
+  const mid = { id: 'fx-mid', x: origin.x + 220, y: origin.y, w: 10, h: 10, hostIds: [] };
+  const far = { id: 'fx-far', x: origin.x + 460, y: origin.y, w: 10, h: 10, hostIds: [] };
+  s.buildings.push(near, mid, far);
+
+  const fx = d.startSweepFx([far, near, mid]);   // deliberately out of order
+  assert.ok(fx, 'a sweep that found something has an animation');
+
+  assert.ok(fx.ids['fx-near'] < fx.ids['fx-mid'], 'the near one lands first');
+  assert.ok(fx.ids['fx-mid'] < fx.ids['fx-far'], 'and the far one last');
+  assert.ok(fx.ids['fx-far'] <= fx.dur, 'and everything lands inside the sweep');
+  assert.equal(fx.ids['fx-near'] >= 0, true);
+
+  // the ring has to reach as far as the furthest thing it turned up
+  const furthest = Math.hypot(far.x + far.w / 2 - fx.x, far.y + far.h / 2 - fx.y);
+  assert.ok(fx.maxR >= furthest, 'the ring reaches the furthest building it found');
+
+  // and the blip time is proportional to the distance, because the ring
+  // expands at a constant speed
+  const ratio = (id, b) => {
+    const dist = Math.hypot(b.x + b.w / 2 - fx.x, b.y + b.h / 2 - fx.y);
+    return (fx.ids[id] / fx.dur) / (dist / fx.maxR);
+  };
+  [['fx-near', near], ['fx-mid', mid], ['fx-far', far]].forEach(([id, b]) => {
+    assert.ok(Math.abs(ratio(id, b) - 1) < 0.02,
+      `${id} blips out of step with where the ring would be`);
+  });
+
+  assert.equal(d.startSweepFx([]), null, 'nothing found, nothing to animate');
+});
+
+test('sweep fx: it never fires with nothing to find', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // discover everything, so a sweep has no targets
+  s.buildings.forEach(b => d.revealBuilding(b));
+  s.res.insight = 40;
+  const ap = s.ap;
+  d.actScan();
+  assert.equal(s.ap, ap, 'a sweep with nothing to find costs nothing');
+});
+
+test('sweep fx: the view moves only when the sweep is off screen', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'city';
+  s.view = { x: 0, y: 0, w: 400, h: 400 };
+
+  assert.equal(d.focusOn([{ x: 200, y: 200 }]), false,
+    'something already in view does not yank the map about');
+  const kept = JSON.stringify(s.view);
+  assert.equal(JSON.stringify(s.view), kept);
+
+  assert.equal(d.focusOn([{ x: 1400, y: 900 }]), true, 'something off screen does');
+  assert.notEqual(JSON.stringify(s.view), kept);
+});

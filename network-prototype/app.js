@@ -711,7 +711,7 @@
   }
   function hostById(id) { return state.hosts.find(h => h.id === id); }
   function buildingById(id) { return (state.buildings || []).find(b => b.id === id); }
-  function hostsIn(b) { return b ? b.hostIds.map(hostById).filter(Boolean) : []; }
+  function hostsIn(b) { return (b && b.hostIds) ? b.hostIds.map(hostById).filter(Boolean) : []; }
   function buildingHeld(b) { return hostsIn(b).some(h => h.owned); }
 
   // Cameras are eyes. Holding one reveals the buildings around it without
@@ -1314,8 +1314,112 @@
     pushLog(found.length
       ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`
       : 'Sweep found nothing new.');
+    startSweepFx(found);
     persistNow();
     render();
+  }
+
+  // --- the sweep, seen ----------------------------------------------------
+  // A ring going out from whatever you swept from, and each building blipping
+  // in as it passes over. The reveal itself already happened in state above —
+  // this is only presentation, so a save, a reload or a test never depends on
+  // an animation having finished. It lives outside `state` for the same
+  // reason: it must never be serialized.
+  let sweepFx = null;
+  let sweepFxToken = 0;
+
+  // Nudge the view so the sweep is actually on screen. A scanner you cannot
+  // see is pointless, and the origin is wherever you happen to hold ground —
+  // frequently a long way from where you were last looking. Only moves when it
+  // has to, so it never yanks the map out from under you for no reason.
+  function focusOn(points) {
+    if (!points.length || state.scope !== 'city') return false;
+    if (!state.view) state.view = clampView(defaultView());
+    const v = state.view;
+    const pad = 30;
+    const inside = points.every(p =>
+      p.x >= v.x + pad && p.x <= v.x + v.w - pad &&
+      p.y >= v.y + pad && p.y <= v.y + v.h - pad);
+    if (inside) return false;
+
+    const xs = points.map(p => p.x), ys = points.map(p => p.y);
+    const cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    const cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    const needW = (Math.max.apply(null, xs) - Math.min.apply(null, xs)) + pad * 4;
+    if (needW > v.w) v.w = needW;
+    v.x = cx - v.w / 2;
+    v.y = cy - v.h / 2;
+    clampView(v);
+    return true;
+  }
+
+  // Returns what it computed, so the timing can be asserted without depending
+  // on the transient object still being there.
+  function startSweepFx(found) {
+    if (!found || !found.length) { sweepFx = null; return null; }
+    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+
+    // the ring goes out from the nearest thing you actually hold — that is
+    // where a sweep would have been run from
+    const held = state.buildings.filter(b => hostsIn(b).some(h => h.owned));
+    const targets = found.map(centre);
+    const mid = targets.reduce((a, c) => ({ x: a.x + c.x / targets.length, y: a.y + c.y / targets.length }), { x: 0, y: 0 });
+    let origin = mid;
+    if (held.length) {
+      const near = held.reduce((best, b) => {
+        const c = centre(b);
+        const d = Math.hypot(c.x - mid.x, c.y - mid.y);
+        return (!best || d < best.d) ? { d, c } : best;
+      }, null);
+      if (near) origin = near.c;
+    }
+
+    const dists = targets.map(t => Math.hypot(t.x - origin.x, t.y - origin.y));
+    const maxR = Math.max(60, Math.max.apply(null, dists) + 46);
+    const dur = window.SWEEP_FX.duration;
+
+    const ids = {};
+    found.forEach((b, i) => {
+      // the blip lands when the ring actually reaches it
+      ids[b.id] = Math.round((dists[i] / maxR) * dur);
+    });
+    sweepFx = { x: origin.x, y: origin.y, maxR, dur, ids, started: Date.now() };
+    focusOn(targets.concat([origin]));
+
+    const out = sweepFx;
+    const mine = ++sweepFxToken;
+    setTimeout(() => {
+      if (mine !== sweepFxToken) return;
+      sweepFx = null;
+      renderGraph();       // drop the classes so it never replays on a redraw
+    }, dur + window.SWEEP_FX.linger);
+    return out;
+  }
+
+  // How far into the sweep we already are. A redraw part-way through — ending
+  // the turn, say — would otherwise restart every animation from zero and
+  // replay blips that had already landed. A negative delay fast-forwards.
+  function sweepElapsed() { return sweepFx ? Date.now() - sweepFx.started : 0; }
+  function sweepDelay(ms) { return Math.round(ms - sweepElapsed()); }
+
+  function svgSweep() {
+    if (!sweepFx) return '';
+    // scaled from r=1 inside a translated group, so it expands about the sweep
+    // origin without relying on transform-origin on an SVG element
+    const f = sweepFx;
+    const lead = sweepDelay(0);
+    let out = `<g class="sweep" transform="translate(${f.x} ${f.y})" style="--sweep-r:${f.maxR};--sweep-dur:${f.dur}ms">`;
+    out += `<circle class="sweep-ring" r="1" style="animation-delay:${lead}ms,${lead}ms"/>`;
+    out += `<circle class="sweep-ring trail" r="1" style="animation-delay:${lead + 70}ms,${lead + 70}ms"/>`;
+    out += '</g>';
+    // and a ping where each new building turned up, timed to the ring
+    Object.keys(f.ids).forEach(id => {
+      const b = buildingById(id);
+      if (!b) return;
+      out += `<circle class="sweep-ping" cx="${b.x + b.w / 2}" cy="${b.y + b.h / 2}" r="3"`
+        + ` style="animation-delay:${sweepDelay(f.ids[id])}ms"/>`;
+    });
+    return out;
   }
 
   // Going dark is the whole turn, not one action of it — that is the cost.
@@ -2338,8 +2442,11 @@
     const cls = ['bldg', b.kind, h ? h.role : '', b.landmark ? 'landmark' : '',
                  theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : ''))];
     if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
+    const fx = sweepFx && sweepFx.ids[b.id] !== undefined ? sweepDelay(sweepFx.ids[b.id]) : null;
+    if (fx !== null) cls.push('found');
     const roof = Math.min(10, b.h * 0.28);
-    let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}">`;
+    let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}"`
+      + (fx !== null ? ` style="animation-delay:${fx}ms"` : '') + '>';
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
     // windows hint at how much is inside
@@ -2472,6 +2579,7 @@
     }).join('');
 
     out += seen.map(svgBuilding).join('');
+    out += svgSweep();
 
     $svg.innerHTML = out;
     wireMap($svg);
@@ -3100,7 +3208,7 @@
   window.__netState = state;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
-    actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
+    actScan, startSweepFx, focusOn, sweepDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,

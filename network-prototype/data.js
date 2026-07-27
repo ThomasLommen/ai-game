@@ -38,6 +38,10 @@ window.LAUNDER = { cost: 8, heat: 10, share: 0.26 };
 // on 2473 cash with nothing discovered next to it and made no progress for 300
 // turns, because the only route to a new frontier was priced in the one
 // currency it did not have.
+// How long the sweep takes to look, on screen. The reveal itself is instant in
+// state — this only paces how it is shown.
+window.SWEEP_FX = { duration: 850, linger: 500 };
+
 window.SWEEP_COST = 2;
 window.SWEEP_CASH = 9;
 
