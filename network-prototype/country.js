@@ -57,12 +57,18 @@ window.CITY_KINDS = {
   },
   root: {
     label: 'seat', contest: true,
-    // Worth what two cities used to be. There are five defended cities now
-    // rather than nine, and everything downstream — power, cover, the heat
-    // floor, footprint, the war — is tuned against a country that totals
-    // around a hundred presence. Measured at the old values: 26 presence a
-    // campaign instead of 100, and the whole back half starved.
-    blocks: [4, 3], presence: [12, 18], share: 0.55,
+    // Blocks: 4x3 made your second city the smallest in the campaign — 30
+    // buildings against the first city's 49 — because blockBonusFromTier
+    // rounds to no growth at tier 1. A step down, at the exact moment it most
+    // needs to be a step up. Every seat is now the size of the city you
+    // learned on.
+    //
+    // Presence: worth what two cities used to be. There are five defended
+    // cities now rather than nine, and everything downstream — power, cover,
+    // the heat floor, footprint, the war — is tuned against a country that
+    // totals around a hundred presence. At the old values a campaign finished
+    // on 26 presence instead of 100 and the whole back half starved.
+    blocks: [4, 4], presence: [12, 18], share: 0.55,
     blurb: 'Somebody runs the region from here.',
   },
   home: {
@@ -96,12 +102,14 @@ window.COUNTRY = {
   // fallback share of a city you must hold before you can fold it in; each
   // city kind overrides it (home is a gentler bar — it is chapter one)
   consolidateShare: 0.55,
-  // Cities out in the deep regions are a little bigger as well as harder.
-  // Flat, a builder took the whole country in 75 turns — five turns a city,
-  // which is not a city. At half a block per tier it overshot the other way:
-  // a capital seat came out at 98 buildings needing 64 held, and one city ate
-  // 834 turns. A quarter of a block per tier is the middle of that.
-  blockBonusFromTier: 0.25,
+  // Cities do not get longer as you go — they get harder. Every seat is about
+  // forty doors and asks for twenty-odd of them; what changes is the median
+  // door, which runs 5 / 15 / 33 / 47 / 66 across the five, and what the
+  // faction ladder has taken off you by the time you arrive. Growing them with
+  // tier instead was how a deep-region seat reached 75 buildings needing 41
+  // held, which is not a harder question, only a longer one. Flat at zero, a
+  // builder took the whole country in 75 turns, so a little growth stays.
+  blockBonusFromTier: 0.12,
   // presence pays out every country turn — this is what a finished city is worth
   presenceYield: { insight: 0.5, cash: 0.6 },
   // Folding a city in releases everything you held there, so presence has to
