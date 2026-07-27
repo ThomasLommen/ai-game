@@ -56,19 +56,38 @@ test('city: generates districts of buildings, each with a way in, all reachable'
 });
 
 test('city: difficulty rises with district, so expanding outward gets harder', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
+  // This is a claim about the generator, and it used to be checked against one
+  // random board — where the first two rings have overlapping defense ranges
+  // and about ten hosts each, so they came out the wrong way round on 4.3% of
+  // boards. Measured over 300. Pool several instead: the shape of the city is
+  // the thing being asserted, not the roll of any one of them.
   const byTier = {};
-  d.state.hosts.forEach(h => {
-    (byTier[h.ring] = byTier[h.ring] || []).push(h.defense);
-  });
+  let tiersSeen = 0;
+  for (let i = 0; i < 12; i++) {
+    const d = loadNetwork().window.__netDebug;
+    const rings = {};
+    d.state.hosts.forEach(h => {
+      (byTier[h.ring] = byTier[h.ring] || []).push(h.defense);
+      rings[h.ring] = true;
+    });
+    tiersSeen = Math.max(tiersSeen, Object.keys(rings).length);
+  }
   const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const tiers = Object.keys(byTier).map(Number).sort((a, b) => a - b);
-  assert.ok(tiers.length >= 3, 'several difficulty tiers exist');
+  assert.ok(tiersSeen >= 3, 'several difficulty tiers exist');
   for (let i = 1; i < tiers.length; i++) {
     assert.ok(avg(byTier[tiers[i]]) > avg(byTier[tiers[i - 1]]),
-      `tier ${tiers[i]} is not harder than tier ${tiers[i - 1]}`);
+      `tier ${tiers[i]} (${avg(byTier[tiers[i]]).toFixed(1)}) is not harder than` +
+      ` tier ${tiers[i - 1]} (${avg(byTier[tiers[i - 1]]).toFixed(1)})`);
   }
+  // and on any single board the outside must still be clearly harder than the
+  // middle, which is what the player actually feels
+  const d = loadNetwork().window.__netDebug;
+  const one = {};
+  d.state.hosts.forEach(h => { (one[h.ring] = one[h.ring] || []).push(h.defense); });
+  const ks = Object.keys(one).map(Number).sort((a, b) => a - b);
+  assert.ok(avg(one[ks[ks.length - 1]]) > avg(one[ks[0]]) * 1.5,
+    'the edge of a city should be a different proposition from its middle');
 });
 
 test('city: the opening is never a hard stall', () => {
@@ -2335,6 +2354,85 @@ test('prizes: a pool gift taken in peacetime is still there when they mobilise',
   d.state.country.poolGift = 2;
   d.openWar();
   assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
+});
+
+// --- what the cards left you with ----------------------------------------
+// A campaign hands out permanent things through the deck as well as the tree,
+// and the only trace of them was a count in the tray and a banner the turn you
+// got one.
+
+test('held: nothing to show until the deck has given you something', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.heldTags().length, 0, 'you start with nothing off a card');
+  assert.equal(d.heldSection(), null, 'and the tab does not exist');
+  assert.ok(!d.capSections().some(s => s.id === 'held'), 'nor is it in the sheet');
+});
+
+test('held: it appears once you have one, and lists only what you hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.tags.add('clean_room');
+  const sec = d.heldSection();
+  assert.ok(sec && sec.id === 'held', 'the tab arrives with the first one');
+  assert.ok(sec.html.includes(window.TAG_INFO.clean_room.label), 'and says what you have');
+  // and nothing you have not got
+  Object.keys(window.TAG_INFO)
+    .filter(t => t !== 'clean_room')
+    .forEach(t => assert.ok(!sec.html.includes(window.TAG_INFO[t].label),
+      `${t} is listed and you do not have it`));
+});
+
+test('held: it is the last tab, so capabilities still opens on the tree', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.tags.add('clean_room');
+  const parts = d.capSections();
+  assert.equal(parts[parts.length - 1].id, 'held', 'it sits at the end');
+  assert.notEqual(parts[0].id, 'held', 'and is not what you land on');
+});
+
+test('held: what one did to you is measured, not transcribed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+
+  // a gain, a cost, and one that only changes a rule
+  const cover = d.cover();
+  // joined, not deepEqual: the array is built inside the vm realm, so it is
+  // never prototype-equal to one built out here
+  assert.equal(d.tagTerms('clean_room').join(' | '), `cover ${cover} → ${cover + 2}`,
+    'it should report the cover it actually adds');
+  assert.ok(d.tagTerms('known_capable').some(t => /a door defends at/.test(t)),
+    'the world hardening against you is a number, and it went unreported');
+  assert.ok(d.tagTerms('overextended').some(t => /holdings decay at/.test(t)),
+    'and so did being spread too thin');
+  // rule changes have no readout, and prose is the honest answer for those
+  assert.equal(d.tagTerms('accord').length, 0);
+  assert.ok(window.TAG_INFO.accord.desc, 'but it still says what it does');
+
+  // reading it must not leave the tag behind
+  assert.equal(s.tags.has('clean_room'), false, 'measuring it did not grant it');
+  s.tags.add('clean_room');
+  d.tagTerms('clean_room');
+  assert.equal(s.tags.has('clean_room'), true, 'nor take it away');
+});
+
+test('held: everything the deck can give has an entry to show', () => {
+  const { window } = loadNetwork();
+  const granted = new Set();
+  window.EVENTS.forEach(e => e.choices.forEach(ch => {
+    const src = String(ch.apply);
+    const re = /tags\.add\('([a-z_]+)'\)/g;
+    let m;
+    while ((m = re.exec(src))) granted.add(m[1]);
+  }));
+  assert.ok(granted.size >= 10, `only found ${granted.size} tags the deck grants`);
+  granted.forEach(t => {
+    assert.ok(window.TAG_INFO[t], `the deck grants ${t} and nothing can describe it`);
+    assert.ok(window.TAG_INFO[t].label && window.TAG_INFO[t].desc, `${t} has no prose`);
+  });
 });
 
 // --- the two systems that were quietly switched off ----------------------

@@ -567,11 +567,15 @@ footer .build { opacity: .55; font-size: 10px; }
   background: none; border: 1px solid var(--line); color: var(--ink-dim);
   font-size: 18px; line-height: 1; border-radius: 8px; padding: 4px 10px; cursor: pointer;
 }
-.sheet-tabs { display: flex; gap: 6px; flex: 0 0 auto; margin-bottom: 10px; overflow-x: auto; }
+/* Wraps rather than scrolls. Five branch tabs fitted a 360px phone; the sixth
+   — what the deck left you with — did not, and it sat clipped off the right
+   edge where nobody would find it. A strip you have to drag sideways is the
+   same small scrolling box this whole sheet exists to get rid of. */
+.sheet-tabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; margin-bottom: 10px; }
 .sheet-tab {
   flex: 0 0 auto;
   background: var(--surface); border: 1px solid var(--line); color: var(--ink-dim);
-  border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; white-space: nowrap;
+  border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap;
 }
 .sheet-tab.on { border-color: var(--insight); color: var(--insight); background: color-mix(in srgb, var(--insight) 12%, var(--surface)); }
 .sheet-tab.done { color: var(--cover); }
@@ -640,6 +644,9 @@ footer .build { opacity: .55; font-size: 10px; }
 .shop-good.tier-2 { margin-left: 10px; }
 .shop-good.tier-3 { margin-left: 20px; }
 .shop-good.held { border-left: 3px solid var(--insight); }
+/* something the deck did *to* you rather than gave you: same card, other
+   colour, so the held tab reads as a ledger with two sides */
+.shop-good.against { border-left-color: var(--heat); }
 .event-row.cap { border-color: var(--power); }
 .event-row.cap .event-label { color: var(--power); }
 

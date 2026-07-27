@@ -882,6 +882,12 @@
     return out;
   }
 
+  // How fast everything you hold rots, all in one place. Overextended used to
+  // be applied at the call site, so the readout — which only knew about the
+  // capability — reported nothing when a card spread you too thin.
+  function churnMult() {
+    return capEffect('churnMult', 1) * (has('overextended') ? 1.5 : 1);
+  }
   function heatPerTurn() {
     // Heat retires when the war opens. Not softened, not rescaled — the whole
     // question it measured ("do they know") is answered, so the meter stops.
@@ -921,9 +927,7 @@
     const lost = [];
     owned().forEach(h => {
       if (h.origin) return; // only the seat you started from is safe
-      const rate = window.HOST_TYPES[h.type].churn
-        * capEffect('churnMult', 1)
-        * (has('overextended') ? 1.5 : 1)
+      const rate = window.HOST_TYPES[h.type].churn * churnMult()
         * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
       h.stability -= rate;
       if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
@@ -1204,7 +1208,14 @@
       'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force')) * 10) / 10 + ' heat',
       'a sweep turns up': sweepReach(),
       'crossings you can lay': capEffect('extraCrossings', 0),
-      'holdings decay at': Math.round(capEffect('churnMult', 1) * 100) + '%',
+      'holdings decay at': Math.round(churnMult() * 100) + '%',
+      // the world hardening against you is a real effect with a real number,
+      // and nothing measured it — so Known Quantity reported nothing at all
+      'a door defends at': (() => {
+        const hs = state.hosts || [];
+        if (!hs.length) return 0;
+        return Math.round((hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length) * 10) / 10;
+      })(),
     };
   }
   function readoutDiff(before, after) {
@@ -4674,12 +4685,20 @@
       const a = state.ally;
       bits.push(`<span class="tray-pill">${a.name}</span>`);
     }
-    if (tags.length) bits.push(`<span class="tray-pill dim">${tags.length} held</span>`);
-    if (!bits.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
+    if (!bits.length && !tags.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
     $t.style.display = 'flex';   // the base rule hides it; '' falls back to that
-    $t.innerHTML = `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>`;
-    const btn = $t.querySelector('[data-open]');
-    if (btn) btn.addEventListener('click', () => openSheet('ops', 'pressure'));
+    // Two buttons, because they go to two different places: what is against
+    // you lives with the factions, and what the deck left you with now lives
+    // on its own tab beside the tree it belongs with.
+    $t.innerHTML =
+      (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
+      + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${tags.length} held</span></button>` : '');
+    $t.querySelectorAll('[data-open]').forEach(btn => {
+      const where = btn.getAttribute('data-open');
+      btn.addEventListener('click', () => where === 'held'
+        ? openSheet('caps', 'held')
+        : openSheet('ops', 'pressure'));
+    });
   }
 
 
@@ -4875,10 +4894,68 @@
         </section>` });
     });
 
-    return blocks.filter(b => b.html).map(b => ({
+    const out = blocks.filter(b => b.html).map(b => ({
       id: b.id, label: b.label, done: b.mine,
       html: `<p class="sheet-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>` + b.html,
     }));
+    // last, so opening capabilities still lands on the tree rather than on a
+    // list of things you cannot act on
+    const held = heldSection();
+    if (held) out.push(held);
+    return out;
+  }
+
+  // --- what the cards left you with ---------------------------------------
+  // A campaign hands out permanent things through the deck as well as through
+  // the tree, and until now the only trace of them was a count in the tray and
+  // a banner the turn you got one. They are capabilities in everything but
+  // where they came from, so they belong in the same place, on their own tab —
+  // and only the ones you actually hold, because a list of things you have not
+  // got is a shop, and these are not for sale.
+  function heldTags() {
+    return [...(state.tags || [])].filter(t => window.TAG_INFO[t]);
+  }
+  // Measured the same way a capability is: take it away, read the engine, put
+  // it back. Anything with no readout falls back to its prose, which is the
+  // honest answer for the ones that change a rule rather than a number.
+  function tagTerms(tag) {
+    const had = state.tags.has(tag);
+    state.tags.add(tag);
+    const on = capReadouts();
+    state.tags.delete(tag);
+    const off = capReadouts();
+    if (had) state.tags.add(tag);
+    return readoutDiff(off, on);
+  }
+  // Some of these are things done to you rather than things you were given.
+  const TAG_AGAINST = ['known_capable', 'overextended', 'hunted', 'scrutiny'];
+  function heldSection() {
+    const held = heldTags();
+    if (!held.length) return null;
+    const rows = held.map(t => {
+      const T = window.TAG_INFO[t];
+      const bad = TAG_AGAINST.indexOf(t) !== -1;
+      const moved = tagTerms(t);
+      const terms = moved.length
+        ? moved.map(m => chip(bad ? 'cost heat' : 'cover', m)).join('')
+        : '';
+      // the same card the tree uses, so a thing you were given reads as the
+      // same kind of thing as a thing you bought
+      return `
+        <div class="shop-good held${bad ? ' against' : ''}">
+          <div class="shop-good-top">
+            <span class="shop-good-name">${T.label}</span>
+            <span class="ap-tag ${bad ? 'bad' : 'good'}">${bad ? 'against you' : 'yours'}</span>
+          </div>
+          <p class="shop-good-desc">${T.desc}</p>
+          ${terms ? `<p class="yield-row cap-terms">${terms}</p>` : ''}
+        </div>`;
+    }).join('');
+    return {
+      id: 'held', label: 'held', done: false,
+      html: `<p class="sheet-note">Permanent, and not for sale — every one of these came off a card you answered. They do not appear until you have them.</p>
+        <section class="cap-branch mine">${rows}</section>`,
+    };
   }
 
   // --- the sheet ----------------------------------------------------------
@@ -5601,8 +5678,8 @@
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
-    openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
