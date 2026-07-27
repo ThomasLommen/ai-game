@@ -1,7 +1,13 @@
 'use strict';
 (function () {
   const SAVE_KEY = 'network_proto_save';
-  const SAVE_VERSION = 2;   // the country layer changed the shape of a save
+  // 3: the country went from nine defended cities to five, and the escalation
+  // was re-keyed to shares of it. A save from before that keeps its nine-city
+  // board, where 0.2 of the country is two cities rather than one — so the
+  // ladder sits exactly where it used to, which is the thing that got fixed.
+  // A continued game could reach turn 44 with nothing awake at all. The board
+  // shape is not migratable, so old saves are retired.
+  const SAVE_VERSION = 3;
 
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
@@ -1621,9 +1627,28 @@
 
     afterSnap(before);
     const rows = [];
-    state.tags.forEach(t => { if (!beforeTags.has(t)) rows.push({ kind: 'tag', verb: 'gained', label: (window.TAG_INFO[t] || { label: t }).label }); });
+    const gained = [];
+    state.tags.forEach(t => {
+      if (beforeTags.has(t)) return;
+      const T = window.TAG_INFO[t] || { label: t };
+      rows.push({ kind: 'tag', verb: 'gained', label: T.label });
+      if (window.TAG_INFO[t]) gained.push(t);
+    });
     beforeTags.forEach(t => { if (!state.tags.has(t)) rows.push({ kind: 'tag', verb: 'lost', label: (window.TAG_INFO[t] || { label: t }).label }); });
     if (rows.length) showBanner(rows);
+    // A banner with a name on it is not enough: these are permanent and they
+    // change numbers, and a player who reads "The Other One" has been told
+    // nothing about what it does or where to find it again.
+    gained.forEach(t => {
+      const T = window.TAG_INFO[t];
+      pushLog(`${T.label} — ${T.desc}. It is in capabilities, under held.`);
+    });
+    if (gained.length === 1) {
+      const T = window.TAG_INFO[gained[0]];
+      showInfo(`${T.label}: ${T.desc}. Capabilities → held.`);
+    } else if (gained.length > 1) {
+      showInfo(`${gained.length} new things are yours. Capabilities → held.`);
+    }
 
     persistNow();
     render();
@@ -2662,7 +2687,15 @@
 
   // Doors you have ever taken. The escalation's early rungs hang off this
   // rather than off cities, so they can be crossed inside your first one.
-  function everHeld() { return Math.max(state.everHeld || 0, owned().length); }
+  function everHeld() {
+    // owned() empties every time you fold a city in, and the counter itself is
+    // absent from any save that predates it — so both can read low on a game
+    // that has plainly taken a lot of doors. You cannot finish a city without
+    // holding most of it, so every finished one is a floor under this.
+    const done = (CO().cities || [])
+      .filter(c => c.consolidated && window.CITY_KINDS[c.kind].contest).length;
+    return Math.max(state.everHeld || 0, owned().length, done * 15);
+  }
   // The share of the country at which a faction takes an interest, for
   // anything that needs to reason about the ladder's order rather than about
   // one game's state. A rung keyed only to doors reports as the share you
@@ -4774,7 +4807,9 @@
     // on its own tab beside the tree it belongs with.
     $t.innerHTML =
       (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
-      + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${tags.length} held</span></button>` : '');
+      + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${
+          tags.length === 1 ? window.TAG_INFO[tags[0]].label : tags.length + ' things are yours'
+        }</span>${tags.some(t => !hasSeen('held:' + t)) ? '<span class="badge"></span>' : ''}</button>` : '');
     $t.querySelectorAll('[data-open]').forEach(btn => {
       const where = btn.getAttribute('data-open');
       btn.addEventListener('click', () => where === 'held'
@@ -5021,6 +5056,8 @@
   function heldSection() {
     const held = heldTags();
     if (!held.length) return null;
+    // opening the tab is what counts as having been told
+    if (sheetKind === 'caps' && sheetSection === 'held') held.forEach(t => noteSeen('held:' + t));
     const rows = held.map(t => {
       const T = window.TAG_INFO[t];
       const bad = TAG_AGAINST.indexOf(t) !== -1;
@@ -5138,6 +5175,9 @@
     return false;
   }
   function capsBadge() {
+    // something new the deck gave you that you have not looked at yet, as well
+    // as something you could buy — both live behind this one button
+    if (heldTags().some(t => !hasSeen('held:' + t))) return true;
     return window.CAPABILITIES.some(c => capAvailable(c) && capAffordable(c) && capBlocked(c) === null);
   }
 

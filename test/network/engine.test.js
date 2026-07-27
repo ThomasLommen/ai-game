@@ -2515,6 +2515,72 @@ test('caps: buying something leaves you where you were standing', () => {
 // and the only trace of them was a count in the tray and a banner the turn you
 // got one.
 
+test('held: a save from before the counter existed still escalates', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // You cannot finish a city without holding most of its doors, and owned()
+  // empties the moment you fold one in. A continued game reached turn 44 with
+  // nothing awake because the counter was absent and current holdings were 0.
+  const c = d.currentCity();
+  const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
+  s.hosts.slice(0, need + 2).forEach(h => { h.owned = true; h.discovered = true; });
+  s.everHeld = 0;                       // what an older save deserialises to
+  s.ap = 9;
+  d.actConsolidate();
+  assert.equal(d.owned().length, 0, 'the streets are released');
+  assert.ok(d.everHeld() >= 14, `a finished city is a floor under this: ${d.everHeld()}`);
+  assert.ok(d.awakeFactions().some(f => f.id === 'quiet_hours'),
+    'and the first rung fires on a save that never recorded a door');
+});
+
+test('held: the shape of a save is versioned, so an old board is retired', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // The country went from nine defended cities to five and the ladder is keyed
+  // to shares of it, so an old board runs the new thresholds at the old pace.
+  // That is not migratable; it has to be refused.
+  const save = d.serialize();
+  assert.ok(save.v >= 3, 'the version moved when the board shape did');
+  assert.equal(d.deserialize(Object.assign({}, save, { v: save.v - 1 })), null,
+    'a save from the previous shape is not loaded');
+  assert.ok(d.deserialize(save), 'and the current one is');
+});
+
+test('held: gaining one says what it does and where it went', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+
+  const ev = window.EVENTS.find(e => e.choices.some(c => /ally_process/.test(String(c.apply))));
+  assert.ok(ev, 'something in the deck grants it');
+  const idx = ev.choices.findIndex(c => /ally_process/.test(String(c.apply)));
+  s.card = { kind: 'event', eventId: ev.id };
+  d.resolveEvent(idx);
+
+  assert.ok(s.tags.has('ally_process'), 'you have it');
+  const T = window.TAG_INFO.ally_process;
+  // a banner with a name on it tells you nothing about what you just got
+  assert.ok(s.log.some(l => l.text.indexOf(T.desc) !== -1),
+    `the log never says what it does: ${s.log[0] && s.log[0].text}`);
+  assert.ok(s.log.some(l => /capabilities/i.test(l.text)),
+    'nor where to find it again');
+  assert.equal(d.capsBadge(), true, 'and the button carries a mark until you look');
+});
+
+test('held: looking at the tab is what clears the mark', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.tags.add('dark_relay');
+  assert.equal(d.capsBadge(), true, 'unread');
+  d.openSheet('caps', 'held');
+  assert.equal(d.capsBadge(), false, 'read');
+  // and a second one marks it again
+  d.state.tags.add('clean_room');
+  assert.equal(d.capsBadge(), true, 'a new one is new again');
+});
+
 test('held: nothing to show until the deck has given you something', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
