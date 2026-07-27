@@ -28,14 +28,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
 
-      # The card game stays at the site root: it's already installed to a home
-      # screen from that URL, and moving it would break the installed app.
-      # New prototypes get their own subdirectory.
+      # THE NETWORK owns the site root: it is the game now, and the root URL is
+      # the one already on a home screen. Its service worker deletes every cache
+      # that is not its own on activate, which is what lets an app installed
+      # when the card game lived here switch over cleanly instead of serving the
+      # old game from cache forever.
+      #
+      # The card game keeps working at /cards/ with its own worker and scope.
       - name: Assemble site
         run: |
-          mkdir -p site/network
-          cp -r reigns-prototype/. site/
-          cp -r network-prototype/. site/network/
+          mkdir -p site/cards site/network
+          cp -r network-prototype/. site/
+          cp -r reigns-prototype/. site/cards/
+          cp deploy/network-redirect/index.html site/network/index.html
 
           # Stamp a unique build id into the service worker and the pages. A
           # byte-different sw.js is what makes the browser install a new worker

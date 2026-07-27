@@ -10,8 +10,11 @@
 // means a byte-different sw.js, which is what makes the browser treat it as a
 // new worker at all — without that, an unchanged sw.js is never reinstalled.
 const BUILD = '__BUILD__';
-const CACHE = 'reigns-cache-' + BUILD;
-const ASSETS = ['./', './index.html', './style.css', './cards.js', './app.js', './manifest.json'];
+const CACHE = 'network-cache-' + BUILD;
+const ASSETS = [
+  './', './index.html', './style.css',
+  './data.js', './country.js', './app.js', './manifest.json',
+];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -27,12 +30,17 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    // Only this app's own older builds. Both games share an origin, so a
-    // blanket "delete everything that is not mine" meant visiting one wiped
-    // the other's offline copy.
+    // Drop this app's older builds, and any cache left behind by whatever used
+    // to own this scope — that second part is what lets a home screen app
+    // installed when the card game lived at the root switch cleanly to this
+    // game instead of serving the old one offline forever.
+    //
+    // It must NOT touch the other game's current caches: both apps share an
+    // origin, so a blanket "delete everything that is not mine" meant visiting
+    // one wiped the other's offline copy.
     caches.keys()
       .then((keys) => Promise.all(keys
-        .filter((k) => k !== CACHE && k.startsWith('reigns-cache-'))
+        .filter((k) => k !== CACHE && !k.startsWith('reigns-cache-'))
         .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );

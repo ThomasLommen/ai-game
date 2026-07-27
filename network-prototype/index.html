@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>The Network</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="theme-color" content="#0d1210" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Network" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -73,5 +80,25 @@
   <script src="data.js"></script>
   <script src="country.js"></script>
   <script src="app.js"></script>
+  <script>
+    // Register the worker with the HTTP cache bypassed for the worker script
+    // itself — otherwise `sw.js` can be served from cache and a new build is
+    // never noticed. On a *replacement* worker taking over (not a first
+    // install) reload once, so the page and the worker agree on the build.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        const hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then((reg) => { reg.update(); })
+          .catch(() => {});
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloading) return; // first install needs no reload
+          reloading = true;
+          window.location.reload();
+        });
+      });
+    }
+  </script>
 </body>
 </html>
