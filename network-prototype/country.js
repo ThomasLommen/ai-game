@@ -514,6 +514,72 @@ window.ASSET_RULES = {
   retoolKinds: ['warehouse', 'datacenter', 'office'],
 };
 
+// --- what makes a city a different city ----------------------------------
+// Measured on three generated cities: 48-51 buildings, the four districts in
+// roughly equal quarters, compute 45% / stealth 30% / cash 25%, mean defense
+// 13-15. They were the same city. The only thing that changed between your
+// first and your second was that the numbers went up, which is difficulty, not
+// novelty — so the second one asked the identical question you had already
+// answered, and it was dull the moment you arrived rather than six cities
+// later.
+//
+// A trait changes a rule rather than a number. Each one breaks a habit the
+// first city taught you: the district mix that funds you, or one of the three
+// ways through a door. It is on the national map before you commit, because
+// "which of these two do I walk next" is the country layer's only real
+// decision and it needs something to be about.
+//
+//   closes    an approach that simply is not offered here
+//   kinds     district kind lists replaced, so the role mix comes out skewed
+//   defense   flat modifier on every door
+//   denser    extra buildings per block
+//   buyCut    share off the price of buying a door here
+//   at        earliest region tier this can appear in
+window.CITY_TRAITS = {
+  shuttered: {
+    label: 'shuttered', tell: 'nothing here is for sale',
+    blurb: 'Half the addresses are dissolved companies with a receiver\'s number on the door. There is nobody left to take your money.',
+    closes: 'buy', at: 0,
+  },
+  company_town: {
+    label: 'a company town', tell: 'almost no money in it',
+    blurb: 'One employer, four thousand people, and a high street that shut when the second shift did.',
+    kinds: {
+      commercial: ['office', 'office', 'warehouse', 'cabinet'],
+      business: ['office', 'office', 'warehouse', 'cabinet'],
+    },
+    at: 0,
+  },
+  wired: {
+    label: 'wired', tell: 'cover on every corner, if you can hold it',
+    blurb: 'A pilot scheme nobody switched off: street furniture with an address of its own on every corner.',
+    kinds: {
+      residential: ['cabinet', 'mast', 'house', 'cabinet', 'mast'],
+      commercial: ['cabinet', 'mast', 'shop', 'shop', 'mast'],
+    },
+    at: 0,
+  },
+  sprawl: {
+    label: 'sprawl', tell: 'a great many soft doors',
+    blurb: 'It went up in eighteen months and none of it was built to last a decade.',
+    defense: -4, denser: 1, at: 1,
+  },
+  watched: {
+    label: 'watched', tell: 'you cannot slip in anywhere',
+    blurb: 'Somebody put a camera on every corner, and then — unusually — hired people to look at them.',
+    closes: 'quiet', defense: 2, at: 1,
+  },
+  old_money: {
+    label: 'old money', tell: 'hard doors, and every one has a price',
+    blurb: 'Doors that have been shut for two hundred years, and a great many people whose whole job is keeping them shut.',
+    kinds: {
+      residential: ['apartment', 'house', 'shop', 'cabinet'],
+      commercial: ['finance', 'office', 'shop', 'mast'],
+    },
+    defense: 5, buyCut: 0.4, at: 2,
+  },
+};
+
 // --- what a city is actually worth --------------------------------------
 // Presence is a decaying reward on flat work. Measured across a generated
 // country: the first defended city pays 36 power and 4 cover, the ninth pays

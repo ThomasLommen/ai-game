@@ -109,6 +109,8 @@
     // The region term is the heavier of the two on purpose: a datacenter in the
     // north has to still be a wall to something that has taken four regions.
     const regionBump = regionTier * 9;
+    // what kind of city this is, if it is any kind in particular
+    const TR = (o.trait && window.CITY_TRAITS[o.trait]) || {};
     const rowDistricts = o.rowDistricts
       || (o.regionTier === undefined ? C.rowDistricts : districtBand(regionTier, rows));
     const buildings = [];
@@ -132,11 +134,11 @@
         const cw = C.blockW / 2, ch = C.blockH / 2;
         for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
         shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]);
+        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
 
         for (let i = 0; i < Math.min(n, cells.length); i++) {
           const cell = cells[i];
-          const kind = pick(D.kinds);
+          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
           const K = window.BUILDING_KINDS[kind];
           const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
           const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
@@ -215,7 +217,8 @@
         district: b.district,
         ring: b.tier,
         name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
-        defense: Math.round((rndInt(T.defense[0], T.defense[1]) + bump) * (L ? L.defense : 1)),
+        defense: Math.max(1, Math.round((rndInt(T.defense[0], T.defense[1]) + bump) * (L ? L.defense : 1))
+          + (TR.defense || 0)),
         threads: Math.round(rndInt(T.threads[0], T.threads[1]) * (L ? L.threads : 1)),
         landmark: !!L,
         x: Math.round(b.x + b.w / 2),
@@ -472,6 +475,26 @@
       c.prize = last;
     });
   }
+  // Every defended city except the one you woke up in. The first city is the
+  // tutorial for what a city *is*, so it is deliberately a plain one — the
+  // trait is the thing that makes the second one a different question.
+  function assignTraits(cities) {
+    const K = window.CITY_TRAITS;
+    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
+    let last = null;
+    defended.forEach(c => {
+      const pool = Object.keys(K).filter(k => K[k].at <= (c.regionTier || 0) && k !== last);
+      if (!pool.length) return;
+      last = pool[Math.floor(Math.random() * pool.length)];
+      c.trait = last;
+    });
+  }
+  function cityTraitOf(c) {
+    return (c && c.trait && window.CITY_TRAITS[c.trait]) ? window.CITY_TRAITS[c.trait] : null;
+  }
+  // the one you are standing in, which is what the breach card has to obey
+  function cityTrait() { return cityTraitOf(currentCity()); }
+
   function cityPrize(c) {
     return (c && c.prize && window.CITY_PRIZES[c.prize]) ? window.CITY_PRIZES[c.prize] : null;
   }
@@ -544,6 +567,7 @@
     });
 
     assignPrizes(cities);
+    assignTraits(cities);
 
     // Roads. Proximity first, for the look of the thing — but the country has
     // to have a *spine* of defended cities, because reach only propagates
@@ -1939,7 +1963,9 @@
   function costOf(def, h) {
     const raw = def.costFor ? def.costFor(h) : def.cost;
     if (!raw) return raw;
-    const cut = def.id === 'buy' ? capEffect('buyDiscount', 0) : 0;
+    const cut = def.id === 'buy'
+      ? Math.min(0.85, capEffect('buyDiscount', 0) + ((cityTrait() || {}).buyCut || 0))
+      : 0;
     if (!cut) return raw;
     const out = {};
     for (const k in raw) out[k] = Math.max(1, Math.round(raw[k] * (1 - cut)));
@@ -1954,7 +1980,11 @@
   function approachesFor(h) {
     const s = snapshot();
     const eff = Object.assign({}, h, { defense: defenseOf(h) });
-    return window.APPROACHES.filter(a => a.avail(h)).map(a => {
+    // A city where nothing is for sale does not show you a price you cannot
+    // pay — it does not show you the door at all. This is the trait doing the
+    // same job a faction does, spatially: taking a tool away.
+    const closed = (cityTrait() || {}).closes;
+    return window.APPROACHES.filter(a => a.avail(h) && a.id !== closed).map(a => {
       const gate = a.gate ? a.gate(s, eff) : null;
       const cost = costOf(a, eff);
       let affordable = true;
@@ -2240,12 +2270,21 @@
         rows: K.blocks[1] + grow,
         regionTier: c.regionTier,
         regionId: c.region,
+        trait: c.trait,
         extraCrossings: capEffect('extraCrossings', 0),
       });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
     }
     state.cityId = c.id;
     enterRegion(c.region);
+    // What kind of place this is, once, as you arrive. The second city was
+    // dull because it was the first city with bigger numbers; this is the
+    // moment it gets to be somewhere else.
+    const TR = cityTraitOf(c);
+    if (TR && !c.visited) {
+      pushLog(`${c.name}: ${TR.blurb}`);
+      showBanner([{ kind: 'stage', verb: TR.label, label: TR.tell }]);
+    }
     c.taken = true;
     c.visited = true;
     cityRoads(c.id).forEach(nid => { const n = cityById(nid); if (n) n.known = true; });
@@ -4264,6 +4303,11 @@
     const label = c.known ? (theirs ? window.MIRROR.name : c.name) : '?';
     out += `<text class="ctag" x="${c.x}" y="${c.y + r + 13}">${label}</text>`;
     if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + r + 24}">+${c.worth}</text>`;
+    // What kind of city it is, said on the map — this is the thing that makes
+    // "which of these two next" a question with an answer.
+    else if (c.known && !c.taken && !theirs && !warOn() && cityTraitOf(c)) {
+      out += `<text class="ctrait" x="${c.x}" y="${c.y + r + 24}">${cityTraitOf(c).label}</text>`;
+    }
     out += '</g>';
     return out;
   }
@@ -5372,14 +5416,21 @@
       // a decaying reason by the third city; this is the one that isn't, and
       // it has to be readable from the map rather than discovered afterwards.
       const P = cityPrize(sel);
+      const TR = cityTraitOf(sel);
       const prizeLine = (P && !sel.prizeTaken && !warOn())
         ? `<p class="yield-row prize-row">${chip('cover', P.label)}<span class="dim">on folding it in</span></p>`
+        : '';
+      // and what walking it will actually be like, which is the half of the
+      // decision the prize does not answer
+      const traitLine = (TR && !sel.consolidated && !warOn())
+        ? `<p class="yield-row prize-row">${chip('cost none', TR.label)}<span class="dim">${TR.tell}</span></p>`
         : '';
 
       block = `
         <div class="sel country">
           <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'cash' : ''}">${K.label}</span></div>
           <p class="sel-desc">${lines.join(' · ')}</p>
+          ${traitLine}
           ${prizeLine}
           ${acts.length ? `<div class="actions tight">${acts.join('')}</div>` : ''}
         </div>`;
@@ -5625,11 +5676,19 @@
     const h = hostById(state.card.hostId);
     const T = window.HOST_TYPES[h.type];
     const list = approachesFor(h);
+    // A door that is simply missing reads as a bug. Say which one this city
+    // does not have and why, on every card, because it is the rule of the
+    // place rather than something about this particular building.
+    const TR = cityTrait();
+    const gone = TR && TR.closes
+      ? `<p class="flavor closed">${TR.tell.charAt(0).toUpperCase() + TR.tell.slice(1)} — ${TR.label}.</p>`
+      : '';
     $p.innerHTML = `
       <div class="card">
         <span class="card-kicker mono">${T.label.toUpperCase()} · DEF ${h.defense}</span>
         <h2 class="serif">${h.name}</h2>
         <p class="flavor">${window.HOST_FLAVOR[h.type]}</p>
+        ${gone}
       </div>
       <div class="choices">
         ${list.map(a => {
@@ -5701,7 +5760,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity,
+    makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

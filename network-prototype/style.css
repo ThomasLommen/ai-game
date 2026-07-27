@@ -1033,6 +1033,18 @@ footer .build { opacity: .55; font-size: 10px; }
 @keyframes cell-turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cnode .working { animation: none; } }
 
+/* what kind of city it is, under its name. Dimmer than the name and the
+   worth: it is a hint you scan the map for, not a label you read one at a
+   time. */
+/* the rule of the place, on a breach card — dimmer than the flavour, because
+   it is the same sentence on every door in the city */
+.flavor.closed { color: var(--heat); font-size: 11px; margin-top: 6px; opacity: .85; }
+
+.ctrait {
+  fill: var(--muted); font-size: 7.5px; text-anchor: middle;
+  font-family: var(--mono, monospace); letter-spacing: .02em;
+}
+
 .cnode .prize {
   fill: var(--cover);
   stroke: #0d120f;

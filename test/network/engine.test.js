@@ -2272,6 +2272,112 @@ test('tree: every branch can actually be finished from a standing start', () => 
   });
 });
 
+// --- a city that is a different city -------------------------------------
+// Measured on three generated cities before this: 48-51 buildings, the four
+// districts in equal quarters, compute 45% / stealth 30% / cash 25%, mean
+// defense 13-15. They were the same city, and the only thing that changed
+// between your first and your second was that the numbers went up.
+
+test('traits: the city you woke up in is plain, and every other one is not', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const cities = d.state.country.cities;
+  const home = cities.find(c => c.kind === 'home');
+  assert.ok(!home.trait, 'the first city teaches you what a city is');
+  const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
+  assert.ok(defended.length >= 4, 'there are others');
+  assert.ok(defended.every(c => c.trait), 'and all of them are somewhere in particular');
+  defended.forEach(c => {
+    const T = window.CITY_TRAITS[c.trait];
+    assert.ok(T, `${c.trait} is not a trait`);
+    assert.ok(T.at <= (c.regionTier || 0),
+      `${c.trait} turned up in tier ${c.regionTier}, before its ${T.at}`);
+  });
+});
+
+test('traits: each one changes a rule rather than a number', () => {
+  const { window } = loadNetwork();
+  const K = window.CITY_TRAITS;
+  Object.keys(K).forEach(k => {
+    const T = K[k];
+    assert.ok(T.label && T.tell && T.blurb, `${k} has no prose`);
+    // a trait that only nudges defense is a difficulty slider, not a place
+    const rules = ['closes', 'kinds', 'denser', 'buyCut'];
+    assert.ok(rules.some(r => T[r]), `${k} changes nothing but numbers`);
+    if (T.closes) {
+      assert.ok(window.APPROACHES.some(a => a.id === T.closes), `${k} closes nothing real`);
+      assert.notEqual(T.closes, 'walk', `${k} closes the way out`);
+    }
+  });
+});
+
+test('traits: a company town genuinely starves you of cash', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const share = (trait) => {
+    let cash = 0, all = 0;
+    for (let i = 0; i < 6; i++) {
+      const g = d.makeCity({ cols: 3, rows: 3, regionTier: 1, regionId: 'estuary', trait });
+      g.hosts.forEach(h => { all++; if (h.role === 'cash') cash++; });
+    }
+    return cash / all;
+  };
+  const plain = share(null);
+  const town = share('company_town');
+  assert.ok(town < plain * 0.4,
+    `a company town should break your money engine: ${(town * 100).toFixed(0)}% against ${(plain * 100).toFixed(0)}%`);
+});
+
+test('traits: a shuttered city does not offer a door it does not have', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const c = s.country.cities.find(x => window.CITY_KINDS[x.kind].contest && x.kind !== 'home');
+  c.trait = 'shuttered';
+  s.country.at = c.id;
+  s.cityId = c.id;
+  s.res.cash = 9000;
+  // a door that could be bought anywhere else — routers and datacenters are
+  // never for sale whatever kind of city they are in, so one of those would
+  // prove nothing either way
+  const h = s.hosts.find(x => x.type !== 'iot' && x.type !== 'datacenter');
+  assert.ok(h, 'the board has something buyable on it');
+  const ids = d.approachesFor(h).map(a => a.def.id);
+  assert.ok(ids.indexOf('buy') === -1, `buying is offered in a shuttered city: ${ids.join(',')}`);
+  assert.ok(ids.indexOf('force') !== -1 && ids.indexOf('walk') !== -1,
+    'but there is still a way in and a way out');
+
+  // and it comes back when you are somewhere else
+  c.trait = 'sprawl';
+  assert.ok(d.approachesFor(h).map(a => a.def.id).indexOf('buy') !== -1,
+    'the rule belongs to the city, not to the building');
+});
+
+test('traits: no trait can leave a city you cannot finish', () => {
+  const { window } = loadNetwork();
+  const need = window.CITY_KINDS.contest.share;
+  Object.keys(window.CITY_TRAITS).concat([null]).forEach(trait => {
+    for (let i = 0; i < 4; i++) {
+      const d = loadNetwork().window.__netDebug;
+      const s = d.state;
+      // the power you actually arrive at a second city with, having folded in
+      // a first: everything you held there is gone, presence carries you
+      s.country.presence = 10;
+      s.res.cash = 400; s.res.insight = 120;
+      const c = s.country.cities.find(x => window.CITY_KINDS[x.kind].contest && x.kind !== 'home');
+      c.trait = trait;
+      s.country.at = c.id; s.cityId = c.id;
+      const g = d.makeCity({ cols: 3, rows: 3, regionTier: 1, regionId: 'estuary', trait });
+      s.buildings = g.buildings; s.hosts = g.hosts; s.links = g.links; s.adjacency = g.adjacency;
+      s.hosts.forEach(h => { h.discovered = true; });
+      const open = s.hosts.filter(h =>
+        d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')).length;
+      assert.ok(open / s.hosts.length >= need,
+        `${trait || 'plain'}: only ${open} of ${s.hosts.length} doors open, and folding it in needs ${Math.round(need * 100)}%`);
+    }
+  });
+});
+
 // --- what a city is worth ------------------------------------------------
 // Presence is a decaying reward on flat work: measured on a generated country
 // the first defended city pays 36 power and the ninth pays 2, because power is
