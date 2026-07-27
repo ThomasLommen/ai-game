@@ -27,12 +27,83 @@
     return out;
   }
 
+  // --- terrain -----------------------------------------------------------
+  // A band of water, rail or open ground cutting the city, with a small number
+  // of crossings. Everything downstream of this treats a band as a wall: no
+  // buildings on it, and no adjacency across it except through a crossing.
+  function makeBands(regionId, W, H) {
+    const T = window.TERRAIN[regionId];
+    if (!T) return [];
+    return T.bands.map((spec, i) => {
+      const along = spec.axis === 'h' ? W : H;      // the direction it runs
+      const across = spec.axis === 'h' ? H : W;     // the direction it cuts
+      const mid = across * spec.at;
+      const half = spec.thickness / 2;
+      // crossings sit at even intervals with a little jitter, never at the edge
+      const gaps = [];
+      const n = Math.max(1, spec.crossings);
+      for (let g = 0; g < n; g++) {
+        const t = (g + 1) / (n + 1);
+        gaps.push({
+          at: along * t + rnd(-along * 0.06, along * 0.06),
+          w: window.CITY.street * 1.6,
+        });
+      }
+      return { id: 'band' + i, kind: spec.kind, axis: spec.axis, from: mid - half, to: mid + half, gaps };
+    });
+  }
+
+  // is this point inside a band, and not in one of its crossings?
+  function inBand(band, x, y) {
+    const across = band.axis === 'h' ? y : x;
+    const along = band.axis === 'h' ? x : y;
+    if (across < band.from || across > band.to) return false;
+    return !band.gaps.some(g => Math.abs(along - g.at) <= g.w / 2);
+  }
+
+  // does a rectangle touch the band at all (crossings included)?
+  function rectOnBand(band, x, y, w, h) {
+    const lo = band.axis === 'h' ? y : x;
+    const hi = lo + (band.axis === 'h' ? h : w);
+    return hi >= band.from && lo <= band.to;
+  }
+
+  // Would a wire from a to b have to cross the band somewhere there is no
+  // crossing? Sampled along the segment — the bands are thick relative to the
+  // step, so nothing slips through.
+  function segmentBlocked(bands, ax, ay, bx, by) {
+    if (!bands.length) return false;
+    const steps = 24;
+    for (const band of bands) {
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (inBand(band, ax + (bx - ax) * t, ay + (by - ay) * t)) return true;
+      }
+    }
+    return false;
+  }
+
+  // Does the segment cross a band at all, blocked or not? Used to give wires
+  // that run over a bridge a longer leash: a moor 78 wide simply cannot be
+  // spanned at the ordinary link distance, and without this the generator
+  // answered by punching extra crossings until it could — which quietly
+  // dissolved the chokepoint the terrain existed to create.
+  function segmentSpansBand(bands, ax, ay, bx, by) {
+    for (const band of bands) {
+      const a = band.axis === 'h' ? ay : ax;
+      const b = band.axis === 'h' ? by : bx;
+      if (Math.min(a, b) <= band.to && Math.max(a, b) >= band.from) return true;
+    }
+    return false;
+  }
+
   function makeCity(opts) {
     const o = opts || {};
     const C = window.CITY;
     const cols = o.cols || C.cols;
     const rows = o.rows || C.rows;
     const regionTier = o.regionTier || 0;
+    const regionId = o.regionId || 'home';
     // Difficulty rides the district inside a city and the region between them.
     // The region term is the heavier of the two on purpose: a datacenter in the
     // north has to still be a wall to something that has taken four regions.
@@ -43,6 +114,10 @@
     const hosts = [];
     const links = [];
     let bid = 0, hid = 0;
+
+    const mapW = C.street + cols * (C.blockW + C.street);
+    const mapH = C.street + rows * (C.blockH + C.street);
+    const bands = makeBands(regionId, mapW, mapH);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -64,13 +139,15 @@
           const K = window.BUILDING_KINDS[kind];
           const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
           const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
+          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
+          const by2 = Math.round(cell.y + (cell.h - h) / 2);
+          // nothing stands on the water, the line or the moor
+          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
           const b = {
             id: 'b' + (bid++),
             kind, district: districtKey, tier: D.tier,
             block: row * cols + col, row, col,
-            x: Math.round(cell.x + (cell.w - w) / 2),
-            y: Math.round(cell.y + (cell.h - h) / 2),
-            w, h,
+            x: bx2, y: by2, w, h,
             hostIds: [],
             discovered: false,
           };
@@ -79,11 +156,56 @@
       }
     }
 
+    // Landmarks. The reason to fight for a crossing rather than route around
+    // it: the biggest thing in the city is always up against the terrain.
+    (function placeLandmarks() {
+      const names = (window.TERRAIN[regionId] || {}).landmarks || [];
+      if (!names.length || !bands.length || !buildings.length) return;
+      const distToBand = (b) => {
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        return Math.min(...bands.map(band => {
+          const across = band.axis === 'h' ? cy : cx;
+          return across < band.from ? band.from - across
+               : across > band.to ? across - band.to : 0;
+        }));
+      };
+      const byNearness = buildings.slice().sort((a, b) => distToBand(a) - distToBand(b));
+      const taken = {};
+      names.forEach((kind, i) => {
+        const K = window.BUILDING_KINDS[kind];
+        if (!K) return;
+        // spread them out: skip anything too close to a landmark already placed
+        const pickIt = byNearness.find(b => !taken[b.id] &&
+          !Object.keys(taken).some(id => {
+            const o = buildings.find(x => x.id === id);
+            return o && Math.hypot(o.x - b.x, o.y - b.y) < 150;
+          }));
+        const b = pickIt || byNearness[i];
+        if (!b) return;
+        taken[b.id] = true;
+        b.kind = kind;
+        b.landmark = true;
+        const want = { w: rndInt(K.w[0], K.w[1]), h: rndInt(K.h[0], K.h[1]) };
+        // grow it, but never onto the terrain it sits beside
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        let nw = want.w, nh = want.h;
+        let nx = Math.round(cx - nw / 2), ny = Math.round(cy - nh / 2);
+        for (let guard = 0; guard < 12 && bands.some(band => rectOnBand(band, nx, ny, nw, nh)); guard++) {
+          nw = Math.round(nw * 0.88); nh = Math.round(nh * 0.88);
+          nx = Math.round(cx - nw / 2); ny = Math.round(cy - nh / 2);
+        }
+        if (!bands.some(band => rectOnBand(band, nx, ny, nw, nh))) {
+          b.x = nx; b.y = ny; b.w = nw; b.h = nh;
+        }
+      });
+    })();
+
     // one building, one host — the building is the thing you take
     buildings.forEach(b => {
       const K = window.BUILDING_KINDS[b.kind];
       const T = window.HOST_TYPES[K.host];
       const bump = b.tier * 2 + regionBump;   // district inside a city, region between them
+      const L = b.landmark ? window.LANDMARK : null;
       const h = {
         id: 'h' + (hid++),
         type: K.host,
@@ -92,8 +214,9 @@
         district: b.district,
         ring: b.tier,
         name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
-        defense: rndInt(T.defense[0], T.defense[1]) + bump,
-        threads: rndInt(T.threads[0], T.threads[1]),
+        defense: Math.round((rndInt(T.defense[0], T.defense[1]) + bump) * (L ? L.defense : 1)),
+        threads: Math.round(rndInt(T.threads[0], T.threads[1]) * (L ? L.threads : 1)),
+        landmark: !!L,
         x: Math.round(b.x + b.w / 2),
         y: Math.round(b.y + b.h / 2),
         discovered: false,
@@ -115,6 +238,7 @@
     const hostOf = (b) => hosts[byId[b.hostId]];
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
     const MAX_LINK = 165;
+    const CROSSING_LINK = 340;   // a wire over a bridge reaches further
     const NEIGHBOURS = 3;
     const seenPair = {};
     const adjacency = {};
@@ -127,7 +251,15 @@
           const cb = centre(b);
           return { b, d: Math.hypot(ca.x - cb.x, ca.y - cb.y) };
         })
-        .filter(o => o.d <= MAX_LINK)
+        // The whole point of terrain: you cannot wire across the water except
+        // at a bridge, so the crossings are chokepoints worth fighting for.
+        // Anything that does run over a crossing gets a longer reach.
+        .filter(o => {
+          const cb = centre(o.b);
+          if (segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return false;
+          const limit = segmentSpansBand(bands, ca.x, ca.y, cb.x, cb.y) ? CROSSING_LINK : MAX_LINK;
+          return o.d <= limit;
+        })
         .sort((p, q) => p.d - q.d)
         .slice(0, NEIGHBOURS);
 
@@ -142,6 +274,77 @@
         (adjacency[b.id] = adjacency[b.id] || []).push(a.id);
       });
     });
+
+    // A band can cut the city into halves that nothing is allowed to stitch
+    // across. Rather than tunnel under the river, put a crossing where the map
+    // needs one — which is also the sensible thing for a city to have done.
+    (function ensureCrossings() {
+      if (!bands.length) return;
+      const centreOf = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+      for (let pass = 0; pass < 6; pass++) {
+        const compOf = {};
+        let comp = 0;
+        buildings.forEach(b => {
+          if (compOf[b.id] !== undefined) return;
+          const stack = [b.id];
+          compOf[b.id] = comp;
+          while (stack.length) {
+            const cur = stack.pop();
+            (adjacency[cur] || []).forEach(n => {
+              if (compOf[n] === undefined) { compOf[n] = comp; stack.push(n); }
+            });
+          }
+          comp++;
+        });
+        if (comp <= 1) return;
+
+        // the closest pair that is separated *only* by terrain
+        let best = null;
+        buildings.forEach(a => buildings.forEach(b => {
+          if (compOf[a.id] === compOf[b.id]) return;
+          const ca = centreOf(a), cb = centreOf(b);
+          const d = Math.hypot(ca.x - cb.x, ca.y - cb.y);
+          if (d > CROSSING_LINK * 1.2) return;
+          if (!segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return;
+          if (!best || d < best.d) best = { d, a, b, ca, cb };
+        }));
+        if (!best) return;   // separated by distance, not terrain — stitching handles it
+
+        // Put the crossing where the wire actually crosses, and make it wide
+        // enough to cover the whole traverse. Placing it at the segment's
+        // midpoint looks right and is wrong for anything diagonal: the wire
+        // enters and leaves the band well to one side of it.
+        bands.forEach(band => {
+          const a0 = band.axis === 'h' ? best.ca.y : best.ca.x;
+          const b0 = band.axis === 'h' ? best.cb.y : best.cb.x;
+          if (Math.min(a0, b0) > band.to || Math.max(a0, b0) < band.from) return;
+          const alongA = band.axis === 'h' ? best.ca.x : best.ca.y;
+          const alongB = band.axis === 'h' ? best.cb.x : best.cb.y;
+          // where the segment sits when it enters and leaves the band
+          const at = (edge) => {
+            if (b0 === a0) return alongA;
+            const t = Math.max(0, Math.min(1, (edge - a0) / (b0 - a0)));
+            return alongA + (alongB - alongA) * t;
+          };
+          const e1 = at(band.from), e2 = at(band.to);
+          band.gaps.push({
+            at: (e1 + e2) / 2,
+            w: Math.abs(e2 - e1) + window.CITY.street * 1.6,
+          });
+        });
+
+        // and wire the pair the crossing now serves — but only if the crossing
+        // genuinely opened the route
+        if (!segmentBlocked(bands, best.ca.x, best.ca.y, best.cb.x, best.cb.y)) {
+          const ha = hosts[byId[best.a.hostId]], hb = hosts[byId[best.b.hostId]];
+          if (ha && hb) {
+            links.push([byId[ha.id], byId[hb.id]]);
+            (adjacency[best.a.id] = adjacency[best.a.id] || []).push(best.b.id);
+            (adjacency[best.b.id] = adjacency[best.b.id] || []).push(best.a.id);
+          }
+        }
+      }
+    })();
 
     // Tightening the link distance to kill the visual spaghetti can leave
     // pockets of the city with no way in. Stitch any stranded component to its
@@ -171,6 +374,8 @@
         let best = null;
         group.forEach(g => target.forEach(t => {
           const cg = centre2(g), ct = centre2(t);
+          // stitching a stranded pocket must not tunnel under the river
+          if (segmentBlocked(bands, cg.x, cg.y, ct.x, ct.y)) return;
           const d = Math.hypot(cg.x - ct.x, cg.y - ct.y);
           if (!best || d < best.d) best = { d, g, t };
         }));
@@ -224,7 +429,7 @@
     seat.ring = 0;
     seat.origin = true;
 
-    return { buildings, hosts, links, adjacency, originId: seat.id, dims: { cols, rows } };
+    return { buildings, hosts, links, adjacency, bands, originId: seat.id, dims: { cols, rows } };
   }
 
   function blocksAdjacent(a, b) {
@@ -366,6 +571,7 @@
       region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
+      bands: g.bands,
       view: null,          // pan/zoom, set on first render
       turn: 1,
       heat: 0,
@@ -1300,13 +1506,13 @@
   function packCity() {
     return {
       buildings: state.buildings, hosts: state.hosts, links: state.links,
-      adjacency: state.adjacency, dims: state.dims, rival: state.rival,
+      adjacency: state.adjacency, bands: state.bands, dims: state.dims, rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
     };
   }
   function unpackCity(p) {
     state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
-    state.adjacency = p.adjacency; state.dims = p.dims;
+    state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
@@ -1318,7 +1524,7 @@
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    dims: { cols: 1, rows: 1 }, rival: { awake: false, buildings: [], lastActed: 0, seen: false },
+    bands: [], dims: { cols: 1, rows: 1 }, rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
   function leaveCity() {
@@ -1351,8 +1557,9 @@
         cols: K.blocks[0] + grow,
         rows: K.blocks[1] + grow,
         regionTier: c.regionTier,
+        regionId: c.region,
       });
-      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, dims: g.dims });
+      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
     }
     state.cityId = c.id;
     enterRegion(c.region);
@@ -1741,7 +1948,7 @@
   function serialize() {
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
-      buildings: state.buildings, adjacency: state.adjacency,
+      buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
@@ -1754,7 +1961,7 @@
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
-        buildings: saved.buildings || [], adjacency: saved.adjacency || {}, view: null,
+        buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
@@ -1885,12 +2092,70 @@
     return out;
   }
 
+  // Water, rail, moor and park, with the crossings drawn back over the top.
+  // A crossing is the only way across, so it has to be the most obvious thing
+  // on the band.
+  function svgBands() {
+    const bands = state.bands || [];
+    if (!bands.length) return '';
+    const B = cityBounds();
+    let out = '';
+    bands.forEach(band => {
+      const horiz = band.axis === 'h';
+      const x = horiz ? -CITY_PAD : band.from;
+      const y = horiz ? band.from : -CITY_PAD;
+      const w = horiz ? B.w + CITY_PAD * 2 : band.to - band.from;
+      const h = horiz ? band.to - band.from : B.h + CITY_PAD * 2;
+      out += `<rect class="band-${band.kind}" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
+
+      if (band.kind === 'water') {
+        // a couple of ripples so it reads as water and not a hole
+        for (let i = 1; i <= 2; i++) {
+          const off = band.from + (band.to - band.from) * (i / 3);
+          out += horiz
+            ? `<line class="ripple" x1="${x}" y1="${off}" x2="${x + w}" y2="${off}"/>`
+            : `<line class="ripple" x1="${off}" y1="${y}" x2="${off}" y2="${y + h}"/>`;
+        }
+      } else if (band.kind === 'moor' || band.kind === 'park') {
+        // scrub, so open ground does not read as an unusually wide street
+        const span = horiz ? w : h;
+        const thick = band.to - band.from;
+        let seed = Math.round(band.from * 7.3);
+        for (let d2 = 12; d2 < span; d2 += 19) {
+          seed = (seed * 9301 + 49297) % 233280;
+          const jitter = (seed / 233280);
+          const px = horiz ? x + d2 : band.from + thick * (0.2 + jitter * 0.6);
+          const py = horiz ? band.from + thick * (0.2 + jitter * 0.6) : y + d2;
+          out += `<circle class="scrub" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.4"/>`;
+        }
+      } else if (band.kind === 'rail') {
+        // sleepers
+        const span = horiz ? w : h;
+        const step = 26;
+        for (let d = 0; d < span; d += step) {
+          out += horiz
+            ? `<line class="sleeper" x1="${x + d}" y1="${band.from + 3}" x2="${x + d}" y2="${band.to - 3}"/>`
+            : `<line class="sleeper" x1="${band.from + 3}" y1="${y + d}" x2="${band.to - 3}" y2="${y + d}"/>`;
+        }
+      }
+
+      band.gaps.forEach(g => {
+        const gx = horiz ? g.at - g.w / 2 : band.from - 2;
+        const gy = horiz ? band.from - 2 : g.at - g.w / 2;
+        const gw = horiz ? g.w : (band.to - band.from) + 4;
+        const gh = horiz ? (band.to - band.from) + 4 : g.w;
+        out += `<rect class="crossing" x="${gx}" y="${gy}" width="${gw}" height="${gh}"/>`;
+      });
+    });
+    return out;
+  }
+
   function svgBuilding(b) {
     const h = hostsIn(b)[0];
     const theirs = rivalHolds(b.id);
     const mine = !!(h && h.owned);
     const open = !!(h && isFrontier(h));
-    const cls = ['bldg', b.kind, h ? h.role : '',
+    const cls = ['bldg', b.kind, h ? h.role : '', b.landmark ? 'landmark' : '',
                  theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : ''))];
     if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
     const roof = Math.min(10, b.h * 0.28);
@@ -2015,7 +2280,7 @@
     const seenIds = {};
     seen.forEach(b => { seenIds[b.id] = true; });
 
-    let out = svgStreets();
+    let out = svgStreets() + svgBands();
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
@@ -2605,7 +2870,7 @@
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, isFrontier, neighbours, hostById, owned, ownedOf,

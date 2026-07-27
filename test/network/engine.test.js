@@ -1688,3 +1688,185 @@ test('deck: working around a faction never gives the tool back', () => {
   assert.ok(Math.abs((withContact - without) - d.lieLowShed() * window.HEAT.ROTA_SHARE) < 1e-6,
     'but only a share of what the tool used to do');
 });
+
+// --- terrain -------------------------------------------------------------
+// The country layer promises five distinct regions. Before this, the generator
+// answered with the same block grid every time. A band of water or rail is not
+// decoration: adjacency is what the whole game runs on, so a crossing is a
+// chokepoint, and these tests are about the crossing being real.
+
+function cityIn(d, regionId, cols, rows) {
+  return d.makeCity({ cols: cols || 4, rows: rows || 4, regionTier: 2, regionId });
+}
+function componentsOf(buildings, adjacency) {
+  const seen = new Set();
+  let comps = 0;
+  buildings.forEach(b => {
+    if (seen.has(b.id)) return;
+    comps++;
+    const stack = [b.id];
+    seen.add(b.id);
+    while (stack.length) {
+      const cur = stack.pop();
+      (adjacency[cur] || []).forEach(n => { if (!seen.has(n)) { seen.add(n); stack.push(n); } });
+    }
+  });
+  return comps;
+}
+
+test('terrain: every region has its own, and no two are alike', () => {
+  const { window } = loadNetwork();
+  const seen = {};
+  window.REGIONS.forEach(R => {
+    const T = window.TERRAIN[R.id];
+    assert.ok(T, `${R.id} has no terrain`);
+    assert.ok(T.bands.length >= 1, `${R.id} has no bands`);
+    assert.ok(T.landmarks.length >= 1, `${R.id} has nothing worth going for`);
+    T.bands.forEach(b => {
+      assert.ok(window.BAND_KINDS[b.kind], `unknown band kind ${b.kind}`);
+      assert.ok(b.crossings >= 1, `${R.id}'s ${b.kind} has no way across it`);
+      assert.ok(b.at > 0 && b.at < 1, `${R.id}'s ${b.kind} sits off the map`);
+    });
+    const sig = T.bands.map(b => b.kind + b.axis).sort().join('+');
+    assert.ok(!seen[sig], `${R.id} has the same terrain as ${seen[sig]}`);
+    seen[sig] = R.id;
+  });
+});
+
+test('terrain: nothing is built on the water, the line or the moor', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.REGIONS.forEach(R => {
+    for (let i = 0; i < 4; i++) {
+      const g = cityIn(d, R.id);
+      g.buildings.forEach(b => {
+        g.bands.forEach(band => {
+          assert.equal(d.rectOnBand(band, b.x, b.y, b.w, b.h), false,
+            `${R.id}: a ${b.kind} is standing on the ${band.kind}`);
+        });
+      });
+    }
+  });
+});
+
+test('terrain: no wire crosses a band except at a crossing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.REGIONS.forEach(R => {
+    const g = cityIn(d, R.id);
+    const byId = {};
+    g.buildings.forEach(b => { byId[b.id] = b; });
+    Object.keys(g.adjacency).forEach(a => (g.adjacency[a] || []).forEach(b => {
+      const A = byId[a], B = byId[b];
+      if (!A || !B) return;
+      const blocked = d.segmentBlocked(g.bands,
+        A.x + A.w / 2, A.y + A.h / 2, B.x + B.w / 2, B.y + B.h / 2);
+      assert.equal(blocked, false, `${R.id}: a wire runs straight across the ${g.bands[0].kind}`);
+    }));
+  });
+});
+
+test('terrain: every city stays walkable end to end', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.REGIONS.forEach(R => {
+    for (let i = 0; i < 5; i++) {
+      const g = cityIn(d, R.id);
+      assert.equal(componentsOf(g.buildings, g.adjacency), 1,
+        `${R.id} generated a city with a part of it cut off entirely`);
+    }
+  });
+});
+
+test('terrain: the crossings are genuine chokepoints', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // Cut every link that spans terrain and the city should fall apart. If it
+  // does not, the bands are decoration and the bridges mean nothing.
+  let shattered = 0, tried = 0;
+  window.REGIONS.forEach(R => {
+    for (let i = 0; i < 4; i++) {
+      const g = cityIn(d, R.id);
+      const byId = {};
+      g.buildings.forEach(b => { byId[b.id] = b; });
+      const kept = {};
+      let crossing = 0, total = 0;
+      Object.keys(g.adjacency).forEach(a => (g.adjacency[a] || []).forEach(b => {
+        if (a >= b) return;
+        total++;
+        const A = byId[a], B = byId[b];
+        if (d.segmentSpansBand(g.bands, A.x + A.w / 2, A.y + A.h / 2, B.x + B.w / 2, B.y + B.h / 2)) {
+          crossing++;
+          return;
+        }
+        (kept[a] = kept[a] || []).push(b);
+        (kept[b] = kept[b] || []).push(a);
+      }));
+      tried++;
+      assert.ok(crossing > 0, `${R.id}: nothing crosses the terrain at all`);
+      assert.ok(crossing / total < 0.25,
+        `${R.id}: ${((crossing / total) * 100).toFixed(0)}% of links cross terrain — that is not a chokepoint`);
+      if (componentsOf(g.buildings, kept) > 1) shattered++;
+    }
+  });
+  assert.ok(shattered / tried > 0.8,
+    `only ${shattered} of ${tried} cities fall apart without their crossings`);
+});
+
+test('terrain: landmarks sit against the terrain and are worth the trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.REGIONS.forEach(R => {
+    const g = cityIn(d, R.id);
+    const marks = g.buildings.filter(b => b.landmark);
+    assert.ok(marks.length >= 1, `${R.id} generated no landmark`);
+    marks.forEach(b => {
+      assert.ok(window.BUILDING_KINDS[b.kind].landmark, `${b.kind} is not a landmark kind`);
+      assert.ok(window.TERRAIN[R.id].landmarks.includes(b.kind),
+        `${R.id} got a ${b.kind}, which is not one of its landmarks`);
+    });
+
+  });
+
+  // A landmark is a harder door and a bigger prize than the same kind of thing
+  // on the ordinary street. Sampled across the country rather than one city —
+  // one landmark against a handful of shopfronts is a coin toss, not a claim.
+  const lm = { defense: 0, threads: 0, n: 0 };
+  const street = { defense: 0, threads: 0, n: 0 };
+  window.REGIONS.forEach(R => {
+    for (let i = 0; i < 6; i++) {
+      const g = cityIn(d, R.id);
+      const marks = g.hosts.filter(h => h.landmark);
+      const types = new Set(marks.map(h => h.type));
+      marks.forEach(h => { lm.defense += h.defense; lm.threads += h.threads; lm.n++; });
+      g.hosts.filter(h => !h.landmark && types.has(h.type))
+        .forEach(h => { street.defense += h.defense; street.threads += h.threads; street.n++; });
+    }
+  });
+  assert.ok(lm.n > 10 && street.n > 10, 'enough of both to compare');
+  assert.ok(lm.defense / lm.n > street.defense / street.n,
+    'landmarks are no harder than the same thing on the street');
+  assert.ok(lm.threads / lm.n > street.threads / street.n,
+    'landmarks are worth no more than the same thing on the street');
+});
+
+test('terrain: entering a city in a region brings that region\'s terrain with it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const far = s.country.cities.find(c => c.region === 'estuary' && window.CITY_KINDS[c.kind].contest);
+  assert.ok(far, 'the estuary has somewhere to go');
+  d.enterCity(far.id);
+  assert.ok(s.bands.length >= 1, 'the city arrived with its terrain');
+  assert.ok(s.bands.some(b => b.kind === 'water'), 'and the estuary has water in it');
+  assert.ok(s.buildings.some(b => b.landmark), 'and something worth going for');
+});
+
+test('persistence: terrain survives a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const before = JSON.stringify(d.state.bands);
+  assert.ok(d.state.bands.length >= 1, 'the home city has terrain');
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(JSON.stringify(round.bands), before, 'the same water, in the same place');
+});

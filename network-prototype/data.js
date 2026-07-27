@@ -151,7 +151,18 @@ window.BUILDING_KINDS = {
   finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
   warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
   datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter' },
+  // Landmarks. One or two to a city, always up against whatever terrain the
+  // region has, and always worth more than the street around them — they are
+  // the reason to fight for a crossing rather than route around it.
+  docks:      { w: [78, 96], h: [50, 64], label: 'container dock', host: 'server',     landmark: true },
+  station:    { w: [74, 92], h: [48, 60], label: 'station',        host: 'server',     landmark: true },
+  depot:      { w: [66, 84], h: [46, 58], label: 'depot',          host: 'till',       landmark: true },
+  exchange:   { w: [64, 80], h: [52, 66], label: 'exchange floor', host: 'corporate',  landmark: true },
+  substation: { w: [58, 72], h: [44, 56], label: 'substation',     host: 'datacenter', landmark: true },
 };
+
+// A landmark is a bigger prize and a harder door than the district it sits in.
+window.LANDMARK = { defense: 1.35, threads: 1.5, yieldMult: 2 };
 
 // One building is one host, so a block of four buildings is four things to take
 // rather than a dozen. The home city was widened when it *was* the game; with a

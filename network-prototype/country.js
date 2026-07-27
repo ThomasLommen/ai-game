@@ -190,6 +190,62 @@ window.FACTIONS = [
   },
 ];
 
+// --- terrain --------------------------------------------------------------
+// The country layer promised five distinct regions and the city generator
+// delivered the same block grid seventeen times. Terrain is what makes a place
+// somewhere: a band of water or rail cuts the city in two, and the only way
+// across is a bridge. That is not decoration — adjacency is what the whole
+// game runs on, so a crossing is a chokepoint you have to take and hold, and
+// The Cut severing one is a genuine emergency.
+//
+//   axis 'h'   a band running left to right, positioned down the map
+//   axis 'v'   a band running top to bottom, positioned across the map
+//   at         where it sits, as a fraction of the map in that direction
+//   crossings  how many gaps in it — the bridges and level crossings
+window.TERRAIN = {
+  home: {
+    label: 'parkland',
+    bands: [{ kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 }],
+    landmarks: ['depot'],
+  },
+  estuary: {
+    label: 'the water',
+    bands: [{ kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 }],
+    landmarks: ['docks', 'docks'],
+  },
+  midlands: {
+    label: 'the line',
+    bands: [{ kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 }],
+    landmarks: ['station', 'depot'],
+  },
+  capital: {
+    label: 'the river and the line',
+    bands: [
+      { kind: 'water', axis: 'h', at: 0.4, thickness: 52, crossings: 2 },
+      { kind: 'rail', axis: 'v', at: 0.62, thickness: 28, crossings: 2 },
+    ],
+    landmarks: ['exchange', 'station'],
+  },
+  north: {
+    label: 'the moor',
+    // two bands, so the north is genuinely three ribbons of town rather than
+    // one city with a gap in it
+    bands: [
+      { kind: 'moor', axis: 'h', at: 0.34, thickness: 62, crossings: 1 },
+      { kind: 'moor', axis: 'h', at: 0.74, thickness: 54, crossings: 1 },
+    ],
+    landmarks: ['substation'],
+  },
+};
+
+// How a band reads on the map, and what it does to anything built on it.
+window.BAND_KINDS = {
+  water: { label: 'water',    crossing: 'bridge',          blocks: true },
+  rail:  { label: 'the line', crossing: 'level crossing',  blocks: true },
+  moor:  { label: 'open moor', crossing: 'the road',       blocks: true },
+  park:  { label: 'the park', crossing: 'a path',          blocks: true },
+};
+
 // The mirror's numbers. It is the rival one scale up: it takes ground you have
 // not taken, it never takes ground from under you, and it is capped — it races
 // you for the country instead of eating it.
