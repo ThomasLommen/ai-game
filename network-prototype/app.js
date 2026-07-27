@@ -1066,6 +1066,75 @@
   }
 
   // --- capabilities ------------------------------------------------------
+  // What a capability actually does, in the same coloured vocabulary the action
+  // buttons use. Measured before this existed: of sixteen capabilities, three
+  // gave the player a visible confirmation on purchase, six changed only the
+  // action pips — which is the cost, not the benefit — and six showed nothing
+  // whatsoever. Quiet Protocol takes a permanent action off you and pays out
+  // in the heat floor, a marker on the heat bar whose only explanation was a
+  // title attribute, which does not exist on a touchscreen.
+  //
+  // Stated in terms of things you can see rather than the key names: nobody
+  // can act on "churnMult 0.45".
+  const neg = (n) => (n < 0 ? '&minus;' + Math.abs(n) : '+' + n);
+  function pct(mult, up) {
+    const d = Math.round(Math.abs(1 - mult) * 100);
+    return (up ? '+' : '&minus;') + d + '%';
+  }
+  function capEffectChips(c) {
+    const e = c.effect || {};
+    const out = [];
+    const add = (kind, text) => out.push(chip(kind, text));
+    if (e.power > 0) add('power', `+${e.power} power`);
+    if (e.power < 0) add('cost power', `${neg(e.power)} power`);
+    if (e.cover) add('cover', `+${e.cover} cover`);
+    if (e.threadBonus) add('power', `+${e.threadBonus} threads a host`);
+    if (e.floor) add('cover', `heat floor ${neg(e.floor)}`);
+    if (e.driftMult) add('cover', `heat ${pct(e.driftMult)} a turn`);
+    if (e.thresholdMult) add('cover', `${pct(e.thresholdMult, true)} before a strike`);
+    if (e.forceHeat) add('cover', `forcing a door ${neg(e.forceHeat)} heat`);
+    if (e.churnMult) add('cover', `decay ${pct(e.churnMult)}`);
+    if (e.yieldMult) add('cash', `income ${pct(e.yieldMult, true)}`);
+    if (e.presenceMult) add('cash', `presence pays ${pct(e.presenceMult, true)}`);
+    if (e.launderBonus) add('cover', `laundering sheds ${e.launderBonus} more`);
+    if (e.launderInsight) add('insight', `laundering +${e.launderInsight} insight`);
+    if (e.buyDiscount) add('cost cash', `buying in ${pct(1 - e.buyDiscount)}`);
+    if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
+    if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
+    if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
+    if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
+    if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
+    if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
+    if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
+    return out.join('');
+  }
+
+  // Everything a capability could plausibly move, so a purchase can report what
+  // it actually changed rather than trusting the card. Derived, not stored:
+  // this verifies the effect landed instead of restating the intention.
+  function capReadouts() {
+    return {
+      'power': Math.round(power()),
+      'cover': Math.round(cover()),
+      'actions a turn': maxAP(),
+      'heat floor': Math.round(heatFloor() * 10) / 10,
+      'heat a turn': Math.round(heatPerTurn() * 10) / 10,
+      'strike at': Math.round(strikeThreshold()),
+      'a sweep costs': sweepPrice(),
+      'tooling costs': upgradeCost(),
+      // shown before the war too: a standing army bought in peacetime would
+      // otherwise report nothing but the action it cost you, which is the whole
+      // complaint this was fixing
+      'flocks you could field': flockCap(),
+      'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
+    };
+  }
+  function readoutDiff(before, after) {
+    return Object.keys(after)
+      .filter(k => before[k] !== after[k])
+      .map(k => `${k} ${before[k]} → ${after[k]}`);
+  }
+
   function capById(id) { return window.CAPABILITIES.find(c => c.id === id) || null; }
   function capCost(c) {
     if (!c.repeatable) return c.cost;
@@ -1110,11 +1179,16 @@
     // never let a purchase strand the player with no actions at all
     if ((c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min) return;
     const before = beforeSnap();
+    const wasReading = capReadouts();
     state.res.insight -= capCost(c);
     state.caps[c.id] = capCount(c.id) + 1;
     state.ap = Math.min(state.ap, maxAP());
     afterSnap(before);
-    pushLog(`${c.name} — acquired.`);
+    // What actually moved, including the things that have no readout anywhere.
+    // Thirteen of sixteen capabilities used to report nothing but the cost.
+    const moved = readoutDiff(wasReading, capReadouts());
+    pushLog(moved.length ? `${c.name} — ${moved.join(', ')}.` : `${c.name} — acquired.`);
+    if (moved.length) showInfo(`${c.name}: ${moved.join(' · ')}`);
     showBanner([{ kind: 'cap', verb: c.apDelta > 0 ? 'faster' : c.apDelta < 0 ? 'slower, stronger' : 'acquired', label: c.name }]);
     // Committing to a branch shuts the opposing one. Say so, once, at the
     // moment it happens — finding out later by looking at a greyed card is
@@ -4543,6 +4617,7 @@
             </div>
             ${apTag}${commits}
             <p class="shop-good-desc">${c.desc}</p>
+            <p class="yield-row cap-terms">${capEffectChips(c)}</p>
             <button type="button" class="shop-buy-btn" data-cap="${c.id}" ${disabled ? 'disabled' : ''}>${label}</button>
           </div>`;
       }).join('');
@@ -5189,7 +5264,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

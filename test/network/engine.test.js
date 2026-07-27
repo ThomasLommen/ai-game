@@ -2208,6 +2208,9 @@ test('tree: every branch can actually be finished from a standing start', () => 
       s.hosts.filter(h => h.role === role).slice(0, 5).forEach(h => { h.owned = true; });
     });
     s.country.presence = 60;
+    // and a country half taken, because Reach's capstones are about the
+    // country rather than the street
+    conqueredCountry(d, window, 0.5);
 
     const chain = window.CAPABILITIES.filter(c => c.branch === bk).sort((a, b) => a.tier - b.tier);
     chain.forEach(c => d.buyCap(c.id));
@@ -3460,7 +3463,12 @@ test('war deck: the accord actually stops the other one', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  conqueredCountry(d, window);
+  // Leave it somewhere to go. A board with six or fewer defended cities
+  // rounds an 85% share up to all of them, and a mirror with nowhere to move
+  // reads exactly like a mirror that has stopped — which is what this test is
+  // trying to tell apart.
+  const defended = conqueredCountry(d, window, 0.5);
+  assert.ok(defended.some(c => !c.taken), 'there is a city left for it to take');
   const st = d.factionState('the_other');
   st.awake = true; st.wokeTurn = 1;
   s.country.mirror = { presence: 0, caps: {}, cities: [], lastActed: -99 };
@@ -4679,4 +4687,117 @@ test('sheet: the tray is one line and the detail is a section', () => {
   assert.ok(!/tray-item/.test(html), 'not a row per faction any more');
   assert.ok(d.opsSections().some(x => x.id === 'pressure'),
     'and the detail is a section of the sheet');
+});
+
+// --- capabilities that say what they do -----------------------------------
+// Audited: of sixteen capabilities, three gave a visible confirmation when
+// bought, six changed only the action pips — the cost, not the benefit — and
+// six showed the player nothing at all.
+
+test('caps: every capability states its terms', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.CAPABILITIES.forEach(c => {
+    const chips = d.capEffectChips(c);
+    assert.ok(chips && chips.length, `${c.id} says nothing about what it does`);
+    // and in the same coloured vocabulary as everything else that is priced
+    assert.ok(/class="yield /.test(chips), `${c.id} is not using the shared chips`);
+  });
+});
+
+test('caps: an action cost is stated as a cost, not as a feature', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  window.CAPABILITIES.filter(c => (c.apDelta || 0) < 0).forEach(c => {
+    const chips = d.capEffectChips(c);
+    assert.ok(/class="yield cost/.test(chips), `${c.id} does not mark its action cost`);
+    assert.ok(/action a turn/.test(chips), `${c.id} does not say it takes an action`);
+  });
+  window.CAPABILITIES.filter(c => (c.apDelta || 0) > 0).forEach(c => {
+    assert.ok(!/cost none/.test(d.capEffectChips(c)), `${c.id} calls a gain a cost`);
+  });
+});
+
+test('caps: the terms describe things the player can see', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // no key names leaking into the copy — nobody can act on "churnMult 0.45"
+  const raw = ['churnMult', 'driftMult', 'yieldMult', 'thresholdMult', 'presenceMult',
+    'threadBonus', 'sweepReach', 'sweepDiscount', 'buyDiscount', 'launderBonus',
+    'launderInsight', 'forceHeat', 'extraCrossings', 'flockBonus', 'flockMult'];
+  window.CAPABILITIES.forEach(c => {
+    const chips = d.capEffectChips(c);
+    raw.forEach(k => assert.ok(!chips.includes(k), `${c.id} is showing the key name ${k}`));
+  });
+});
+
+test('caps: buying one reports what actually moved', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // hold enough that the heat floor is off zero and quiet protocol has a job
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.discovered = true; });
+  s.res.insight = 1000;
+  const floorBefore = d.heatFloor();
+  assert.ok(floorBefore > 0, 'there is a floor to lower');
+  const logBefore = s.log.length;
+  d.buyCap('quiet_protocol');
+  assert.ok(s.caps.quiet_protocol, 'it was bought');
+  assert.ok(d.heatFloor() < floorBefore, 'and the floor came down');
+  assert.ok(s.log.length > logBefore, 'and it said so');
+  assert.ok(/heat floor/.test(s.log[0].text),
+    `the report does not mention the floor: "${s.log[0].text}"`);
+});
+
+test('caps: the report is derived, so it cannot lie about what happened', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const before = d.capReadouts();
+  const after = Object.assign({}, before, { power: before.power + 5 });
+  const diff = d.readoutDiff(before, after);
+  assert.equal(diff.length, 1, 'only what changed is reported');
+  assert.ok(/power/.test(diff[0]) && /→/.test(diff[0]), 'as a before and after');
+  assert.equal(d.readoutDiff(before, before).length, 0, 'and nothing when nothing moves');
+});
+
+test('caps: the war has a capability, and it fills the hooks that were empty', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // one hook is read by flockCap, the other by every flock's strength, and
+  // nothing anywhere granted either
+  const granters = window.CAPABILITIES.filter(c =>
+    (c.effect || {}).flockBonus || (c.effect || {}).flockMult);
+  assert.ok(granters.length, 'something now grants them');
+
+  conqueredCountry(d, window);
+  d.openWar();
+  ['survey', 'pontoon'].forEach(id => { s.caps[id] = 1; });
+  s.res.insight = 100000;
+  const cap = window.CAPABILITIES.find(c => c.id === 'standing_army');
+  assert.equal(d.capBlocked(cap), null, 'and it is reachable by then');
+  const pool = d.flockCap();
+  const was = d.capReadouts();
+  d.buyCap('standing_army');
+  assert.ok(s.caps.standing_army, 'it can be bought');
+  assert.ok(d.flockCap() > pool, `the pool did not grow: ${pool} -> ${d.flockCap()}`);
+  // and both halves of it are reported, not just the one with a readout
+  const moved = d.readoutDiff(was, d.capReadouts()).join(' | ');
+  assert.ok(/flocks you could field/.test(moved), `the pool went unreported: ${moved}`);
+  assert.ok(/a flock hits for/.test(moved), `the strength went unreported: ${moved}`);
+  // it also costs you nothing to keep: a second −1 strand in Reach would put
+  // the branch under the action floor
+  assert.equal(cap.apDelta || 0, 0, 'and it does not cost an action');
+});
+
+test('caps: it is not offered until you are a national concern', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  ['survey', 'pontoon'].forEach(id => { s.caps[id] = 1; });
+  s.res.insight = 100000;
+  const cap = window.CAPABILITIES.find(c => c.id === 'standing_army');
+  assert.equal(d.capBlocked(cap), 'early', 'nothing to raise it over yet');
+  conqueredCountry(d, window, 0.5);
+  assert.equal(d.capBlocked(cap), null, 'and it opens when you are one');
 });

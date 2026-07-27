@@ -274,6 +274,29 @@ window.CAPABILITIES = [
     requires: ['pontoon'],
     cond: (s) => s.presence >= 40,
   },
+  // The tree stopped at the country layer and the war had no branch at all —
+  // flockBonus was read by flockCap and flockMult by every flock's strength,
+  // with nothing anywhere granting either. It opens once you are a national
+  // concern rather than once
+  // they mobilise: a standing army you raise after the shooting starts is not a
+  // standing army. It costs no action, because the branch already contains
+  // Bulk Processing and two strands of −1 in one branch put you under the
+  // floor, and because a line that runs itself is the whole idea.
+  {
+    id: 'standing_army', branch: 'reach', tier: 3,
+    name: 'Standing Army',
+    desc: 'The lines run whether or not you are watching them, and what comes off the end is heavier than what came off it last month. Nothing to fight yet. That is rather the point of having it first.',
+    apDelta: 0,
+    effect: { flockBonus: 2, flockMult: 1.25 },
+    cost: 70,
+    requires: ['pontoon'],
+    // Not gated on presence, which is the obvious choice and the wrong one:
+    // mobilising takes cities back off you, so any presence gate can close
+    // again at the exact moment the thing becomes useful — measured as low as
+    // 10 on some boards. A third of the country raises it, and once they have
+    // mobilised it stays open however much of it they have taken back.
+    cond: (s) => s.conquest >= 0.35 || !!s.war,
+  },
 ];
 
 // --- the other process --------------------------------------------------
