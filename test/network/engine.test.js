@@ -1556,7 +1556,33 @@ function sampleContexts(window) {
       seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
+      war: null,
     }, o.over || {});
+  };
+
+  // A war is a whole second half of the deck, and none of the contexts above
+  // ever has one — every wartime card was unreachable by construction.
+  const warStates = () => {
+    const inbound = ['squad', 'contractors', 'armour', 'heli', 'plane', 'swarm'];
+    const res = [];
+    [1, 3, 5, 9, 14, 22].forEach(age => {
+      [1, 2, 4, 7].forEach(staging => {
+        [0, 1, 3, 5].forEach(mine => {
+          [0, 2, 5].forEach(flocks => {
+            [0, 2, 6].forEach(kills => {
+              res.push({
+                on: true, age, staging, mine, flocks,
+                pool: flocks + (age % 3), free: age % 3, guards: Math.floor(flocks / 2),
+                columns: staging, kills, losses: kills > 2 ? kills - 2 : (age > 8 ? 4 : 0),
+                weakest: Math.max(0, 60 - age * 3),
+                inbound: (k) => inbound.indexOf(k) <= (age % inbound.length),
+              });
+            });
+          });
+        });
+      });
+    });
+    return res;
   };
 
   // fine-grained: a warning card lives in the gap between its own threshold
@@ -1623,6 +1649,33 @@ function sampleContexts(window) {
       },
     }));
   }));
+  // and the same again, at war
+  const wars = warStates();
+  const conqs = [0.3, 0.5, 0.7, 0.9];
+  conqs.forEach(conq => {
+    wars.forEach(war => {
+      out.push(base({
+        brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
+        awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
+        over: {
+          held: 0, heat: 0, scope: 'country', conquest: conq,
+          presence: Math.round(conq * 300),
+          power: 40 + Math.round(conq * 200), cover: 10 + Math.round(conq * 20),
+          res: { insight: 40 + Math.round(conq * 200), cash: 40 + Math.round(conq * 200) },
+          // Zero on purpose, and this is the whole point of the wartime
+          // contexts: the war is fought from the country map, where you are
+          // holding no streets at all, so every role count is 0. Sampling them
+          // as though you were standing in a city made role-gated cards look
+          // reachable when in play they could never come up.
+          roles: { compute: 0, cash: 0, stealth: 0 },
+          districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
+          cities: { total: 18, taken: 12, consolidated: war.mine, known: 18 },
+          war,
+        },
+      }));
+    });
+  });
+
   return out;
 }
 
@@ -3237,4 +3290,142 @@ test('war: a city outside the board is not part of the war', () => {
     assert.equal(d.canLaunch(c.id), false, 'and there is nothing there to attack');
   });
   assert.equal(d.stagingCities().length, board.length, 'the board is the board');
+});
+
+// --- the wartime deck ----------------------------------------------------
+
+test('war deck: no wartime card can come up before there is a war', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const ctx = d.eventContext();
+  assert.equal(ctx.war, null, 'no war, no war context');
+  // falsy, not literally false: the cards guard with `s.war && ...`, which is
+  // null in peacetime, and the deck filters on truthiness
+  window.EVENTS.filter(e => /^war_/.test(e.id)).forEach(e => {
+    assert.ok(!e.cond(ctx), `${e.id} came up in peacetime`);
+  });
+});
+
+test('war deck: the deck keeps dealing once the war is on', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  d.openWar();
+  s.nextEventTurn = s.turn + 1;
+  s.card = { kind: 'strike' };          // a stale arrest from before they mobilised
+  let drew = false;
+  for (let i = 0; i < 30 && !drew; i++) {
+    s.ap = 4;
+    d.endTurn({ silent: true });
+    if (s.card && s.card.kind === 'event') drew = true;
+  }
+  assert.ok(drew, 'cards still come up during the war');
+});
+
+test('war deck: a card can put flocks where they are needed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const before = d.flocks().length;
+  d.applyWarEffects({ warFlocks: 2 });
+  const after = d.flocks();
+  assert.equal(after.length, before + 2, 'two flocks, free');
+  after.forEach(f => assert.equal(f.mode, 'guard', 'and standing over something of yours'));
+});
+
+test('war deck: a card can make permanent room for more of them', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const before = d.flockCap();
+  d.applyWarEffects({ warPool: 2 });
+  assert.equal(d.flockCap(), before + 2, 'the pool is bigger for the rest of the war');
+});
+
+test('war deck: a card can thin the softest barracks for good', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const soft = d.stagingCities().sort((a, b) => w.garrisons[a.id] - w.garrisons[b.id])[0];
+  const before = w.garrisons[soft.id];
+  d.applyWarEffects({ warGarrison: 15 });
+  assert.equal(Math.round(w.garrisons[soft.id]), Math.round(before - 15));
+  assert.ok(w.peak[soft.id] < before, 'and it cannot patch that back up');
+});
+
+test('war deck: a card can turn columns around and buy time', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  s.turn += 20;
+  d.spawnColumns();
+  s.turn += 20;
+  d.spawnColumns();
+  assert.ok(w.columns.length >= 1, 'there is something on the road');
+  const n = w.columns.length;
+  d.applyWarEffects({ warTurnBack: 1 });
+  assert.equal(w.columns.length, n - 1, 'one of them goes home');
+
+  // delay now shifts each city's own clock rather than stamping them all with
+  // the same turn, so buying time has to be measured against that clock
+  d.applyWarEffects({ warDelay: 8 });
+  const after = d.spawnColumns();
+  assert.equal(after.length, 0, 'and nothing else leaves for a while');
+  d.applyWarEffects({ warDelay: -8 });
+  d.state.turn += 8;
+  assert.ok(d.spawnColumns().length > 0, 'while giving time back brings them forward');
+});
+
+test('war deck: a card can shore up what you hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  w.integrity[mine.id] = 1;
+  d.applyWarEffects({ warIntegrity: 3 });
+  assert.equal(w.integrity[mine.id], 4, 'it can absorb a great deal more now');
+});
+
+test('war deck: the accord actually stops the other one', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  const st = d.factionState('the_other');
+  st.awake = true; st.wokeTurn = 1;
+  s.country.mirror = { presence: 0, caps: {}, cities: [], lastActed: -99 };
+  s.turn += 50;
+  assert.ok(d.mirrorStep(), 'it is taking cities');
+  s.tags.add('accord');
+  s.turn += 50;
+  assert.equal(d.mirrorStep(), null, 'and once it has given its word, it stops');
+});
+
+test('war deck: a blackout slows what they can raise', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  d.openWar();
+  const runFor = (turns) => {
+    d.war().columns.length = 0;
+    d.war().lastSpawn = {};
+    let made = 0;
+    for (let i = 0; i < turns; i++) { s.turn += 1; made += d.spawnColumns().length; d.war().columns.length = 0; }
+    return made;
+  };
+  const normal = runFor(40);
+  s.tags.add('blackout');
+  const dark = runFor(40);
+  assert.ok(dark < normal, `blackout should slow them: ${dark} against ${normal}`);
 });

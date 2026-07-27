@@ -844,9 +844,13 @@
     if (warShouldOpen()) openWar();
 
     const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
-    if (warOn()) {
-      if (state.card && state.card.kind === 'strike') state.card = null;
-    } else if (state.heat >= strikeThreshold() && cooled && !state.card) {
+    // Clearing a stale arrest is not a substitute for drawing a card. As an
+    // `else if` this swallowed the event draw for the entire war: measured,
+    // zero cards of any kind came up across 1713 draws once the war was on,
+    // so the whole deck — not just the wartime half — went silent for the
+    // last act.
+    if (warOn() && state.card && state.card.kind === 'strike') state.card = null;
+    if (!warOn() && state.heat >= strikeThreshold() && cooled && !state.card) {
       state.card = { kind: 'strike' };
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
@@ -1170,6 +1174,27 @@
       cuts: (state.cuts || []).length,
       mirrorCities: ((co.mirror || {}).cities || []).length,
       regionHeat: co.regionHeat || {},
+      // The last act, so a card can be about a war rather than about a city.
+      // Null until they mobilise, which is what every wartime card gates on.
+      war: warOn() ? {
+        on: true,
+        age: state.turn - war().openedTurn,
+        staging: stagingCities().length,
+        mine: myCities().length,
+        flocks: flocks().length,
+        pool: flockCap(),
+        free: flocksFree(),
+        columns: (war().columns || []).length,
+        guards: flocks().filter(f => f.mode === 'guard').length,
+        kills: war().kills,
+        losses: war().losses,
+        inbound: (kind) => (war().columns || []).some(c => c.kind === kind),
+        weakest: (() => {
+          const g = war().garrisons;
+          const list = stagingCities().map(c => Math.ceil(g[c.id] || 0)).sort((a, b) => a - b);
+          return list.length ? list[0] : 0;
+        })(),
+      } : null,
     };
   }
   // how many buildings you hold in each district — lets an event only fire
@@ -1257,6 +1282,14 @@
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
     scratch.allyTrust = 0;
+    // wartime outcomes, in the same declarative style: a card says what
+    // happens on the map and does not need to know how the map works
+    scratch.warFlocks = 0;      // free flocks, put where they are most needed
+    scratch.warPool = 0;        // permanent room for more of them
+    scratch.warGarrison = 0;    // taken off the softest barracks
+    scratch.warTurnBack = 0;    // columns that simply go home
+    scratch.warIntegrity = 0;   // how much more your cities can absorb
+    scratch.warDelay = 0;       // turns before anything else leaves their cities
     ch.apply(scratch);
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
@@ -1267,6 +1300,7 @@
       if (weakest.length) pushLog(`Let go of ${weakest.map(h => h.name).join(', ')}.`);
     }
     if (scratch.shoreAll) owned().forEach(h => { h.stability = 1; });
+    if (warOn()) applyWarEffects(scratch);
     if (scratch.toolingGift > 0) state.upgrades = (state.upgrades || 0) + scratch.toolingGift;
     if (scratch.revealNearby > 0) {
       const targets = sweepTargets();
@@ -1280,6 +1314,14 @@
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
     scratch.allyTrust = 0;
+    // wartime outcomes, in the same declarative style: a card says what
+    // happens on the map and does not need to know how the map works
+    scratch.warFlocks = 0;      // free flocks, put where they are most needed
+    scratch.warPool = 0;        // permanent room for more of them
+    scratch.warGarrison = 0;    // taken off the softest barracks
+    scratch.warTurnBack = 0;    // columns that simply go home
+    scratch.warIntegrity = 0;   // how much more your cities can absorb
+    scratch.warDelay = 0;       // turns before anything else leaves their cities
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -2262,6 +2304,8 @@
 
   function mirrorStep() {
     if (!factionAwake('the_other')) return null;
+    // it agreed a line, and unlike most things in this game it keeps to it
+    if (has('accord')) return null;
     const m = mirror();
     const M = window.MIRROR;
 
@@ -2607,7 +2651,10 @@
   function flockCap() {
     const W = window.WAR;
     const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
-    return Math.max(W.flockFloor, Math.min(W.flockCeil, n + capEffect('flockBonus', 0)));
+    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0);
+    // the floor holds even when a card has cost you room: a war you cannot
+    // field anything into is not a war
+    return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
   }
   function flocks() { return (war() && war().flocks) || []; }
   function flocksFree() { return Math.max(0, flockCap() - flocks().length); }
@@ -2671,17 +2718,19 @@
     const W = window.WAR;
     const w = war();
     if (!w || state.turn - w.openedTurn < W.warning) return [];
-    if (w.columns.length >= W.maxInflight) return [];
+    if (w.columns.length >= W.maxInflight - (has('mercy') ? 1 : 0)) return [];
     const out = [];
     // they escalate: the more of the country you have taken, the harder the
     // remaining cities push
-    const every = Math.max(W.spawnFloor, Math.round(W.spawnEvery * (1 - conquest() * 0.5)));
+    let every = Math.max(W.spawnFloor, Math.round(W.spawnEvery * (1 - conquest() * 0.5)));
+    if (has('blackout')) every += 3;      // you turned the country off
+    const inflightCap = W.maxInflight - (has('mercy') ? 1 : 0);
     // Two caps, and both matter. Without a per-turn one, thirteen staging
     // cities all came due on the same turn and the map went from readable to
     // hopeless in one step.
     shuffleArr(stagingCities()).forEach(c => {
       if (out.length >= W.sortiesPerTurn) return;
-      if (w.columns.length >= W.maxInflight) return;
+      if (w.columns.length >= inflightCap) return;
       if (state.turn - (w.lastSpawn[c.id] || -99) < every) return;
       const target = columnTarget(c);
       if (!target) return;
@@ -2898,6 +2947,51 @@
       const full = window.WAR.flockStrength * capEffect('flockMult', 1);
       f.strength = Math.min(full, f.strength + window.WAR.guardRegen);
     });
+  }
+
+  // What a card is allowed to do to a war. Kept here rather than in the card
+  // so the deck stays declarative and nothing in data.js has to know what a
+  // route or a garrison is.
+  function applyWarEffects(sc) {
+    const w = war();
+    if (!w) return;
+    if (sc.warPool) w.poolBonus = (w.poolBonus || 0) + sc.warPool;
+    if (sc.warFlocks) {
+      // over whatever is being walked at hardest, because a free flock parked
+      // somewhere quiet is not a gift
+      const threat = {};
+      (w.columns || []).forEach(c => { threat[c.target] = (threat[c.target] || 0) + c.strength; });
+      const held = {};
+      w.flocks.forEach(f => { if (f.mode === 'guard') held[f.target] = true; });
+      const order = myCities().filter(c => !held[c.id])
+        .sort((a, b) => (threat[b.id] || 0) - (threat[a.id] || 0));
+      for (let i = 0; i < sc.warFlocks && order[i]; i++) fieldFlock(order[i].id, order[i].id, 'guard');
+    }
+    if (sc.warGarrison) {
+      const soft = stagingCities()
+        .sort((a, b) => (w.garrisons[a.id] || 0) - (w.garrisons[b.id] || 0))[0];
+      if (soft) {
+        w.garrisons[soft.id] = Math.max(0, (w.garrisons[soft.id] || 0) - sc.warGarrison);
+        if (w.peak) w.peak[soft.id] = Math.max(0, (w.peak[soft.id] || 0) - sc.warGarrison);
+        pushLog(`${soft.name} is thinner than it was.`);
+      }
+    }
+    if (sc.warTurnBack) {
+      const going = (w.columns || []).slice(0, sc.warTurnBack);
+      w.columns = (w.columns || []).filter(c => going.indexOf(c) === -1);
+      if (going.length) pushLog(`${going.length} column${going.length === 1 ? '' : 's'} turned back.`);
+    }
+    if (sc.warIntegrity) {
+      myCities().forEach(c => {
+        const now = w.integrity[c.id] === undefined ? window.WAR.integrity : w.integrity[c.id];
+        w.integrity[c.id] = now + sc.warIntegrity;
+      });
+    }
+    // A card can buy time or spend it: a negative delay brings the next
+    // sortie forward, which is what several of the tempting options cost you.
+    if (sc.warDelay) {
+      stagingCities().forEach(c => { w.lastSpawn[c.id] = state.turn + sc.warDelay; });
+    }
   }
 
   function warEnded() {
@@ -4327,7 +4421,7 @@
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
-    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, roadPath, routeFor, forcePos, forceArrived,
+    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,

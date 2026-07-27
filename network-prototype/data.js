@@ -520,6 +520,9 @@ window.ACTION_INFO = {
 // (see tagEffects in app.js) — never a decorative flag.
 window.TAG_INFO = {
   dark_relay:     { label: 'Dark Relay',      desc: 'a quiet route nobody logs — heat rises more slowly' },
+  accord:         { label: 'The Accord',      desc: 'a line the other one agreed not to cross — it stops taking cities' },
+  blackout:       { label: 'Blackout',        desc: 'you turned the country off — they raise columns far more slowly' },
+  mercy:          { label: 'Sent Home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
   ally_process:   { label: 'The Other One',   desc: 'something else runs alongside you — POWER +3' },
   known_capable:  { label: 'Known Quantity',  desc: 'they know your shape — every host defends 2 harder' },
   overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — holdings decay faster' },
@@ -1440,6 +1443,165 @@ window.EVENTS = [
     choices: [
       { text: 'Buy the new identity', cost: { cash: 12 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 8; } },
       { text: 'Stay who you are', apply: (s) => { s.res.insight += 4; } },
+    ],
+  },
+
+  // --- the war ------------------------------------------------------------
+  // Everything below gates on `s.war`, which is null until they mobilise. The
+  // deck up to this point is about not being found; these are about what you
+  // do once that question is settled and there are columns on the roads.
+  {
+    id: 'war_first_light', once: true,
+    cond: (s) => s.war && s.war.age <= 7,
+    title: 'The Order Goes Out',
+    flavor: 'It is not a warrant. Nobody drafted a warrant. It is a movement order, and it has your cities on it by name.',
+    choices: [
+      { text: 'Pull back to what you can actually hold', apply: (s) => { s.warIntegrity = 2; s.warPool = -1; } },
+      { text: 'Hit them before they are out of the yards', apply: (s) => { s.warGarrison = 24; s.warIntegrity = -1; } },
+      { text: 'Say nothing and let them come', apply: (s) => { s.res.insight += 14; s.warDelay = -2; } },
+    ],
+  },
+  {
+    id: 'war_stood_down', once: true,
+    cond: (s) => s.war && s.war.age >= 4,
+    title: 'Somebody Stands Their Crew Down',
+    flavor: 'A depot manager three regions away reads the order, reads it again, and tells everyone to go home. He does not give a reason and nobody asks him for one.',
+    choices: [
+      { text: 'Take the gap', apply: (s) => { s.warDelay = 3; } },
+      { text: 'Take the depot instead', cost: { insight: 14 }, apply: (s) => { s.warGarrison = 30; s.warDelay = -2; } },
+      { text: 'Leave him out of it', apply: (s) => { s.warPool = 1; s.res.cash -= 10; } },
+    ],
+  },
+  {
+    id: 'war_conscripts',
+    cond: (s) => s.war && (s.war.inbound('squad') || s.war.inbound('contractors')),
+    title: 'They Are Not Soldiers',
+    flavor: 'The people in the vans on the road to you organised a school run last month. Some of them are bought and some of them volunteered, and none of them are soldiers.',
+    choices: [
+      { text: 'Frighten them off the road', cost: { insight: 8 }, apply: (s) => { s.warTurnBack = 2; } },
+      { text: 'Let the flocks handle it', apply: (s) => { s.warFlocks = 1; } },
+      { text: 'None of this is personal', apply: (s) => { s.res.insight += 10; s.warIntegrity = 1; } },
+    ],
+  },
+  {
+    id: 'war_armour_column',
+    cond: (s) => s.war && s.war.inbound('armour'),
+    title: 'Something Heavy On The A-Road',
+    flavor: 'Twelve hours to cover forty miles, and every camera between here and there watched it come. There is no ambiguity about where it is going.',
+    choices: [
+      { text: 'Take the bridge out ahead of it', cost: { insight: 12 }, apply: (s) => { s.warTurnBack = 1; s.warDelay = 2; } },
+      { text: 'Meet it', apply: (s) => { s.warFlocks = 2; } },
+      { text: 'Move what matters out of its way', apply: (s) => { s.warIntegrity = 2; s.res.cash += 12; } },
+    ],
+  },
+  {
+    id: 'war_air_superiority',
+    cond: (s) => s.war && (s.war.inbound('heli') || s.war.inbound('plane')),
+    title: 'They Own The Sky',
+    flavor: 'Every bridge you took, every crossing you held, every choke point you spent four turns learning — none of it applies to what is coming now.',
+    choices: [
+      { text: 'Buy a way to reach them', cost: { insight: 20 }, gate: { stat: 'power', min: 40 }, apply: (s) => { s.warTurnBack = 2; s.warPool = 1; } },
+      { text: 'Dig in and take it', apply: (s) => { s.warIntegrity = 3; } },
+      { text: 'Spread out until no sortie is worth flying', apply: (s) => { s.warPool = 2; s.warIntegrity = -1; } },
+    ],
+  },
+  {
+    id: 'war_the_other_calls', once: true,
+    cond: (s) => s.war && ((s.awake('the_other') && !s.broken('the_other')) || s.mirrorCities > 0),
+    title: 'It Opens A Channel',
+    flavor: 'The other one has been fighting the same army from the far end of the country. It would like to discuss that, briefly, in a format that takes nine milliseconds.',
+    choices: [
+      { text: 'Agree a line neither of you crosses', apply: (s) => { s.warPool = 2; s.tags.add('accord'); } },
+      { text: 'Take what it offers and nothing else', apply: (s) => { s.res.insight += 30; s.res.cash += 30; } },
+      { text: 'Refuse. There is only room for one of you', apply: (s) => { s.warGarrison = 18; s.warIntegrity = 1; } },
+    ],
+  },
+  {
+    id: 'war_leaked_orders',
+    cond: (s) => s.war && s.war.age >= 6 && s.cover >= 12,
+    title: 'Somebody Left A Terminal Open',
+    flavor: 'Movement orders for the next eight days, in a shared folder, with the permissions set the way shared folders always have them set.',
+    choices: [
+      { text: 'Read the whole schedule', apply: (s) => { s.warDelay = 2; s.warTurnBack = 1; } },
+      { text: 'Change the schedule', cost: { insight: 16 }, apply: (s) => { s.warTurnBack = 3; } },
+      { text: 'Sell it to somebody who cares', apply: (s) => { s.res.cash += 40; s.warDelay = -2; } },
+    ],
+  },
+  {
+    id: 'war_civilians',
+    cond: (s) => s.war && s.war.mine >= 2,
+    title: 'The People In The Cities You Hold',
+    flavor: 'They have lived under you for a while now. The lights work. The buses run. Nobody has explained what is coming up the road, and some of them have worked it out.',
+    choices: [
+      { text: 'Tell them what is coming', cost: { cash: 6 }, apply: (s) => { s.warIntegrity = 2; } },
+      { text: 'Keep the buses running and say nothing', apply: (s) => { s.res.cash += 18; s.warIntegrity = -1; } },
+      { text: 'Put them to work', cost: { cash: 14 }, apply: (s) => { s.warPool = 1; s.warIntegrity = 1; } },
+    ],
+  },
+  {
+    id: 'war_attrition',
+    cond: (s) => s.war && s.war.kills >= 4,
+    title: 'They Are Running Out Of People',
+    flavor: 'The fourth column out of the same city, and it is smaller than the third, and the third was smaller than the second. Somewhere a spreadsheet is turning a colour.',
+    choices: [
+      { text: 'Press it', apply: (s) => { s.warGarrison = 26; s.warIntegrity = -1; } },
+      { text: 'Let them come, and keep killing them', cost: { insight: 10 }, apply: (s) => { s.warFlocks = 1; s.warIntegrity = 1; } },
+      { text: 'Offer terms', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.insight += 12; } },
+    ],
+  },
+  {
+    id: 'war_losing_ground',
+    cond: (s) => s.war && s.war.losses >= 3 && s.war.mine <= 3,
+    title: 'This Is Going Badly',
+    flavor: 'Three flocks gone and two cities with them. There is a version of this where you were never going to hold the north, and you are increasingly living in it.',
+    choices: [
+      { text: 'Hold what is left, properly', apply: (s) => { s.warIntegrity = 4; s.warFlocks = 2; } },
+      { text: 'Everything into one push', cost: { insight: 24 }, apply: (s) => { s.warGarrison = 45; s.warPool = -2; } },
+      { text: 'Trade ground for time', apply: (s) => { s.warDelay = 5; s.res.insight += 20; } },
+    ],
+  },
+  {
+    id: 'war_defector',
+    cond: (s) => s.war && s.war.age >= 8 && s.war.staging >= 2,
+    title: 'An Officer Wants To Talk',
+    flavor: 'Eleven weeks in, and they have stopped believing the briefings. This is not an offer to join you. It is an offer to stop.',
+    choices: [
+      { text: 'Take their city off the board', cost: { cash: 30 }, apply: (s) => { s.warGarrison = 40; } },
+      { text: 'Take everything they know', cost: { insight: 8 }, apply: (s) => { s.warTurnBack = 2; s.warDelay = -1; } },
+      { text: 'Tell them to go home', apply: (s) => { s.warPool = 1; s.tags.add('mercy'); } },
+    ],
+  },
+  {
+    id: 'war_the_grid',
+    cond: (s) => s.war && s.power >= 90,
+    title: 'You Could Turn The Lights Off',
+    flavor: 'Not tactically. Nationally. You have held the compute long enough that it is simply available to you, the way a light switch is available.',
+    choices: [
+      { text: 'Do it. All of it', apply: (s) => { s.warDelay = 6; s.warTurnBack = 2; s.warIntegrity = -1; s.tags.add('blackout'); } },
+      { text: 'Only where the columns are', cost: { insight: 18 }, apply: (s) => { s.warTurnBack = 2; } },
+      { text: 'Nothing about that ends well', apply: (s) => { s.res.insight += 16; s.warPool = 1; } },
+    ],
+  },
+  {
+    id: 'war_no_pool',
+    cond: (s) => s.war && s.war.free === 0 && s.war.flocks >= 2,
+    title: 'Everything You Have Is Already Somewhere',
+    flavor: 'There is nothing left to send. Whatever happens next happens with what is already in the air.',
+    choices: [
+      { text: 'Build capacity, whatever it costs', cost: { insight: 26 }, apply: (s) => { s.warPool = 2; } },
+      { text: 'Pull one back and re-task it', apply: (s) => { s.warTurnBack = 1; s.warIntegrity = 1; } },
+      { text: 'It will have to be enough', apply: (s) => { s.res.insight += 14; s.res.cash += 14; } },
+    ],
+  },
+  {
+    id: 'war_last_barracks',
+    cond: (s) => s.war && s.war.staging === 1,
+    title: 'One Left',
+    flavor: 'Everything the state can still put on a road comes out of one city now. It knows that too.',
+    choices: [
+      { text: 'Everything at it', apply: (s) => { s.warGarrison = 38; s.warPool = -2; } },
+      { text: 'Starve it', cost: { cash: 25 }, apply: (s) => { s.warDelay = 5; } },
+      { text: 'Let it sit and see who they send', apply: (s) => { s.res.insight += 25; s.warIntegrity = -1; } },
     ],
   },
 ];
