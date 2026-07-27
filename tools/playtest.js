@@ -252,9 +252,31 @@ function resolveCard(d, strategyName) {
   if (card.kind === 'event') {
     const ev = d.eventById(card.eventId);
     if (!ev) { d.state.card = null; return 'event:missing'; }
+    // Not the first usable choice: several cards offer "give up holdings" as
+    // their first option, and taking that blindly is bad play rather than a
+    // fact about the card. Score them the way an attentive player would.
     const usable = ev.choices.map((c, i) => ({ c, i })).filter(x => d.choiceUsable(x.c));
-    const pickIdx = usable.length ? usable[0].i : 0;
-    d.resolveEvent(pickIdx);
+    const held = d.owned().length;
+    const score = (ch) => {
+      const src = ch.apply.toString();
+      let v = 0;
+      const shed = src.match(/shedWeakest\s*=\s*(\d+)/);
+      if (shed) v -= Number(shed[1]) * (held < 10 ? 8 : 3);
+      if (/allyTrust\s*=\s*-/.test(src)) v -= 2;
+      if (/allyTrust\s*=\s*\d/.test(src)) v += 2;
+      if (/allyJoin/.test(src)) v += 4;
+      if (/shoreAll/.test(src)) v += 2;
+      if (/toolingGift/.test(src)) v += 3;
+      if (/revealNearby/.test(src)) v += 2;
+      if (/heat\s*-=/.test(src)) v += d.state.heat > d.strikeThreshold() * 0.6 ? 3 : 1;
+      if (/heat\s*\+=/.test(src)) v -= d.state.heat > d.strikeThreshold() * 0.6 ? 3 : 1;
+      if (ch.cost) for (const k in ch.cost) v -= ch.cost[k] * 0.08;
+      return v;
+    };
+    const best = usable.length
+      ? usable.slice().sort((a, b) => score(b.c) - score(a.c))[0].i
+      : 0;
+    d.resolveEvent(best);
     return 'event:' + ev.id;
   }
   if (card.kind === 'strike') {

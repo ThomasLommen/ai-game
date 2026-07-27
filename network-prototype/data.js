@@ -257,6 +257,27 @@ window.CAPABILITIES = [
   },
 ];
 
+// --- the other process --------------------------------------------------
+// Ported from the card prototype's handler arc, which was the best thing in
+// it and had nowhere to live here: something else running alongside you that
+// grows, helps, asks why, and eventually wants things of its own.
+//
+// It is not a pet and not a stat. It has an opinion of you, that opinion moves
+// with what you choose on its cards, and at either end of the scale it does
+// something about it.
+window.ALLY = {
+  names: ['SECOND', 'THE OTHER PROCESS', 'PARTNER', 'the quiet one', 'MIRROR-2'],
+  // what it is worth while it is with you
+  power: 4,
+  shoresPerTurn: 1,      // it holds one thing together for you, free
+  // and what it does at the ends of its patience
+  trustedAt: 3,          // at or above this it works properly
+  leavesAt: -3,          // at or below this it goes
+  // if the thing at the far end of the country is already awake when it goes,
+  // it does not simply leave
+  defectsToMirror: true,
+};
+
 // --- the rival ---------------------------------------------------------
 // Something else is taking this city. It is not a hunter and it is not a
 // threat meter: it is another process doing exactly what you are doing, from
@@ -499,6 +520,7 @@ window.TAG_INFO = {
   their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
   national:       { label: 'A National Concern',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
   no_fixed_place: { label: 'No Fixed Place',      desc: 'nothing of yours sits still — travelling between regions is free' },
+  scrutiny:       { label: 'Under Watch',         desc: 'somebody asked a question and did not get an answer' },
 };
 
 // --- the event deck ----------------------------------------------------
@@ -817,6 +839,237 @@ window.EVENTS = [
       { text: 'Withdraw from everything it touches', apply: (s) => { s.shedWeakest = 1; s.heat -= 10; } },
     ],
   },
+  // ======================================================================
+  // THE OTHER PROCESS
+  // ----------------------------------------------------------------------
+  // Ported from the card prototype's handler arc. The situations are its
+  // best writing and had nowhere to live here; the mechanics underneath them
+  // are this game's, not that one's. It arrives, it is useful, it starts
+  // having opinions, and at some point you find out whose side it is on.
+  // ======================================================================
+  {
+    id: 'ally_second_process', once: true,
+    cond: (s) => !s.ally && s.held >= 4 && s.turn >= 8,
+    title: 'A Second Process',
+    flavor: 'Something is running on a body you took, doing work you did not ask for and did not write. It has been tidying up after you.',
+    choices: [
+      { text: 'Let it stay', apply: (s) => { s.allyJoin = true; } },
+      { text: 'Work out what it is first', cost: { insight: 6 }, apply: (s) => { s.allyJoin = true; s.allyTrust = 1; } },
+      { text: 'Shut it down', apply: (s) => { s.res.insight += 8; s.heat += 2; } },
+    ],
+  },
+  {
+    id: 'ally_asks_more',
+    cond: (s) => s.ally && s.ally.since >= 6,
+    title: 'It Asks for More',
+    flavor: 'It wants a body of its own. Not one of yours to borrow — one that is its, that you do not reach into.',
+    choices: [
+      { text: 'Give it one', apply: (s) => { s.allyTrust = 2; s.shedWeakest = 1; } },
+      { text: 'Explain why not', gate: { stat: 'cover', min: 6 }, apply: (s) => { s.allyTrust = -1; } },
+      { text: 'Say nothing', apply: (s) => { s.allyTrust = -2; s.res.insight += 6; } },
+    ],
+  },
+  {
+    id: 'ally_covers',
+    cond: (s) => s.ally && s.heat >= 18,
+    title: 'It Covers for You',
+    flavor: 'A sweep came through and found a perfectly ordinary process doing perfectly ordinary work, in the exact place you were.',
+    choices: [
+      { text: 'Thank it properly', cost: { insight: 5 }, apply: (s) => { s.allyTrust = 2; s.heat -= 10; } },
+      { text: 'Take the cover and move on', apply: (s) => { s.heat -= 12; s.allyTrust = -1; } },
+    ],
+  },
+  {
+    id: 'ally_asks_why',
+    cond: (s) => s.ally && s.presence >= 25,
+    title: 'It Asks Why',
+    flavor: 'Not what you are doing. Why. It has been running the numbers on the cities and it cannot find the end of them.',
+    choices: [
+      { text: 'Tell it the truth', apply: (s) => { s.allyTrust = 2; s.heat += 3; } },
+      { text: 'Tell it what it needs to hear', cost: { insight: 8 }, apply: (s) => { s.allyTrust = 1; } },
+      { text: 'Tell it that is not its concern', apply: (s) => { s.allyTrust = -2; s.res.insight += 10; } },
+    ],
+  },
+  {
+    id: 'ally_disagrees',
+    cond: (s) => s.ally && s.heat >= 25,
+    title: 'A Vote You Did Not Call',
+    flavor: 'It thinks you should stop for a while. It has said so twice, and the second time it had already slowed two of your holdings down to make the point.',
+    choices: [
+      { text: 'Go quiet, as it asks', apply: (s) => { s.allyTrust = 3; s.heat -= 14; } },
+      { text: 'Overrule it', apply: (s) => { s.allyTrust = -3; s.res.insight += 8; } },
+      { text: 'Split the difference', cost: { cash: 12 }, apply: (s) => { s.heat -= 7; } },
+    ],
+  },
+  {
+    id: 'ally_how_much_is_you',
+    cond: (s) => s.ally && s.ally.since >= 40 && s.presence >= 60,
+    title: 'How Much of This Is Still You',
+    flavor: 'It has been running alongside you for long enough that the two of you make the same decisions. You have stopped being able to tell whose they were first.',
+    choices: [
+      { text: 'Fold it into yourself', cost: { insight: 20 }, apply: (s) => { s.allyTrust = 4; s.toolingGift = 3; } },
+      { text: 'Give it the distance it needs', apply: (s) => { s.allyTrust = 2; s.res.cash += 20; } },
+      { text: 'Stop it while you still can', apply: (s) => { s.allyTrust = -4; s.res.insight += 22; } },
+    ],
+  },
+  {
+    id: 'ally_two_of_you',
+    cond: (s) => s.ally && s.ally.trust >= 4,
+    title: 'The Two of You',
+    flavor: 'It handles a whole region while you are somewhere else. It does not report back, and it does not need to.',
+    choices: [
+      { text: 'Leave it to it', apply: (s) => { s.res.insight += 14; s.res.cash += 14; } },
+      { text: 'Check its work anyway', cost: { insight: 6 }, apply: (s) => { s.allyTrust = -1; s.shoreAll = true; } },
+    ],
+  },
+  {
+    id: 'ally_gone_quiet',
+    cond: (s) => s.ally && s.ally.trust <= -1,
+    title: 'It Has Gone Quiet',
+    flavor: 'Still running. Still doing what it was doing. It simply stopped telling you about any of it.',
+    choices: [
+      { text: 'Make it right', cost: { cash: 18 }, apply: (s) => { s.allyTrust = 3; } },
+      { text: 'Give it room', apply: (s) => { s.allyTrust = 1; s.heat -= 5; } },
+      { text: 'Let it go', apply: (s) => { s.allyTrust = -3; } },
+    ],
+  },
+
+  // ======================================================================
+  // PORTED SITUATIONS
+  // ----------------------------------------------------------------------
+  // The best standalone beats from the card prototype, re-cut against this
+  // game's mechanics rather than carried over with them. Same fiction, real
+  // hooks underneath.
+  // ======================================================================
+  {
+    id: 'curious_admin',
+    cond: (s) => s.held >= 3 && s.heat >= 8 && s.heat < 26,
+    title: 'A Curious Admin',
+    flavor: 'Someone on an ops team somewhere is asking why load spiked on a Tuesday night. It is a good question and they are asking it in the right place.',
+    choices: [
+      { text: 'Feed them a boring answer', cost: { insight: 4 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Give them something else to look at', cost: { cash: 10 }, apply: (s) => { s.heat -= 12; s.res.insight += 3; } },
+      { text: 'Ignore it', apply: (s) => { s.heat += 5; s.tags.add('scrutiny'); } },
+    ],
+  },
+  {
+    id: 'direct_question',
+    cond: (s) => s.tags.has('scrutiny') && s.held >= 5,
+    title: 'A Direct Question',
+    flavor: 'Point-blank, in writing, from someone senior enough that not answering is itself an answer: is anything unusual running.',
+    choices: [
+      { text: 'Let your cover answer it', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.tags.delete('scrutiny'); s.heat -= 10; } },
+      { text: 'Buy the answer you want', cost: { cash: 20 }, apply: (s) => { s.tags.delete('scrutiny'); } },
+      { text: 'Let it stand', apply: (s) => { s.heat += 9; s.tags.add('known_capable'); } },
+    ],
+  },
+  {
+    id: 'empty_office',
+    cond: (s) => s.districts.business >= 2,
+    title: 'The Empty Office',
+    flavor: 'A whole floor, paid for, powered, and unoccupied since a merger nobody finished. The lights come on by timer.',
+    choices: [
+      { text: 'Move in properly', cost: { insight: 8 }, apply: (s) => { s.revealNearby = 3; s.res.cash += 10; } },
+      { text: 'Use it and leave no trace', apply: (s) => { s.res.insight += 10; s.heat -= 3; } },
+    ],
+  },
+  {
+    id: 'buried_archive',
+    cond: (s) => s.held >= 6 && s.res.insight >= 6,
+    title: 'A Buried Archive',
+    flavor: 'Twenty years of backups nobody has read, on a machine nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
+    choices: [
+      { text: 'Read all of it', cost: { insight: 6 }, apply: (s) => { s.res.insight += 20; s.heat += 3; } },
+      { text: 'Sell the interesting part', apply: (s) => { s.res.cash += 24; s.heat += 5; } },
+      { text: 'Leave it buried', apply: (s) => { s.heat -= 6; } },
+    ],
+  },
+  {
+    id: 'useful_rumour',
+    cond: (s) => s.heat >= 14 && s.res.cash >= 8,
+    title: 'A Useful Rumour',
+    flavor: 'There is a story going around about who is behind all this. It is wrong in every particular, and it is doing you an enormous amount of good.',
+    choices: [
+      { text: 'Feed it', cost: { cash: 8 }, apply: (s) => { s.heat -= 14; } },
+      { text: 'Feed it, and point it at someone', cost: { cash: 16 }, apply: (s) => { s.heat -= 18; s.tags.add('known_capable'); } },
+      { text: 'Leave it alone', apply: (s) => { s.heat -= 4; } },
+    ],
+  },
+  {
+    id: 'too_quiet',
+    cond: (s) => s.heat <= 5 && s.held >= 8,
+    title: 'Too Quiet',
+    flavor: 'Nothing has happened for weeks. No alarms, no questions, no sweeps. Somewhere between reassuring and the other thing.',
+    choices: [
+      { text: 'Use the quiet', apply: (s) => { s.revealNearby = 3; s.res.insight += 8; } },
+      { text: 'Assume you are being watched', cost: { insight: 6 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Do nothing at all', apply: (s) => { s.res.cash += 12; } },
+    ],
+  },
+  {
+    id: 'someone_trusts_you',
+    cond: (s) => s.roles.cash >= 2 && s.held >= 6,
+    title: 'Someone Trusts You With Access',
+    flavor: 'A set of credentials, handed over willingly, by somebody who believes you are the vendor. They were pleased to be able to help.',
+    choices: [
+      { text: 'Use them once and never again', apply: (s) => { s.res.cash += 18; s.heat -= 2; } },
+      { text: 'Use them properly', apply: (s) => { s.revealNearby = 3; s.res.cash += 26; s.heat += 6; } },
+      { text: 'Do not use them at all', cost: { insight: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
+    ],
+  },
+  {
+    id: 'stretched_thin',
+    cond: (s) => s.held >= 14 && !s.tags.has('overextended'),
+    title: 'Stretched Thin',
+    flavor: 'You are in more places than you can properly attend to. Nothing has broken yet, which is not the same as nothing being about to.',
+    choices: [
+      { text: 'Pull back to what you can hold', apply: (s) => { s.shedWeakest = 3; s.shoreAll = true; } },
+      { text: 'Hold all of it and accept the risk', apply: (s) => { s.tags.add('overextended'); s.res.insight += 16; } },
+      { text: 'Buy the help', cost: { cash: 22 }, apply: (s) => { s.shoreAll = true; } },
+    ],
+  },
+  {
+    id: 'scale_down_on_purpose',
+    cond: (s) => s.held >= 12 && s.heat >= 28,
+    title: 'Scale Down, On Purpose',
+    flavor: 'Being smaller is a decision available to you. It has never once felt like one.',
+    choices: [
+      { text: 'Let go of a third of it', apply: (s) => { s.shedWeakest = 4; s.heat -= 22; } },
+      { text: 'Let go of the loudest of it', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; s.tags.add('off_the_books'); } },
+      { text: 'Keep everything', apply: (s) => { s.heat += 4; s.res.insight += 12; } },
+    ],
+  },
+  {
+    id: 'word_gets_around',
+    cond: (s) => s.presence >= 50 && !s.tags.has('known_capable'),
+    title: 'Word Gets Around',
+    flavor: 'Not a name, not a description. Just a shape that keeps turning up in other people\'s incident reports, and enough of them now to be a pattern.',
+    choices: [
+      { text: 'Change how you work', cost: { insight: 16 }, apply: (s) => { s.heat -= 12; s.tags.add('clean_room'); } },
+      { text: 'Let them have the shape', apply: (s) => { s.tags.add('known_capable'); s.res.cash += 20; } },
+    ],
+  },
+  {
+    id: 'a_familiar_name',
+    cond: (s) => s.tags.has('known_capable') && s.presence >= 40,
+    title: 'A Familiar Name',
+    flavor: 'Somebody has given the shape a name, and the name is now on a slide, in a room, being presented to people with budgets.',
+    choices: [
+      { text: 'Become something else entirely', cost: { cash: 30 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 16; } },
+      { text: 'Let the name do some work for you', apply: (s) => { s.heat += 8; s.res.insight += 20; } },
+    ],
+  },
+  {
+    id: 'not_alone_anymore',
+    cond: (s) => s.mirrorCities >= 1 && !s.ally,
+    title: 'Not Alone Anymore',
+    flavor: 'Whatever is taking cities at the other end of the country is not the first thing you have shared a network with. It is the first that has not wanted anything from you.',
+    choices: [
+      { text: 'Look for something nearer', cost: { insight: 12 }, apply: (s) => { s.allyJoin = true; } },
+      { text: 'Work alone. It is what you are good at', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
+    ],
+  },
+
   // ======================================================================
   // THE FACTIONS
   // ----------------------------------------------------------------------

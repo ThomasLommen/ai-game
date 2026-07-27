@@ -1553,7 +1553,7 @@ function sampleContexts(window) {
       districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
       scope: 'city', region: 'home', regionTier: 0, presence: 0,
       cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
-      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0,
+      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
     }, o.over || {});
@@ -1589,6 +1589,24 @@ function sampleContexts(window) {
     });
   });
 
+  // with the other process alongside you, at every point on its opinion of you
+  [-2, 0, 2, 4].forEach(trust => [2, 8, 45].forEach(since => {
+    [0.1, 0.4, 0.8].forEach(conq => [4, 22, 30].forEach(heat => out.push(base({
+      brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
+      awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
+      over: {
+        held: 9, heat, presence: Math.round(conq * 350), scope: 'city', regionTier: 2,
+        conquest: conq, power: 60, cover: 9, turn: 40 + since,
+        res: { insight: 40, cash: 40 },
+        roles: { compute: 4, cash: 3, stealth: 3 },
+        districts: { residential: 3, commercial: 3, business: 3, industrial: 2 },
+        cities: { total: 18, taken: 8, consolidated: 5, known: 14 },
+        seats: 1, stranded: 1, cuts: 1, mirrorCities: 2,
+        ally: { trust, name: 'SECOND', since },
+      },
+    }))));
+  }));
+
   // every counter-play tag held, and each faction finished in turn
   FIDS.forEach(fid => [40, 90, 150, 200].forEach(presence => {
     out.push(base({
@@ -1601,6 +1619,7 @@ function sampleContexts(window) {
         districts: { residential: 5, commercial: 4, business: 3, industrial: 2 },
         cities: { total: 18, taken: 9, consolidated: 6, known: 15 },
         seats: 2, stranded: 2, cuts: 2, mirrorCities: 3, conquest: presence / 350,
+        ally: { trust: 2, name: 'SECOND', since: 20 },
       },
     }));
   }));
@@ -2088,4 +2107,114 @@ test('tree: every branch can actually be finished from a standing start', () => 
       `${bk} cannot be completed: stuck at ${missed.map(c => c.id + ' (' + d.capBlocked(c) + ')').join(', ')}`);
     assert.ok(d.maxAP() >= window.AP.min, `${bk} leaves you with ${d.maxAP()} actions`);
   });
+});
+
+// --- the other process ---------------------------------------------------
+// Ported from the card prototype's handler arc, which was its best writing and
+// had nowhere to live here. It is a system, not a stat: it is worth something
+// real while it is with you, it keeps its own opinion of how you have behaved,
+// and at the end of its patience it does something about it.
+
+test('ally: it arrives, it is worth something, and it holds things together', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 8).forEach(h => { h.owned = true; });
+
+  assert.equal(d.allyHere(), false, 'you start alone');
+  const alone = d.power();
+
+  d.allyJoin('SECOND');
+  assert.equal(d.allyHere(), true);
+  assert.equal(d.allyTrusted(), false, 'it has not made its mind up yet');
+  assert.equal(d.power(), alone, 'and it is worth nothing until it has');
+
+  d.allyNudge(window.ALLY.trustedAt);
+  assert.equal(d.allyTrusted(), true);
+  assert.equal(d.power(), alone + window.ALLY.power, 'once it trusts you it is real power');
+
+  // it quietly shores something every turn, without being asked
+  const sick = d.owned().find(h => !h.origin);
+  sick.stability = 0.3;
+  assert.equal(d.allyShore(), window.ALLY.shoresPerTurn);
+  assert.equal(sick.stability, 1, 'it held that one together');
+});
+
+test('ally: your choices move its opinion, and it leaves at the end of it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  d.allyJoin('SECOND');
+  const start = s.ally.trust;
+
+  d.allyNudge(2);
+  assert.equal(s.ally.trust, start + 2, 'good faith registers');
+  d.allyNudge(-1);
+  assert.equal(s.ally.trust, start + 1);
+
+  d.allyNudge(-99);
+  assert.equal(d.allyHere(), false, 'push it far enough and it goes');
+  assert.equal(d.allyTrusted(), false);
+});
+
+test('ally: if the other one is already awake, leaving is not all it does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  d.allyJoin('SECOND');
+  s.country.factions.the_other.awake = true;
+  const theirs = d.mirror().cities.length;
+
+  d.allyNudge(-99);
+  assert.equal(d.allyHere(), false);
+  assert.ok(d.mirror().cities.length > theirs,
+    'it did not leave on its own — it took somewhere with it');
+});
+
+test('ally: it cannot join twice, and a lost one stays lost', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  d.allyJoin('FIRST');
+  assert.equal(d.allyJoin('SECOND'), false, 'there is only ever one of it');
+  assert.equal(s.ally.name, 'FIRST');
+
+  d.allyNudge(-99);
+  assert.equal(d.allyHere(), false);
+  d.allyNudge(5);
+  assert.equal(d.allyHere(), false, 'you do not talk it back round after that');
+});
+
+test('ally: its cards are the only way it arrives, and they can move it both ways', () => {
+  const { window } = loadNetwork();
+  const joiners = window.EVENTS.filter(e =>
+    e.choices.some(ch => /allyJoin\s*=\s*true/.test(ch.apply.toString())));
+  assert.ok(joiners.length >= 1, 'something has to introduce it');
+  joiners.forEach(e => {
+    assert.ok(/!s\.ally/.test(e.cond.toString()),
+      `${e.id} would offer to introduce it when it is already here`);
+  });
+
+  const movers = window.EVENTS.filter(e =>
+    e.choices.some(ch => /allyTrust/.test(ch.apply.toString())));
+  assert.ok(movers.length >= 5, 'its opinion is moved by a real arc, not one card');
+  const ups = [], downs = [];
+  movers.forEach(e => e.choices.forEach(ch => {
+    const m = ch.apply.toString().match(/allyTrust\s*=\s*(-?\d+)/);
+    if (!m) return;
+    (Number(m[1]) > 0 ? ups : downs).push(e.id);
+  }));
+  assert.ok(ups.length >= 4 && downs.length >= 4,
+    'the arc has to go both ways, or it is not an opinion');
+});
+
+test('persistence: the other process survives a round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.allyJoin('SECOND');
+  d.allyNudge(2);
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(round.ally, 'it is still there');
+  assert.equal(round.ally.name, 'SECOND');
+  assert.equal(round.ally.trust, d.state.ally.trust);
 });

@@ -611,6 +611,19 @@ footer .build { opacity: .55; font-size: 10px; }
   min-width: 0;
 }
 .tray-item.faction .tray-label { color: var(--heat); flex: none; }
+.tray-item.ally {
+  border-color: color-mix(in srgb, var(--cover) 45%, var(--line));
+  border-left-color: var(--cover);
+  flex-direction: row; align-items: baseline; gap: 7px;
+  flex: 1 1 100%; padding: 4px 10px; min-width: 0;
+}
+.tray-item.ally .tray-label { color: var(--cover); flex: none; }
+.tray-item.ally .tray-desc {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event-row.ally { border-color: var(--cover); }
+.event-row.ally .event-label { color: var(--cover); }
 .tray-item.faction .tray-desc {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

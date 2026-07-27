@@ -602,6 +602,7 @@
       cuts: [],
       lastCutTurn: -99,
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
+      ally: null,          // { name, trust } once something else joins you
       over: false,
     };
   }
@@ -648,6 +649,7 @@
     return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + (state.upgrades || 0) * window.UPGRADE.basePower
       + Math.round(window.COUNTRY.powerLog * Math.log(1 + presence()))
+      + (allyTrusted() ? window.ALLY.power : 0)
       + (has('ally_process') ? 3 : 0)
       + capEffect('power', 0);
   }
@@ -837,6 +839,8 @@
     }
     const rivalMove = rivalStep();
     if (rivalMove) announceRival(rivalMove);
+    const helped = allyShore();
+    if (helped) pushLog(`${state.ally.name} held ${helped === 1 ? 'something' : helped + ' things'} together while you were busy.`);
     const relaid = repairStreets();
     if (relaid.length) pushLog(`${relaid.length === 1 ? 'A street is' : relaid.length + ' streets are'} relaid.`);
     const cut = cutStreets();
@@ -1126,6 +1130,7 @@
       // you are standing on the country map between cities, which quietly made
       // every capability gated on it unbuyable for most of the campaign.
       reach: owned().length + Math.round((co.presence || 0) / 5),
+      ally: allyHere() ? { trust: state.ally.trust, name: state.ally.name, since: state.turn - state.ally.joined } : null,
       gone: (rule) => ruleBroken(rule),
       awake: (id) => factionAwake(id),
       wokeAgo: (id) => {
@@ -1222,7 +1227,11 @@
     scratch.shoreAll = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
+    scratch.allyJoin = false;
+    scratch.allyTrust = 0;
     ch.apply(scratch);
+    if (scratch.allyJoin) allyJoin();
+    if (scratch.allyTrust) allyNudge(scratch.allyTrust);
 
     if (scratch.shedWeakest > 0) {
       const weakest = owned().filter(h => !h.origin).sort((a, b) => a.threads - b.threads).slice(0, scratch.shedWeakest);
@@ -1241,6 +1250,8 @@
     scratch.shoreAll = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
+    scratch.allyJoin = false;
+    scratch.allyTrust = 0;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -1801,6 +1812,55 @@
     return true;
   }
 
+  // --- the other process --------------------------------------------------
+  // Something else running alongside you. It is worth real power while it is
+  // with you, it quietly holds one of your holdings together every turn, and
+  // it keeps its own opinion of how you have been behaving.
+  function ally() { return state.ally; }
+  function allyHere() { return !!(state.ally && !state.ally.gone); }
+  function allyTrusted() { return allyHere() && state.ally.trust >= window.ALLY.trustedAt; }
+  function allyJoin(name) {
+    if (allyHere()) return false;
+    state.ally = { name: name || pick(window.ALLY.names), trust: 1, gone: false, joined: state.turn };
+    pushLog(`${state.ally.name} is running alongside you now.`);
+    showBanner([{ kind: 'ally', verb: 'alongside you', label: state.ally.name }]);
+    return true;
+  }
+  function allyNudge(delta) {
+    if (!allyHere()) return;
+    state.ally.trust += delta;
+    allyCheck();
+  }
+  // At the far end of its patience it leaves — and if the thing at the other
+  // end of the country is already awake, leaving is not all it does.
+  function allyCheck() {
+    if (!allyHere()) return;
+    if (state.ally.trust > window.ALLY.leavesAt) return;
+    const name = state.ally.name;
+    state.ally.gone = true;
+    if (window.ALLY.defectsToMirror && factionAwake('the_other')) {
+      const m = mirror();
+      const take = CO().cities.filter(c => !c.taken && !mirrorHolds(c.id))[0];
+      if (take) { m.cities.push(take.id); m.presence += take.worth; }
+      pushLog(`${name} left. It did not leave on its own.`);
+      showBanner([{ kind: 'faction', verb: 'went over', label: name }]);
+    } else {
+      pushLog(`${name} stopped answering. You are on your own again.`);
+      showBanner([{ kind: 'locked', verb: 'gone', label: name }]);
+    }
+  }
+  // what it does for you, every turn, without being asked
+  function allyShore() {
+    if (!allyTrusted()) return 0;
+    const sick = owned().filter(h => shoreNeeded(h)).sort((a, b) => a.stability - b.stability);
+    let n = 0;
+    for (let i = 0; i < window.ALLY.shoresPerTurn && i < sick.length; i++) {
+      sick[i].stability = 1;
+      n++;
+    }
+    return n;
+  }
+
   // --- the factions ------------------------------------------------------
   // The escalation, and the part that is deliberately not a difficulty slider.
   // Each awake faction *deletes a rule* — a tool you had got used to leaning
@@ -2072,7 +2132,7 @@
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
-      card: state.card, selected: state.selected, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
+      card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -2085,7 +2145,7 @@
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
-        card: saved.card || null, selected: saved.selected || null,
+        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null,
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -2570,6 +2630,18 @@
       const line = `${f.tell} — ends at ${where}`;
       return `<div class="tray-item faction" title="${line}"><span class="tray-label">${f.name}</span><span class="tray-desc">${line}</span></div>`;
     });
+    // The other process is a standing thing with an opinion of you, so it sits
+    // in the tray next to the factions rather than only appearing on its cards.
+    if (allyHere()) {
+      const a = state.ally;
+      const mood = a.trust >= window.ALLY.trustedAt ? 'working with you'
+                 : a.trust <= -1 ? 'has gone quiet on you'
+                 : 'alongside you, deciding';
+      const worth = allyTrusted()
+        ? `power +${window.ALLY.power}, holds one thing together each turn`
+        : `nothing yet — it is still making its mind up`;
+      gone.push(`<div class="tray-item ally" title="${mood} — ${worth}"><span class="tray-label">${a.name}</span><span class="tray-desc">${mood} · ${worth}</span></div>`);
+    }
     const rows = gone.concat(tags.map(t => {
       const info = window.TAG_INFO[t] || { label: t, desc: '' };
       return `<div class="tray-item"><span class="tray-label">${info.label}</span><span class="tray-desc">${info.desc}</span></div>`;
@@ -3030,7 +3102,7 @@
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
     actScan, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, approachHeat, isFrontier, neighbours, hostById, owned, ownedOf,
+    resolveStrike, approachHeat, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
