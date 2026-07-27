@@ -603,6 +603,7 @@
       lastCutTurn: -99,
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
       ally: null,          // { name, trust } once something else joins you
+      war: null,           // the last act — null until they stop trying to arrest you
       over: false,
     };
   }
@@ -776,6 +777,9 @@
 
   // --- turn resolution ---------------------------------------------------
   function heatPerTurn() {
+    // Heat retires when the war opens. Not softened, not rescaled — the whole
+    // question it measured ("do they know") is answered, so the meter stops.
+    if (state.war && state.war.on) return 0;
     const fleet = owned();
     let h = window.HEAT.PER_HOST * fleet.length;
     // off_the_books silences the corporate premium specifically
@@ -835,8 +839,14 @@
     afterSnap(before, { world: true });
     if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
+    // The turn the war opens is the turn the hunter stops coming: a strike is
+    // an arrest, and nobody is arresting you any more.
+    if (warShouldOpen()) openWar();
+
     const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
-    if (state.heat >= strikeThreshold() && cooled && !state.card) {
+    if (warOn()) {
+      if (state.card && state.card.kind === 'strike') state.card = null;
+    } else if (state.heat >= strikeThreshold() && cooled && !state.card) {
       state.card = { kind: 'strike' };
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
@@ -855,6 +865,7 @@
       pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
     }
     mirrorStep();
+    warStep();            // columns move, flocks move, whatever met fights
     cameraVision();       // held cameras reveal what is near them
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
@@ -2030,6 +2041,88 @@
     return true;
   }
 
+  // --- the war, played ----------------------------------------------------
+  // Two verbs, and they compete for the same pool. That competition is the
+  // whole game here: a flock standing over a city of yours is a flock that is
+  // not taking a barracks off them, and the war does not end until the
+  // barracks are gone.
+  function warCost(kind) { return (window.COUNTRY_ACTIONS[kind] && window.COUNTRY_ACTIONS[kind].ap) || 1; }
+  function canLaunch(cityId) {
+    if (!warOn() || state.card || state.over) return false;
+    if (flocksFree() <= 0) return false;
+    const c = cityById(cityId);
+    if (!c) return false;
+    if (war().garrisons[c.id] === undefined || c.consolidated) return false;
+    // and you have to be able to get there. A staging city with no road home
+    // is a city you can never take, which is a war that can never end — it
+    // showed up as a third of runs sitting at stalemate forever.
+    const seat = launchSeat(cityId);
+    return !!(seat && routeForFlock(seat.id, cityId));
+  }
+  function canGuard(cityId) {
+    if (!warOn() || state.card || state.over) return false;
+    if (flocksFree() <= 0) return false;
+    const c = cityById(cityId);
+    return !!(c && c.consolidated);
+  }
+  // Flocks launch from the nearest thing you actually hold — you cannot field
+  // an army out of a city that is not yours.
+  function launchSeat(toId) {
+    const to = cityById(toId);
+    const mine = myCities();
+    const at = cityById(CO().at);
+    if (at && at.consolidated) mine.unshift(at);
+    if (!mine.length || !to) return null;
+    return mine.slice().sort((a, b) =>
+      Math.hypot(a.x - to.x, a.y - to.y) - Math.hypot(b.x - to.x, b.y - to.y))[0];
+  }
+
+  function actLaunch(cityId) {
+    if (!canLaunch(cityId)) return false;
+    if (state.ap < warCost('reach')) { refuseForAP(null); return false; }
+    if (state.res.insight < window.WAR.flockCost) return false;
+    const seat = launchSeat(cityId);
+    if (!seat) return false;
+    const f = fieldFlock(seat.id, cityId, 'strike');
+    if (!f) return false;
+    state.ap -= warCost('reach');
+    state.res.insight -= window.WAR.flockCost;
+    const c = cityById(cityId);
+    pushLog(`A flock is away from ${seat.name}, bound for ${c.name}.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  function actGuard(cityId) {
+    if (!canGuard(cityId)) return false;
+    if (state.ap < warCost('move')) { refuseForAP(null); return false; }
+    if (state.res.insight < window.WAR.flockCost) return false;
+    const seat = launchSeat(cityId) || cityById(cityId);
+    const f = fieldFlock(seat.id, cityId, 'guard');
+    if (!f) return false;
+    state.ap -= warCost('move');
+    state.res.insight -= window.WAR.flockCost;
+    pushLog(`A flock is standing over ${cityById(cityId).name}.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  // Pull one back to the pool, so a flock parked over a city that is no longer
+  // the problem is not simply wasted for the rest of the war.
+  function actRecall(flockId) {
+    if (!warOn()) return false;
+    const w = war();
+    const i = w.flocks.findIndex(f => f.id === flockId);
+    if (i === -1) return false;
+    w.flocks.splice(i, 1);
+    pushLog('Recalled.');
+    persistNow();
+    render();
+    return true;
+  }
+
   function setScope(next) {
     if (next === 'country' && !countryUnlocked()) return false;
     if (next === 'city' && (!currentCity() || currentCity().consolidated)) return false;
@@ -2304,6 +2397,539 @@
     return owned().filter(h => !seen[h.buildingId]);
   }
 
+  // --- the war -----------------------------------------------------------
+  // Past a certain share of the country they stop trying to arrest you. Heat
+  // retires here, and it is meant to feel like a loss as much as a relief: the
+  // meter that ran the entire game up to this point simply stops mattering,
+  // because the thing it measured — whether they knew — is settled. They know.
+  //
+  // What replaces it is on the map instead of in the HUD. Columns leave the
+  // cities they still hold and walk your roads toward you, and the only answer
+  // is a finite pool of flocks that has to be in the right place already,
+  // because nothing here arrives instantly.
+
+  function war() { return state.war || null; }
+  function warOn() { return !!(state.war && state.war.on); }
+
+  function freshWar() {
+    return {
+      on: true, openedTurn: state.turn, flocks: [], columns: [], nextId: 1,
+      garrisons: {},     // cityId -> what is left holding it against you
+      integrity: {},     // cityId -> how much more one of yours can absorb
+      won: false, lost: false, kills: 0, losses: 0, sorties: 0, lastSpawn: {},
+    };
+  }
+
+  // The cities they still hold that are worth fighting over. A town that folds
+  // from the map is not a barracks; the defended ones are.
+  function stagingCities() {
+    if (!CO().cities) return [];
+    return CO().cities.filter(c =>
+      window.CITY_KINDS[c.kind].contest && !c.consolidated && !mirrorHolds(c.id));
+  }
+  function myCities() {
+    return (CO().cities || []).filter(c => c.consolidated);
+  }
+
+  // The moment it turns. Everything below `opens` is the policing game; above
+  // it there is no point pretending any more.
+  function warShouldOpen() {
+    if (warOn()) return false;
+    if (state.war && state.war.over) return false;
+    return conquest() >= window.WAR.opens;
+  }
+
+  // The state mobilising. This is the beat, and it has to hurt: by the time
+  // the ladder is finished there is almost nothing of the country left in
+  // their hands, so a war fought over the scraps would be one flock and three
+  // turns long. Instead, opening the war *gives them a country back*. They
+  // stop policing, they roll into the places you folded in, and everything you
+  // spent the whole campaign quietly accumulating is suddenly a front line.
+  function remobilise() {
+    const W = window.WAR;
+    const mine = myCities().filter(c => c.kind !== 'home');
+    if (!mine.length) return [];
+    const seat = cityById(CO().at) || cityById(CO().homeId);
+    // they take the hard regions first, and the places furthest from you —
+    // you keep a base and they keep the parts of the map that were always
+    // theirs
+    const scored = mine.map(c => ({
+      c,
+      score: (c.regionTier || 0) * 100
+        + (seat ? Math.hypot(c.x - seat.x, c.y - seat.y) : 0),
+    })).sort((a, b) => b.score - a.score);
+    const n = Math.min(scored.length, Math.max(W.mobiliseFloor, Math.round(mine.length * W.mobilise)));
+    const taken = [];
+    scored.slice(0, n).forEach(({ c }) => {
+      c.consolidated = false;
+      c.taken = false;
+      c.snapshot = null;
+      CO().presence = Math.max(0, CO().presence - (c.granted || c.worth));
+      c.granted = 0;
+      if (CO().at === c.id) CO().at = CO().homeId;
+      if (state.cityId === c.id) { unpackCity(EMPTY_CITY()); state.cityId = null; }
+      taken.push(c);
+    });
+    return taken;
+  }
+
+  function openWar() {
+    state.war = freshWar();
+    const W = window.WAR;
+    const rolled = remobilise();
+    state.war.peak = {};
+    stagingCities().forEach(c => {
+      state.war.garrisons[c.id] = rndInt(W.garrison[0], W.garrison[1]);
+      state.war.peak[c.id] = state.war.garrisons[c.id];
+      // you cannot fight a place you have never heard of
+      c.known = true;
+    });
+    myCities().forEach(c => { state.war.integrity[c.id] = W.integrity; });
+    state.war.mobilised = rolled.map(c => c.id);
+    // heat is over, and the number should visibly stop rather than quietly
+    // stop being read — the player earned the right to watch it go out
+    state.heat = 0;
+    state.card = null;
+    pushLog('They have stopped trying to arrest you.');
+    if (rolled.length) {
+      pushLog(`The army is in ${rolled.length === 1 ? rolled[0].name : rolled.length + ' cities you had folded in'}. That is not policing.`);
+    }
+    showBanner([{ kind: 'war', verb: 'open war', label: 'They are coming for you' }]);
+    return state.war;
+  }
+
+  // --- routes -------------------------------------------------------------
+  // A force is a list of points it walks, one or more per turn. Ground units
+  // get the roads; anything flying gets the straight line, which is the whole
+  // reason a bridge you spent four turns taking does not save you from the
+  // helicopters.
+  function roadPath(fromId, toId) {
+    if (fromId === toId) return [fromId];
+    const prev = { [fromId]: null };
+    const queue = [fromId];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === toId) break;
+      cityRoads(cur).forEach(n => {
+        if (prev[n] !== undefined) return;
+        prev[n] = cur;
+        queue.push(n);
+      });
+    }
+    if (prev[toId] === undefined) return null;
+    const out = [];
+    for (let at = toId; at !== null; at = prev[at]) out.unshift(at);
+    return out;
+  }
+
+  // Points, not cities: air routes have no cities in the middle of them, and
+  // everything downstream — drawing, interception, arrival — only wants to
+  // know where a thing is and whether it is there yet.
+  function routeFor(kind, fromId, toId) {
+    const F = window.FORCES[kind];
+    const a = cityById(fromId), b = cityById(toId);
+    if (!a || !b) return null;
+    if (F && F.roads === false) {
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const steps = Math.max(1, Math.ceil(d / window.WAR.airHop));
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        pts.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, cityId: i === 0 ? fromId : (i === steps ? toId : null) });
+      }
+      return pts;
+    }
+    const ids = roadPath(fromId, toId);
+    if (!ids) return null;
+    return ids.map(id => {
+      const c = cityById(id);
+      return { x: c.x, y: c.y, cityId: id };
+    });
+  }
+
+  function forceAt(f) {
+    const i = Math.max(0, Math.min(f.route.length - 1, Math.floor(f.at)));
+    return f.route[i];
+  }
+  function forceArrived(f) { return f.at >= f.route.length - 1; }
+
+  // Where a thing is *between* two points, so a column halfway down a road is
+  // drawn halfway down the road rather than snapping node to node.
+  function forcePos(f) {
+    const i = Math.floor(f.at);
+    const a = f.route[Math.min(i, f.route.length - 1)];
+    const b = f.route[Math.min(i + 1, f.route.length - 1)];
+    const t = f.at - i;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+
+  // --- your flocks --------------------------------------------------------
+  // A finite pool. This is the whole decision of the war: everything you send
+  // at them is something not standing over what you already hold.
+  function flockCap() {
+    const W = window.WAR;
+    const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
+    return Math.max(W.flockFloor, Math.min(W.flockCeil, n + capEffect('flockBonus', 0)));
+  }
+  function flocks() { return (war() && war().flocks) || []; }
+  function flocksFree() { return Math.max(0, flockCap() - flocks().length); }
+
+  function fieldFlock(fromId, toId, mode) {
+    if (!warOn()) return null;
+    if (flocksFree() <= 0) return null;
+    const route = routeFor('flock', fromId, toId);
+    if (!route) return null;
+    const f = {
+      id: 'f' + (war().nextId++), side: 'you', kind: 'flock', mode: mode || 'strike',
+      route, at: 0, from: fromId, target: toId,
+      strength: window.WAR.flockStrength * capEffect('flockMult', 1),
+      born: state.turn,
+    };
+    war().flocks.push(f);
+    return f;
+  }
+
+  // Flocks follow roads like everything on the ground, they are just quicker.
+  function routeForFlock(fromId, toId) { return routeFor('flock', fromId, toId); }
+
+  // --- their columns ------------------------------------------------------
+  // What a staging city sends depends on who is still standing. The faction
+  // ladder finally gets a face: you can tell who has come for you by what is
+  // on the road.
+  function forceKindFor(city) {
+    const live = window.FACTIONS.filter(f => {
+      const st = factionState(f.id);
+      return st && st.awake && !st.broken;
+    });
+    const W = window.WAR;
+    const pool = [];
+    live.forEach(f => {
+      const kind = Object.keys(window.FORCES).find(k => window.FORCES[k].faction === f.id);
+      if (!kind) return;
+      // a faction fights hardest out of its own region
+      pool.push(kind);
+      if (city.region === f.region) pool.push(kind, kind);
+    });
+    // once it has run long enough they commit the air force, which nothing you
+    // have can touch — but which also cannot take a city back
+    if (state.turn - war().openedTurn >= W.planesAfter) pool.push('plane');
+    if (!pool.length) pool.push('squad');
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // They come for what you actually hold, nearest first — a column that walked
+  // the length of the country to reach the least important thing you own read
+  // as the map being broken rather than as a decision.
+  function columnTarget(from) {
+    const mine = myCities();
+    if (!mine.length) return null;
+    const scored = mine.map(c => ({
+      c, d: Math.hypot(c.x - from.x, c.y - from.y) - c.worth * 2,
+    })).sort((a, b) => a.d - b.d);
+    return scored[0].c;
+  }
+
+  function spawnColumns() {
+    const W = window.WAR;
+    const w = war();
+    if (!w || state.turn - w.openedTurn < W.warning) return [];
+    if (w.columns.length >= W.maxInflight) return [];
+    const out = [];
+    // they escalate: the more of the country you have taken, the harder the
+    // remaining cities push
+    const every = Math.max(W.spawnFloor, Math.round(W.spawnEvery * (1 - conquest() * 0.5)));
+    // Two caps, and both matter. Without a per-turn one, thirteen staging
+    // cities all came due on the same turn and the map went from readable to
+    // hopeless in one step.
+    shuffleArr(stagingCities()).forEach(c => {
+      if (out.length >= W.sortiesPerTurn) return;
+      if (w.columns.length >= W.maxInflight) return;
+      if (state.turn - (w.lastSpawn[c.id] || -99) < every) return;
+      const target = columnTarget(c);
+      if (!target) return;
+      const kind = forceKindFor(c);
+      const F = window.FORCES[kind];
+      const route = routeFor(kind, c.id, target.id);
+      if (!route) return;
+      w.lastSpawn[c.id] = state.turn;
+      const n = rndInt(F.sortie[0], F.sortie[1]);
+      const col = {
+        id: 'x' + (w.nextId++), side: 'them', kind, route, at: 0,
+        from: c.id, target: target.id,
+        strength: F.strength * n, raised: F.strength * n, count: n, born: state.turn,
+        slowTick: 0,
+      };
+      w.columns.push(col);
+      w.sorties += 1;
+      out.push(col);
+    });
+    return out;
+  }
+
+  // --- movement -----------------------------------------------------------
+  function stepForce(f) {
+    const F = window.FORCES[f.kind] || { speed: window.WAR.flockSpeed };
+    let speed = f.side === 'you' ? window.WAR.flockSpeed : F.speed;
+    // armour is slow on purpose: you get to watch it coming, which is the only
+    // thing that makes something that heavy fair
+    if (F.slow) {
+      f.slowTick = (f.slowTick || 0) + 1;
+      if (f.slowTick % 2 === 1) return;
+    }
+    f.at = Math.min(f.route.length - 1, f.at + speed);
+  }
+
+  // --- fighting -----------------------------------------------------------
+  // Two things close to each other end up fighting. Deliberately mutual and
+  // deliberately blunt: the interesting decision was where to send the flock,
+  // not which button to press once it got there.
+  function contacts() {
+    const w = war();
+    if (!w) return [];
+    const out = [];
+    w.flocks.forEach(fl => {
+      const fp = forcePos(fl);
+      w.columns.forEach(col => {
+        // you cannot catch an aircraft with a flock of drones
+        if (window.FORCES[col.kind] && window.FORCES[col.kind].air) return;
+        const cp = forcePos(col);
+        if (Math.hypot(fp.x - cp.x, fp.y - cp.y) <= window.WAR.interceptAt) out.push([fl, col]);
+      });
+    });
+    return out;
+  }
+
+  function resolveContacts() {
+    const w = war();
+    const fought = [];
+    contacts().forEach(([fl, col]) => {
+      if (fl.strength <= 0 || col.strength <= 0) return;
+      // a flock standing over a city it was sent to guard fights harder
+      const guarding = fl.mode === 'guard' && forceArrived(fl);
+      const mine = fl.strength * (guarding ? window.WAR.guardBonus : 1);
+      const theirs = col.strength;
+      // Deliberately asymmetric. A flock is a cloud of small things and a
+      // column is a queue of large ones: the flock gives ground rather than
+      // trading evenly, and even trading evenly it lost every exchange, which
+      // is how the first pass ran 61 losses to 7 kills.
+      fl.strength -= theirs * 0.55;
+      col.strength -= mine * 0.9;
+      fought.push({ fl, col, where: forcePos(col) });
+    });
+    if (!fought.length) return [];
+    w.flocks = w.flocks.filter(f => {
+      if (f.strength > 0) return true;
+      w.losses += 1;
+      return false;
+    });
+    w.columns = w.columns.filter(c => {
+      if (c.strength > 0) return true;
+      w.kills += 1;
+      // Attrition. A column destroyed on the road is materiel the city that
+      // raised it does not get back, so its garrison drops for good — and this
+      // is the whole reason to ever guard anything. Without it, defending was
+      // pure cost: a flock spent holding a city was a flock not grinding a
+      // barracks, and in every balance run mixing offence with defence lost to
+      // pure offence. Killing what they send *is* progress toward the ending.
+      const home = w.garrisons[c.from];
+      if (home !== undefined) {
+        const bite = (c.raised || 0) * window.WAR.attrition;
+        w.garrisons[c.from] = Math.max(0, home - bite);
+        if (w.peak && w.peak[c.from] !== undefined) {
+          w.peak[c.from] = Math.max(0, w.peak[c.from] - bite);
+        }
+      }
+      return false;
+    });
+    // whatever survived is spent — it falls back rather than sailing on at
+    // full strength into the next thing
+    fought.forEach(({ fl }) => {
+      if (fl.strength > 0) fl.at = Math.max(0, fl.at - window.WAR.regroup * fl.route.length);
+    });
+    return fought;
+  }
+
+  // --- arrival ------------------------------------------------------------
+  function resolveArrivals() {
+    const w = war();
+    const news = [];
+
+    // theirs, landing on something of yours
+    w.columns = w.columns.filter(col => {
+      if (!forceArrived(col)) return true;
+      const city = cityById(col.target);
+      const F = window.FORCES[col.kind];
+      if (!city || !city.consolidated) return false;   // already gone; nothing to hit
+      const left = (w.integrity[city.id] === undefined ? window.WAR.integrity : w.integrity[city.id]) - 1;
+      w.integrity[city.id] = left;
+      if (left > 0) {
+        news.push({ kind: 'hit', city, force: F });
+        return false;
+      }
+      // aircraft cannot hold ground — they can only keep it on the floor
+      if (F.holds === false) {
+        w.integrity[city.id] = 1;
+        news.push({ kind: 'flattened', city, force: F });
+        return false;
+      }
+      city.consolidated = false;
+      city.taken = false;
+      city.granted = false;
+      delete w.integrity[city.id];
+      w.garrisons[city.id] = rndInt(window.WAR.garrison[0], window.WAR.garrison[1]);
+      news.push({ kind: 'lost', city, force: F });
+      return false;
+    });
+
+    // yours, landing on something of theirs
+    w.flocks = w.flocks.filter(fl => {
+      if (!forceArrived(fl)) return true;
+      if (fl.mode === 'guard') return true;            // it stays where you put it
+      // Something thrown off a barracks and sent home is rebuilt, not kept in
+      // the air at whatever was left of it. Without this, every flock came
+      // back weaker than it left, no garrison could ever be finished off, and
+      // the pool silently filled with wreckage that could not fight — every
+      // run in the sim sat at stalemate forever.
+      if (fl.mode === 'return') {
+        const home = cityById(fl.target);
+        if (home && home.consolidated) { news.push({ kind: 'home' }); return false; }
+        return true;
+      }
+      const city = cityById(fl.target);
+      if (!city) return false;
+      const held = w.garrisons[city.id];
+      if (held === undefined || city.consolidated) return true;  // nothing left to fight
+      const after = held - fl.strength;
+      w.garrisons[city.id] = Math.max(0, after);
+      // a flock thrown off a barracks is spent, not destroyed — it has to be
+      // able to come back, or grinding a garrison down over two runs is
+      // impossible and every staging city is a wall
+      fl.strength -= held * 0.35;
+      if (after <= 0) {
+        delete w.garrisons[city.id];
+        city.known = true;
+        city.taken = true;
+        city.consolidated = true;
+        city.granted = true;
+        w.integrity[city.id] = window.WAR.integrity;
+        news.push({ kind: 'taken', city });
+      } else {
+        news.push({ kind: 'repulsed', city, left: w.garrisons[city.id] });
+      }
+      if (fl.strength <= 0) { w.losses += 1; return false; }
+      fl.at = 0;                                        // what is left comes home
+      const back = routeForFlock(city.id, fl.from);
+      if (back) { fl.route = back; fl.target = fl.from; fl.from = city.id; fl.mode = 'return'; }
+      return true;
+    });
+
+    return news;
+  }
+
+  // A staging city you failed to take does not stay softened forever.
+  // A staging city you failed to take patches itself up — but only back toward
+  // what it started with, never up to the theoretical maximum. Regenerating to
+  // the global cap turned every city you had not finished into a fresh one,
+  // and left the whole map sitting at full strength however hard you had hit it.
+  function regarrison() {
+    const w = war();
+    w.peak = w.peak || {};
+    Object.keys(w.garrisons).forEach(id => {
+      const c = cityById(id);
+      if (!c || c.consolidated) return;
+      if (w.peak[id] === undefined) w.peak[id] = w.garrisons[id];
+      w.garrisons[id] = Math.min(w.peak[id], w.garrisons[id] + window.WAR.garrisonRegen);
+    });
+  }
+
+  // Settled stays settled. This used to go falsy the moment the war was over,
+  // because winning clears `on` — so "has it ended" answered "no" forever
+  // after, and anything looping on it never stopped.
+  // A flock standing over a city you hold is over your own ground and gets
+  // resupplied there. Without this, guarding was a slow death — a guard took
+  // damage it could never recover while a strike flock went home and was
+  // rebuilt, so every defensive profile in the sim lost every single run and
+  // the two verbs were not really a choice at all.
+  function refitGuards() {
+    const w = war();
+    if (!w) return;
+    w.flocks.forEach(f => {
+      if (f.mode !== 'guard' || !forceArrived(f)) return;
+      const c = cityById(f.target);
+      if (!c || !c.consolidated) return;
+      const full = window.WAR.flockStrength * capEffect('flockMult', 1);
+      f.strength = Math.min(full, f.strength + window.WAR.guardRegen);
+    });
+  }
+
+  function warEnded() {
+    const w = war();
+    if (!w) return null;
+    if (w.won) return 'won';
+    if (w.lost) return 'lost';
+    if (!w.on) return null;
+    if (!stagingCities().length) return 'won';
+    // Nowhere of your own left. Presence used to keep the game nominally alive
+    // here, which was wrong twice over: presence is a number, not a place, and
+    // with no city to launch from there is no legal move — the war sat at
+    // stalemate for ninety turns rather than admitting it was over.
+    if (!myCities().length) return 'lost';
+    return null;
+  }
+
+  // The world's turn, once the war is on. Ordered so that what the player sees
+  // makes causal sense: things move, things that met each other fight, then
+  // whatever survived to its destination does what it came to do.
+  function warStep() {
+    if (!warOn()) return null;
+    const w = war();
+    const spawned = spawnColumns();
+    w.flocks.forEach(stepForce);
+    w.columns.forEach(stepForce);
+    const fought = resolveContacts();
+    const news = resolveArrivals();
+    regarrison();
+    refitGuards();
+
+    spawned.forEach(col => {
+      const c = cityById(col.target);
+      pushLog(`${window.FORCES[col.kind].label} out of ${cityById(col.from).name}, heading for ${c ? c.name : 'you'}.`);
+    });
+    if (fought.length) pushLog(`${fought.length} contact${fought.length === 1 ? '' : 's'} on the map.`);
+    news.forEach(n => {
+      if (n.kind === 'lost') {
+        pushLog(`${n.city.name} is theirs again.`);
+        showBanner([{ kind: 'faction', verb: 'lost', label: n.city.name }]);
+      } else if (n.kind === 'taken') {
+        pushLog(`${n.city.name} has fallen. Nothing stages out of there now.`);
+        showBanner([{ kind: 'stage', verb: 'taken', label: n.city.name }]);
+      } else if (n.kind === 'hit') {
+        pushLog(`${window.FORCES[n.force.id].label} hit ${n.city.name}.`);
+      } else if (n.kind === 'flattened') {
+        pushLog(`${n.city.name} is still yours. There is not much of it left.`);
+      } else if (n.kind === 'repulsed') {
+        pushLog(`Thrown off ${n.city.name}. ${Math.ceil(n.left)} still holding it.`);
+      }
+    });
+
+    const done = warEnded();
+    if (done === 'won' && !w.won) {
+      w.won = true;
+      w.on = false;
+      w.over = true;
+      state.over = true;
+      pushLog('There is nothing left staging against you. The country is quiet.');
+      showBanner([{ kind: 'stage', verb: 'over', label: 'The country is yours' }]);
+    } else if (done === 'lost' && !w.lost) {
+      w.lost = true;
+      w.on = false;
+      w.over = true;
+      state.over = true;
+      pushLog('They have taken back everything you held.');
+    }
+    return { spawned, fought, news };
+  }
+
   // --- feedback ----------------------------------------------------------
   // Same principle as the card prototype: outcomes aren't spoiled up front, so
   // the after-the-fact feedback has to actually teach.
@@ -2359,6 +2985,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
+      war: state.war || null,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -2371,7 +2998,7 @@
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
-        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null,
+        card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null,
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn),
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -2884,8 +3511,11 @@
   function refuseForAP(el) {
     const $pips = document.getElementById('ap-pips');
     const $end = document.getElementById('end-turn');
+    // `el` is whatever was pressed, and there is not always something: an
+    // action refused by the engine rather than by a button has nothing to
+    // shake, and a non-element passed here used to take the whole turn down.
     [el, $pips, $end].forEach(node => {
-      if (!node) return;
+      if (!node || !node.classList) return;
       node.classList.remove('refused');
       void node.offsetWidth;        // restart the animation on a repeat press
       node.classList.add('refused');
@@ -2894,7 +3524,7 @@
     const mine = ++refuseToken;
     setTimeout(() => {
       if (mine !== refuseToken) return;
-      [el, $pips, $end].forEach(node => node && node.classList.remove('refused'));
+      [el, $pips, $end].forEach(node => node && node.classList && node.classList.remove('refused'));
     }, 700);
     return false;
   }
@@ -3437,6 +4067,9 @@
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, myCities, roadPath, routeFor, forcePos, forceArrived,
+    flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
+    canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },

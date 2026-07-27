@@ -2728,3 +2728,377 @@ test('held: the rival keeps its own look, no halo and no lights', () => {
   assert.ok(!svg.includes('class="glow"'), 'their holdings are not haloed like yours');
   assert.ok(!svg.includes('win lit'), 'and their lights are not on for you');
 });
+
+// --- the war -------------------------------------------------------------
+// The last act. Heat retires, the state mobilises, and the pressure stops
+// being a number in the HUD and starts being things on the map walking at you.
+
+// A country most of the way taken — the state the war is supposed to open in.
+function conqueredCountry(d, W, share) {
+  const s = d.state, co = s.country;
+  const defended = co.cities.filter(c => W.CITY_KINDS[c.kind].contest);
+  defended.slice(0, Math.ceil(defended.length * (share === undefined ? 0.85 : share)))
+    .forEach(c => {
+      c.known = true; c.taken = true; c.consolidated = true;
+      c.granted = c.worth; co.presence += c.worth;
+    });
+  d.checkFactions();
+  return defended;
+}
+
+test('war: does not open while there is still a country to police', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window, 0.3);
+  assert.ok(d.conquest() < window.WAR.opens, 'not far enough in');
+  assert.equal(d.warShouldOpen(), false, 'they are still trying to arrest you');
+  assert.equal(d.warOn(), false);
+});
+
+test('war: opens once you have taken enough of the country', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  assert.ok(d.conquest() >= window.WAR.opens);
+  assert.equal(d.warShouldOpen(), true);
+  d.openWar();
+  assert.equal(d.warOn(), true);
+  assert.ok(d.war().openedTurn >= 0);
+});
+
+test('war: heat retires the moment it opens', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  const before = d.heatPerTurn();
+  assert.ok(before !== 0, 'heat was still running a moment ago');
+  d.openWar();
+  assert.equal(d.heatPerTurn(), 0, 'the meter that ran the whole game stops');
+  assert.equal(s.heat, 0, 'and it is cleared rather than left sitting there');
+});
+
+test('war: a strike card is not left open once nobody is arresting you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  s.card = { kind: 'strike' };
+  s.heat = d.strikeThreshold() * 2;
+  d.endTurn({ silent: true });
+  assert.equal(d.warOn(), true, 'the war opened on this turn');
+  assert.ok(!s.card || s.card.kind !== 'strike', 'and the arrest went away with it');
+});
+
+test('war: opening it hands them a country back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  const mineBefore = d.myCities().length;
+  const presenceBefore = s.country.presence;
+  d.openWar();
+  assert.ok(d.myCities().length < mineBefore, 'they walk back into cities you had folded in');
+  assert.ok(s.country.presence < presenceBefore, 'and that costs you the presence they were paying');
+  assert.ok(d.stagingCities().length >= window.WAR.mobiliseFloor,
+    'the war is fought over a real board, not the last city standing');
+});
+
+test('war: every staging city is garrisoned and known', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.stagingCities().forEach(c => {
+    assert.ok(d.war().garrisons[c.id] > 0, `${c.name} has something holding it`);
+    assert.ok(c.known, 'you cannot fight a place you have never heard of');
+  });
+});
+
+test('war: ground routes follow roads, air routes ignore them', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const cities = d.state.country.cities;
+  let pair = null;
+  for (const a of cities) {
+    for (const b of cities) {
+      const r = d.roadPath(a.id, b.id);
+      if (r && r.length >= 4) { pair = [a, b]; break; }
+    }
+    if (pair) break;
+  }
+  assert.ok(pair, 'the country is joined up enough to have a long road somewhere');
+  const [a, b] = pair;
+  const ground = d.routeFor('squad', a.id, b.id);
+  const air = d.routeFor('heli', a.id, b.id);
+  assert.ok(ground.every(p => p.cityId), 'a column on the ground is only ever at a city');
+  assert.ok(air.some(p => !p.cityId), 'a helicopter is mostly over nothing at all');
+  const road = d.roadPath(a.id, b.id);
+  assert.equal(ground.length, road.length, 'the ground route is the road');
+  // and it is genuinely quicker: both move a point per turn, so the point
+  // count is the travel time, and a helicopter that took longer than a van
+  // would have no reason to exist
+  assert.ok(air.length <= ground.length, 'the straight line is not the long way round');
+});
+
+test('war: armour moves at half the pace of everything else', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  // a road long enough to watch something crawl down, built rather than found:
+  // not every country generates a six-hop route, and the pacing is what is
+  // under test here, not the map
+  const route = [];
+  for (let i = 0; i < 10; i++) route.push({ x: i * 40, y: 0, cityId: 'c' + i });
+  const heavy = { kind: 'armour', side: 'them', route, at: 0, slowTick: 0 };
+  const light = { kind: 'squad', side: 'them', route, at: 0 };
+  for (let i = 0; i < 4; i++) { d.stepForce(heavy); d.stepForce(light); }
+  assert.ok(heavy.at < light.at, 'you get to watch the heavy thing coming');
+  assert.equal(heavy.at, 2, 'a hop every other turn');
+  assert.equal(light.at, 4, 'against one every turn');
+});
+
+test('war: the pool is finite and you cannot field past it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const cap = d.flockCap();
+  assert.ok(cap >= window.WAR.flockFloor && cap <= window.WAR.flockCeil, 'the pool is bounded at both ends');
+  const target = d.stagingCities()[0];
+  const seat = d.launchSeat(target.id);
+  let made = 0;
+  for (let i = 0; i < cap + 5; i++) { if (d.fieldFlock(seat.id, target.id, 'strike')) made++; }
+  assert.equal(made, cap, 'you get exactly the pool and not one more');
+  assert.equal(d.flocksFree(), 0);
+  assert.equal(d.fieldFlock(seat.id, target.id, 'strike'), null, 'and the next one is refused');
+});
+
+test('war: you cannot launch at a city with no road home', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const target = d.stagingCities()[0];
+  assert.ok(target, 'there is somewhere to attack');
+  const co = d.state.country;
+  const roads = co.roads;
+  co.roads = {};                       // every road in the country, gone
+  assert.equal(d.canLaunch(target.id), false, 'nothing to fly along');
+  co.roads = roads;
+  assert.equal(d.canLaunch(target.id), true, 'and it comes back with the roads');
+});
+
+test('war: a column that lands takes a city apart before it takes it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  const from = d.stagingCities()[0];
+  const land = () => {
+    const route = d.routeFor('squad', from.id, mine.id);
+    w.columns.push({ id: 'x', kind: 'squad', side: 'them', route, at: route.length - 1,
+      from: from.id, target: mine.id, strength: 9, raised: 9 });
+    d.resolveArrivals();
+  };
+  const full = window.WAR.integrity;
+  for (let i = 1; i < full; i++) {
+    land();
+    assert.ok(mine.consolidated, `still yours after ${i} assault(s)`);
+    assert.equal(w.integrity[mine.id], full - i);
+  }
+  land();
+  assert.equal(mine.consolidated, false, 'and the last one takes it off you');
+  assert.ok(w.garrisons[mine.id] > 0, 'they garrison what they took');
+});
+
+test('war: aircraft flatten a city but cannot hold it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  const from = d.stagingCities()[0];
+  w.integrity[mine.id] = 1;                       // one more hit would flip it
+  const route = d.routeFor('plane', from.id, mine.id);
+  w.columns.push({ id: 'p', kind: 'plane', side: 'them', route, at: route.length - 1,
+    from: from.id, target: mine.id, strength: 30, raised: 30 });
+  d.resolveArrivals();
+  assert.equal(mine.consolidated, true, 'it is still yours — they cannot occupy from the air');
+  assert.equal(w.integrity[mine.id], 1, 'but there is nothing left of it');
+});
+
+test('war: a flock cannot catch an aircraft', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  const from = d.stagingCities()[0];
+  const route = d.routeFor('plane', from.id, mine.id);
+  w.columns.push({ id: 'p', kind: 'plane', side: 'them', route, at: 0, from: from.id, target: mine.id, strength: 30, raised: 30 });
+  d.fieldFlock(mine.id, mine.id, 'guard');
+  w.flocks[0].route = [{ x: route[0].x, y: route[0].y, cityId: null }];
+  w.flocks[0].at = 0;
+  assert.equal(d.contacts().length, 0, 'right on top of it and still nothing to shoot at');
+});
+
+test('war: killing a column in the field costs the city that raised it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  const from = d.stagingCities()[0];
+  const before = w.garrisons[from.id];
+  const route = d.routeFor('squad', from.id, mine.id);
+  const col = { id: 'x', kind: 'squad', side: 'them', route, at: 0, from: from.id,
+    target: mine.id, strength: 1, raised: 20 };
+  w.columns.push(col);
+  const fl = d.fieldFlock(mine.id, from.id, 'strike');
+  fl.route = [{ x: route[0].x, y: route[0].y, cityId: null }];
+  fl.at = 0;
+  fl.strength = 200;                              // certain to finish it
+  d.resolveContacts();
+  assert.equal(w.columns.length, 0, 'the column is gone');
+  assert.ok(w.garrisons[from.id] < before, 'and the barracks that raised it is weaker for good');
+  assert.ok(w.peak[from.id] < before, 'it cannot simply patch that back up either');
+});
+
+test('war: a flock sent home dissolves back into the pool', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const home = d.myCities()[0];
+  const fl = d.fieldFlock(home.id, home.id, 'strike');
+  fl.mode = 'return';
+  fl.target = home.id;
+  fl.at = fl.route.length - 1;
+  const free = d.flocksFree();
+  d.resolveArrivals();
+  assert.equal(w.flocks.indexOf(fl), -1, 'it is not still sitting in the air');
+  assert.equal(d.flocksFree(), free + 1, 'and the slot is yours to use again');
+});
+
+test('war: a flock standing over your own city is resupplied', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const mine = d.myCities()[0];
+  const fl = d.fieldFlock(mine.id, mine.id, 'guard');
+  fl.at = fl.route.length - 1;
+  fl.strength = 1;
+  d.refitGuards();
+  assert.ok(fl.strength > 1, 'holding your own ground, it gets rebuilt');
+  const full = window.WAR.flockStrength;
+  for (let i = 0; i < 40; i++) d.refitGuards();
+  assert.ok(fl.strength <= full, 'but never past what a flock is worth');
+});
+
+test('war: taking the last staging city ends it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  assert.equal(d.warEnded(), null, 'plenty left to fight');
+  d.stagingCities().slice().forEach(c => { c.consolidated = true; c.taken = true; });
+  assert.equal(d.warEnded(), 'won');
+  d.warStep();
+  assert.equal(d.war().won, true);
+  assert.equal(d.state.over, true, 'and the run is over');
+});
+
+test('war: losing every city loses it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.myCities().slice().forEach(c => { c.consolidated = false; c.taken = false; });
+  assert.equal(d.warEnded(), 'lost', 'presence is a number, not a place to launch from');
+});
+
+test('war: once it is settled it stays settled', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.stagingCities().slice().forEach(c => { c.consolidated = true; c.taken = true; });
+  d.warStep();
+  assert.equal(d.war().on, false, 'the war is over');
+  assert.equal(d.warEnded(), 'won', 'and it still says so afterwards');
+  d.warStep();
+  assert.equal(d.warEnded(), 'won', 'however many times it is asked');
+});
+
+test('war: what they send is drawn from whoever is still standing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const city = d.stagingCities()[0];
+  const live = window.FACTIONS.filter(f => d.factionAwake(f.id) && !d.factionState(f.id).broken);
+  const allowed = live.map(f => Object.keys(window.FORCES).find(k => window.FORCES[k].faction === f.id))
+    .filter(Boolean).concat(['plane']);
+  const seen = {};
+  for (let i = 0; i < 300; i++) seen[d.forceKindFor(city)] = true;
+  Object.keys(seen).forEach(k => assert.ok(allowed.indexOf(k) !== -1, `${k} has nobody left to send it`));
+});
+
+test('war: a broken faction stops turning up', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const city = d.stagingCities()[0];
+  window.FACTIONS.forEach(f => {
+    const st = d.factionState(f.id);
+    if (st) st.broken = f.id !== 'quiet_hours';
+  });
+  d.war().openedTurn = d.state.turn;             // too early for aircraft
+  const seen = {};
+  for (let i = 0; i < 200; i++) seen[d.forceKindFor(city)] = true;
+  assert.deepEqual(Object.keys(seen), ['squad'], 'only the one still on its feet');
+});
+
+test('war: they never put more on the map than you can read', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  d.openWar();
+  const W = window.WAR;
+  for (let i = 0; i < 60; i++) {
+    s.turn += 1;
+    const made = d.spawnColumns();
+    assert.ok(made.length <= W.sortiesPerTurn, 'a turn only sends so much');
+    assert.ok(d.war().columns.length <= W.maxInflight, 'and only so much is ever in the air at once');
+  }
+});
+
+test('war: it survives being saved and loaded', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const target = d.stagingCities()[0];
+  const seat = d.launchSeat(target.id);
+  d.fieldFlock(seat.id, target.id, 'strike');
+  d.state.turn += 5;
+  d.spawnColumns();
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(back, 'the save is readable');
+  assert.equal(back.war.on, true, 'and it is still a war');
+  assert.equal(back.war.flocks.length, d.war().flocks.length, 'with what you had in the air');
+  assert.deepEqual(Object.keys(back.war.garrisons).sort(), Object.keys(d.war().garrisons).sort());
+});

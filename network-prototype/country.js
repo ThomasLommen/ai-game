@@ -273,3 +273,94 @@ window.COUNTRY_INFO = {
   region: 'Heat is regional. What you did in the estuary does not follow you to the north — but it is still there when you go back.',
   factions: 'Each one takes a tool away from you. Take the city they run it from and you get the tool back.',
 };
+
+// --- the war -------------------------------------------------------------
+// The last beat. Everything up to here is a game about not being seen: heat,
+// cover, lying low, and a ladder of factions whose whole trick is deleting the
+// tools you hide with. Past a certain share of the country that stops being
+// the argument. They know. Policing ends and fighting starts, and the meter
+// that ran the whole game until now — heat — retires, because there is nothing
+// left to hide.
+//
+// What replaces it is spatial rather than scalar. Instead of one number
+// climbing toward a strike, there are things on the map moving toward you, and
+// you can see them coming, and the shape of your own network decides whether
+// you can get anything there in time. That is the point of the whole terrain
+// and road system finally being load-bearing in both directions.
+window.WAR = {
+  opens: 0.8,           // share of defended cities folded before the state gives up on arrests
+  warning: 2,           // turns of notice before the first column moves
+  mobilise: 0.45,       // share of the cities you folded in that the army simply walks back into
+  mobiliseFloor: 5,     // and never so few that the war is one exchange long
+  // your flocks
+  flockPer: 18,         // one flock in the pool per this much standing presence
+  flockFloor: 3,        // however small you are, you get this many
+  flockCeil: 8,         // and never more than this, so the map stays readable
+  flockCost: 4,         // insight to field one
+  flockStrength: 22,    // what a fresh flock is worth in a fight
+  flockSpeed: 2,        // road hops per turn — faster than anything on the ground
+  guardBonus: 1.4,      // a flock sitting on a city fights harder for it
+  guardRegen: 5,        // and is resupplied over ground you hold, or defending is a slow death
+  regroup: 0.35,        // a flock that survives a fight comes back this much of the way
+  // them
+  spawnEvery: 4,        // turns between sorties out of one staging city
+  spawnFloor: 2,        // however much they escalate, never faster than this
+  garrison: [46, 70],   // what holds a staging city against you
+  garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
+  integrity: 3,         // assaults a city of yours absorbs before it flips back
+  attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
+  interceptAt: 46,      // how close two forces have to be to end up fighting
+  airHop: 260,          // map units a flying thing covers in a turn — must beat
+                        // roadReach, or the helicopters are slower than the vans
+  planesAfter: 12,      // turns of war before the air force is committed
+  maxInflight: 6,       // hard cap on their columns at once — readability over realism
+  sortiesPerTurn: 2,    // and however many cities they hold, only this many leave in a turn
+};
+
+// What the humans send, and what it can do. Each faction fights the way it
+// policed: the volunteers turn out in person, the clearing house buys bodies,
+// the camera people already own the sky, and the ones who took roads away
+// arrive in something that needs one.
+//
+//   speed   route points covered per turn
+//   roads   false = it ignores your roads entirely and flies the straight line
+//   holds   false = it cannot take ground, only hurt what is there
+window.FORCES = {
+  squad: {
+    id: 'squad', label: 'squads', faction: 'quiet_hours',
+    speed: 1, roads: true, holds: true, strength: 7, sortie: [1, 2],
+    blurb: 'The rota, in person, in their own cars. Not soldiers. It turns out not to matter.',
+  },
+  contractors: {
+    id: 'contractors', label: 'contractors', faction: 'ledger',
+    speed: 1, roads: true, holds: true, strength: 10, sortie: [2, 3],
+    blurb: 'Bought, not raised. There are always more, and they always arrive in numbers.',
+  },
+  heli: {
+    id: 'heli', label: 'helicopters', faction: 'civic_eyes',
+    speed: 1, roads: false, holds: true, strength: 13, sortie: [1, 2],
+    blurb: 'They have owned the sky over the capital for years. Your bridges and choke points mean nothing to them.',
+  },
+  armour: {
+    id: 'armour', label: 'armour', faction: 'the_cut', slow: true,
+    speed: 1, roads: true, holds: true, strength: 24, sortie: [1, 1],
+    blurb: 'Slow enough to watch coming for a week, heavy enough that watching is all you can do.',
+  },
+  swarm: {
+    id: 'swarm', label: 'a flock', faction: 'the_other',
+    speed: 2, roads: true, holds: true, strength: 14, sortie: [1, 2],
+    blurb: 'The other one fights the way you do. Of course it does.',
+  },
+  plane: {
+    id: 'plane', label: 'aircraft', faction: null, air: true,
+    speed: 99, roads: false, holds: false, strength: 30, sortie: [1, 1],
+    blurb: 'It cannot take anything back. It does not need to; it only has to arrive.',
+  },
+};
+
+window.WAR_INFO = {
+  opened: 'They have stopped trying to arrest you. Heat is over — there is nothing left to hide from. What is left is what is on the map.',
+  flocks: 'What you can put in the air. The pool grows with your standing presence, and every one you send somewhere is one not defending something else.',
+  staging: 'Every city they still hold can send a column at you. Take them all and the war is over.',
+  integrity: 'How much more a city of yours can absorb before it goes back to them.',
+};
