@@ -129,6 +129,27 @@ function rank(h) { return h.role === 'stealth' ? 1 : 0; }
 function campaign(d, style) {
   const s = d.state;
 
+  // Keep the plant you are standing on before you fold the city — it is the
+  // only thing that survives, and it is what the war is fought out of.
+  if (s.scope === 'city') {
+    const keep = d.claimable().find(b => d.assetRoom() > 0
+      && !d.assets().some(a => a.buildingId === b.id));
+    if (keep && d.claimAsset(keep.id)) return 'claim';
+  }
+  // Standing: buy the ladder when it is affordable without starving the rest,
+  // and lean on the cheap route when the auditors are a long way off.
+  if (d.countryUnlocked()) {
+    const rung = d.nextRung();
+    const shortBy = d.footprint() - d.legitScore();
+    if (rung && s.res.cash > rung.cost * 2.2 && (shortBy > 0 || d.assetRoom() === 0)) {
+      if (d.buyRung(rung.id)) return 'rung';
+    }
+    if (style !== 'ghost' && shortBy > 12 && s.res.insight > 60
+        && d.LG().exposure < LEGIT.caughtAt * 0.55) {
+      if (d.actSpin()) return 'spin';
+    }
+  }
+
   // Once the war opens the country verbs are gone: there is nothing left to
   // travel to or fold in, only barracks to take off them and cities of your
   // own to stand over. Split the pool rather than going all in — the balance
@@ -187,6 +208,7 @@ function campaign(d, style) {
   return null;
 }
 let CITY_KINDS = null;
+let LEGIT = null;
 
 function pickTarget(d, cmp) {
   const usable = d.state.hosts.filter(h =>
@@ -330,6 +352,7 @@ function playOne(strategyName) {
   const d = w.__netDebug;
   CAPS = w.CAPABILITIES;
   CITY_KINDS = w.CITY_KINDS;
+  LEGIT = w.LEGIT;
   global.LAUNDER_COST = w.LAUNDER.cost;
   global.SWEEP_COST = w.SWEEP_COST;
   const strat = STRATEGIES[strategyName];
@@ -410,6 +433,10 @@ function playOne(strategyName) {
     warOpenedTurn: warSt ? warSt.openedTurn : null,
     warOutcome: warSt ? (d.warEnded() || 'running') : 'never',
     warSorties: warSt ? warSt.sorties : 0,
+    legitTier: d.legitTier(), legitScore: Math.round(d.legitScore()),
+    footprint: Math.round(d.footprint()), spin: Math.round(d.LG().spin || 0),
+    audits: d.LG().audits || 0, caught: d.LG().caught || 0, fines: d.LG().fines || 0,
+    assets: d.assets().length, assetSlots: d.assetSlots(),
     warKills: warSt ? warSt.kills : 0,
     presence: d.state.country.presence,
     peakPresence,
@@ -589,5 +616,5 @@ module.exports = {
   resolveCard,
   campaign,
   playOne,
-  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; global.LAUNDER_COST = w.LAUNDER.cost; global.SWEEP_COST = w.SWEEP_COST; },
+  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; LEGIT = w.LEGIT; global.LAUNDER_COST = w.LAUNDER.cost; global.SWEEP_COST = w.SWEEP_COST; },
 };

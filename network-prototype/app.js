@@ -812,6 +812,10 @@
       // the whole point of folding one in
       const p = presenceYield();
       for (const k in p) state.res[k] = (state.res[k] || 0) + p[k] * mult;
+      // plant pays whether or not you are standing in the city it is in —
+      // that is the whole point of it having survived the fold
+      const a = assetYield();
+      for (const k in a) state.res[k] = (state.res[k] || 0) + a[k] * mult;
     }
 
     // churn — holdings decay unless shored up, so sprawl has upkeep.
@@ -869,6 +873,7 @@
       pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
     }
     mirrorStep();
+    legitStep();          // exposure fades, and the auditors keep their own diary
     warStep();            // columns move, flocks move, whatever met fights
     cameraVision();       // held cameras reveal what is near them
     state.ap = maxAP();   // a fresh budget for the new turn
@@ -2441,6 +2446,208 @@
     return owned().filter(h => !seen[h.buildingId]);
   }
 
+  // --- what you own, and what the world thinks you are --------------------
+  // Two systems that only make sense together. Assets are the industrial base
+  // a war is fought out of; legitimacy decides whether you have to break into
+  // one or can simply buy and convert it in the open. Same plant, two routes,
+  // and which route is available depends on which meter you have been feeding.
+
+  function LG() {
+    const co = CO();
+    if (!co.legit) co.legit = { owned: {}, spin: 0, exposure: 0, nextAudit: -1, audits: 0, caught: 0, fines: 0 };
+    return co.legit;
+  }
+  function assets() { const co = CO(); if (!co.assets) co.assets = []; return co.assets; }
+
+  function legitBought() {
+    return window.LEGIT.ladder.reduce((a, r) => a + (LG().owned[r.id] ? r.legit : 0), 0);
+  }
+  function legitScore() { return legitBought() + (LG().spin || 0); }
+  function legitTier() {
+    return window.LEGIT.ladder.reduce((t, r) => (LG().owned[r.id] ? Math.max(t, r.tier) : t), 0);
+  }
+  function nextRung() {
+    return window.LEGIT.ladder.find(r => !LG().owned[r.id]) || null;
+  }
+  function footprint() {
+    const L = window.LEGIT;
+    return (presence() * L.footPerPresence) + (assets().length * L.footPerAsset);
+  }
+  // Being able to explain yourself is what lets you own things in the open.
+  // This is the join between the two systems: the ladder does not make you
+  // safe, it makes you allowed to run more plant.
+  function assetSlots() {
+    const R = window.ASSET_RULES;
+    return R.slotsBase + R.slotsPerTier * legitTier();
+  }
+  function assetRoom() { return Math.max(0, assetSlots() - assets().length); }
+
+  function buyRung(id) {
+    const r = window.LEGIT.ladder.find(x => x.id === id);
+    if (!r || LG().owned[r.id]) return false;
+    if (nextRung() !== r) return false;           // the ladder is a ladder
+    if (state.res.cash < r.cost) return false;
+    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
+    state.res.cash -= r.cost;
+    state.ap -= countryCost('move');
+    LG().owned[r.id] = true;
+    pushLog(`${r.label}. ${r.blurb}`);
+    showBanner([{ kind: 'stage', verb: 'on the record', label: r.label }]);
+    persistNow();
+    render();
+    return true;
+  }
+
+  // The other route. Faster, far cheaper, and every point of it is a point
+  // that can be taken back all at once.
+  function actSpin() {
+    const L = window.LEGIT;
+    if (state.res.insight < L.spinCost) return false;
+    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
+    state.res.insight -= L.spinCost;
+    state.ap -= countryCost('move');
+    LG().spin += L.spinLegit;
+    LG().exposure += L.spinExposure;
+    pushLog('The story moves. Nobody can say who moved it.');
+    persistNow();
+    render();
+    return true;
+  }
+
+  function auditDue() {
+    const L = window.LEGIT;
+    const l = LG();
+    if (l.nextAudit < 0) { l.nextAudit = state.turn + L.auditEvery; return false; }
+    return state.turn >= l.nextAudit;
+  }
+  function scheduleAudit() {
+    const L = window.LEGIT;
+    const gap = Math.max(L.auditFloor, Math.round(L.auditEvery - footprint() * L.auditFootK));
+    LG().nextAudit = state.turn + gap;
+  }
+
+  // An audit compares what you look like against how big you are. The
+  // interesting branch is not the fine — it is what happens when the thing
+  // being audited was never real in the first place.
+  function runAudit() {
+    const L = window.LEGIT;
+    const l = LG();
+    l.audits += 1;
+    const deficit = footprint() - legitScore();
+    scheduleAudit();
+
+    if (l.exposure >= L.caughtAt) {
+      const lost = Math.round(l.spin * L.caughtLoss);
+      l.spin = Math.max(0, l.spin - lost);
+      l.exposure = 0;
+      l.caught += 1;
+      state.heat = clampHeat(state.heat + L.caughtHeat);
+      pushLog('They pulled one thread and the whole front came apart. None of it was real and now everyone knows.');
+      showBanner([{ kind: 'faction', verb: 'exposed', label: 'the front was fabricated' }]);
+      return { kind: 'caught', lost };
+    }
+    if (deficit <= 0) {
+      pushLog('Audited. Everything reconciles.');
+      return { kind: 'clean' };
+    }
+    if (deficit >= L.seizeAt && assets().length) {
+      const taken = assets().pop();
+      pushLog(`Audited, and they could not account for ${window.ASSETS[taken.kind].label} at ${taken.city}. It is not yours any more.`);
+      showBanner([{ kind: 'faction', verb: 'seized', label: window.ASSETS[taken.kind].label }]);
+      return { kind: 'seized', asset: taken };
+    }
+    const fine = Math.round(deficit * L.finePerPoint);
+    state.res.cash = Math.max(0, state.res.cash - fine);
+    l.fines += fine;
+    pushLog(`Audited. ${fine} in fines for what you could not explain.`);
+    return { kind: 'fined', fine };
+  }
+
+  function legitStep() {
+    const L = window.LEGIT;
+    const l = LG();
+    if (l.exposure > 0) l.exposure = Math.max(0, l.exposure - L.spinDecay);
+    if (!countryUnlocked()) return null;
+    if (!auditDue()) return null;
+    return runAudit();
+  }
+
+  // --- assets -------------------------------------------------------------
+  // What is claimable out of the city you are standing in: the landmarks you
+  // actually hold, plus anything you have retooled.
+  function assetKindFor(b) {
+    if (!b) return null;
+    const found = Object.keys(window.ASSETS).find(k => window.ASSETS[k].from === b.kind);
+    return found || (b.retooled || null);
+  }
+  function claimable() {
+    if (state.scope !== 'city') return [];
+    return (state.buildings || []).filter(b => {
+      if (!assetKindFor(b)) return false;
+      return hostsIn(b).some(h => h.owned);
+    });
+  }
+  function assetsHere() {
+    const c = currentCity();
+    if (!c) return [];
+    return assets().filter(a => a.cityId === c.id);
+  }
+
+  function claimAsset(buildingId) {
+    const b = buildingById(buildingId);
+    const kind = assetKindFor(b);
+    const c = currentCity();
+    if (!b || !kind || !c) return false;
+    if (!hostsIn(b).some(h => h.owned)) return false;
+    if (assets().some(a => a.buildingId === buildingId && a.cityId === c.id)) return false;
+    if (assetRoom() <= 0) return false;
+    assets().push({ kind, cityId: c.id, city: c.name, buildingId, since: state.turn });
+    pushLog(`${window.ASSETS[kind].label} at ${c.name} is yours to keep.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  // Building, in the only sense this game has one: you do not raise a plant,
+  // you take something you already hold and retool it. That keeps the verb set
+  // intact — everything here is still take and hold — and it is the thing
+  // legitimacy actually buys you.
+  function canRetool(b) {
+    const R = window.ASSET_RULES;
+    if (!b || state.scope !== 'city') return false;
+    if (legitTier() < R.retoolTier) return false;
+    if (R.retoolKinds.indexOf(b.kind) === -1) return false;
+    if (b.retooled || assetKindFor(b)) return false;
+    return hostsIn(b).some(h => h.owned);
+  }
+  function retoolCost() { return window.ASSET_RULES.retoolCost; }
+  function actRetool(buildingId) {
+    const b = buildingById(buildingId);
+    if (!canRetool(b)) return false;
+    if (state.res.cash < retoolCost()) return false;
+    if (!canAfford('upgrade')) { refuseForAP(null); return false; }
+    state.res.cash -= retoolCost();
+    state.ap -= apCost('upgrade');
+    // what it becomes depends on what it was
+    b.retooled = b.kind === 'datacenter' ? 'grid' : b.kind === 'office' ? 'floor' : 'line';
+    pushLog(`${window.BUILDING_KINDS[b.kind].label} is being refitted. Nobody had to break in.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  function assetYield() {
+    const out = {};
+    assets().forEach(a => {
+      const y = window.ASSETS[a.kind].yield || {};
+      for (const k in y) out[k] = (out[k] || 0) + y[k];
+    });
+    return out;
+  }
+  function assetFlocks() {
+    return assets().reduce((a, x) => a + (window.ASSETS[x.kind].flocks || 0), 0);
+  }
+
   // --- the war -----------------------------------------------------------
   // Past a certain share of the country they stop trying to arrest you. Heat
   // retires here, and it is meant to feel like a loss as much as a relief: the
@@ -2561,7 +2768,12 @@
       // you cannot fight a place you have never heard of
       c.known = true;
     });
-    myCities().forEach(c => { state.war.integrity[c.id] = W.integrity; });
+    // A city where you are a registered employer takes more explaining to
+    // flatten than a city where you are a rumour.
+    const standing = Math.floor(legitTier() / 2);
+    myCities().forEach(c => { state.war.integrity[c.id] = W.integrity + standing; });
+    state.war.notice = legitTier();
+    state.war.legitAtOpen = legitTier();
     state.war.mobilised = rolled.map(c => c.id);
     // heat is over, and the number should visibly stop rather than quietly
     // stop being read — the player earned the right to watch it go out
@@ -2650,8 +2862,10 @@
   // at them is something not standing over what you already hold.
   function flockCap() {
     const W = window.WAR;
+    // plant counts once, through `extra`, which raises the ceiling as well as
+    // the number — added to both terms it paid out twice
     const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
-    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0);
+    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0) + assetFlocks();
     // the floor holds even when a card has cost you room: a war you cannot
     // field anything into is not a war
     return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
@@ -2717,7 +2931,9 @@
   function spawnColumns() {
     const W = window.WAR;
     const w = war();
-    if (!w || state.turn - w.openedTurn < W.warning) return [];
+    // Somebody with four hundred employees and a lobbyist cannot simply be
+    // rolled on. They have to build the case first, and that is time.
+    if (!w || state.turn - w.openedTurn < W.warning + (w.notice || 0)) return [];
     if (w.columns.length >= W.maxInflight - (has('mercy') ? 1 : 0)) return [];
     const out = [];
     // they escalate: the more of the country you have taken, the harder the
@@ -2851,6 +3067,7 @@
       w.integrity[city.id] = left;
       if (left > 0) {
         news.push({ kind: 'hit', city, force: F });
+        backlash();
         return false;
       }
       // aircraft cannot hold ground — they can only keep it on the floor
@@ -2911,6 +3128,20 @@
     });
 
     return news;
+  }
+
+  // Hitting something the public believes is a company is expensive for them
+  // in a way that hitting a rumour is not. The higher you are up the ladder,
+  // the longer they have to spend explaining themselves afterwards.
+  function backlash() {
+    const w = war();
+    const tier = legitTier();
+    if (!w || tier < 2) return 0;
+    const turns = Math.max(1, Math.floor(tier / 2));
+    stagingCities().forEach(c => {
+      w.lastSpawn[c.id] = Math.max(w.lastSpawn[c.id] || state.turn, state.turn) + turns;
+    });
+    return turns;
   }
 
   // A staging city you failed to take does not stay softened forever.
@@ -4069,6 +4300,7 @@
               <span class="ab-name">shore up</span>
               <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
             </button>
+            ${assetPanel(b)}
           </div>`;
       } else if (isFrontier(h)) {
         sel = `
@@ -4161,6 +4393,8 @@
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
         else if (a === 'consolidate') actConsolidate();
+        else if (a === 'claim') claimAsset(b.getAttribute('data-bid'));
+        else if (a === 'retool') actRetool(b.getAttribute('data-bid'));
       });
     });
   }
@@ -4262,6 +4496,50 @@
       block = `<div class="sel"><p class="sel-desc dim">Tap a city. You are standing in ${at ? at.name : 'nowhere'}.</p></div>`;
     }
 
+    // What the world thinks you are, and what you actually own. Both belong at
+    // country scale: this is the point where you stop being a burglar and
+    // start being an organisation with a filing history.
+    const L = window.LEGIT;
+    const rung = nextRung();
+    const foot = footprint();
+    const legit = legitScore();
+    const short = foot - legit;
+    const l = LG();
+    const exposed = l.exposure >= L.caughtAt * 0.6;
+    const legitBlock = countryUnlocked() ? `
+      <div class="legit">
+        <div class="legit-top">
+          <span class="eyebrow mono">standing</span>
+          <span class="mono ${short > 0 ? 'bad' : 'good'}">${Math.round(legit)} vs ${Math.round(foot)} footprint</span>
+        </div>
+        <div class="legit-bar"><div class="legit-fill" style="width:${Math.max(0, Math.min(100, foot ? (legit / foot) * 100 : 100))}%"></div></div>
+        <p class="sel-desc dim">${short > 0
+          ? `Short by ${Math.round(short)}. The next audit will cost you.`
+          : 'Everything you are reconciles with everything you own.'}${
+          l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'A lot of this is fabricated.' : 'Some of this is fabricated.'}</b>` : ''}</p>
+        ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
+          <span class="ab-name">${rung.label}</span>
+          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash` : `${rung.cost} cash · +${rung.legit} standing · 1 action`}</span>
+        </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
+        <button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
+          <span class="ab-name">move the story</span>
+          <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
+            : `${L.spinCost} insight · +${L.spinLegit} standing, none of it real · 1 action`}</span>
+        </button>
+      </div>` : '';
+
+    const own = assets();
+    const assetBlock = own.length || countryUnlocked() ? `
+      <div class="assets">
+        <div class="legit-top">
+          <span class="eyebrow mono">plant</span>
+          <span class="mono dim">${own.length}/${assetSlots()} · +${assetFlocks()} flocks</span>
+        </div>
+        ${own.length
+          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span><span class="mono dim">${a.city}</span></div>`).join('')
+          : '<p class="sel-desc dim">Nothing yet. Landmarks in a city you are standing in can be kept when you fold it.</p>'}
+      </div>` : '';
+
     const p = presenceYield();
     const awake = awakeFactions();
     const facRow = awake.length
@@ -4274,6 +4552,8 @@
 
     $p.innerHTML = `
       ${block}
+      ${legitBlock}
+      ${assetBlock}
       <div class="country-meta">
         <span class="mono"><b>${CO().presence}</b> presence</span>
         <span class="mono dim">+${p.insight.toFixed(1)} insight · +${p.cash.toFixed(1)} cash / turn</span>
@@ -4292,8 +4572,44 @@
         else if (a === 'launch') actLaunch(id);
         else if (a === 'guard') actGuard(id);
         else if (a === 'recall') actRecall(b.getAttribute('data-force'));
+        else if (a === 'rung') buyRung(b.getAttribute('data-rung'));
+        else if (a === 'spin') actSpin();
       });
     });
+  }
+
+  // The two routes to a piece of plant, on whichever building you have tapped:
+  // one you already broke into, or one you are about to convert in the open.
+  function assetPanel(b) {
+    if (!b || state.scope !== 'city') return '';
+    const kind = assetKindFor(b);
+    const c = currentCity();
+    if (kind) {
+      const already = assets().some(a => a.buildingId === b.id && c && a.cityId === c.id);
+      const A = window.ASSETS[kind];
+      if (already) {
+        return `<p class="sel-desc dim">${A.label} · yours, and it stays yours when this city folds in.</p>`;
+      }
+      const room = assetRoom() > 0;
+      return `<p class="sel-desc">${A.blurb}</p>
+        <button class="act-btn${room ? ' primary' : ' no-ap'}" data-act="claim" data-bid="${b.id}">
+          <span class="ab-name">keep ${A.label}</span>
+          <span class="ab-sub">${room
+            ? `survives folding this city in · +${A.flocks} flocks · ${assetRoom()} slot${assetRoom() === 1 ? '' : 's'} left`
+            : `no room — ${assets().length}/${assetSlots()} run already`}</span>
+        </button>`;
+    }
+    const R = window.ASSET_RULES;
+    if (R.retoolKinds.indexOf(b.kind) === -1) return '';
+    if (legitTier() < R.retoolTier) {
+      return `<p class="sel-desc dim">Could be refitted into something that builds, if you were a company anyone had heard of.</p>`;
+    }
+    if (!canRetool(b)) return '';
+    const afford = state.res.cash >= retoolCost();
+    return `<button class="act-btn${afford ? '' : ' no-ap'}" data-act="retool" data-bid="${b.id}">
+        <span class="ab-name">refit it</span>
+        <span class="ab-sub">${afford ? `${retoolCost()} cash · no break-in · becomes plant you can keep` : `needs ${retoolCost()} cash`}</span>
+      </button>`;
   }
 
   function renderCard($p) {
@@ -4421,6 +4737,9 @@
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
+    auditDue, runAudit, legitStep, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
+    assetYield, assetFlocks, backlash,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

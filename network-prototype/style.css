@@ -1073,3 +1073,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .panel-msg.won b { color: var(--cover); }
 /* the stage label is the loudest word on the screen once it says this */
 #stage-label { transition: color .4s ease; }
+
+/* standing, and what you own — the country panel's second half */
+.legit, .assets { margin: 10px 0 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.legit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.legit-top .good { color: var(--cover); }
+.legit-top .bad, .sel-desc b.bad { color: var(--heat); }
+.legit-bar { height: 5px; border-radius: 3px; background: #1b2320; overflow: hidden; margin-bottom: 6px; }
+.legit-fill { height: 100%; background: linear-gradient(90deg, var(--cover), var(--insight)); transition: width .4s ease; }
+.asset-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13px; }
+.asset-name { color: var(--ink-dim); }

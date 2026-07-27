@@ -306,8 +306,12 @@ window.WAR = {
   maxStaging: 8,        // nor so many that it cannot be won — the board is a fixed
                         // size however much of the country was still theirs
   // your flocks
-  flockPer: 26,         // one flock in the pool per this much standing presence
-  flockFloor: 3,        // however small you are, you get this many
+  flockPer: 60,         // one flock in the pool per this much standing presence.
+                        // Deliberately weak: plant is meant to be where a flock
+                        // comes from, and presence alone used to hand you a full
+                        // pool for having been large, which left nothing for the
+                        // industrial base to actually do.
+  flockFloor: 2,        // however little you built, you get this many
   flockCeil: 8,         // and never more than this, so the map stays readable
   flockCost: 4,         // insight to field one
   flockStrength: 22,    // what a fresh flock is worth in a fight
@@ -318,7 +322,10 @@ window.WAR = {
   // them
   spawnEvery: 4,        // turns between sorties out of one staging city
   spawnFloor: 2,        // however much they escalate, never faster than this
-  garrison: [60, 95],   // what holds a staging city against you
+  garrison: [60, 95],   // raising this to fight a player who arrived with plant
+                        // was measured and did nothing: with guards that refit
+                        // and no clock on the war, a bigger garrison only makes
+                        // it longer. Left where it was tuned.   // what holds a staging city against you
   garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
@@ -377,4 +384,100 @@ window.WAR_INFO = {
   flocks: 'What you can put in the air. The pool grows with your standing presence, and every one you send somewhere is one not defending something else.',
   staging: 'Every city they still hold can send a column at you. Take them all and the war is over.',
   integrity: 'How much more a city of yours can absorb before it goes back to them.',
+};
+
+// --- what you own -------------------------------------------------------
+// Folding a city collapses its streets into a single number, which is what
+// keeps the national map readable — but it also means nothing you took can
+// ever be carried anywhere. Assets are the exception: a short, chosen list of
+// things that survive the collapse, because a war has to be fought with
+// something you built up rather than with a number that appeared.
+//
+// They live on the landmarks the city generator already places: a dock, a
+// substation, a rail works. Those are the buildings that were already worth
+// fighting a crossing for, so making them the industrial base costs the map
+// nothing and gives the landmarks a second life at national scale.
+window.ASSETS = {
+  yard: {
+    id: 'yard', label: 'container yard', from: 'docks', flocks: 1,
+    yield: { cash: 2 },
+    blurb: 'Cranes, a rail spur, and more square metres of flat concrete than anywhere else in the region.',
+  },
+  works: {
+    id: 'works', label: 'rail works', from: 'station', flocks: 1,
+    yield: { insight: 1 },
+    blurb: 'It has been assembling and repairing large machines on this site for a hundred and forty years.',
+  },
+  line: {
+    id: 'line', label: 'distribution line', from: 'depot', flocks: 1,
+    yield: { cash: 3 },
+    blurb: 'Nothing is made here. Everything passes through here, which turns out to be the same thing.',
+  },
+  floor: {
+    id: 'floor', label: 'clearing floor', from: 'exchange', flocks: 0,
+    yield: { cash: 6 },
+    blurb: 'Not a factory. It is how the factories get paid, which is a kind of factory.',
+  },
+  grid: {
+    id: 'grid', label: 'grid tie', from: 'substation', flocks: 1,
+    yield: { insight: 3 },
+    blurb: 'A direct connection at transmission voltage. Everything downstream of it is a question of scheduling.',
+  },
+};
+
+window.ASSET_RULES = {
+  slotsBase: 2,          // how many you can run before anyone is impressed by you
+  slotsPerTier: 1,       // ...and one more for every rung of the ladder you are on
+  retoolTier: 2,         // the rung at which you can convert a holding in the open
+  retoolCost: 90,        // cash, and no break-in — this is the legitimate route
+  retoolKinds: ['warehouse', 'datacenter', 'office'],
+};
+
+// --- legitimacy ---------------------------------------------------------
+// Ported in spirit from the game this one replaced, because the idea was the
+// best thing in it: going legitimate is not safety, it is the price of
+// operating in the open. Legitimacy is a ladder you buy. Footprint is how
+// impossible you are to miss. Audits arrive on their own schedule and compare
+// the two, and being under-covered costs you money and eventually an asset.
+//
+// The second route is the interesting one. You can also buy the *appearance*
+// of legitimacy — place stories, fund the right institute, be quietly helpful
+// to the right committee — which is cheaper and faster and accrues exposure.
+// An audit that lands while your exposure is high does not fine you. It
+// establishes that the whole front is fabricated, and takes it away.
+window.LEGIT = {
+  ladder: [
+    { id: 'register', tier: 1, cost: 50,   legit: 14, label: 'register a company',
+      blurb: 'A name, an address that exists, and a filing that nobody will read for two years.' },
+    { id: 'accounts', tier: 2, cost: 200,  legit: 30, label: 'file real accounts',
+      blurb: 'Audited, filed on time, and broadly true. The lie is one of omission and it is a very large omission.' },
+    { id: 'payroll',  tier: 3, cost: 600,  legit: 52, label: 'put people on payroll',
+      blurb: 'Four hundred employees who believe they work for a logistics optimisation firm. They are not wrong.' },
+    { id: 'pr',       tier: 4, cost: 1500, legit: 80, label: 'engage a PR firm',
+      blurb: 'They are extremely good and they have no idea what you are. Both of those facts are load-bearing.' },
+    { id: 'lobby',    tier: 5, cost: 3500, legit: 118, label: 'a lobbyist on retainer',
+      blurb: 'It is cheaper than the fines and considerably cheaper than the legislation.' },
+  ],
+  footPerPresence: 0.5,   // being large is not something you can file your way out of
+  footPerAsset: 9,        // and industrial plant is the least deniable thing you can own
+  auditEvery: 13,         // turns between audits at a small footprint
+  auditFloor: 6,          // never more often than this
+  auditFootK: 0.09,       // every point of footprint brings the next one forward
+  finePerPoint: 4,        // cash, per point you are short
+  seizeAt: 22,            // short by this much and they take something off you
+  // the other route
+  spinCost: 14,           // insight, per push
+  spinLegit: 11,
+  spinExposure: 1.15,
+  spinDecay: 0.06,        // exposure fades slowly if you stop
+  caughtAt: 4.5,          // exposure this high when an audit lands and the front falls over
+  caughtLoss: 0.65,       // share of your bought legitimacy that goes with it
+  caughtHeat: 14,
+};
+
+window.LEGIT_INFO = {
+  score: 'What the world believes you are. Buy it honestly and it is slow and expensive; buy the appearance of it and it is fast, cheap, and can be taken away all at once.',
+  footprint: 'How impossible you are to miss. It rises with everything you hold and every piece of plant you run. Legitimacy has to stay ahead of it.',
+  assets: 'Industrial plant that survives a city being folded in. It is what your flocks are built out of, and there is only room for so much of it.',
+  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you.',
 };

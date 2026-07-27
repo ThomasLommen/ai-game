@@ -3429,3 +3429,275 @@ test('war deck: a blackout slows what they can raise', () => {
   const dark = runFor(40);
   assert.ok(dark < normal, `blackout should slow them: ${dark} against ${normal}`);
 });
+
+// --- standing, and plant -------------------------------------------------
+// Going legitimate is not safety, it is the price of operating in the open:
+// the ladder does not protect you, it lets you own more in daylight.
+
+function withCountry(d) {
+  d.state.scope = 'country';
+  const home = d.cityById(d.state.country.homeId);
+  home.consolidated = true; home.taken = true; home.granted = home.worth;
+  d.state.country.presence += home.worth;
+  return d;
+}
+
+test('standing: the ladder is a ladder', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.cash = 100000;
+  d.state.ap = 99;
+  const L = window.LEGIT;
+  assert.equal(d.legitTier(), 0, 'you start as nobody');
+  assert.equal(d.buyRung(L.ladder[2].id), false, 'you cannot skip to the middle of it');
+  assert.equal(d.buyRung(L.ladder[0].id), true);
+  assert.equal(d.legitTier(), 1);
+  assert.equal(d.buyRung(L.ladder[0].id), false, 'and you only buy each rung once');
+});
+
+test('standing: being large is not something you can file away', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const before = d.footprint();
+  d.state.country.presence += 100;
+  assert.ok(d.footprint() > before, 'growing makes you harder to miss');
+  const mid = d.footprint();
+  d.assets().push({ kind: 'yard', cityId: 'c0', city: 'x', buildingId: 'b0', since: 1 });
+  assert.ok(d.footprint() > mid, 'and owning plant most of all');
+});
+
+test('standing: the ladder buys room to own things, not safety', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.cash = 100000; d.state.ap = 99;
+  const base = d.assetSlots();
+  window.LEGIT.ladder.slice(0, 3).forEach(r => d.buyRung(r.id));
+  assert.equal(d.legitTier(), 3);
+  assert.equal(d.assetSlots(), base + 3, 'each rung is room for one more piece of plant');
+});
+
+test('standing: an audit fines you for what you cannot explain', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.country.presence = 200;          // large, and entirely unexplained
+  d.state.res.cash = 500;
+  const cash = d.state.res.cash;
+  const r = d.runAudit();
+  assert.equal(r.kind, 'fined');
+  assert.ok(d.state.res.cash < cash, 'it costs money');
+  assert.ok(d.LG().nextAudit > d.state.turn, 'and they book the next one');
+});
+
+test('standing: an audit you can answer costs nothing', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.country.presence = 10;
+  d.state.res.cash = 500;
+  window.LEGIT.ladder.forEach(r => { d.LG().owned[r.id] = true; });
+  const cash = d.state.res.cash;
+  assert.equal(d.runAudit().kind, 'clean');
+  assert.equal(d.state.res.cash, cash, 'nothing to pay');
+});
+
+test('standing: badly short and they take plant off you', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.country.presence = 400;
+  d.assets().push({ kind: 'yard', cityId: 'c0', city: 'Somewhere', buildingId: 'b0', since: 1 });
+  assert.ok(d.footprint() - d.legitScore() >= window.LEGIT.seizeAt, 'wildly unexplained');
+  assert.equal(d.runAudit().kind, 'seized');
+  assert.equal(d.assets().length, 0, 'they took it');
+});
+
+test('standing: the story can be moved, and it is not real', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.insight = 500; d.state.ap = 99;
+  assert.equal(d.actSpin(), true);
+  assert.ok(d.legitScore() > 0, 'the world believes something new');
+  assert.equal(d.legitBought(), 0, 'none of which you actually bought');
+  assert.ok(d.LG().exposure > 0, 'and it leaves a shape');
+});
+
+test('standing: an audit on top of a fabricated front takes the front', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.insight = 5000; d.state.ap = 999;
+  const L = window.LEGIT;
+  while (d.LG().exposure < L.caughtAt) d.actSpin();
+  const standing = d.legitScore();
+  const heat = d.state.heat;
+  const r = d.runAudit();
+  assert.equal(r.kind, 'caught');
+  assert.ok(d.legitScore() < standing, 'most of it goes');
+  assert.ok(d.state.heat > heat, 'and it is very loud');
+  assert.equal(d.LG().exposure, 0, 'there is nothing left to expose');
+});
+
+test('standing: exposure fades if you stop pushing', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.insight = 500; d.state.ap = 99;
+  d.actSpin();
+  const e = d.LG().exposure;
+  d.LG().nextAudit = d.state.turn + 500;      // no audit to interrupt
+  for (let i = 0; i < 5; i++) { d.state.turn += 1; d.legitStep(); }
+  assert.ok(d.LG().exposure < e, 'the shape of it softens');
+});
+
+test('plant: a landmark you hold can be kept when the city folds', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const lm = s.buildings.find(b => b.landmark);
+  assert.ok(lm, 'the generator places landmarks');
+  const kind = d.assetKindFor(lm);
+  assert.ok(kind, 'and every landmark is a piece of plant');
+  assert.equal(d.claimAsset(lm.id), false, 'not while it is somebody else’s');
+  d.hostsIn(lm).forEach(h => { h.owned = true; });
+  lm.discovered = true;
+  assert.equal(d.claimAsset(lm.id), true);
+  assert.equal(d.assets().length, 1);
+  assert.equal(d.claimAsset(lm.id), false, 'and only once');
+});
+
+test('plant: survives the city being folded in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const lm = s.buildings.find(b => b.landmark);
+  d.hostsIn(lm).forEach(h => { h.owned = true; });
+  d.claimAsset(lm.id);
+  const goal = d.cityGoal();
+  let n = d.heldHere();
+  for (const b of s.buildings) {
+    if (n >= goal) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  s.ap = 9;
+  assert.equal(d.actConsolidate(), true, 'the city folds in');
+  assert.equal(s.buildings.length, 0, 'and its streets are gone');
+  assert.equal(d.assets().length, 1, 'but the plant is not');
+});
+
+test('plant: there is only room for so much of it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const marks = s.buildings.filter(b => b.landmark);
+  marks.forEach(b => d.hostsIn(b).forEach(h => { h.owned = true; }));
+  const slots = d.assetSlots();
+  let kept = 0;
+  marks.forEach(b => { if (d.claimAsset(b.id)) kept++; });
+  assert.ok(kept <= slots, `kept ${kept} into ${slots} slots`);
+  if (marks.length > slots) assert.equal(d.assetRoom(), 0, 'and it fills up');
+});
+
+test('plant: it raises the ceiling on what you can field', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const before = d.flockCap();
+  d.assets().push({ kind: 'yard', cityId: 'c0', city: 'x', buildingId: 'b0', since: 1 });
+  assert.equal(d.flockCap(), before + window.ASSETS.yard.flocks, 'a yard is more room to field');
+});
+
+test('plant: it pays every turn wherever it is', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  d.assets().push({ kind: 'floor', cityId: 'c0', city: 'x', buildingId: 'b0', since: 1 });
+  const cash = s.res.cash;
+  d.endTurn({});
+  assert.ok(s.res.cash >= cash + window.ASSETS.floor.yield.cash, 'a clearing floor pays');
+});
+
+test('plant: refitting one in the open needs standing you do not start with', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const R = window.ASSET_RULES;
+  const plain = s.buildings.find(b => R.retoolKinds.indexOf(b.kind) !== -1 && !b.landmark);
+  assert.ok(plain, 'there is something worth refitting');
+  d.hostsIn(plain).forEach(h => { h.owned = true; });
+  s.res.cash = 100000; s.ap = 99;
+  assert.equal(d.canRetool(plain), false, 'nobody has heard of you');
+  window.LEGIT.ladder.filter(r => r.tier <= R.retoolTier).forEach(r => { d.LG().owned[r.id] = true; });
+  assert.equal(d.canRetool(plain), true, 'and now you are a company that buys buildings');
+  assert.equal(d.actRetool(plain.id), true);
+  assert.ok(d.assetKindFor(plain), 'it is plant now');
+  assert.equal(d.claimAsset(plain.id), true, 'and it can be kept like any other');
+});
+
+test('plant: you cannot refit something you do not hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const R = window.ASSET_RULES;
+  window.LEGIT.ladder.forEach(r => { d.LG().owned[r.id] = true; });
+  const plain = d.state.buildings.find(b => R.retoolKinds.indexOf(b.kind) !== -1 && !b.landmark
+    && !d.hostsIn(b).some(h => h.owned));
+  assert.ok(plain);
+  assert.equal(d.canRetool(plain), false, 'it is not yours to refit');
+});
+
+test('war: standing buys you notice before they move', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  window.LEGIT.ladder.forEach(r => { d.LG().owned[r.id] = true; });
+  d.openWar();
+  const w = d.war();
+  assert.equal(w.notice, d.legitTier(), 'a company has to be built a case against');
+  d.state.turn = w.openedTurn + window.WAR.warning;
+  assert.equal(d.spawnColumns().length, 0, 'nothing moves yet');
+  d.state.turn = w.openedTurn + window.WAR.warning + w.notice + 2;
+  assert.ok(d.spawnColumns().length > 0, 'and then it does');
+});
+
+test('war: a city they believe is a company takes more flattening', () => {
+  const { window } = loadNetwork();
+  const bare = loadNetwork().window.__netDebug;
+  conqueredCountry(bare, window);
+  bare.openWar();
+  const plain = bare.war().integrity[bare.myCities()[0].id];
+
+  const { window: w2 } = loadNetwork();
+  const legit = w2.__netDebug;
+  conqueredCountry(legit, w2);
+  w2.LEGIT.ladder.forEach(r => { legit.LG().owned[r.id] = true; });
+  legit.openWar();
+  const known = legit.war().integrity[legit.myCities()[0].id];
+  assert.ok(known > plain, `${known} against ${plain}`);
+});
+
+test('war: hitting a company costs them time', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  window.LEGIT.ladder.forEach(r => { d.LG().owned[r.id] = true; });
+  d.openWar();
+  const w = d.war();
+  const before = Object.assign({}, w.lastSpawn);
+  const turns = d.backlash();
+  assert.ok(turns > 0, 'there is a public cost');
+  d.stagingCities().forEach(c => {
+    assert.ok((w.lastSpawn[c.id] || 0) > (before[c.id] || -99), `${c.name} is held up explaining itself`);
+  });
+});
+
+test('standing: none of it is lost to a save', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.cash = 100000; d.state.ap = 99;
+  d.buyRung(window.LEGIT.ladder[0].id);
+  d.LG().spin = 20; d.LG().exposure = 2;
+  d.assets().push({ kind: 'grid', cityId: 'c0', city: 'Somewhere', buildingId: 'b0', since: 3 });
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.country.legit.spin, 20);
+  assert.equal(back.country.legit.exposure, 2);
+  assert.equal(back.country.assets.length, 1);
+  assert.equal(back.country.assets[0].kind, 'grid');
+});
