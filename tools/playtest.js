@@ -62,7 +62,11 @@ const STRATEGIES = {
   // chase corporate holdings and use money as the heat valve
   money(d) {
     const c = campaign(d, 'money'); if (c) return c;
-    if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.55) { d.actLaunder(); return 'launder'; }
+    // Measured: at a 0.55 trigger this profile laundered 255 times in a 350
+    // turn campaign and broke into 56 buildings. Money is the heat valve, not
+    // the game — reach for it when a strike is actually close.
+    if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.82
+        && !d.ruleBroken('launder')) { d.actLaunder(); return 'launder'; }
     if (buyCapability(d, null, 'money')) return 'cap';
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
     if (rich) return breach(d, rich, null, OFFERED);
@@ -73,6 +77,13 @@ const STRATEGIES = {
   // buy power, then kick down the biggest doors
   builder(d) {
     const c = campaign(d, 'builder'); if (c) return c;
+    // Power is this profile's whole identity, and it used to have no answer to
+    // churn at all: it took 162 buildings to greedy's 112 and finished 2.7
+    // cities to greedy's 6.3, because everything it broke into rotted while it
+    // went for the next big door. Hold what you kicked in.
+    const sick = d.owned().filter(h => d.shoreNeeded(h) && h.stability < 0.5)
+      .sort((a, b) => a.stability - b.stability)[0];
+    if (sick && d.state.res.insight >= 2 + (global.SWEEP_COST || 2)) { d.actShore(sick.id); return 'shore'; }
     if (buyCapability(d, null, 'builder')) return 'cap';
     if (buyTooling(d)) return 'tooling';
     const big = pickTarget(d, (a, b) => b.threads - a.threads);
