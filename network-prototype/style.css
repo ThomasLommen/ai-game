@@ -154,7 +154,7 @@ body {
      changes because of anything as ordinary as tapping a building. */
   flex: 0 1 auto;
   height: clamp(200px, 38vh, 420px);
-  min-height: 170px;
+  min-height: 158px;
   margin-top: 10px;
 }
 /* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
@@ -220,13 +220,23 @@ body {
 
 /* panel — selection, actions, and cards all live here */
 #panel {
-  padding-bottom: 8px;
+  padding-bottom: 2px;
   /* the slack lives here: the map is a fixed share and the chrome is fixed, so
      whatever is left over is the panel's, and it scrolls within itself rather
      than pushing the page around */
   flex: 1 1 0;
   /* it may be squeezed, but never to the point of being useless */
-  min-height: min(180px, 34vh);
+  /* raised once the map was allowed down to 158: on a 640-tall phone the panel
+     was pinned at its floor while the map sat 17px above its own, so the
+     overflow was a distribution problem rather than a content one */
+  /* Raised once the map was allowed down to 158: on a 640-tall phone the panel
+     was pinned at its floor while the map sat above its own, so the country
+     panel's overflow was a distribution problem rather than a content one.
+     Measured further: at 45vh the panel never scrolls, but the page starts to
+     (6-38px) and the map is squashed to its floor. On a screen that short you
+     cannot have a readable map, every verb, and no scrolling at all — and a
+     page that scrolls is the worst of the three. */
+  min-height: min(206px, 36vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -1247,13 +1257,17 @@ footer .build { opacity: .55; font-size: 10px; }
 .ab-sub .yield { padding: 1px 6px; font-size: 10.5px; font-weight: 600; }
 
 /* the line in the panel that says where standing and plant went */
+/* On a 360-wide screen this wraps: the three totals fill the line and the pair
+   of yields lands six pixels past the end of it, which costs 24px of a panel
+   that is already 8px over. Drawn tight enough to fit, and cheap when it does
+   still wrap on something narrower. */
 .ops-row {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  width: 100%; margin: 8px 0 2px;
+  display: flex; align-items: center; gap: 3px 5px; flex-wrap: wrap;
+  width: 100%; margin: 5px 0 2px;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 7px 9px; cursor: pointer;
+  border-radius: 10px; padding: 5px 8px; cursor: pointer;
 }
-.ops-chip { font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-dim); }
+.ops-chip { font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-dim); }
 .ops-chip.bad { color: var(--heat); }
 
 /* what is being done to you, as one line rather than a capped scroll */
@@ -1267,3 +1281,17 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 .tray-pill.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
 .tray-pill.dim { color: var(--muted); }
+
+/* Short screens. A 640-tall phone has to fit a map, a selection and four verbs
+   in the same column, so everything below the map is drawn a size down rather
+   than being pushed into a scroll. */
+@media (max-height: 720px) {
+  .act-btn { padding: 8px 10px; font-size: 12.5px; }
+  .ab-name { font-size: 12.5px; }
+  .ab-sub { font-size: 11px; }
+  .sel { padding: 9px 11px; }
+  .sel-desc { margin-bottom: 7px; font-size: 12px; }
+  .yield-row { margin-bottom: 6px; }
+  .actions { gap: 6px; margin-top: 6px; }
+  footer { font-size: 10px; padding-top: 2px; }
+}
