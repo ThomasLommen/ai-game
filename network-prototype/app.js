@@ -4168,6 +4168,26 @@
   // at all: the button looked live, the tap landed, and the game ignored it.
   // Say so, point at the answer, and make the action budget itself flash so
   // the cause is attached to the effect.
+  // The way out of a city belongs on the city, not in the panel. It is about
+  // the whole map rather than whatever you have tapped, and down in the panel
+  // it was competing for room with the decision you were actually making.
+  function renderConsolidate() {
+    const $b = document.getElementById('consolidate');
+    if (!$b) return;
+    const cur = state.scope === 'city' ? currentCity() : null;
+    if (!cur || cur.consolidated || state.over) { $b.hidden = true; return; }
+    const goal = cityGoal(cur);
+    const held = heldHere();
+    const ready = canConsolidate();
+    const short = countryApShort('consolidate');
+    $b.hidden = false;
+    $b.className = 'map-btn consolidate' + (ready && !short ? ' ready' : '') + (short ? ' no-ap' : '');
+    $b.innerHTML = ready
+      ? `<b>fold in ${cur.name}</b><span class="map-sub">${short ? 'no actions left' : '1 action'}</span>`
+      : `<b>${cur.name}</b><span class="map-sub">${held}/${goal} held</span>`;
+    $b.disabled = !ready && !short;
+  }
+
   let refuseToken = 0;
   function refuseForAP(el) {
     const $pips = document.getElementById('ap-pips');
@@ -4458,7 +4478,8 @@
             <p class="sel-desc">${where} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
             <button class="act-btn${apShort('shore') ? ' no-ap' : ''}" data-act="shore" data-ap="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) && !apShort('shore') ? 'disabled' : ''}>
               <span class="ab-name">shore up</span>
-              <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady' : 'restore stability · 2 insight'}</span>
+              <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady'
+                : `restore stability ${chip('cost insight', '&minus;2 insight')}`}</span>
             </button>
             ${assetPanel(b)}
           </div>`;
@@ -4482,21 +4503,6 @@
       sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it. Drag to look around, pinch to zoom.</p></div>`;
     }
 
-    // The way out of a city: hold enough of it and it stops being streets and
-    // becomes a number on the national map.
-    const cur = currentCity();
-    if (cur && !cur.consolidated) {
-      const goal = cityGoal(cur);
-      const held = heldHere();
-      sel += `
-        <button class="act-btn consolidate ${countryApShort('consolidate') ? 'no-ap' : canConsolidate() ? 'primary' : ''}" data-act="consolidate" data-ap="consolidate" ${canConsolidate() || countryApShort('consolidate') ? '' : 'disabled'}>
-          <span class="ab-name">consolidate ${cur.name}</span>
-          <span class="ab-sub">${countryApShort('consolidate')
-            ? 'no actions left'
-            : held >= goal ? 'fold it in and move on · 1 action' : `hold ${goal - held} more of its ${state.buildings.length} buildings`}</span>
-        </button>`;
-    }
-
     $p.innerHTML = `
       ${sel}
       <div class="actions">
@@ -4509,8 +4515,8 @@
             : sweepBlocked() === 'poor'
               ? `needs ${window.SWEEP_COST} insight or ${window.SWEEP_CASH} cash`
               : sweepPayer() === 'insight'
-                ? `reveal neighbours · ${window.SWEEP_COST} insight`
-                : `pay for a look · ${window.SWEEP_CASH} cash`}</span>
+                ? `reveal neighbours ${chip('cost insight', '&minus;' + window.SWEEP_COST + ' insight')}`
+                : `pay for a look ${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
         </button>
         <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
@@ -4518,11 +4524,12 @@
             ? 'no actions left'
             : ruleBroken('lielow')
             ? `${factionBreaking('lielow').name} is watching the quiet`
-            : `heat &minus;${Math.round(lieLowShed())} · earns nothing`}</span>
+            : `${chip('cover', 'heat &minus;' + Math.round(lieLowShed()))}${chip('cost none', '&minus;1 turn')}`}</span>
         </button>
         <button class="act-btn${apShort('tooling') ? ' no-ap' : ''}" data-act="upgrade" data-ap="tooling" data-info="upgrade" ${state.res.insight < upgradeCost() && !apShort('tooling') ? 'disabled' : ''}>
           <span class="ab-name">tooling</span>
-          <span class="ab-sub">${apShort('tooling') ? 'no actions left' : `power +${window.UPGRADE.basePower} · ${upgradeCost()} insight`}</span>
+          <span class="ab-sub">${apShort('tooling') ? 'no actions left'
+            : `${chip('power', 'power +' + window.UPGRADE.basePower)}${chip('cost insight', '&minus;' + upgradeCost() + ' insight')}`}</span>
         </button>
         <button class="act-btn ${ruleBroken('launder') ? 'broken' : ''}${apShort('launder') ? ' no-ap' : ''}" data-act="launder" data-ap="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost && !apShort('launder') ? 'disabled' : ''}>
           <span class="ab-name">launder</span>
@@ -4530,10 +4537,9 @@
             ? 'no actions left'
             : ruleBroken('launder')
             ? `${factionBreaking('launder').name} matches the payments`
-            : `heat &minus;${Math.round(launderShed())} · ${window.LAUNDER.cost} cash`}</span>
+            : `${chip('cover', 'heat &minus;' + Math.round(launderShed()))}${chip('cost cash', '&minus;' + window.LAUNDER.cost + ' cash')}`}</span>
         </button>
       </div>
-      <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
     `;
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });
@@ -4625,7 +4631,8 @@
           const able = canLaunch(sel.id) && !short && !none;
           acts.push(`<button class="act-btn ${able ? 'primary' : 'no-ap'}" data-cact="launch" data-city="${sel.id}">
             <span class="ab-name">send a flock</span>
-            <span class="ab-sub">${able ? `${held} holding it · ${window.WAR.flockCost} insight · 1 action`
+            <span class="ab-sub">${able
+              ? `<span class="dim">${held} holding it</span>${chip('cost insight', '&minus;' + window.WAR.flockCost + ' insight')}`
               : (why || 'no way through to it')}</span>
           </button>`);
         }
@@ -4634,7 +4641,8 @@
           const left = w.integrity[sel.id];
           acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="guard" data-city="${sel.id}">
             <span class="ab-name">stand over it</span>
-            <span class="ab-sub">${able ? `${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls · ${window.WAR.flockCost} insight · 1 action`
+            <span class="ab-sub">${able
+              ? `<span class="dim">${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls</span>${chip('cost insight', '&minus;' + window.WAR.flockCost + ' insight')}`
               : (why || 'nothing to hold')}</span>
           </button>`);
         }
@@ -4680,12 +4688,13 @@
           l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'A lot of this is fabricated.' : 'Some of this is fabricated.'}</b>` : ''}</p>
         ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
           <span class="ab-name">${rung.label}</span>
-          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash` : `${rung.cost} cash · +${rung.legit} standing · 1 action`}</span>
+          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
+            : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
         <button class="act-btn${state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">move the story</span>
           <span class="ab-sub">${state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${L.spinCost} insight · +${L.spinLegit} standing, none of it real · 1 action`}</span>
+            : `${chip('cover', '+' + L.spinLegit + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}<span class="dim">none of it real</span>`}</span>
         </button>
       </div>` : '';
 
@@ -4722,7 +4731,6 @@
         <span class="mono">${chip('insight', '+' + p.insight.toFixed(1) + ' insight')}${chip('cash', '+' + p.cash.toFixed(1) + ' cash')}<span class="dim"> / turn</span></span>
       </div>
       ${facRow}
-      <div class="log">${state.log.slice(0, 3).map(l => `<div class="log-row"><span class="mono">${l.turn}</span> ${l.text}</div>`).join('')}</div>
     `;
     $p.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
@@ -4798,7 +4806,9 @@
     const afford = state.res.cash >= retoolCost();
     return `<button class="act-btn${afford ? '' : ' no-ap'}" data-act="retool" data-bid="${b.id}">
         <span class="ab-name">refit it</span>
-        <span class="ab-sub">${afford ? `${retoolCost()} cash · no break-in · becomes plant you can keep` : `needs ${retoolCost()} cash`}</span>
+        <span class="ab-sub">${afford
+          ? `${chip('cost cash', '&minus;' + retoolCost() + ' cash')}<span class="dim">no break-in</span>`
+          : `needs ${retoolCost()} cash`}</span>
       </button>`;
   }
 
@@ -4900,6 +4910,7 @@
   function render() {
     renderGraph();
     renderHud();
+    renderConsolidate();
     renderTags();
     renderScopeBtn();
     renderPanel();
@@ -4923,7 +4934,7 @@
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
-    maxAP, apCost, canAfford, renderHud, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    maxAP, apCost, canAfford, renderHud, renderConsolidate, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
@@ -4948,6 +4959,14 @@
     $capsBtn.addEventListener('click', () => { renderCaps(); $capsModal.classList.add('show'); });
     if ($capsClose) $capsClose.addEventListener('click', () => $capsModal.classList.remove('show'));
     $capsModal.addEventListener('click', (e) => { if (e.target === $capsModal) $capsModal.classList.remove('show'); });
+  }
+
+  const $consolidate = document.getElementById('consolidate');
+  if ($consolidate) {
+    $consolidate.addEventListener('click', () => {
+      if (countryApShort('consolidate')) { refuseForAP($consolidate); return; }
+      actConsolidate();
+    });
   }
 
   const $recenter = document.getElementById('recenter');

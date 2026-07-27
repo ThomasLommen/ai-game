@@ -1112,3 +1112,36 @@ footer .build { opacity: .55; font-size: 10px; }
 .asset-row { align-items: baseline; }
 .asset-pay { display: inline-flex; gap: 4px; flex: 1; justify-content: flex-end; margin-right: 8px; }
 .asset-pay .yield { padding: 1px 6px; font-size: 10.5px; }
+
+/* The way out of a city, on the city. It is a decision about the whole map,
+   so it lives on the map rather than under it competing with whatever
+   building you have tapped. */
+.map-btn {
+  position: absolute; left: 10px; bottom: 10px;
+  z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 5px 10px; font-size: 11px; text-align: left; cursor: pointer;
+  max-width: 55%;
+}
+/* display:flex beats the browser's [hidden] rule, so it has to be said again
+   here — without this the button stayed on screen at country scope */
+.map-btn[hidden] { display: none; }
+.map-btn b { font-size: 12px; color: var(--ink); font-weight: 600; }
+.map-btn .map-sub { font-size: 10px; color: var(--muted); }
+.map-btn[disabled] { cursor: default; opacity: .78; }
+.map-btn.ready {
+  border-color: var(--insight);
+  background: color-mix(in srgb, var(--insight) 14%, var(--surface));
+}
+.map-btn.ready b { color: var(--insight); }
+.map-btn.no-ap { border-style: dashed; }
+
+/* costs, so a price never reads as a reward */
+.yield.cost { border-style: dashed; background: none; }
+.yield.cost.insight { color: var(--insight); }
+.yield.cost.cash { color: var(--cash); }
+.yield.cost.none { color: var(--muted); border-color: var(--line); }
+.ab-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ab-sub .yield { padding: 1px 6px; font-size: 10.5px; font-weight: 600; }

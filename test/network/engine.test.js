@@ -4058,3 +4058,70 @@ test('yields: plant says what it pays and what it lets you field', () => {
     else assert.ok(!html.includes('flocks'), `${kind} claims flocks it does not give`);
   });
 });
+
+// --- room to read the screen ---------------------------------------------
+
+test('screen: the way out of a city is offered on the city, and only there', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $b = window.document.getElementById('consolidate');
+  assert.ok($b, 'the map carries it');
+
+  d.state.scope = 'city';
+  d.renderConsolidate();
+  assert.equal($b.hidden, false, 'walking a city, it is there');
+  assert.ok(/held/.test($b.innerHTML), 'and it says how far off you are');
+
+  d.state.scope = 'country';
+  d.renderConsolidate();
+  assert.equal($b.hidden, true, 'looking at the country, there is nothing to fold');
+});
+
+test('screen: it only offers the fold once you can actually make it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const $b = window.document.getElementById('consolidate');
+  s.scope = 'city';
+  d.renderConsolidate();
+  assert.equal(d.canConsolidate(), false, 'you have barely started');
+  assert.equal($b.disabled, true, 'so it is not pressable');
+  assert.ok(!/ready/.test($b.className));
+
+  const goal = d.cityGoal();
+  let n = d.heldHere();
+  for (const b of s.buildings) {
+    if (n >= goal) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  s.ap = 4;
+  d.renderConsolidate();
+  assert.equal($b.disabled, false, 'now it is');
+  assert.ok(/ready/.test($b.className), 'and it says so');
+  assert.ok(/fold in/.test($b.innerHTML));
+});
+
+test('screen: a city already folded in is not offered again', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $b = window.document.getElementById('consolidate');
+  d.state.scope = 'city';
+  const cur = d.currentCity();
+  cur.consolidated = true;
+  d.renderConsolidate();
+  assert.equal($b.hidden, true);
+});
+
+test('screen: the log is still kept even though it is not on the panel', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.scope = 'country';
+  d.endTurn({ silent: true });
+  assert.ok(Array.isArray(s.log), 'the record survives losing its three lines of screen');
+  const before = s.log.length;
+  d.state.country.presence = 400;
+  d.runAudit();
+  assert.ok(s.log.length > before, 'and things still write to it');
+});
