@@ -322,10 +322,12 @@ window.WAR = {
   // them
   spawnEvery: 4,        // turns between sorties out of one staging city
   spawnFloor: 2,        // however much they escalate, never faster than this
-  garrison: [60, 95],   // raising this to fight a player who arrived with plant
-                        // was measured and did nothing: with guards that refit
-                        // and no clock on the war, a bigger garrison only makes
-                        // it longer. Left where it was tuned.   // what holds a staging city against you
+  garrison: [95, 150],  // Raising this used to do nothing but lengthen the war,
+                        // because their columns scattered and could not use the
+                        // extra time. Now that they converge on one objective,
+                        // every turn you spend grinding a barracks is a turn
+                        // they spend taking a city off you — so the size of a
+                        // garrison is finally a real clock.   // what holds a staging city against you
   garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
@@ -333,6 +335,26 @@ window.WAR = {
   airHop: 260,          // map units a flying thing covers in a turn — must beat
                         // roadReach, or the helicopters are slower than the vans
   planesAfter: 12,      // turns of war before the air force is committed
+  // Losses have to be real, or the pool caps how many flocks are in the air at
+  // once and nothing else. Measured: a war ran 32 to 56 flocks destroyed
+  // against 0 to 7 columns killed, and 27 to 151 attacks thrown off a
+  // garrison, because a repulsed flock came home, dissolved back into the
+  // pool, and went straight out again for four insight against a bank of ten
+  // thousand. Destroyed flocks now stay destroyed; plant is what builds them
+  // back, which is the whole reason to have spent a campaign acquiring some.
+  // A war that drags is a war you are losing. Not an arbitrary timer: a state
+  // fighting for itself conscripts and retools, so the longer you take, the
+  // more it can put on the road. This is what makes grinding dangerous —
+  // raising garrisons and making losses permanent both only ever made the war
+  // *longer*, because nothing punished length.
+  escalateEvery: 16,    // turns of war per extra column a turn
+  escalateCap: 4,       // and it does not escalate forever
+  // You lose by losing the country, not by losing every last city: holding
+  // fifteen and being ground to zero never happened in any measured run, so
+  // the loss condition was effectively unreachable and every war was won.
+  collapseAt: 0.4,      // this share of what you held when it opened
+  rebuildBase: 0.05,     // what you can put together with no industry at all
+  rebuildPerPlant: 0.14, // and what each piece of plant adds per turn
   flyMs: 900,           // how long a thing takes to visibly cross to where it now is
   maxInflight: 6,       // hard cap on their columns at once — readability over realism
   sortiesPerTurn: 2,    // and however many cities they hold, only this many leave in a turn

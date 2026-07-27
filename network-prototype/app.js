@@ -2775,6 +2775,8 @@
     state.war.notice = legitTier();
     state.war.legitAtOpen = legitTier();
     state.war.mobilised = rolled.map(c => c.id);
+    state.war.down = 0;
+    state.war.heldAtOpen = myCities().length;
     // heat is over, and the number should visibly stop rather than quietly
     // stop being read — the player earned the right to watch it go out
     state.heat = 0;
@@ -2871,7 +2873,24 @@
     return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
   }
   function flocks() { return (war() && war().flocks) || []; }
-  function flocksFree() { return Math.max(0, flockCap() - flocks().length); }
+  // Flocks destroyed and not yet rebuilt. This is what makes a loss a loss:
+  // the slot stays empty until something manufactures a replacement.
+  function flocksDown() { return Math.max(0, (war() && war().down) || 0); }
+  function rebuildRate() {
+    const W = window.WAR;
+    return W.rebuildBase + assetFlocks() * W.rebuildPerPlant;
+  }
+  function flocksFree() {
+    return Math.max(0, Math.floor(flockCap() - flocks().length - flocksDown()));
+  }
+  // Plant turning out replacements, a fraction at a time.
+  function rebuildStep() {
+    const w = war();
+    if (!w || !w.down) return 0;
+    const made = Math.min(w.down, rebuildRate());
+    w.down = Math.max(0, w.down - made);
+    return made;
+  }
 
   function fieldFlock(fromId, toId, mode) {
     if (!warOn()) return null;
@@ -2916,16 +2935,56 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // They come for what you actually hold, nearest first — a column that walked
-  // the length of the country to reach the least important thing you own read
-  // as the map being broken rather than as a decision.
-  function columnTarget(from) {
+  // An objective, and everything converges on it.
+  //
+  // This is the difference between a war and a nuisance. Each staging city
+  // used to pick its own nearest target, which scattered their whole effort
+  // across everything you owned: measured over a real campaign they landed
+  // about ten sorties spread over fifteen cities, each of which absorbs five
+  // assaults, so nothing ever fell and the war was won by default. Armies do
+  // not work like that. They choose something, they all go for it, and you can
+  // see them coming — which is the point, because now you have to decide
+  // whether to defend it or spend the time taking a barracks off them instead.
+  function warObjective() {
+    const w = war();
+    if (!w) return null;
     const mine = myCities();
-    if (!mine.length) return null;
-    const scored = mine.map(c => ({
-      c, d: Math.hypot(c.x - from.x, c.y - from.y) - c.worth * 2,
-    })).sort((a, b) => a.d - b.d);
-    return scored[0].c;
+    if (!mine.length) { w.objective = null; return null; }
+    const held = w.objective ? cityById(w.objective) : null;
+    if (held && held.consolidated) return held;
+    // the softest thing on their side of the map: what is already damaged,
+    // what is nearest to them, and what is worth taking
+    const staging = stagingCities();
+    const centre = staging.length
+      ? { x: staging.reduce((a, c) => a + c.x, 0) / staging.length,
+          y: staging.reduce((a, c) => a + c.y, 0) / staging.length }
+      : { x: 0, y: 0 };
+    const pick = mine.map(c => {
+      const left = w.integrity[c.id] === undefined ? window.WAR.integrity : w.integrity[c.id];
+      const guarded = w.flocks.some(f => f.mode === 'guard' && f.target === c.id);
+      return { c, score: left * 60 + Math.hypot(c.x - centre.x, c.y - centre.y) - c.worth * 4 + (guarded ? 220 : 0) };
+    }).sort((a, b) => a.score - b.score)[0];
+    if (!pick) return null;
+    const changed = w.objective !== pick.c.id;
+    w.objective = pick.c.id;
+    if (changed) {
+      pushLog(`They have picked ${pick.c.name}.`);
+      showBanner([{ kind: 'faction', verb: 'their objective', label: pick.c.name }]);
+    }
+    return pick.c;
+  }
+
+  function columnTarget() { return warObjective(); }
+
+  // How much heavier they have got since it opened. Deliberately weight and
+  // not count: the number of things on the map is a readability budget that
+  // was spent carefully, and a war that drags should get harder to survive,
+  // not harder to look at.
+  function escalation() {
+    const w = war();
+    if (!w) return 0;
+    const W = window.WAR;
+    return Math.min(W.escalateCap, Math.floor((state.turn - w.openedTurn) / W.escalateEvery));
   }
 
   function spawnColumns() {
@@ -2943,19 +3002,22 @@
     const inflightCap = W.maxInflight - (has('mercy') ? 1 : 0);
     // Two caps, and both matter. Without a per-turn one, thirteen staging
     // cities all came due on the same turn and the map went from readable to
-    // hopeless in one step.
+    // hopeless in one step. These stay fixed however long the war runs: the
+    // escalation goes into how heavy each column is instead, so a war that
+    // drags gets harder without the map getting less legible.
+    const perTurn = W.sortiesPerTurn;
     shuffleArr(stagingCities()).forEach(c => {
-      if (out.length >= W.sortiesPerTurn) return;
+      if (out.length >= perTurn) return;
       if (w.columns.length >= inflightCap) return;
       if (state.turn - (w.lastSpawn[c.id] || -99) < every) return;
-      const target = columnTarget(c);
+      const target = columnTarget();
       if (!target) return;
       const kind = forceKindFor(c);
       const F = window.FORCES[kind];
       const route = routeFor(kind, c.id, target.id);
       if (!route) return;
       w.lastSpawn[c.id] = state.turn;
-      const n = rndInt(F.sortie[0], F.sortie[1]);
+      const n = rndInt(F.sortie[0], F.sortie[1]) + escalation();
       const col = {
         id: 'x' + (w.nextId++), side: 'them', kind, route, at: 0,
         from: c.id, target: target.id,
@@ -3023,6 +3085,7 @@
     w.flocks = w.flocks.filter(f => {
       if (f.strength > 0) return true;
       w.losses += 1;
+      w.down = (w.down || 0) + 1;
       return false;
     });
     w.columns = w.columns.filter(c => {
@@ -3070,15 +3133,22 @@
         backlash();
         return false;
       }
-      // aircraft cannot hold ground — they can only keep it on the floor
+      // Aircraft cannot hold ground — but they can take the industry out of
+      // it, which is the only thing they are actually for. This is also what
+      // gives a losing war somewhere to go: plant is the ceiling on what you
+      // can field *and* the rate you replace what you lose, so every piece of
+      // it they burn makes the next turn worse.
       if (F.holds === false) {
         w.integrity[city.id] = 1;
-        news.push({ kind: 'flattened', city, force: F });
+        const burned = burnPlant(city.id);
+        news.push({ kind: 'flattened', city, force: F, burned });
         return false;
       }
       city.consolidated = false;
       city.taken = false;
       city.granted = false;
+      const burned = burnPlant(city.id);
+      if (burned) news.push({ kind: 'burned', city, burned });
       delete w.integrity[city.id];
       w.garrisons[city.id] = rndInt(window.WAR.garrison[0], window.WAR.garrison[1]);
       news.push({ kind: 'lost', city, force: F });
@@ -3120,7 +3190,7 @@
       } else {
         news.push({ kind: 'repulsed', city, left: w.garrisons[city.id] });
       }
-      if (fl.strength <= 0) { w.losses += 1; return false; }
+      if (fl.strength <= 0) { w.losses += 1; w.down = (w.down || 0) + 1; return false; }
       fl.at = 0;                                        // what is left comes home
       const back = routeForFlock(city.id, fl.from);
       if (back) { fl.route = back; fl.target = fl.from; fl.from = city.id; fl.mode = 'return'; }
@@ -3142,6 +3212,22 @@
       w.lastSpawn[c.id] = Math.max(w.lastSpawn[c.id] || state.turn, state.turn) + turns;
     });
     return turns;
+  }
+
+  // What they take out of a city when they reach it. Plant is the one thing
+  // you carried out of the whole campaign, and it is the one thing a war can
+  // take back off you for good.
+  function burnPlant(cityId) {
+    const co = CO();
+    const before = (co.assets || []).length;
+    if (!before) return 0;
+    const keep = co.assets.filter(a => a.cityId !== cityId);
+    const lost = before - keep.length;
+    if (!lost) return 0;
+    co.assets = keep;
+    pushLog(`${lost === 1 ? 'A plant is' : lost + ' plants are'} gone with it. You cannot build what you cannot build in.`);
+    showBanner([{ kind: 'faction', verb: 'burned', label: lost === 1 ? 'a plant' : lost + ' plants' }]);
+    return lost;
   }
 
   // A staging city you failed to take does not stay softened forever.
@@ -3237,6 +3323,11 @@
     // with no city to launch from there is no legal move — the war sat at
     // stalemate for ninety turns rather than admitting it was over.
     if (!myCities().length) return 'lost';
+    // ...and you do not have to be ground to literally nothing. An operation
+    // that has lost most of the country it started the war holding has lost
+    // the war, whatever is left of it.
+    const open = w.heldAtOpen || 0;
+    if (open >= 3 && myCities().length <= Math.floor(open * window.WAR.collapseAt)) return 'lost';
     return null;
   }
 
@@ -3253,6 +3344,8 @@
     const news = resolveArrivals();
     regarrison();
     refitGuards();
+    rebuildStep();        // plant turning out replacements for what was lost
+    warObjective();       // if it fell, or you took it back, they choose again
 
     spawned.forEach(col => {
       const c = cityById(col.target);
@@ -3270,6 +3363,7 @@
         pushLog(`${window.FORCES[n.force.id].label} hit ${n.city.name}.`);
       } else if (n.kind === 'flattened') {
         pushLog(`${n.city.name} is still yours. There is not much of it left.`);
+      } else if (n.kind === 'burned') {
       } else if (n.kind === 'repulsed') {
         pushLog(`Thrown off ${n.city.name}. ${Math.ceil(n.left)} still holding it.`);
       }
@@ -4741,8 +4835,8 @@
     auditDue, runAudit, legitStep, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
     assetYield, assetFlocks, backlash,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
-    flockCap, flocks, flocksFree, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
-    canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
+    flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
+    warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },

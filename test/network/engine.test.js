@@ -3329,9 +3329,13 @@ test('war deck: a card can put flocks where they are needed', () => {
   conqueredCountry(d, window);
   d.openWar();
   const before = d.flocks().length;
+  // it can only put one over each city you hold, and how many that is depends
+  // on how much they walked back into when they mobilised
+  const room = Math.min(2, d.myCities().length, d.flocksFree());
+  assert.ok(room > 0, 'there is somewhere to put one');
   d.applyWarEffects({ warFlocks: 2 });
   const after = d.flocks();
-  assert.equal(after.length, before + 2, 'two flocks, free');
+  assert.equal(after.length, before + room, 'free flocks, one per city');
   after.forEach(f => assert.equal(f.mode, 'guard', 'and standing over something of yours'));
 });
 
@@ -3700,4 +3704,148 @@ test('standing: none of it is lost to a save', () => {
   assert.equal(back.country.legit.exposure, 2);
   assert.equal(back.country.assets.length, 1);
   assert.equal(back.country.assets[0].kind, 'grid');
+});
+
+// --- a war you can actually lose -----------------------------------------
+// Every earlier attempt to make the last act harder — bigger garrisons, a
+// clock, permanent losses — only ever made it longer, because nothing they
+// did cost you anything you could not immediately replace.
+
+test('war: they converge on one objective instead of scattering', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const obj = d.warObjective();
+  assert.ok(obj, 'they pick something');
+  assert.equal(d.war().objective, obj.id);
+  d.state.turn += 40;
+  const made = d.spawnColumns();
+  assert.ok(made.length > 0, 'and they send something at it');
+  made.forEach(c => assert.equal(c.target, obj.id, 'everything goes to the same place'));
+});
+
+test('war: they pick something new once the old one is gone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const first = d.warObjective();
+  assert.ok(d.myCities().length > 1, 'there is more than one thing to want');
+  first.consolidated = false;                 // they took it
+  const next = d.warObjective();
+  assert.ok(next && next.id !== first.id, 'they move on');
+});
+
+test('war: a destroyed flock stays destroyed until something builds it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const free = d.flocksFree();
+  assert.ok(free > 0);
+  d.war().down = 2;
+  assert.equal(d.flocksFree(), Math.max(0, free - 2), 'the hole is real');
+});
+
+test('war: plant is what builds them back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const bare = d.rebuildRate();
+  d.assets().push({ kind: 'yard', cityId: 'c0', city: 'x', buildingId: 'b0', since: 1 });
+  assert.ok(d.rebuildRate() > bare, 'industry replaces losses faster than no industry');
+  d.war().down = 5;
+  const before = d.war().down;
+  d.rebuildStep();
+  assert.ok(d.war().down < before, 'and it actually turns them out');
+});
+
+test('war: with no industry at all, losses barely come back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  d.assets().length = 0;
+  d.war().down = 3;
+  for (let i = 0; i < 5; i++) d.rebuildStep();
+  assert.ok(d.war().down > 2.5, 'five turns and you have not finished one');
+});
+
+test('war: taking a city off you takes the plant in it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const mine = d.myCities()[0];
+  d.assets().push({ kind: 'yard', cityId: mine.id, city: mine.name, buildingId: 'b0', since: 1 });
+  d.assets().push({ kind: 'grid', cityId: 'elsewhere', city: 'Elsewhere', buildingId: 'b1', since: 1 });
+  const cap = d.flockCap();
+  assert.equal(d.burnPlant(mine.id), 1, 'what was in that city is gone');
+  assert.equal(d.assets().length, 1, 'and what was not, is not');
+  assert.ok(d.flockCap() < cap, 'which is a smaller army from now on');
+});
+
+test('war: aircraft cannot hold a city but can burn what is in it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities()[0];
+  const from = d.stagingCities()[0];
+  d.assets().push({ kind: 'works', cityId: mine.id, city: mine.name, buildingId: 'b0', since: 1 });
+  w.integrity[mine.id] = 1;
+  const route = d.routeFor('plane', from.id, mine.id);
+  w.columns.push({ id: 'p', kind: 'plane', side: 'them', route, at: route.length - 1,
+    from: from.id, target: mine.id, strength: 30, raised: 30 });
+  d.resolveArrivals();
+  assert.equal(mine.consolidated, true, 'they still cannot occupy from the air');
+  assert.equal(d.assets().length, 0, 'but the plant is gone, which is what they came for');
+});
+
+test('war: the longer it runs the heavier they come', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  assert.equal(d.escalation(), 0, 'nothing extra on day one');
+  d.state.turn = w.openedTurn + window.WAR.escalateEvery * 2;
+  assert.equal(d.escalation(), 2);
+  d.state.turn = w.openedTurn + window.WAR.escalateEvery * 50;
+  assert.equal(d.escalation(), window.WAR.escalateCap, 'but it does not escalate forever');
+});
+
+test('war: escalation adds weight, not things to look at', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  conqueredCountry(d, window);
+  d.openWar();
+  const W = window.WAR;
+  s.turn = d.war().openedTurn + W.escalateEvery * W.escalateCap;
+  for (let i = 0; i < 40; i++) {
+    s.turn += 1;
+    const made = d.spawnColumns();
+    assert.ok(made.length <= W.sortiesPerTurn, 'a turn still only sends so much');
+    assert.ok(d.war().columns.length <= W.maxInflight, 'the map stays as legible as it was');
+  }
+});
+
+test('war: losing most of the country loses the war', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  conqueredCountry(d, window);
+  d.openWar();
+  const w = d.war();
+  const mine = d.myCities();
+  if (mine.length < 3) { w.heldAtOpen = 3; }
+  const open = w.heldAtOpen;
+  assert.ok(open >= 3, 'you opened the war holding a country');
+  assert.equal(d.warEnded(), null, 'and you still hold it');
+  const keep = Math.floor(open * window.WAR.collapseAt);
+  d.myCities().slice(keep).forEach(c => { c.consolidated = false; c.taken = false; });
+  assert.equal(d.warEnded(), 'lost', 'you do not have to be ground to literally nothing');
 });
