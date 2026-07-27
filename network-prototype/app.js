@@ -456,6 +456,48 @@
   // Cities as nodes, roads as edges, laid out in region bands with the home
   // city at the top. Every region gets a seat — take the seat and the faction
   // that runs the region out of it is finished.
+  // Which defended cities carry a prize, and what. The first two are left as
+  // pure presence — the opening reads better when a city is just a city, and
+  // presence is still worth having that early. From the third on, every one
+  // carries something that does not decay, because presence has stopped being
+  // a reason by then.
+  function assignPrizes(cities) {
+    const P = window.CITY_PRIZES;
+    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
+    let last = null;
+    defended.forEach((c, i) => {
+      const pool = Object.keys(P).filter(k => P[k].at <= i && k !== last);
+      if (!pool.length) return;
+      last = pool[Math.floor(Math.random() * pool.length)];
+      c.prize = last;
+    });
+  }
+  function cityPrize(c) {
+    return (c && c.prize && window.CITY_PRIZES[c.prize]) ? window.CITY_PRIZES[c.prize] : null;
+  }
+  // Handed over when the city folds in, and only then — this is the reason to
+  // walk one yourself rather than hand it to somebody else.
+  function awardPrize(c) {
+    const P = cityPrize(c);
+    if (!P || c.prizeTaken) return null;
+    c.prizeTaken = true;
+    const e = P.effect || {};
+    // the room first, so a plant prize can always be housed — it arrives with
+    // the address it has been running out of
+    applyStandingEffects({ standing: e.standing, plantSlots: e.plantSlots, auditDelay: e.auditDelay });
+    if (e.poolGift) CO().poolGift = (CO().poolGift || 0) + e.poolGift;
+    // and plant lands in the city that came with it, rather than wherever
+    // applyStandingEffects would have put it
+    if (e.plantGift && assetRoom() > 0) {
+      assets().push({ kind: e.plantGift, cityId: c.id, city: c.name,
+        buildingId: 'prize' + c.id, since: state.turn });
+      pushLog(`${window.ASSETS[e.plantGift].label} at ${c.name}, running since before you arrived.`);
+    }
+    pushLog(`${c.name} came with ${P.label}. ${P.blurb}`);
+    showBanner([{ kind: 'stage', verb: 'and with it', label: P.label }]);
+    return P;
+  }
+
   function makeCountry() {
     const K = window.COUNTRY;
     const cities = [];
@@ -500,6 +542,8 @@
         });
       });
     });
+
+    assignPrizes(cities);
 
     // Roads. Proximity first, for the look of the thing — but the country has
     // to have a *spine* of defended cities, because reach only propagates
@@ -2282,6 +2326,7 @@
     c.snapshot = null;
     CO().presence += gained;
     pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
+    awardPrize(c);
     // you are not holding its streets any more — you hold the city
     unpackCity(EMPTY_CITY());
     // whatever you were holding street by street becomes one standing number
@@ -3142,7 +3187,8 @@
     // plant counts once, through `extra`, which raises the ceiling as well as
     // the number — added to both terms it paid out twice
     const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
-    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0) + assetFlocks();
+    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0)
+      + (CO().poolGift || 0) + assetFlocks();
     // the floor holds even when a card has cost you room: a war you cannot
     // field anything into is not a war
     return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
@@ -4102,6 +4148,12 @@
       out += `<rect class="dot" x="${c.x - p}" y="${c.y - p}" width="${p * 2}" height="${p * 2}" transform="rotate(45 ${c.x} ${c.y})"/>`;
     } else {
       out += `<circle class="dot" cx="${c.x}" cy="${c.y}" r="${r}"/>`;
+    }
+    // A city carrying something worth having is marked on the map itself, not
+    // only in the panel: which city to walk next is a decision you make while
+    // looking at the country, and it should be answerable at a glance.
+    if (c.known && cityPrize(c) && !c.prizeTaken && !theirs && !warOn()) {
+      out += `<circle class="prize" cx="${c.x + r * 0.86}" cy="${c.y - r * 0.86}" r="3.6"/>`;
     }
     if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${r + 6}"/>`;
     if (CO().selected === c.id) {
@@ -5110,10 +5162,19 @@
         });
       }
 
+      // What is in it, said before you decide whether to walk it. Presence is
+      // a decaying reason by the third city; this is the one that isn't, and
+      // it has to be readable from the map rather than discovered afterwards.
+      const P = cityPrize(sel);
+      const prizeLine = (P && !sel.prizeTaken && !warOn())
+        ? `<p class="yield-row prize-row">${chip('cover', P.label)}<span class="dim">on folding it in</span></p>`
+        : '';
+
       block = `
         <div class="sel country">
           <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'cash' : ''}">${K.label}</span></div>
           <p class="sel-desc">${lines.join(' · ')}</p>
+          ${prizeLine}
           ${acts.length ? `<div class="actions tight">${acts.join('')}</div>` : ''}
         </div>`;
     } else {
@@ -5433,7 +5494,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, renderCapsBtn, renderTags, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
+    makeCountry, assignPrizes, cityPrize, awardPrize, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,

@@ -2221,6 +2221,90 @@ test('tree: every branch can actually be finished from a standing start', () => 
   });
 });
 
+// --- what a city is worth ------------------------------------------------
+// Presence is a decaying reward on flat work: measured on a generated country
+// the first defended city pays 36 power and the ninth pays 2, because power is
+// logarithmic in presence. A prize is the part that does not decay.
+
+test('prizes: the opening is presence, the back half is something you need', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const defended = d.state.country.cities
+    .filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
+  assert.ok(defended.length >= 4, 'a country has a back half to speak of');
+  assert.ok(!defended[0].prize && !defended[1].prize,
+    'the first two are just cities');
+  const later = defended.slice(2);
+  assert.ok(later.every(c => c.prize), 'and everything after carries something');
+  later.forEach(c => assert.ok(window.CITY_PRIZES[c.prize], `${c.prize} is not a prize`));
+});
+
+test('prizes: nothing is offered before the point it would mean anything', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const defended = d.state.country.cities
+    .filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
+  defended.forEach((c, i) => {
+    if (!c.prize) return;
+    assert.ok(window.CITY_PRIZES[c.prize].at <= i,
+      `${c.prize} turned up at city ${i}, before its ${window.CITY_PRIZES[c.prize].at}`);
+  });
+});
+
+test('prizes: every one of them survives presence going out of fashion', () => {
+  const { window } = loadNetwork();
+  const P = window.CITY_PRIZES;
+  Object.keys(P).forEach(k => {
+    const e = P[k].effect || {};
+    const keys = Object.keys(e).filter(x => e[x]);
+    assert.ok(keys.length, `${k} promises nothing`);
+    // presence, power and cover all decay. A prize must land somewhere capped
+    // or scarce instead, or it is the same decaying reward with a new name.
+    const lasting = ['plantGift', 'plantSlots', 'standing', 'poolGift', 'auditDelay'];
+    keys.forEach(x => assert.ok(lasting.indexOf(x) !== -1,
+      `${k} pays in ${x}, which is the thing that decays`));
+  });
+});
+
+test('prizes: folding the city in is what hands it over, and only once', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const c = s.country.cities.find(x => x.prize === 'slot')
+    || s.country.cities.find(x => x.prize);
+  assert.ok(c, 'the board has one to take');
+  const kind = c.prize;
+  const before = { slots: d.assetSlots(), plant: d.assets().length,
+    standing: d.legitScore(), pool: d.state.country.poolGift || 0 };
+
+  assert.ok(d.awardPrize(c), 'it hands over');
+  const e = window.CITY_PRIZES[kind].effect;
+  if (e.plantSlots) assert.ok(d.assetSlots() > before.slots, 'the room arrives');
+  if (e.plantGift) assert.ok(d.assets().length > before.plant, 'the plant arrives');
+  if (e.standing) assert.ok(d.legitScore() > before.standing, 'the standing arrives');
+  if (e.poolGift) assert.ok((s.country.poolGift || 0) > before.pool, 'the pool grows');
+
+  const after = { slots: d.assetSlots(), plant: d.assets().length };
+  assert.equal(d.awardPrize(c), null, 'and it cannot be taken twice');
+  assert.equal(d.assetSlots(), after.slots, 'nothing arrives a second time');
+  assert.equal(d.assets().length, after.plant);
+});
+
+test('prizes: a pool gift taken in peacetime is still there when they mobilise', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // the war's own poolBonus lives on the war object, which does not exist yet
+  // when a city hands you one — measured through the country instead
+  d.state.country.poolGift = 2;
+  conqueredCountry(d, window);
+  const withGift = d.flockCap();
+  d.state.country.poolGift = 0;
+  assert.ok(withGift > d.flockCap(), 'the gift outlived the peace it was won in');
+  d.state.country.poolGift = 2;
+  d.openWar();
+  assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
+});
+
 // --- the other process ---------------------------------------------------
 // Ported from the card prototype's handler arc, which was its best writing and
 // had nowhere to live here. It is a system, not a stat: it is worth something

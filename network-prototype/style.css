@@ -1011,6 +1011,16 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode.seat.folded .dot { stroke: var(--insight); }
 .cnode.seat:not(.folded) .dot { stroke: var(--power); }
 .cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
+.cnode .prize {
+  fill: var(--cover);
+  stroke: #0d120f;
+  stroke-width: 1.2;
+  /* it is a promise, not an alert: it should read at a glance across the
+     whole country without competing with the selection ring */
+  opacity: 0.92;
+}
+.cnode.folded .prize { display: none; }
+
 .pick-ring {
   fill: none;
   stroke: var(--ink);
@@ -1198,6 +1208,10 @@ footer .build { opacity: .55; font-size: 10px; }
    run-on line of dim grey, a yield was invisible — which made it look as
    though buildings paid nothing at all. */
 .yield-row { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+/* the prize sits between what a city is and what you can do about it, so it
+   reads as part of the decision rather than as another status line */
+.prize-row { align-items: center; margin: -2px 0 8px; }
+.prize-row .dim { font-size: 11px; }
 .yield {
   display: inline-flex;
   align-items: baseline;

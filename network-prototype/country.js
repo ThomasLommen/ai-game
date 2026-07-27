@@ -457,6 +457,54 @@ window.ASSET_RULES = {
   retoolKinds: ['warehouse', 'datacenter', 'office'],
 };
 
+// --- what a city is actually worth --------------------------------------
+// Presence is a decaying reward on flat work. Measured across a generated
+// country: the first defended city pays 36 power and 4 cover, the ninth pays
+// 2 and 1, because power is logarithmic in presence and cover is a square
+// root. Income stays linear, and by then it is unspendable — a greedy profile
+// finishes with 61 idle turns. So the ninth city costs the same forty turns as
+// the first and pays in a currency you stopped needing four cities ago. That
+// is the tedium, and no amount of automating it would have fixed it: it would
+// only have made a bad deal faster.
+//
+// A prize is a thing that does not decay. Every one of these is capped or
+// scarce somewhere else in the game, so it is worth the same at city nine as
+// it would have been at city two. They reuse the hooks the event deck already
+// established — slotGift, granted, poolBonus — because a prize and a card are
+// the same kind of promise.
+//
+//   at    the earliest city index this can be drawn for, so the opening is
+//         still about presence and the back half is about what you need
+window.CITY_PRIZES = {
+  plant: {
+    label: 'a works already running',
+    blurb: 'Somebody built it, ran it for nine years, and stopped answering the phone. The line still turns over.',
+    // with the room to run it: a prize you are shown and then cannot take
+    // because the ladder is one rung short is a promise the game broke
+    at: 2, effect: { plantGift: 'works', plantSlots: 1 },
+  },
+  slot: {
+    label: 'room for one more',
+    blurb: 'A registered address with a history, which is the part you cannot manufacture. What you put in it is your business.',
+    at: 2, effect: { plantSlots: 1 },
+  },
+  standing: {
+    label: 'a name people know',
+    blurb: 'Forty years of being the firm that fixed things here. It transfers with the paperwork.',
+    at: 3, effect: { standing: 16 },
+  },
+  pool: {
+    label: 'the yards along the water',
+    blurb: 'Frontage, cranes, and a workforce who have built stranger things than this.',
+    at: 4, effect: { plantSlots: 1, poolGift: 1 },
+  },
+  audit: {
+    label: 'a very tired inspector',
+    blurb: 'He has three years to run and no interest whatsoever in running them hard.',
+    at: 3, effect: { auditDelay: 14 },
+  },
+};
+
 // --- legitimacy ---------------------------------------------------------
 // Ported in spirit from the game this one replaced, because the idea was the
 // best thing in it: going legitimate is not safety, it is the price of
