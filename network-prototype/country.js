@@ -471,17 +471,37 @@ window.ASSET_RULES = {
 // establishes that the whole front is fabricated, and takes it away.
 window.LEGIT = {
   ladder: [
-    { id: 'register', tier: 1, cost: 50,   legit: 14, label: 'register a company',
+    { id: 'register', tier: 1, cost: 50,   legit: 6, label: 'register a company',
       blurb: 'A name, an address that exists, and a filing that nobody will read for two years.' },
-    { id: 'accounts', tier: 2, cost: 200,  legit: 30, label: 'file real accounts',
+    { id: 'accounts', tier: 2, cost: 200,  legit: 14, label: 'file real accounts',
       blurb: 'Audited, filed on time, and broadly true. The lie is one of omission and it is a very large omission.' },
-    { id: 'payroll',  tier: 3, cost: 600,  legit: 52, label: 'put people on payroll',
+    { id: 'payroll',  tier: 3, cost: 600,  legit: 23, label: 'put people on payroll',
       blurb: 'Four hundred employees who believe they work for a logistics optimisation firm. They are not wrong.' },
-    { id: 'pr',       tier: 4, cost: 1500, legit: 80, label: 'engage a PR firm',
+    { id: 'pr',       tier: 4, cost: 1500, legit: 36, label: 'engage a PR firm',
       blurb: 'They are extremely good and they have no idea what you are. Both of those facts are load-bearing.' },
-    { id: 'lobby',    tier: 5, cost: 3500, legit: 118, label: 'a lobbyist on retainer',
+    { id: 'lobby',    tier: 5, cost: 3500, legit: 53, label: 'a lobbyist on retainer',
       blurb: 'It is cheaper than the fines and considerably cheaper than the legislation.' },
   ],
+  // A rung used to pay out twice at once: the right to own plant in the open,
+  // and the reputation, both the instant you filed. So nobody ever chose
+  // legitimacy — they bought slots and got twice the standing they needed as a
+  // side effect, finishing on 164 against a footprint of 81, and the covert
+  // route was dead content across 150 games. The two payoffs are now separated
+  // in time. The slot arrives when you file. The reputation takes this many
+  // turns, because nobody believes a company because it exists, they believe
+  // it because it has existed for a while. The gap is the whole game: your
+  // footprint jumps the moment you claim the plant, and your standing walks
+  // after it.
+  matureTurns: 22,
+  // And the payout was sized as though it were the point. The whole ladder
+  // used to be worth 294 standing against a footprint that averages 79, so it
+  // did not matter how the payoffs were arranged — there was always twice as
+  // much of it as anyone needed. Swept against how much of a campaign you
+  // spend unable to explain yourself: at the old size 14% of turns, at 132 it
+  // is 27%, and the war resolves identically either way, so this is a standing
+  // decision rather than a campaign one. Below about 100 the fines stop being
+  // a choice and become a tax.
+  // ladder now: 6 / 14 / 23 / 36 / 53
   noticeAt: 26,           // footprint at which anyone starts asking. Below this the
                           // whole standing system stays off the screen — arriving
                           // with the country map it was six new nouns at once.

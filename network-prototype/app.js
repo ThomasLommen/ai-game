@@ -1302,6 +1302,8 @@
       standing: {
         score: Math.round(legitScore()),
         bought: Math.round(legitBought()),
+        filed: Math.round(legitFiled()),
+        settling: Math.round(legitPending()),
         spin: Math.round(LG().spin || 0),
         tier: legitTier(),
         footprint: Math.round(footprint()),
@@ -2619,16 +2621,38 @@
   }
   function assets() { const co = CO(); if (!co.assets) co.assets = []; return co.assets; }
 
-  function legitBought() {
+  // How far along a filing is towards being believed. `owned` stores the turn
+  // you filed it; `true` is an older save from before the ladder recorded
+  // when, and those are taken as long since settled.
+  function rungBelief(r) {
+    const since = LG().owned[r.id];
+    if (!since) return 0;
+    if (since === true) return 1;
+    return Math.max(0, Math.min(1, (state.turn - since) / window.LEGIT.matureTurns));
+  }
+  // What you have on paper. The filing is real the moment you make it — this
+  // is what the slots and the spin ceiling hang off, because a story needs a
+  // company to be about, not a well-regarded one.
+  function legitFiled() {
     return window.LEGIT.ladder.reduce((a, r) => a + (LG().owned[r.id] ? r.legit : 0), 0);
   }
+  // What anyone actually believes yet, which is the number that has to stay
+  // ahead of your footprint.
+  function legitBought() {
+    return window.LEGIT.ladder.reduce((a, r) => a + r.legit * rungBelief(r), 0);
+  }
+  // filed but not yet believed — the gap you either ride out or fabricate over
+  function legitPending() { return Math.max(0, legitFiled() - legitBought()); }
   // How much fabricated standing the world will actually carry. A story needs
   // something to hang off: with nothing filed anywhere you can push it a
   // little, and every rung you buy honestly raises how much you can invent on
   // top of it.
   function spinCeil() {
     const L = window.LEGIT;
-    return L.spinBase + legitBought() * L.spinPerBought;
+    // filed, not believed: the paperwork is what a story hangs off, and this
+    // is precisely what makes spin the bridge across the maturing gap rather
+    // than something that lags behind it too
+    return L.spinBase + legitFiled() * L.spinPerBought;
   }
   function spinRoom() { return Math.max(0, spinCeil() - (LG().spin || 0)); }
   // clamped on the way out as well as on the way in, so a card that lands
@@ -2662,8 +2686,10 @@
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.cash -= r.cost;
     state.ap -= countryCost('move');
-    LG().owned[r.id] = true;
+    // the turn, not a flag: the slot is yours now, the reputation accrues
+    LG().owned[r.id] = Math.max(1, state.turn);
     pushLog(`${r.label}. ${r.blurb}`);
+    pushLog(`A slot opens immediately. The ${r.legit} standing takes about ${window.LEGIT.matureTurns} turns — nobody believes a company because it exists.`);
     showBanner([{ kind: 'stage', verb: 'on the record', label: r.label }]);
     persistNow();
     render();
@@ -4697,12 +4723,13 @@
         <p class="sel-desc dim">${short > 0
           ? `Short by ${Math.round(short)}. The next audit will cost you.`
           : 'Everything you are reconciles with everything you own.'}${
+          legitPending() >= 1 ? ` <b>${Math.round(legitPending())} more filed and still settling.</b>` : ''}${
           l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'Mostly fabricated.' : 'Partly fabricated.'}</b>` : ''}</p>
         <div class="actions tight">
         ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
           <span class="ab-name">${rung.label}</span>
           <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
-            : `${chip('cover', '+' + rung.legit + ' standing')}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
+            : `${chip('insight', '+1 plant slot now')}${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
         ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
@@ -5297,7 +5324,7 @@
     makeCountry, cityById, currentCity, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     factionState, factionAwake, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
-    LG, assets, legitBought, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
+    LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
     assetYield, assetFlocks, backlash, yieldChips, assetChips,

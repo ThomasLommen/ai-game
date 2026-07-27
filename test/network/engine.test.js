@@ -3523,6 +3523,96 @@ test('standing: the ladder is a ladder', () => {
   assert.equal(d.buyRung(L.ladder[0].id), false, 'and you only buy each rung once');
 });
 
+// The two things a rung pays out used to arrive together, so nobody ever
+// chose legitimacy: they bought plant slots and got twice the standing they
+// needed as a side effect. Measured across 150 games at 164 standing against a
+// footprint of 81, and the covert route was never once worth using.
+test('standing: filing buys the right now and the reputation later', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.cash = 100000; s.ap = 99; s.turn = 30;
+
+  const slots = d.assetSlots();
+  assert.equal(d.buyRung('register'), true);
+  const rung = window.LEGIT.ladder[0];
+
+  // the right, immediately
+  assert.ok(d.assetSlots() > slots, 'the slot opens the moment you file');
+  assert.equal(d.legitTier(), 1, 'and you are on that rung straight away');
+  assert.equal(Math.round(d.legitFiled()), rung.legit, 'the filing is real');
+
+  // the reputation, not yet
+  assert.equal(Math.round(d.legitBought()), 0, 'but nobody believes it yet');
+  assert.equal(Math.round(d.legitPending()), rung.legit, 'it is all still settling');
+
+  // and it arrives on a schedule you can plan around
+  s.turn += Math.ceil(window.LEGIT.matureTurns / 2);
+  const half = d.legitBought();
+  assert.ok(half > 0 && half < rung.legit, `halfway should be partway: ${half} of ${rung.legit}`);
+  s.turn += window.LEGIT.matureTurns;
+  assert.equal(Math.round(d.legitBought()), rung.legit, 'and settles in full');
+  assert.equal(Math.round(d.legitPending()), 0, 'with nothing left outstanding');
+});
+
+test('standing: the gap between filing and being believed is the whole decision', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.cash = 100000; s.res.insight = 100000; s.ap = 999; s.turn = 30;
+  // a real operation rather than one city — two rungs cover a single town's
+  // worth of plant on their own, and then there is no gap to be about
+  s.country.presence += 30;
+  ['register', 'accounts'].forEach(id => { s.ap = 999; d.buyRung(id); });
+  s.turn += window.LEGIT.matureTurns + 1;          // let it settle
+  assert.ok(d.footprint() <= d.legitScore(), 'settled, you reconcile');
+
+  // fill the slots the filing bought you, and your footprint jumps now
+  const co = s.country;
+  while (d.assetRoom() > 0) {
+    d.assets().push({ kind: 'yard', cityId: co.cities[0].id, city: co.cities[0].name,
+      buildingId: 'p' + d.assets().length, since: s.turn });
+  }
+  assert.ok(d.footprint() > d.legitScore(), 'and now you are short');
+
+  // filing the next rung does not fix it today — that is the point
+  const shortBefore = d.footprint() - d.legitScore();
+  s.ap = 999;
+  assert.equal(d.buyRung('payroll'), true);
+  assert.ok(Math.abs((d.footprint() - d.legitScore()) - shortBefore) < 0.001,
+    'the new rung has not been believed yet, so it covers nothing today');
+  assert.ok(d.legitPending() > 0, 'it is all outstanding');
+
+  // but the story can be told about a company that exists on paper, so the
+  // covert route is the bridge across the gap rather than a lagging copy of it
+  assert.ok(d.spinRoom() > 0, 'and there is room to fabricate over it');
+  s.ap = 999;
+  assert.equal(d.actSpin(), true);
+  assert.ok(d.footprint() - d.legitScore() < shortBefore, 'which closes the gap now');
+});
+
+test('standing: the spin ceiling follows what is filed, not what is believed', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.cash = 100000; s.ap = 999; s.turn = 30;
+  const bare = d.spinCeil();
+  s.ap = 999;
+  d.buyRung('register');
+  assert.equal(Math.round(d.legitBought()), 0, 'nothing is believed yet');
+  assert.ok(d.spinCeil() > bare, 'and yet the ceiling has already risen');
+});
+
+test('standing: a save from before the ladder recorded when is taken as settled', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.LG().owned.register = true;                    // the old shape
+  assert.equal(Math.round(d.legitBought()), window.LEGIT.ladder[0].legit,
+    'an old filing is long since believed');
+  assert.equal(Math.round(d.legitPending()), 0);
+  assert.equal(d.legitTier(), 1);
+});
+
 test('standing: being large is not something you can file away', () => {
   const { window } = loadNetwork();
   const d = withCountry(window.__netDebug);
@@ -3592,10 +3682,10 @@ test('standing: an audit on top of a fabricated front takes the front', () => {
   const d = withCountry(window.__netDebug);
   d.state.res.insight = 5000; d.state.res.cash = 500000; d.state.ap = 999;
   const L = window.LEGIT;
-  // enough real standing behind it that the ceiling allows a front big enough
-  // to be worth exposing — with nothing filed you cannot get there at all,
-  // which is the point of the ceiling
-  ['register', 'accounts'].forEach(id => { d.state.ap = 999; d.buyRung(id); });
+  // Enough filed that the ceiling allows a front big enough to be worth
+  // exposing. A small operation cannot over-reach far enough to be caught at
+  // all, which is the point of the ceiling and not a gap in this test.
+  ['register', 'accounts', 'payroll', 'pr'].forEach(id => { d.state.ap = 999; d.buyRung(id); });
   // bounded: the ceiling can refuse, and a while loop on a refusable action
   // hangs the suite rather than failing it
   for (let i = 0; i < 40 && d.LG().exposure < L.caughtAt; i++) {
@@ -3651,6 +3741,18 @@ test('standing: you cannot invent more of yourself than you can stand behind', (
   assert.ok(d.spinRoom() > 0, 'and there is room again');
   s.ap = 999;
   assert.equal(d.actSpin(), true, 'so the story can move again');
+});
+
+test('standing: a small operation cannot over-reach far enough to be caught', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  s.res.insight = 500000; s.ap = 999;
+  for (let i = 0; i < 40; i++) { s.ap = 999; if (!d.actSpin()) break; }
+  assert.equal(d.spinRoom(), 0, 'everything it can invent, it has invented');
+  assert.ok(d.LG().exposure < window.LEGIT.caughtAt,
+    `it talked itself into a catch with nothing filed: ${d.LG().exposure}`);
+  assert.equal(d.runAudit().kind !== 'caught', true, 'so an audit cannot expose a front this small');
 });
 
 test('standing: a card cannot push the story past the ceiling either', () => {

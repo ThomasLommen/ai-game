@@ -381,6 +381,12 @@ function playOne(strategyName) {
   const regionAt = {};      // region id -> first turn you operated there
   let consolidatedAt = [];  // turn each city was folded in
   let peakPresence = 0;
+  // How long you actually spend unable to explain yourself. The end-of-game
+  // totals cannot see this: by then every filing has matured and the honest
+  // route always reads as comfortable, which is exactly how a dead covert
+  // route hid for 150 games.
+  let shortTurns = 0, countedTurns = 0, peakShort = 0;
+  let lastCounted = -1;
   const countryMoves = {};
 
   for (let guard = 0; guard < MAX_TURNS * 8 && d.state.turn < MAX_TURNS; guard++) {
@@ -408,6 +414,12 @@ function playOne(strategyName) {
     });
     if (regionAt[d.state.region] === undefined) regionAt[d.state.region] = d.state.turn;
     peakPresence = Math.max(peakPresence, d.state.country.presence);
+    if (d.countryUnlocked() && d.state.turn !== lastCounted) {
+      lastCounted = d.state.turn;
+      countedTurns++;
+      const short = d.footprint() - d.legitScore();
+      if (short > 0) { shortTurns++; peakShort = Math.max(peakShort, short); }
+    }
     const doneNow = d.state.country.cities.filter(c => c.consolidated).length;
     while (consolidatedAt.length < doneNow) consolidatedAt.push(d.state.turn);
 
@@ -452,6 +464,8 @@ function playOne(strategyName) {
     warKills: warSt ? warSt.kills : 0,
     presence: d.state.country.presence,
     peakPresence,
+    shortShare: countedTurns ? shortTurns / countedTurns : 0,
+    peakShort: Math.round(peakShort),
     citiesTotal: d.state.country.cities.length,
     citiesTaken: d.state.country.cities.filter(c => c.taken).length,
     citiesDone: d.state.country.cities.filter(c => c.consolidated).length,
@@ -634,6 +648,8 @@ function run() {
     .map(t => `${t}: ${pct(rungs[t], all.length)}`).join(' · '));
   console.log(`     footprint ${fmt(mean(all.map(r => r.footprint)), 0)} against a standing of ` +
     `${fmt(mean(all.map(r => r.legitScore)), 0)} · spin ${fmt(mean(all.map(r => r.spin)), 1)}`);
+  console.log(`     short ${pct(mean(all.map(r => r.shortShare)), 1)} of the turns you are on the map` +
+    ` · worst gap ${fmt(mean(all.map(r => r.peakShort)), 0)}`);
   console.log(`     ${fmt(mean(all.map(r => r.assets)), 1)} of ${fmt(mean(all.map(r => r.assetSlots)), 1)} plant slots filled` +
     ` · ${fmt(mean(all.map(r => r.audits)), 1)} audits · caught in ` +
     `${pct(all.filter(r => r.caught > 0).length, all.length)} of games`);
