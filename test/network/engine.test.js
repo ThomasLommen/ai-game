@@ -2571,6 +2571,85 @@ test('settled: a city the response takes keeps its picture, and it is marked', (
   assert.equal(d.cityLost(c), true, 'and it is marked as gone');
 });
 
+// --- the horizon ----------------------------------------------------------
+// Consolidating used to be the only place you ever saw what you had built --
+// the moment you left, it went back to being a number, and the next city
+// opened exactly the way the first one had. The country has real positions
+// now, so a settled city can be drawn from inside a different one.
+
+test('horizon: a settled city is visible from a different one, off in its real direction', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const first = settle(d, window);
+
+  // walk to a second, different city and look back
+  const co = s.country;
+  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+    && window.CITY_KINDS[c.kind].contest);
+  d.actReach(next.id);
+  d.enterCity(next.id);
+  s.scope = 'city';
+
+  const list = d.horizonCities();
+  assert.ok(list.some(h => h.city.id === first.id), 'the first city is on the horizon');
+  const seen = list.find(h => h.city.id === first.id);
+
+  // the bearing is the real one, computed from the country map, not a fixed
+  // direction -- so it has to agree with the sign of the actual displacement
+  const dx = first.x - next.x, dy = first.y - next.y;
+  assert.ok(Math.sign(seen.ux) === Math.sign(dx) || Math.abs(dx) < 1,
+    `x direction disagrees: real dx ${dx}, horizon ux ${seen.ux}`);
+  assert.ok(Math.sign(seen.uy) === Math.sign(dy) || Math.abs(dy) < 1,
+    `y direction disagrees: real dy ${dy}, horizon uy ${seen.uy}`);
+  assert.ok(Math.abs(Math.hypot(seen.ux, seen.uy) - 1) < 1e-6, 'a unit direction, not a real distance');
+
+  // and it costs nothing: walking into a fresh city always starts you on one
+  // seat, same as ever -- nothing extra came with you from the horizon
+  assert.equal(d.owned().length, 1, 'nothing but the one seat every city starts you on');
+});
+
+test('horizon: an unsettled or unknown city never appears, and the current city never sees itself', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const first = settle(d, window);
+  const co = s.country;
+  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+    && window.CITY_KINDS[c.kind].contest);
+  d.actReach(next.id);
+  d.enterCity(next.id);
+  s.scope = 'city';
+
+  const list = d.horizonCities();
+  assert.equal(list.some(h => h.city.id === next.id), false, 'a city never sees itself on its own horizon');
+  co.cities.forEach(c => {
+    if (c.id === first.id || c.id === next.id) return;
+    // horizonCities requires known AND settled -- either missing is enough
+    if (c.known && d.cityWeb(c)) return;
+    assert.equal(list.some(h => h.city.id === c.id), false,
+      `${c.name} is not known and settled both, and should not be on the horizon`);
+  });
+});
+
+test('horizon: a lost city still shows, marked the way the country map marks it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const first = settle(d, window);
+  first.lost = true;
+  const co = s.country;
+  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+    && window.CITY_KINDS[c.kind].contest);
+  d.actReach(next.id);
+  d.enterCity(next.id);
+  s.scope = 'city';
+
+  const svg = d.svgHorizon();
+  assert.ok(svg.includes('horizon-city gone'), 'the lost city is drawn with the gone marker');
+  assert.ok(svg.includes(first.name), 'and it is still named');
+});
+
 // --- the hunt ------------------------------------------------------------
 // Heat priced the loudest thing you can do at about two cash a door against an
 // income of fifty a turn, and the punishment for ignoring it took a third of

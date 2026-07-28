@@ -2992,6 +2992,54 @@
   }
   function cityWeb(c) { return (c && c.web && c.web.length) ? c.web : null; }
 
+  // --- the horizon ---------------------------------------------------------
+  // Consolidating used to be the only place you ever saw what you had built —
+  // the moment you left, it went back to being a number on the country map,
+  // and the next city opened exactly like the first had. The country now has
+  // real positions and real bearings between them, so a settled city can be
+  // drawn from inside a different one: dim, at the edge of the map, off in
+  // the direction it actually lies. It never arrives with you — no holdings,
+  // no income, nothing tappable. It fixes "I never see what I'm building
+  // toward, growing", not "city two is repetitive" — those are different problems.
+  function horizonCities() {
+    const here = currentCity();
+    if (!here) return [];
+    return (CO().cities || [])
+      .filter(c => c.id !== here.id && c.known && cityWeb(c))
+      .map(c => {
+        const dx = c.x - here.x, dy = c.y - here.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        return { city: c, ux: dx / dist, uy: dy / dist, dist };
+      })
+      .sort((a, b) => a.dist - b.dist);
+  }
+  function svgHorizon() {
+    const list = horizonCities();
+    if (!list.length) return '';
+    const B = cityBounds();
+    const cx = B.w / 2, cy = B.h / 2;
+    // direction is the whole point, not distance — every horizon city sits at
+    // the same fixed remove, just past anywhere the city itself reaches
+    const R = Math.max(B.w, B.h) / 2 + 240;
+    // sized against a building (roughly 40-90 units), not against the whole
+    // country: a constellation the size it is on the national map is smaller
+    // than a single window here and simply does not render
+    const span = 140;
+    let out = '<g class="horizon">';
+    list.slice(0, 6).forEach(({ city: c, ux, uy }) => {
+      const hx = cx + ux * R, hy = cy + uy * R;
+      out += `<g class="horizon-city${cityLost(c) ? ' gone' : ''}">`;
+      cityWeb(c).forEach(n => {
+        const nx = (hx - span / 2 + n.x * span).toFixed(1);
+        const ny = (hy - span / 2 + n.y * span).toFixed(1);
+        out += `<circle class="hz-dot r-${n.r}${n.l ? ' lm' : ''}" cx="${nx}" cy="${ny}" r="${n.l ? 6 : 4.2}"/>`;
+      });
+      out += `<text class="hz-tag" x="${hx.toFixed(1)}" y="${(hy + span / 2 + 11).toFixed(1)}">${c.name}</text>`;
+      out += '</g>';
+    });
+    return out + '</g>';
+  }
+
   function actConsolidate() {
     if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
     const c = currentCity();
@@ -5379,7 +5427,7 @@
     const seenIds = {};
     seen.forEach(b => { seenIds[b.id] = true; });
 
-    let out = svgStreets() + svgBands();
+    let out = svgStreets() + svgBands() + svgHorizon();
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
@@ -6789,6 +6837,7 @@
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
+    horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,

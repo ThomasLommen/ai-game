@@ -1167,6 +1167,25 @@ footer .build { opacity: .55; font-size: 10px; }
 /* what the response took: still there, still yours in shape, and gone */
 .cnode .web.gone .wn { fill: var(--heat); opacity: .3; }
 
+/* Other settled cities, seen from inside this one — dim, at the edge of the
+   map, in the direction they actually lie. It is a feeling, not a mechanic:
+   nothing here is tappable, nothing arrives with you, and the distance is
+   fixed rather than real (only the bearing is), so a city on the far side of
+   the country and one just over the border look the same close-by glow. */
+.horizon { pointer-events: none; }
+.horizon-city { opacity: .4; }
+.horizon-city.gone { opacity: .22; }
+.hz-dot { stroke: none; opacity: .85; }
+.hz-dot.r-c { fill: var(--insight); }
+.hz-dot.r-a { fill: var(--cash); }
+.hz-dot.r-s { fill: var(--cover); }
+.hz-dot.lm { stroke: #0d120f; stroke-width: .5; }
+.horizon-city.gone .hz-dot { fill: var(--heat); }
+.hz-tag {
+  fill: var(--muted); opacity: .8; font-size: 20px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace; letter-spacing: .02em;
+}
+
 .cnode .prize {
   fill: var(--cover);
   stroke: #0d120f;
