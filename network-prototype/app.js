@@ -1237,6 +1237,12 @@
     return h;
   }
 
+  // Long Soak: how many turns a holding needs before it stops being losable
+  // at all — to churn, or to a hunter strike's own burn pool.
+  const LONG_SOAK_MATURE_TURNS = 5;
+  function longSoakProtects(h) {
+    return hasCap('long_soak') && (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS;
+  }
   function endTurn(opts) {
     const o = opts || {};
     const before = beforeSnap();
@@ -1255,18 +1261,17 @@
     strandedHosts().forEach(h => { cutOff[h.id] = true; });
     const lost = [];
     const soaked = [];
-    const longSoak = hasCap('long_soak');
     owned().forEach(h => {
       if (h.origin) return; // only the seat you started from is safe
       const rate = window.HOST_TYPES[h.type].churn * churnMult()
         * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
       h.stability -= rate;
       if (h.stability <= 0) {
-        // Long Soak: the first time this specific holding would be lost, it
-        // survives instead — once. A second neglect kills it the normal way.
-        if (longSoak && !h.soakSaved) {
-          h.soakSaved = true;
-          h.stability = 0.2;
+        // Long Soak: a holding you have kept long enough cannot be lost to
+        // neglect at all any more — a standing fact about it, not a coin
+        // flip that might fire once and go unnoticed.
+        if (longSoakProtects(h)) {
+          h.stability = 0.1;
           soaked.push(h);
         } else {
           h.owned = false; h.stability = 1; lost.push(h);
@@ -1816,7 +1821,7 @@
     // Mechanics with no generic effect key at all — read directly, by id,
     // at the specific point in the engine where they live — still need to
     // say something here, or a card reads as though buying it did nothing.
-    if (c.id === 'long_soak') add('cover', 'the first near-loss survives instead, once each');
+    if (c.id === 'long_soak') add('cover', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding cannot be lost at all`);
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
@@ -2709,7 +2714,9 @@
 
   function resolveStrike(effect) {
     const before = beforeSnap();
-    const fleet = owned().filter(h => !h.origin);
+    // Long Soak: a matured holding is not in the pool the hunter can even
+    // pick from, the same way it cannot be lost to neglect either.
+    const fleet = owned().filter(h => !h.origin && !longSoakProtects(h));
     let burned = [];
     if (effect === 'shed_loud') {
       burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);

@@ -182,18 +182,16 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 5,
   },
   {
-    // has('long_soak') is read directly where churn reclaims a holding: the
-    // first time each one would hit zero stability, it survives at a floor
-    // instead, once. Depth used to refund the action this branch spends at
-    // both ends — the one node that grants AP anywhere is now Tempo's, so
-    // this is a real drawback with a real answer instead of a number that
-    // quietly paid for itself. "Settle in properly" is now a fact about what
-    // happens the one time it nearly falls, not a smaller decay rate.
+    // has('long_soak') is read directly wherever a holding could be lost —
+    // churn's own reclaim, and a hunter strike's burn pool. A holding kept
+    // LONG_SOAK_MATURE_TURNS or more cannot be lost either way, full stop —
+    // a standing fact about what you have settled into, not a coin flip
+    // that fires once, invisibly, and might never even be noticed.
     id: 'long_soak', branch: 'depth', tier: 2,
     name: 'Long Soak',
-    desc: 'Settle in properly rather than holding on. The first time any one holding would be lost to neglect, it survives instead — once each.',
+    desc: 'Settle in properly rather than holding on. A holding you have kept long enough cannot be lost any more at all — to neglect, or to a strike.',
     apDelta: 0,
-    mechanic: true,  // read via hasCap() where churn reclaims a holding, not a generic effect key
+    mechanic: true,  // read via hasCap() in longSoakProtects(), not a generic effect key
     cost: 30,
     requires: ['deep_root'],
     cond: (s) => s.reach >= 8,
