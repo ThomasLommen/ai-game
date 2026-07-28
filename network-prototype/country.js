@@ -91,8 +91,15 @@ window.COUNTRY = {
   // defended city is a regional seat, every one of them is somebody's home
   // ground, and taking it finishes a faction.
   perRegion: [2, 3],
-  // national map geometry — cities are laid out in region bands
+  // National map geometry. Regions are still stacked north to south by tier —
+  // which region a city is in is a rule, not decoration — but the territories
+  // have irregular borders and the cities are scattered into them rather than
+  // spaced evenly along a line.
   bandH: 150, mapW: 620, pad: 60,
+  // A settled city is drawn as its constellation, about fifty pixels across,
+  // so how far apart two cities land is a real constraint. Below about 80 the
+  // pictures of two finished cities grow into each other.
+  minCityGap: 84,
   // a road links cities within reach of each other; regions chain in order
   roadReach: 230,
   // how fast an idle region forgets about you

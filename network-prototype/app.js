@@ -7,7 +7,9 @@
   // ladder sits exactly where it used to, which is the thing that got fixed.
   // A continued game could reach turn 44 with nothing awake at all. The board
   // shape is not migratable, so old saves are retired.
-  const SAVE_VERSION = 3;
+  const SAVE_VERSION = 4;   // the country is land now, and old boards are grids
+  // breathing room around a map, in map units — the coastline wanders into it
+  const CITY_PAD = 40;
 
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
@@ -530,11 +532,132 @@
     return P;
   }
 
+  // --- the country as land -------------------------------------------------
+  // It was five horizontal bars with the cities spaced evenly along each one
+  // and a little jitter on top. At a glance that reads as a table, and no
+  // amount of drawing on the nodes fixes an arrangement that says "rows".
+  //
+  // Everything geometric here comes out of one integer kept on the run, so the
+  // coastline and the terrain cost nothing in the save and come back identical
+  // on every render and every reload. Region order is still north-to-south by
+  // tier, because which region a city is in is a rule, not decoration — the
+  // territories are irregular, but they are still stacked and still labelled.
+  function landRand(seed) {
+    let s = (seed >>> 0) || 0x9e3779b9;
+    return function () {
+      s ^= s << 13; s >>>= 0;
+      s ^= s >>> 17; s >>>= 0;
+      s ^= s << 5; s >>>= 0;
+      return s / 4294967296;
+    };
+  }
+  // a wobble that never reads as a sine: noise, then smoothed twice so it
+  // meanders instead of spiking
+  function wobble(R, n, amp) {
+    let a = [];
+    for (let i = 0; i <= n; i++) a.push((R() * 2 - 1) * amp);
+    for (let pass = 0; pass < 2; pass++) {
+      const b = a.slice();
+      for (let i = 1; i < n; i++) b[i] = (a[i - 1] + a[i] * 2 + a[i + 1]) / 4;
+      a = b;
+    }
+    return a;
+  }
+
+  const bandY0 = (i) => window.COUNTRY.pad + (i - 0.5) * window.COUNTRY.bandH;
+  const LAND_COLS = 12;
+  let landCache = null;
+  function buildLand(seed) {
+    const K = window.COUNTRY;
+    const N = window.REGIONS.length;
+    const R = landRand(seed);
+    const W = K.mapW;
+    const bandY = (i) => K.pad + (i - 0.5) * K.bandH;
+
+    // how far the land reaches east and west at the height of each border
+    const lefts = [], rights = [];
+    for (let i = 0; i <= N; i++) {
+      lefts.push(-CITY_PAD + 12 + R() * 70);
+      rights.push(W + CITY_PAD - 12 - R() * 70);
+    }
+    // the borders between regions; the first and last are the coast
+    const borders = [];
+    for (let i = 0; i <= N; i++) {
+      const edge = (i === 0 || i === N);
+      const w = wobble(R, LAND_COLS, K.bandH * (edge ? 0.32 : 0.3));
+      const pts = [];
+      for (let c = 0; c <= LAND_COLS; c++) {
+        const t = c / LAND_COLS;
+        pts.push({
+          x: lefts[i] + (rights[i] - lefts[i]) * t,
+          y: bandY(i) + w[c],
+        });
+      }
+      borders.push(pts);
+    }
+    // The east and west coasts between one border and the next. Shared by the
+    // outline and by the territory either side of it, so the coast is the same
+    // line whichever thing is drawing it — otherwise a bay in the coastline
+    // shows the territory sticking out into the sea behind it.
+    const segs = { left: [], right: [] };
+    for (let i = 0; i < N; i++) {
+      ['left', 'right'].forEach(side => {
+        const key = side === 'left' ? lefts : rights;
+        const a = { x: key[i], y: bandY(i) }, b = { x: key[i + 1], y: bandY(i + 1) };
+        const steps = 3;
+        const push = [];
+        for (let k = 1; k < steps; k++) {
+          const t = k / steps;
+          // a headland or a bay, biggest in the middle of the run
+          const bulge = Math.sin(t * Math.PI) * (R() * 2 - 1) * 46;
+          push.push({ x: a.x + (b.x - a.x) * t + bulge, y: a.y + (b.y - a.y) * t });
+        }
+        segs[side].push(push);
+      });
+    }
+    // a river runs along the northern border of any region the cities of which
+    // are built around water — it is the same fact, said at country scale
+    const rivers = [];
+    window.REGIONS.forEach((Rg, i) => {
+      const T = window.TERRAIN[Rg.id];
+      if (i > 0 && T && (T.bands || []).some(b => b.kind === 'water')) rivers.push(i);
+    });
+    return { seed, borders, segs, rivers, N, W };
+  }
+  function land() {
+    const seed = (CO() && CO().seed) || 1;
+    if (!landCache || landCache.seed !== seed) landCache = buildLand(seed);
+    return landCache;
+  }
+  // where a border sits at a given x, by walking its polyline. The land is
+  // passed in rather than looked up: these run during country generation, long
+  // before there is a country to look it up on.
+  function borderYAt(L, i, x) {
+    const pts = L.borders[i];
+    if (!pts) return 0;
+    if (x <= pts[0].x) return pts[0].y;
+    for (let c = 1; c < pts.length; c++) {
+      if (x <= pts[c].x) {
+        const t = (x - pts[c - 1].x) / ((pts[c].x - pts[c - 1].x) || 1);
+        return pts[c - 1].y + (pts[c].y - pts[c - 1].y) * t;
+      }
+    }
+    return pts[pts.length - 1].y;
+  }
+  // and how wide the land is at the height of a given region border
+  function bandSpan(L, i) {
+    const pts = L.borders[i];
+    return { left: pts[0].x, right: pts[pts.length - 1].x };
+  }
+
   function makeCountry() {
     const K = window.COUNTRY;
     const cities = [];
     const roads = {};
     let cid = 0;
+    // the land first: cities are scattered into it, not laid out beside it
+    const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
+    landCache = buildLand(seed);
 
     window.REGIONS.forEach((R, ri) => {
       // the first name in the home list belongs to the home city itself, so it
@@ -543,7 +666,6 @@
       const homeName = R.id === 'home' ? all.shift() : null;
       const names = shuffleArr(all);
       let ni = 0;
-      const y = K.pad + ri * K.bandH;
       const kinds = [];
       if (R.id === 'home') {
         kinds.push('home', 'fold', 'fold');
@@ -556,18 +678,44 @@
         kinds.push('root');
       }
       shuffleArr(kinds);
-      const span = K.mapW - K.pad * 2;
-      kinds.forEach((kind, i) => {
+      // Scattered into the region's territory rather than spaced along it.
+      // A settled city is drawn as its constellation, about fifty pixels
+      // across, so the spacing is a real constraint and not a nicety: dart
+      // throwing with a minimum gap, falling back to the loosest spot found
+      // if a region is too full to place another comfortably.
+      const placed = [];
+      const inset = 34;
+      const put = () => {
+        const L = landCache;
+        const sp0 = bandSpan(L, ri), sp1 = bandSpan(L, ri + 1);
+        const left = Math.max(sp0.left, sp1.left) + inset;
+        const right = Math.min(sp0.right, sp1.right) - inset;
+        let best = null;
+        for (let tries = 0; tries < 90; tries++) {
+          const x = left + Math.random() * (right - left);
+          const top = borderYAt(L, ri, x) + inset;
+          const bot = borderYAt(L, ri + 1, x) - inset;
+          if (bot <= top) continue;
+          const py = top + Math.random() * (bot - top);
+          const gap = placed.reduce((m, p) =>
+            Math.min(m, Math.hypot(p.x - x, p.y - py)), Infinity);
+          if (gap >= K.minCityGap) return { x, y: py };
+          if (!best || gap > best.gap) best = { x, y: py, gap };
+        }
+        return best || { x: (left + right) / 2, y: bandY0(ri) };
+      };
+      kinds.forEach((kind) => {
         const CK = window.CITY_KINDS[kind];
-        const t = kinds.length === 1 ? 0.5 : i / (kinds.length - 1);
+        const at = put();
+        placed.push(at);
         cities.push({
           id: 'c' + (cid++),
           name: kind === 'home' ? homeName : names[(ni++) % names.length],
           kind,
           region: R.id,
           regionTier: R.tier,
-          x: Math.round(K.pad + span * t + rnd(-26, 26)),
-          y: Math.round(y + rnd(-24, 24)),
+          x: Math.round(at.x),
+          y: Math.round(at.y),
           worth: rndInt(CK.presence[0], CK.presence[1]),
           known: R.id === 'home',
           taken: false,        // you have a foothold and have walked it
@@ -599,9 +747,23 @@
       });
       return best && best.b;
     };
+    // Everything within reach of everything else gave 49 roads for 18 cities:
+    // a cat's cradle laid over the country, and the single loudest reason the
+    // map read as a graph rather than a place. A road is kept only if no third
+    // city sits between its two ends — formally, inside the circle that has
+    // the road as its diameter. That is the Gabriel graph, it contains the
+    // minimum spanning tree, so reach still propagates everywhere it did, and
+    // it is what a road network actually looks like from above.
+    const between = (a, b) => {
+      const d2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+      const ab = d2(a, b);
+      return cities.some(c => c !== a && c !== b && d2(a, c) + d2(b, c) < ab);
+    };
     cities.forEach(a => cities.forEach(b => {
       if (a.id >= b.id) return;
-      if (Math.hypot(a.x - b.x, a.y - b.y) <= K.roadReach) link(a, b);
+      if (Math.hypot(a.x - b.x, a.y - b.y) > K.roadReach) return;
+      if (between(a, b)) return;
+      link(a, b);
     }));
 
     const spineOf = (regionId) =>
@@ -638,7 +800,7 @@
     cities.forEach(c => { if (roads[home.id] && roads[home.id].indexOf(c.id) !== -1) c.known = true; });
 
     return {
-      cities, roads, at: home.id, homeId: home.id,
+      cities, roads, at: home.id, homeId: home.id, seed,
       presence: 0, factions,
       regionHeat: {},          // heat you left behind, by region
       view: null,
@@ -4320,7 +4482,6 @@
 
   // --- rendering ---------------------------------------------------------
   // --- the city, drawn -----------------------------------------------------
-  const CITY_PAD = 40;
 
   function cityDims() {
     return (state && state.dims) || { cols: window.CITY.cols, rows: window.CITY.rows };
@@ -4681,22 +4842,113 @@
   }
 
   // --- the country, drawn --------------------------------------------------
+  // The box the view is allowed to pan around. The coastline wanders outside
+  // the old rectangle -- a headland reached x = 694 against a map width of 620
+  // -- so a fixed box left parts of the country unreachable by panning.
   function countryBounds() {
     const K = window.COUNTRY;
-    return { w: K.mapW, h: K.pad * 2 + (window.REGIONS.length - 1) * K.bandH };
+    const base = { w: K.mapW, h: K.pad * 2 + (window.REGIONS.length - 1) * K.bandH };
+    const L = landCache;
+    if (!L) return base;
+    let maxX = base.w, maxY = base.h;
+    L.borders.forEach(b => b.forEach(p => {
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }));
+    ['left', 'right'].forEach(side => L.segs[side].forEach(seg => seg.forEach(p => {
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    })));
+    return { w: Math.ceil(maxX), h: Math.ceil(maxY) };
   }
 
+  const pathOf = (pts) => pts.map((p, i) =>
+    `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+  // Sea, coast, territories, water and the lie of the land. Drawn under
+  // everything, in one pass, from the same geometry the cities were scattered
+  // into — so a city never sits in the sea and a border is a border for both.
   function svgRegions() {
-    const K = window.COUNTRY;
+    const L = land();
     const B = countryBounds();
-    let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
+    const first = L.borders[0], last = L.borders[L.N];
+    // the sea is everything the land is not, so it is simply a big rectangle
+    // with the country drawn on top of it
+    let out = `<rect class="sea" x="${-CITY_PAD * 3}" y="${-CITY_PAD * 3}"`
+      + ` width="${B.w + CITY_PAD * 6}" height="${B.h + CITY_PAD * 6}"/>`;
+
+    // the coastline: the outer edge of the stack of territories
+    let outline = first.slice();
+    for (let i = 0; i < L.N; i++) {
+      outline = outline.concat(L.segs.right[i], [L.borders[i + 1][L.borders[i + 1].length - 1]]);
+    }
+    outline = outline.concat(last.slice().reverse());
+    for (let i = L.N - 1; i >= 0; i--) {
+      outline = outline.concat(L.segs.left[i].slice().reverse(), [L.borders[i][0]]);
+    }
+    out += `<path class="coast" d="${pathOf(outline)} Z"/>`;
+
     window.REGIONS.forEach((R, ri) => {
-      const y = K.pad + ri * K.bandH - K.bandH / 2;
       const known = CO().cities.some(c => c.region === R.id && c.known);
-      out += `<rect class="band ${known ? 'known' : ''}" x="${-CITY_PAD}" y="${y}" width="${B.w + CITY_PAD * 2}" height="${K.bandH}"/>`;
-      if (known) out += `<text class="band-tag" x="${8}" y="${y + 16}">${R.label}</text>`;
+      const poly = L.borders[ri].slice()
+        .concat(L.segs.right[ri], L.borders[ri + 1].slice().reverse(), L.segs.left[ri].slice().reverse());
+      out += `<path class="terr ${R.id}${known ? ' known' : ''}" d="${pathOf(poly)} Z"/>`;
+    });
+    // territory borders on top of the fills, so a shared edge is one line
+    for (let i = 1; i < L.N; i++) {
+      out += `<path class="terr-edge${L.rivers.indexOf(i) !== -1 ? ' river' : ''}"`
+        + ` d="${pathOf(L.borders[i])}"/>`;
+    }
+    out += svgTerrain();
+    window.REGIONS.forEach((R, ri) => {
+      if (!CO().cities.some(c => c.region === R.id && c.known)) return;
+      // inset from the coast, and below the border it names, so the label sits
+      // on its own territory rather than in the sea beside it
+      const pts = L.borders[ri];
+      const x = Math.max(pts[0].x, L.borders[ri + 1][0].x) + 20;
+      out += `<text class="band-tag" x="${x.toFixed(0)}" y="${(borderYAt(L, ri, x) + 24).toFixed(0)}">${R.label}</text>`;
     });
     return out;
+  }
+
+  // What the ground is made of, taken from the same terrain table that shapes
+  // the cities themselves: a region built around water gets water, one built
+  // around the moor gets moor. Sparse and low contrast on purpose — it is the
+  // lie of the land, not a second thing to read.
+  function svgTerrain() {
+    const L = land();
+    const R = landRand((L.seed ^ 0x5bf03635) >>> 0);
+    let out = '<g class="terrain">';
+    window.REGIONS.forEach((Rg, ri) => {
+      if (!CO().cities.some(c => c.region === Rg.id && c.known)) return;
+      const T = window.TERRAIN[Rg.id];
+      const kind = (T && T.bands && T.bands[0] && T.bands[0].kind) || 'park';
+      const sp0 = bandSpan(L, ri), sp1 = bandSpan(L, ri + 1);
+      const left = Math.max(sp0.left, sp1.left) + 16;
+      const right = Math.min(sp0.right, sp1.right) - 16;
+      const near = (x, y) => CO().cities.some(c =>
+        c.known && Math.hypot(c.x - x, c.y - y) < 46);
+      for (let i = 0; i < 26; i++) {
+        const x = left + R() * (right - left);
+        const top = borderYAt(L, ri, x) + 14, bot = borderYAt(L, ri + 1, x) - 14;
+        if (bot <= top) continue;
+        const y = top + R() * (bot - top);
+        if (near(x, y)) continue;              // never under a city
+        const s = 3 + R() * 2;
+        if (kind === 'water') {
+          out += `<path class="tm water" d="M${(x - s * 1.6).toFixed(1)} ${y.toFixed(1)}`
+            + ` q${(s * 0.8).toFixed(1)} ${(-s * 0.7).toFixed(1)} ${(s * 1.6).toFixed(1)} 0`
+            + ` q${(s * 0.8).toFixed(1)} ${(s * 0.7).toFixed(1)} ${(s * 1.6).toFixed(1)} 0"/>`;
+        } else if (kind === 'moor') {
+          out += `<path class="tm moor" d="M${(x - s).toFixed(1)} ${(y + s * 0.7).toFixed(1)}`
+            + ` L${x.toFixed(1)} ${(y - s * 0.8).toFixed(1)} L${(x + s).toFixed(1)} ${(y + s * 0.7).toFixed(1)}"/>`;
+        } else if (kind === 'rail') {
+          out += `<path class="tm rail" d="M${(x - s).toFixed(1)} ${y.toFixed(1)} L${(x + s).toFixed(1)} ${y.toFixed(1)}`
+            + ` M${x.toFixed(1)} ${(y - s * 0.6).toFixed(1)} L${x.toFixed(1)} ${(y + s * 0.6).toFixed(1)}"/>`;
+        } else {
+          out += `<circle class="tm park" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(s * 0.75).toFixed(1)}"/>`;
+        }
+      }
+    });
+    return out + '</g>';
   }
 
   function svgCity(c) {
@@ -4782,7 +5034,16 @@
       seenPair[key] = true;
       if (!a.known && !b.known) return;
       const live = a.taken && b.taken;
-      out += `<line class="road${live ? ' live' : ''}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+      // roads bend. A straight line between two dots is a graph edge; a road
+      // that leans one way is a road. The lean is derived from the pair, so it
+      // is the same road every render.
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const lean = ((key.charCodeAt(1) * 31 + key.charCodeAt(key.length - 1) * 7) % 21 - 10) / 100;
+      const cx = mx - dy * lean, cy = my + dx * lean;
+      out += `<path class="road${live ? ' live' : ''}" d="M${a.x} ${a.y} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x} ${b.y}"/>`;
+      void len;
     }));
     out += CO().cities.filter(c => c.known).map(svgCity).join('');
     out += svgForces();
@@ -6335,6 +6596,7 @@
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
+    buildLand, borderYAt, bandSpan, landCache: () => landCache,
     packCity, unpackCity, EMPTY_CITY,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,

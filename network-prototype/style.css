@@ -990,14 +990,49 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 
 /* --- the country ----------------------------------------------------- */
-.band { fill: #0d1210; stroke: none; opacity: .55; }
-.band.known { fill: #101614; opacity: 1; }
+/* Land, not bands. Sea underneath, one coastline around the whole country,
+   and five territories that tile along irregular shared borders. A region you
+   have never been to is drawn but unlit — you can see the shape of the country
+   from the start, you just do not know anything about it yet. */
+.sea { fill: #05090c; }
+.coast {
+  fill: #0b100e;
+  stroke: color-mix(in srgb, var(--cover) 42%, transparent);
+  stroke-width: 2.2; stroke-linejoin: round;
+}
+/* Territories are land, not colour-coded stripes. Five saturated fills made
+   the map read as bands harder than the rectangles ever did. What tells you
+   which region you are in is the label, the terrain on the ground, and the
+   border you crossed — the ground itself is the same country throughout, with
+   only enough shift to keep two territories from merging. */
+.terr { fill: #0b100e; stroke: none; opacity: .55; }
+.terr.known { opacity: 1; }
+.terr.home    { fill: #0c110e; }
+.terr.estuary { fill: #0b1112; }
+.terr.midlands{ fill: #0c110d; }
+.terr.capital { fill: #0c0f0f; }
+.terr.north   { fill: #0a0f0c; }
+.terr-edge {
+  fill: none; stroke: #202b26; stroke-width: 1.2; stroke-linejoin: round;
+  stroke-dasharray: 9 6;
+}
+/* a region whose cities are built around water is a region behind a river */
+.terr-edge.river {
+  stroke: color-mix(in srgb, var(--cover) 40%, transparent); stroke-width: 2.6;
+}
+/* the lie of the land: sparse, low contrast, never under a city */
+.terrain .tm { fill: none; stroke: #2b3a35; stroke-width: 1.1; }
+.terrain .tm.park { fill: #1e3324; stroke: none; }
+.terrain .tm.water { stroke: color-mix(in srgb, var(--cover) 40%, transparent); }
+.terrain .tm.moor { stroke: #37402c; }
+.terrain .tm.rail { stroke: #3a3830; }
+
 .band-tag {
-  fill: var(--muted); font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  fill: var(--muted); opacity: .75; font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
   font-family: ui-monospace, Menlo, monospace;
 }
 
-.road { stroke: #1b2320; stroke-width: 2; stroke-dasharray: 5 4; }
+.road { fill: none; stroke: #1e2724; stroke-width: 1.3; stroke-dasharray: 4 5; }
 .road.live { stroke: color-mix(in srgb, var(--cover) 55%, transparent); stroke-dasharray: none; stroke-width: 2.4; }
 
 .cnode { cursor: pointer; }

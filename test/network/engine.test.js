@@ -1007,6 +1007,102 @@ test('country: every region is on the map, and every city is walkable from home'
   assert.equal(new Set(names).size, names.length, 'two cities share a name');
 });
 
+// --- the country as land -------------------------------------------------
+// It was five horizontal bars with the cities spaced evenly along each, plus
+// jitter. Nothing drawn on the nodes could fix an arrangement that says rows.
+
+test('land: cities are scattered into territory, not spaced along a line', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const K = window.COUNTRY;
+  // pooled over boards: one generated country can look organic by luck
+  let evenX = 0, pairs = 0, tooClose = 0, total = 0;
+  const spreads = [];
+  for (let g = 0; g < 8; g++) {
+    const co = (g === 0 ? d.state.country : loadNetwork().window.__netDebug.state.country);
+    window.REGIONS.forEach(R => {
+      const here = co.cities.filter(c => c.region === R.id);
+      if (here.length < 2) return;
+      total += here.length;
+      // The old layout jittered y by +/-24 around one line per region, so its
+      // spread could never exceed 48 and averaged about 26 at these counts.
+      // "Is any one region tightly grouped" is not the test -- two random
+      // points in the available band are close together half the time -- the
+      // test is whether the population as a whole still hugs a line.
+      if (here.length >= 3) {
+        const ys = here.map(c => c.y);
+        spreads.push(Math.max(...ys) - Math.min(...ys));
+      }
+      // and it spaced them at equal intervals along x, which nothing random does
+      const xs = here.map(c => c.x).sort((a, b) => a - b);
+      const gaps = xs.slice(1).map((x, i) => x - xs[i]);
+      if (gaps.length > 1 && Math.max(...gaps) - Math.min(...gaps) < 12) evenX++;
+    });
+    co.cities.forEach(a => co.cities.forEach(b => {
+      if (a.id >= b.id) return;
+      pairs++;
+      if (Math.hypot(a.x - b.x, a.y - b.y) < K.minCityGap * 0.8) tooClose++;
+    }));
+  }
+  assert.ok(total > 40, 'enough cities to say anything');
+  const meanSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+  assert.ok(meanSpread > 40,
+    `regions spread their cities ${meanSpread.toFixed(0)}px vertically; the row layout managed 26`);
+  assert.ok(evenX <= 2, `${evenX} regions still spaced their cities evenly`);
+  // and the scatter still leaves room for the constellations
+  assert.ok(tooClose / pairs < 0.02, `${tooClose} of ${pairs} pairs are on top of each other`);
+});
+
+test('land: the coast is the same line for the country and for the territory behind it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const a = d.buildLand(12345);
+  const b = d.buildLand(12345);
+  assert.equal(JSON.stringify(a.borders), JSON.stringify(b.borders),
+    'the same seed is the same country, every render and every reload');
+  assert.notEqual(JSON.stringify(d.buildLand(999).borders), JSON.stringify(a.borders),
+    'and a different one is a different country');
+
+  // territories tile: the bottom of one is the top of the next, exactly
+  for (let i = 1; i < a.N; i++) {
+    assert.equal(JSON.stringify(a.borders[i]), JSON.stringify(a.borders[i]),
+      'a border is one line, shared');
+  }
+  // the side of each territory is the same coast the outline uses
+  assert.equal(a.segs.left.length, a.N, 'a west coast for every band');
+  assert.equal(a.segs.right.length, a.N, 'and an east one');
+
+  // every city is on land: inside its own territory, between its two borders
+  d.state.country.cities.forEach(c => {
+    const ri = window.REGIONS.findIndex(R => R.id === c.region);
+    const L = d.landCache();
+    const top = d.borderYAt(L, ri, c.x), bot = d.borderYAt(L, ri + 1, c.x);
+    assert.ok(c.y > top && c.y < bot,
+      `${c.name} at y=${c.y} is outside ${c.region} (${top.toFixed(0)}..${bot.toFixed(0)})`);
+  });
+});
+
+test('land: roads are a road network, not everything within reach of everything', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const co = d.state.country;
+  const edges = co.cities.reduce((a, c) => a + d.cityRoads(c.id).length, 0) / 2;
+  // measured before: 49 roads over 18 cities, a cat's cradle laid on the map
+  assert.ok(edges / co.cities.length < 2.6,
+    `${edges} roads over ${co.cities.length} cities is still a cradle`);
+  // but it must not have cost anyone their route home
+  const taken = new Set([co.homeId]);
+  for (let step = 0; step < 60; step++) {
+    const front = co.cities.filter(c => !taken.has(c.id) && d.cityRoads(c.id).some(id => {
+      const n = d.cityById(id);
+      return taken.has(id) && n && window.CITY_KINDS[n.kind].contest;
+    }));
+    if (!front.length) break;
+    front.forEach(c => taken.add(c.id));
+  }
+  assert.equal(taken.size, co.cities.length, 'thinning the roads stranded a city');
+});
+
 test('country: a town folds in from a distance, a defended city has to be walked', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
