@@ -478,9 +478,13 @@ function playOne(strategyName) {
       const n = d.hunt().nodes.length;
       huntPeak = Math.max(huntPeak, n);
       huntTook = Math.max(huntTook, n);
-      if (d.state.turn !== huntLastTurn) { huntLastTurn = d.state.turn; huntTurns++; }
-      // sealed in: nowhere left for it to step, which is what cutting is for
-      if (!d.huntFrontier().length) huntSealed++;
+      // once a turn, not once a loop — the strategy is called many times a turn
+      if (d.state.turn !== huntLastTurn) {
+        huntLastTurn = d.state.turn;
+        huntTurns++;
+        // sealed in: nowhere left for it to step, which is what cutting is for
+        if (!d.huntFrontier().length) huntSealed++;
+      }
     } else {
       huntWasOn = false;
     }
