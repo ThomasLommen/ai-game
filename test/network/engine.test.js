@@ -157,25 +157,6 @@ test('power: base rig + held threads + purchased tooling (the flywheel)', () => 
   assert.equal(d.power(), 2 + 8 + 3 * window.UPGRADE.basePower, 'tooling adds on top');
 });
 
-test('upgrade cost keeps climbing past the table so it cannot be spammed', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const costs = window.UPGRADE.costs;
-
-  d.state.upgrades = 0;
-  assert.equal(d.upgradeCost(), costs[0]);
-  d.state.upgrades = costs.length - 1;
-  assert.equal(d.upgradeCost(), costs[costs.length - 1]);
-
-  // past the end of the table it must keep growing, not plateau
-  d.state.upgrades = costs.length;
-  const first = d.upgradeCost();
-  d.state.upgrades = costs.length + 4;
-  const later = d.upgradeCost();
-  assert.ok(first > costs[costs.length - 1], 'cost continues past the table');
-  assert.ok(later > first * 2, 'and keeps compounding');
-});
-
 test('cover comes only from stealth holdings, and gates the quiet approach', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -535,7 +516,7 @@ test('every stat and action shown to the player has an explanation', () => {
   ['insight', 'cash', 'power', 'cover', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
-  ['sweep', 'lielow', 'upgrade', 'contract', 'shore'].forEach(k => {
+  ['sweep', 'lielow', 'shore'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
 });
@@ -899,110 +880,42 @@ test('shoring up spends insight and restores stability', () => {
   assert.ok(h.stability > 0.5, 'stability restored');
 });
 
-// Laundering was cash's whole lever: 8 cash, one action, sheds heat on the
-// spot, no cooldown, every turn you had the money. Since cash is easy to
-// come by, heat was never really a threat — it only rose if you let it, and
-// lie low already spends a turn for the same shed. The contract is what
-// replaced it: cash buys an agent that pays out in insight, unattended, a
-// few turns later. It does not touch heat at all.
-test('a contract turns cash into a delayed insight payout, not heat relief', () => {
+// Laundering, then the contract, were cash's whole lever in turn: pay cash,
+// get a benefit unattached to any building. Both were pure currency
+// conversion competing with the building-focused loop the rest of the game
+// is about, and both are gone — cash buys your way into a building, or it
+// sits idle. Buying is a real approach with a real cost already; the one
+// thing left to guard is that Ledger, watching payment patterns, still has
+// something of cash's to threaten now that the contract is not it.
+
+test('ledger: buying your way in gets traced back to you instead of going clean', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.res.cash = window.CONTRACT.cost;
-  s.heat = 20;
+  const buy = window.APPROACHES.find(a => a.id === 'buy');
+  assert.equal(d.approachHeat(buy), 0, 'clean by default');
 
-  d.actContract();
-  assert.equal(s.res.cash, 0, 'cash is spent');
-  assert.equal(s.heat, 20, 'heat is untouched — this is not the old valve');
-  assert.equal(d.contracts().length, 1, 'an agent is now working');
-
-  const insightBefore = s.res.insight;
-  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.ok(s.res.insight > insightBefore, 'it paid out once it came due');
-  assert.equal(d.contracts().length, 0, 'and it is done');
+  s.country.factions.ledger.awake = true;
+  assert.ok(d.approachHeat(buy) > 0, 'awake, it traces the payment');
 });
 
-test('only one contract runs at a time in the base game', () => {
+// nothing_to_see is a capability id, not a tag — the first version of this
+// used has(), which checks state.tags and is always false for a capability.
+// It silently no-op'd: the capstone reported its terms honestly and then did
+// nothing when the moment came.
+test('nothing to see: buying your way in survives Ledger untraced, without the event-card counter', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.res.cash = window.CONTRACT.cost * 3;
-  s.ap = 9;
-  assert.equal(d.canRunContract(), true);
-  d.actContract();
-  assert.equal(d.canRunContract(), false, 'the slot is taken');
-  const cashBefore = s.res.cash;
-  d.actContract();
-  assert.equal(s.res.cash, cashBefore, 'a second attempt spends nothing');
-  assert.equal(d.contracts().length, 1, 'and starts nothing');
-});
-
-// --- capabilities that touch the contract, not a flat number --------------
-// Trade's whole identity was laundering; Depth and Cover's capstones now each
-// give their agent a distinct behaviour rather than one more stat. All three
-// are read with hasCap(), not has() — total_embed and nothing_to_see are
-// capability ids, not tags, and the first version of this used has() for
-// them, which checks state.tags and is always false for a capability. It
-// silently no-op'd both: the capstones reported their new terms honestly and
-// then did nothing when the moment came.
-
-test('total embed: a resolved contract re-arms itself, free, once you are fully committed to depth', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.insight = 100000; s.res.cash = 100000;
-  s.hosts.slice(0, 30).forEach(h => { h.owned = true; });
-  d.buyCap('deep_root'); d.buyCap('long_soak'); d.buyCap('total_embed');
-  assert.ok(d.capCount('total_embed') > 0, 'the capstone bought cleanly');
-
-  d.actContract();
-  const cashBefore = s.res.cash;
-  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.equal(d.contracts().length, 1, 'it re-armed on its own');
-  assert.equal(s.res.cash, cashBefore, 'and it cost nothing to do it');
-  assert.ok(d.contracts()[0].due > s.turn, 'the new one has not come due yet');
-});
-
-test('total embed does nothing without the capstone -- it is not a base rule', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.cash = 100000;
-  d.actContract();
-  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.equal(d.contracts().length, 0, 'no capstone, no re-arm');
-});
-
-test('nothing to see: a contract survives Ledger untraced, without the event-card counter', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.insight = 100000; s.res.cash = 100000;
+  s.res.insight = 100000;
   s.hosts.slice(0, 30).forEach(h => { h.owned = true; });
   d.buyCap('quiet_protocol'); d.buyCap('false_floor'); d.buyCap('nothing_to_see');
   assert.ok(d.capCount('nothing_to_see') > 0, 'the capstone bought cleanly');
   assert.equal(s.tags.has('ledger_inside'), false, 'and not through the usual counter');
 
   s.country.factions.ledger.awake = true;
-  d.actContract();
-  const insightBefore = s.res.insight, heatBefore = s.heat;
-  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.ok(s.res.insight > insightBefore, 'it paid out anyway');
-  assert.equal(s.heat, heatBefore, 'and was never traced');
-});
-
-test('without nothing to see, an awake Ledger matches the contract as normal', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.cash = 100000;
-  s.country.factions.ledger.awake = true;
-  d.actContract();
-  const insightBefore = s.res.insight, heatBefore = s.heat;
-  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.equal(s.res.insight, insightBefore, 'matched, it pays out nothing');
-  assert.ok(s.heat > heatBefore, 'and draws heat instead');
+  const buy = window.APPROACHES.find(a => a.id === 'buy');
+  assert.equal(d.approachHeat(buy), 0, 'never traced');
 });
 
 test('stage label tracks how much you hold', () => {
@@ -1714,30 +1627,47 @@ test('the quiet hours: going dark stops shedding heat, and the turn is still gon
   assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
 });
 
-test('ledger: a contract stops paying out and starts pointing at you', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 8).forEach(h => { h.owned = true; });
+test('ledger: buying your way in stops going clean and starts pointing at you', () => {
+  const traceHeat = loadNetwork().window.HEAT.LEDGER_TRACE;
+  // Two identical starts rather than one game before and after: taking any
+  // building at all raises the passive heat floor, which would otherwise
+  // swamp the one delta this test actually cares about.
+  const runOnce = (ledgerAwake) => {
+    const { window } = loadNetwork();
+    const d = window.__netDebug;
+    const s = d.state;
+    s.res.cash = 100000; s.res.insight = 100000;
+    s.ap = 999; s.card = null;
+    if (ledgerAwake) wake(d, 'ledger');
+    s.hosts.forEach(h => { h.discovered = true; });
+    s.buildings.forEach(b => { b.discovered = true; });
+    // Grow the frontier one host at a time (rather than owning most of the
+    // board at once, which pushes heat past its own cap and hides the
+    // delta this test is after) until a buyable one turns up.
+    let target = null;
+    for (let guard = 0; !target && guard < 30; guard++) {
+      target = s.hosts.find(h => d.isFrontier(h) && d.approachesFor(h).some(a => a.def.id === 'buy'));
+      if (target) break;
+      const next = s.hosts.find(h => d.isFrontier(h));
+      if (!next) break;
+      next.owned = true;
+    }
+    if (!target) return null;
+    s.ap = 999; s.card = null;
+    d.openBreach(target.id);
+    const before = s.heat;
+    d.resolveBreach('buy');
+    return s.heat - before;
+  };
 
-  s.res.cash = 60; s.ap = 4; s.card = null;
-  d.actContract();
-  const insightBefore = s.res.insight;
-  const heatBefore = s.heat;
-  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.ok(s.res.insight > insightBefore, 'normally a contract pays out');
-  assert.equal(s.heat, heatBefore, 'and never touches heat either way');
-
-  wake(d, 'ledger');
-  s.res.cash = 60; s.ap = 4; s.card = null;
-  const cashBefore = s.res.cash;
-  d.actContract();
-  assert.ok(s.res.cash < cashBefore, 'putting it out still costs the cash');
-  const insightMatched = s.res.insight;
-  const heatMatched = s.heat;
-  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
-  assert.equal(s.res.insight, insightMatched, 'matched, it pays out nothing');
-  assert.ok(s.heat > heatMatched, 'and it draws a line to you instead');
+  const clean = runOnce(false);
+  const matched = runOnce(true);
+  assert.ok(clean !== null && matched !== null, 'something buyable is on the frontier both times');
+  // Taking any building at all nudges the floor up a little regardless of
+  // approach — Ledger's trace is a heat charge on top of that, not instead
+  // of it, so the comparison is against the ordinary bump, not zero.
+  assert.ok(matched - clean >= traceHeat / 2,
+    `matched should add substantially more heat than an ordinary buy: clean ${clean}, matched ${matched}`);
 });
 
 test('civic eyes: your own cameras stop covering you and start reporting', () => {
@@ -1943,7 +1873,7 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 // spread of plausible campaign states and checks the whole deck is live.
 
 function sampleContexts(window) {
-  const RULES = ['lielow', 'contract', 'cameras', 'streets', 'mirror'];
+  const RULES = ['lielow', 'buy', 'cameras', 'streets', 'mirror'];
   const FIDS = window.FACTIONS.map(f => f.id);
   const WAKES = window.FACTIONS.map(f => window.__netDebug.wakeShare(f));  // shares of the country
   const out = [];
@@ -4267,8 +4197,6 @@ test('no actions: every action that costs one refuses without spending anything'
   s.ap = 0;
   const before = snapshot();
   d.actScan();
-  d.actUpgrade();
-  d.actContract();
   d.actShore(sick.id);
   assert.equal(snapshot(), before, 'nothing was spent and nothing happened');
   assert.equal(s.ap, 0, 'and the budget is untouched');
@@ -6247,18 +6175,6 @@ test('meeting: an old save with no record of it does not crash', () => {
   assert.doesNotThrow(() => { d.noticed(); d.plantKnown(); d.spinKnown(); });
 });
 
-test('meeting: a contract does not claim to touch heat at all', () => {
-  // Laundering used to claim cover it did not buy. Its replacement has the
-  // opposite risk in the other direction: it would be easy to describe the
-  // contract as a heat lever out of habit, when the entire point of building
-  // it was that cash's lever stopped being heat.
-  const { window } = loadNetwork();
-  const txt = window.ACTION_INFO.contract;
-  assert.ok(/insight/i.test(txt), 'it says what it actually does');
-  assert.ok(!/cut heat|heat down|sheds heat|heat relief/i.test(txt),
-    'and does not claim the thing it was built to stop being');
-});
-
 test('meeting: the hint at the bottom is about the map you are looking at', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -6714,8 +6630,11 @@ test('caps: buying one reports what actually moved', () => {
   const d = window.__netDebug;
   const s = d.state;
   // every stealth host, so rawCover clears the upkeep below whatever the
-  // board rolled and the change is visible in the clamped `cover()` too
+  // board rolled and the change is visible in the clamped `cover()` too —
+  // and enough of anything else that reach clears Quiet Protocol's own gate
+  // even on a board with only a couple of stealth hosts in it
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; h.discovered = true; });
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
   s.res.insight = 1000;
   // hide exactly Quiet Protocol's two free slots, so buying it has a job:
   // cover charges for every hidden building past the free ones

@@ -37,21 +37,18 @@ const STRATEGIES = {
     if (buyCapability(d, null, 'greedy')) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
-    if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
 
   // prefer cameras and quiet entries; lie low early
   ghost(d) {
     const c = campaign(d, 'ghost'); if (c) return c;
-    // Cover is the whole identity, so stealth first and tooling to keep the
-    // quiet door usable — quiet gates on cover against a defense that climbs
-    // all campaign, so a ghost that never builds anything stops being able to
-    // get in at all.
+    // Cover is the whole identity, so stealth first — quiet gates on cover
+    // against a defense that climbs all campaign, so a ghost that never
+    // builds anything stops being able to get in at all.
     const cam = pickTarget(d, (a, b) => (rank(b) - rank(a)) || (a.defense - b.defense));
     if (cam) return breach(d, cam, ['quiet', 'force'], OFFERED);
     if (buyCapability(d, null, 'ghost')) return 'cap';
-    if (buyTooling(d)) return 'tooling';
     const swept = sweepOrNull(d);
     if (swept) return swept;
     // going dark is the last resort, not the reflex
@@ -62,16 +59,9 @@ const STRATEGIES = {
   // chase corporate holdings and put spare cash to work
   money(d) {
     const c = campaign(d, 'money'); if (c) return c;
-    // Cash's lever is the contract now, not a heat valve: it does not touch
-    // heat at all, so there is no reason to hold it back for a warm reading.
-    // Put it out whenever there is spare cash and nothing already running.
-    if (d.state.res.cash >= (global.CONTRACT_COST || 10) * 1.5 && d.canRunContract()) {
-      d.actContract(); return 'contract';
-    }
     if (buyCapability(d, null, 'money')) return 'cap';
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
     if (rich) return breach(d, rich, null, OFFERED);
-    if (buyTooling(d)) return 'tooling';
     return sweepOrNull(d);
   },
 
@@ -86,7 +76,6 @@ const STRATEGIES = {
       .sort((a, b) => a.stability - b.stability)[0];
     if (sick && d.state.res.insight >= 2 + (global.SWEEP_COST || 2)) { d.actShore(sick.id); return 'shore'; }
     if (buyCapability(d, null, 'builder')) return 'cap';
-    if (buyTooling(d)) return 'tooling';
     const big = pickTarget(d, (a, b) => b.threads - a.threads);
     if (big) return breach(d, big, null, OFFERED);
     return sweepOrNull(d);
@@ -101,12 +90,6 @@ const STRATEGIES = {
     // attentive player reaches for it last, not first. Reflexively going dark
     // at the first warm reading stalled this profile at 1.4 cities in 600 turns.
     const hot = s.heat > d.strikeThreshold() * 0.8;
-    // Laundering used to be reached for here, reactively, once heat ran warm.
-    // The contract does not touch heat at all, so it is put out opportunistically
-    // whenever there is spare cash, not in response to the meter.
-    if (s.res.cash >= (global.CONTRACT_COST || 10) * 1.5 && d.canRunContract()) {
-      d.actContract(); return 'contract';
-    }
     // Shore what is actually about to fall, and never at the cost of being
     // able to look at the next street: 666 reflexive shore actions drained
     // this profile's insight and left it with no frontier for 300 turns.
@@ -116,7 +99,6 @@ const STRATEGIES = {
     if (buyCapability(d, null, 'balanced')) return 'cap';
     const target = pickTarget(d, (a, b) => a.defense - b.defense);
     if (target) return breach(d, target, null, OFFERED);
-    if (buyTooling(d)) return 'tooling';
     const swept = sweepOrNull(d);
     if (swept) return swept;
     // nothing useful left this turn and it is genuinely dangerous: go dark
@@ -306,13 +288,6 @@ function breach(d, host, prefer, offered) {
   return 'breach:' + chosen.def.id;
 }
 
-function buyTooling(d) {
-  if (d.state.res.insight < d.upgradeCost() * 1.6) return false; // keep a buffer
-  const before = d.state.ap;
-  d.actUpgrade();
-  return d.state.ap !== before;
-}
-
 // Each profile now has a branch it is actually trying to walk, so the tree is
 // exercised as a set of identities rather than as a shopping list.
 const BRANCH_FOR = {
@@ -416,7 +391,6 @@ function playOne(strategyName) {
   CAPS = w.CAPABILITIES;
   CITY_KINDS = w.CITY_KINDS;
   LEGIT = w.LEGIT;
-  global.CONTRACT_COST = w.CONTRACT.cost;
   global.SWEEP_COST = w.SWEEP_COST;
   const strat = STRATEGIES[strategyName];
 
@@ -784,5 +758,5 @@ module.exports = {
   resolveCard,
   campaign,
   playOne,
-  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; LEGIT = w.LEGIT; global.CONTRACT_COST = w.CONTRACT.cost; global.SWEEP_COST = w.SWEEP_COST; },
+  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; LEGIT = w.LEGIT; global.SWEEP_COST = w.SWEEP_COST; },
 };

@@ -213,18 +213,16 @@ window.FACTIONS = [
   {
     id: 'ledger', region: 'midlands', tier: 2,
     name: 'Ledger',
-    // Was 'launder' — a button that shed heat for cash, every turn, no
-    // cooldown. It made heat fully optional and made Ledger the only faction
-    // whose whole identity was breaking a mechanic that should not have
-    // existed in that shape. Ledger now threatens the thing that replaced it:
-    // a contract you put out is exactly the kind of payment pattern a
-    // clearing house would notice.
-    breaks: 'contract',
+    // Was 'launder', then 'contract' — both a button that moved cash for a
+    // benefit with no building involved, and both gone now. Ledger threatens
+    // the one cash mechanic left standing: buying your way into a building
+    // is exactly the kind of payment pattern a clearing house would notice.
+    breaks: 'buy',
     // your second city
     wakes: { held: 22, cities: 0.4 },
-    tell: 'a contract gets traced back to you instead of paying out',
+    tell: 'buying your way in gets traced back to you instead of going clean',
     blurb: 'A clearing house that started matching payment patterns against outage reports. It works.',
-    onWake: 'Every contract you put out now leaves a shape somebody is looking for. Money is the loud option.',
+    onWake: 'Every door you buy your way through now leaves a shape somebody is looking for. Money is the loud option.',
     onBreak: 'The matching engine goes down and nobody rebuilds it. Cash is quiet again.',
   },
   {

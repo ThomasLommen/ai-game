@@ -18,30 +18,18 @@ window.HOST_TYPES = {
   datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3, churn: 0.01 },
 };
 
-// Insight's sink. Without one it just piles up unspent, and the "builder"
-// playstyle has no lever of its own — this is how you buy raw power directly
-// instead of taking it off the network.
-// Cost keeps climbing forever — if it plateaus, late-game insight floods and
-// buying power becomes strictly better than taking it off the network.
-window.UPGRADE = { basePower: 2, costs: [6, 10, 15, 21, 28, 36, 45], growth: 1.35 };
+// A flat margin baked into world generation, not a purchasable thing any
+// more: the opening area has to be forceable by a fresh arrival, at worst
+// with this much power to spare over what a bare host's threads give you.
+// Used to be the size of one tooling upgrade — tooling is gone, but the
+// margin the generator promises still has to mean something.
+window.UPGRADE = { basePower: 2 };
 
-// Cash's own lever, and it used to be laundering: 8 cash, one action, sheds a
-// flat chunk of heat, no cooldown. Lying low already sheds heat for a turn
-// instead of cash, and with cash this cheap to come by, laundering made heat
-// fully optional — the threshold only mattered if you chose to ignore the
-// button. It is gone. Cash's lever is now the contract: pay now, an insight
-// payout lands a few turns later, unattended — an agent working for you
-// rather than a tap you can lean on every turn.
-window.CONTRACT = {
-  cost: 10,             // cash, paid up front
-  turns: 3,             // turns until it resolves, before any capability
-  payout: 10,           // base insight it pays out
-  perBuilding: 0.35,    // and a little more for every building you hold
-  // If Ledger is awake and has not been countered, the payout it was going to
-  // hand you gets traced instead: no insight, and a flat hit of heat for the
-  // trouble of having moved the money at all.
-  matchedHeat: 8,
-};
+// Cash used to have its own lever here — a contract you put out for a
+// delayed, unattended insight payout. It was a pure currency-conversion
+// button competing with the building-focused loop the rest of the game is
+// about, so it is gone: cash buys your way into a building, or it sits idle
+// until you find one worth spending it on.
 
 // Sweeping costs insight, so exploring is a real decision rather than the
 // button you mash while waiting for production to accumulate.
@@ -80,7 +68,7 @@ window.TOUCH = { reachPx: 26 };
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
-  costs: { sweep: 1, breach: 1, shore: 1, tooling: 1, contract: 1 },
+  costs: { sweep: 1, breach: 1, shore: 1 },
 };
 
 // --- capabilities ------------------------------------------------------
@@ -162,9 +150,9 @@ window.CAPABILITIES = [
     // thing in the game that acts on its own.
     id: 'swarm_front', branch: 'tempo', tier: 3,
     name: 'Broad Front',
-    desc: 'Work every street at once. Once a turn, whatever is weakest on the frontier forces itself, free — and whatever you put out to work comes back sooner.',
+    desc: 'Work every street at once. Once a turn, whatever is weakest on the frontier forces itself, free.',
     apDelta: 0,
-    effect: { contractSpeed: 1 },
+    mechanic: true,  // read via hasCap() in swarmFrontStep(), not a generic effect key
     cost: 44,
     requires: ['light_touch'],
     cond: (s) => s.reach >= 10,
@@ -198,18 +186,13 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 8,
   },
   {
-    // has('total_embed') is read directly in contractStep(): a contract that
-    // resolves re-arms itself, free, no action spent. Depth's whole identity
-    // is not managing what you hold turn to turn — a capstone that still
-    // needed you to press a button every few turns to keep its own agent
-    // running would be the one node in the branch that didn't believe its
-    // own premise. Deep Root already spent the branch's one action; costing
-    // another here would put Depth two actions under base for a tree with
-    // exactly one node anywhere that grants one back, which is a branch you
-    // cannot actually finish, not a choice.
+    // Deep Root already spent the branch's one action; costing another here
+    // would put Depth two actions under base for a tree with exactly one
+    // node anywhere that grants one back, which is a branch you cannot
+    // actually finish, not a choice.
     id: 'total_embed', branch: 'depth', tier: 3,
     name: 'Total Embed',
-    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and whatever you put out to work never needs sending twice.',
+    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything.',
     apDelta: 0,
     effect: { power: 14, threadBonus: 1 },
     cost: 46,
@@ -248,14 +231,14 @@ window.CAPABILITIES = [
     cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
   },
   {
-    // has('nothing_to_see') is read directly wherever a contract could get
+    // has('nothing_to_see') is read directly wherever a buy could get
     // matched: Cover's culmination is that nothing about you resolves into a
     // pattern, and a payment pattern is exactly the thing Ledger is built to
     // find. This is the one route that survives Ledger entirely without
     // needing the event-card counter everyone else has to go looking for.
     id: 'nothing_to_see', branch: 'cover', tier: 3,
     name: 'Nothing To See',
-    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, it takes much more of it before anyone acts, and nothing you move ever resolves into a pattern worth matching.',
+    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, it takes much more of it before anyone acts, and nothing you buy your way through ever resolves into a pattern worth matching.',
     apDelta: 0,
     effect: { driftMult: 0.6, thresholdMult: 1.3 },
     cost: 48,
@@ -264,23 +247,19 @@ window.CAPABILITIES = [
   },
 
   // --- Trade: buy what other people take --------------------------------
-  // Trade's whole identity used to be laundering, and laundering is gone --
-  // it was the one button that made heat optional, and lie low already
-  // spends a turn for the same shed. Cash's real lever now is the contract:
-  // pay now, an agent works for a few turns, insight comes back unattended.
-  // Trade is the branch that makes that agent better, the way Tempo makes
-  // your own actions go further and Depth makes force land harder.
+  // Trade's whole identity used to be laundering, then the contract — both
+  // gone now, both pure currency-conversion buttons that competed with
+  // actually taking a building for what it did. This branch's real
+  // throughline is still an open question; Clean Hands and Market Maker
+  // below are placeholders (a plain discount, a plain multiplier) holding
+  // Trade's tier structure together until that gets settled, not a
+  // considered identity the way the other four branches have one.
   {
-    // has('clean_hands') is read directly by actRecallContract(): a pending
-    // contract can be called in early, for half its payout, freeing the slot
-    // immediately instead of waiting it out. A bigger number on the same
-    // fixed wait was the least interesting way to make cash matter — this
-    // makes it a timing decision instead: take less, now, or wait for all of it.
     id: 'clean_hands', branch: 'trade', tier: 1,
     name: 'Clean Hands',
-    desc: 'A standing arrangement with people who move money for a living. A contract can be called in early, for half its payout, whenever you need the slot back.',
+    desc: 'A standing arrangement with people who move money for a living. Buying your way in costs a little less.',
     apDelta: 0,
-    mechanic: true,  // read via hasCap() in actRecallContract(), not a generic effect key
+    effect: { buyDiscount: 0.2 },
     cost: 22,
     cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
   },
@@ -297,9 +276,9 @@ window.CAPABILITIES = [
   {
     id: 'market_maker', branch: 'trade', tier: 3,
     name: 'Market Maker',
-    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more, and you can have two contracts working at once.',
+    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more.',
     apDelta: -1,
-    effect: { yieldMult: 1.9, contractSlots: 1 },
+    effect: { yieldMult: 1.9 },
     cost: 46,
     requires: ['fixers'],
     cond: (s) => s.reach >= 10,
@@ -517,6 +496,7 @@ window.HEAT = {
   // is the point: you either learn to play without it or you go and end them.
   ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
+  LEDGER_TRACE: 8,      // ledger: a buy it is watching gets traced instead of going clean
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,
@@ -607,9 +587,9 @@ window.STRIKE_CARD = {
 // Nothing here is flavour: if the player can't say what a number does, the
 // number may as well not exist.
 window.STAT_INFO = {
-  actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, rewriting your tooling. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
-  insight: 'What your compute earns you. Spends on sweeping, shoring up holdings, and rewriting your tooling.',
-  cash: 'Money, earned only by corporate holdings. Buys your way into some hosts, and puts contracts out that pay off later in insight.',
+  actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, shoring up a holding. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
+  insight: 'What your compute earns you. Spends on sweeping and shoring up holdings.',
+  cash: 'Money, earned only by corporate holdings. Buys your way into some hosts.',
   power: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need POWER at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
@@ -619,8 +599,6 @@ window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
-  upgrade: 'Permanently raise POWER. The only way to grow strength without taking another host.',
-  contract: 'Pay cash now; an agent works in the background and pays out in insight a few turns later. It does not touch heat at all — this is not the release valve laundering was, it is a delayed, unattended return on cash.',
   shore: 'Reset a holding\'s stability. Neglected bodies decay and are eventually reclaimed.',
 };
 
@@ -641,7 +619,7 @@ window.TAG_INFO = {
   found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one faction ---
   rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
-  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — a contract stops getting traced' },
+  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — buying your way in stops getting traced' },
   blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
   spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
   their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
@@ -1267,9 +1245,9 @@ window.EVENTS = [
   },
   {
     id: 'ledger_bite',
-    cond: (s) => s.gone('contract') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
+    cond: (s) => s.gone('buy') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
     title: 'The Shape of Your Money',
-    flavor: 'Every contract you have put out is on a list, and the list is a picture of you drawn in transfers.',
+    flavor: 'Every door you have bought your way through is on a list, and the list is a picture of you drawn in transfers.',
     choices: [
       { text: 'Burn the accounts and start again', cost: { cash: 20 }, apply: (s) => { s.heat -= 10; } },
       { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
@@ -1278,7 +1256,7 @@ window.EVENTS = [
   },
   {
     id: 'ledger_counter',
-    cond: (s) => s.gone('contract') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
+    cond: (s) => s.gone('buy') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
     title: 'Off the Match List',
     flavor: 'The matcher does not compare everything against everything. It has a list, and lists can be edited.',
     choices: [
