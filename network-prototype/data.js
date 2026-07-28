@@ -370,11 +370,17 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 7,
   },
   {
+    // Read directly via hasCap('standing_orders') in endTurn(): anything
+    // slipping below shoreNeeded's threshold gets shored automatically, at
+    // the same insight price a manual tap costs — the single most repeated
+    // chore in the game (go tap shore up on the thing that's decaying) simply
+    // stops needing you, permanently.
     id: 'standing_orders', branch: 'reach', tier: 3,
     name: 'Standing Orders',
-    desc: 'Everywhere you have finished runs itself, properly. Presence is worth considerably more every turn.',
+    desc: 'Everywhere you have finished runs itself, properly. Anything of yours that starts slipping gets shored up on its own, at turn\'s end, for its usual price — you never have to go tap it yourself again. Presence also pays a little more every turn.',
     apDelta: 0,
     effect: { presenceMult: 1.6 },
+    mechanic: true,  // in addition to presenceMult — automatic upkeep, read via hasCap()
     cost: 54,
     requires: ['pontoon'],
     cond: (s) => s.presence >= 40,

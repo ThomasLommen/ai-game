@@ -1323,6 +1323,21 @@
       pushLog(`${Object.keys(cutOff).length} holdings are cut off from the rest of you.`);
     }
     if (soaked.length) pushLog(`${soaked.map(h => h.name).join(', ')} nearly went, and held anyway.`);
+    // Standing Orders: whatever needs shoring up gets shored, unattended, at
+    // the same insight price a manual tap would have cost — the recurring
+    // "go tap shore up on the thing that's slipping" chore just stops
+    // existing, for the rest of the game, rather than getting cheaper.
+    if (hasCap('standing_orders')) {
+      const shored = [];
+      owned().forEach(h => {
+        if (!shoreNeeded(h)) return;
+        if (state.res.insight < SHORE_INSIGHT_COST) return;
+        state.res.insight -= SHORE_INSIGHT_COST;
+        h.stability = 1;
+        shored.push(h);
+      });
+      if (shored.length) pushLog(`Standing orders keep ${shored.map(h => h.name).join(', ')} steady, unattended.`);
+    }
     const surfaced = pontoonReveals();
     if (surfaced.length) {
       pushLog(`Settled ground gives up what's past it: ${surfaced.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`);
@@ -1882,6 +1897,7 @@
     if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
     if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
     if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
+    if (c.id === 'standing_orders') add('cash', `anything slipping shores itself up at turn's end, for ${SHORE_INSIGHT_COST} insight, no action spent`);
     if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
@@ -2629,13 +2645,14 @@
     render();
   }
 
+  const SHORE_INSIGHT_COST = 2;
   function shoreNeeded(h) { return !!h && h.owned && h.stability < 0.9; }
   function actShore(id) {
     if (!canAfford('shore')) return;
     const h = hostById(id);
-    if (!shoreNeeded(h) || state.res.insight < 2) return; // no free actions off a healthy host
+    if (!shoreNeeded(h) || state.res.insight < SHORE_INSIGHT_COST) return; // no free actions off a healthy host
     spendAP('shore');
-    state.res.insight -= 2;
+    state.res.insight -= SHORE_INSIGHT_COST;
     h.stability = 1;
     pushLog(`Shored up ${h.name}.`);
     persistNow();
