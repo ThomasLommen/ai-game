@@ -55,6 +55,10 @@ window.BREACH_FX = {
 window.SWEEP_COST = 2;
 window.SWEEP_CASH = 9;
 
+// How much of a door's own defense counts as the cover a quiet entry needs.
+// False Floor lowers this at the gate itself, not just the insight it costs.
+window.QUIET_COVER_MULT = 0.6;
+
 // --- action points -----------------------------------------------------
 // A turn is a container you fill, not a synonym for "one action". This is
 // what makes the turn boundary mean anything: some things are free (looking
@@ -232,16 +236,18 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 6,
   },
   {
-    // capEffect('quietDiscount', ...) is read in costOf(): this halves what
-    // slipping in quietly actually costs, rather than adding cover in
-    // general. Cover buying more cover was the branch being its own reward
-    // in the least interesting way possible — this buys down the one price
-    // that was making the quiet door a tax instead of a route.
+    // capEffect('quietDiscount', ...) is read in costOf(): halves what
+    // slipping in quietly costs. capEffect('quietGateMult', ...) is read
+    // directly in approachesFor(): the cover a door actually needs drops
+    // too — cover is the rarer stat (only stealth holdings generate it at
+    // all), so the gate itself was the real bottleneck, not the insight tax
+    // on top of it. Doors visibly flip from unmet to met the moment this is
+    // bought, rather than a number changing somewhere you have to go look.
     id: 'false_floor', branch: 'cover', tier: 2,
     name: 'False Floor',
-    desc: 'A second network under the first, doing nothing, looking like everything. Slipping in quietly costs half what it used to.',
+    desc: 'A second network under the first, doing nothing, looking like everything. Slipping in quietly needs noticeably less cover, and costs half what it used to as well.',
     apDelta: 0,
-    effect: { quietDiscount: 0.5 },
+    effect: { quietDiscount: 0.5, quietGateMult: 0.75 },
     cost: 32,
     requires: ['quiet_protocol'],
     cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
@@ -562,7 +568,11 @@ window.APPROACHES = [
     text: 'Slip in quietly',
     kind: 'cover',
     avail: () => true,
-    gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * 0.6), met: s.cover >= Math.ceil(h.defense * 0.6) }),
+    // The base multiplier lives on window.QUIET_COVER_MULT — False Floor
+    // recomputes this gate in approachesFor() at a lower one, the same way
+    // capability discounts already layer onto costFor() in costOf() rather
+    // than living in the formula itself.
+    gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * window.QUIET_COVER_MULT), met: s.cover >= Math.ceil(h.defense * window.QUIET_COVER_MULT) }),
     costFor: (h) => ({ insight: Math.max(2, Math.ceil(h.defense * 0.3)) }),
     heat: 0,
     onWin: { hold: true },

@@ -1825,6 +1825,7 @@
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
     if (c.id === 'quiet_protocol') add('cover', 'hiding something costs no action');
     if (e.quietDiscount) add('cost insight', `slipping in quietly ${pct(1 - e.quietDiscount)}`);
+    if (e.quietGateMult) add('cover', `cover needed to slip in ${pct(e.quietGateMult)}`);
     // Mechanics with no generic effect key at all — read directly, by id,
     // at the specific point in the engine where they live — still need to
     // say something here, or a card reads as though buying it did nothing.
@@ -2637,7 +2638,15 @@
     // same job a faction does, spatially: taking a tool away.
     const closed = (cityTrait() || {}).closes;
     return window.APPROACHES.filter(a => a.avail(h) && a.id !== closed).map(a => {
-      const gate = a.gate ? a.gate(s, eff) : null;
+      let gate = a.gate ? a.gate(s, eff) : null;
+      // False Floor: the cover a quiet entry needs drops at the gate itself,
+      // not just the insight it costs — recomputed here the same way a
+      // capability discount already layers onto costFor() in costOf(),
+      // rather than the formula having to know about capabilities itself.
+      if (a.id === 'quiet' && gate) {
+        const need = Math.ceil(eff.defense * window.QUIET_COVER_MULT * capEffect('quietGateMult', 1));
+        gate = { label: 'needs COVER ' + need, met: s.cover >= need };
+      }
       const cost = costOf(a, eff);
       let affordable = true;
       if (cost) for (const k in cost) if ((state.res[k] || 0) < cost[k]) affordable = false;
