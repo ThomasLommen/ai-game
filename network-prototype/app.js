@@ -1819,6 +1819,7 @@
     if (c.id === 'long_soak') add('cover', 'the first near-loss survives instead, once each');
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
+    if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
     return out.join('');
@@ -2630,6 +2631,9 @@
     });
   }
 
+  // Light Touch: how far ahead your power has to be over a door's defense
+  // for forcing it to read as "well within reach" and refund the action.
+  const LIGHT_TOUCH_MULT = 2;
   function resolveBreach(approachId) {
     const card = state.card;
     if (!card || card.kind !== 'breach') return;
@@ -2658,6 +2662,11 @@
     // The Adjusters read this, not how much you hold overall — cumulative
     // and never reset, the same reasoning as everHeld below.
     if (win && a.id === 'force') state.timesForced = (state.timesForced || 0) + 1;
+    // Light Touch: a door your power comfortably clears costs no action to
+    // force — the heat still applies as normal, only the action is free.
+    if (win && a.id === 'force' && hasCap('light_touch') && power() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
+      state.ap += apCost('breach'); // undoing this same turn's spendAP() above, never over the cap
+    }
     if (out.hold) {
       h.owned = true;
       h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into

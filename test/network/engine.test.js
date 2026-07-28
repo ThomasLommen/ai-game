@@ -264,6 +264,57 @@ test('breach: a met gate takes the host and grows your power', () => {
 // (walking away is covered by "backing out of a breach costs no turn" below —
 // it used to spend a turn, which made "open the card, leave" a free turn button.)
 
+test('light touch: forcing a door well within reach costs no action', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = { light_touch: 1 };
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = Math.max(1, Math.floor(d.power() / 2) - 1); // comfortably outclassed
+  s.ap = d.maxAP();
+  const apBefore = s.ap;
+
+  d.openBreach(target.id);
+  d.resolveBreach('force');
+  assert.equal(target.owned, true, 'the host is taken');
+  assert.equal(s.ap, apBefore, 'and the action spent on it came straight back');
+});
+
+test('light touch: an even fight still costs the action', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = { light_touch: 1 };
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = Math.max(1, d.power() - 1); // beatable, but not outclassed
+  s.ap = d.maxAP();
+  const apBefore = s.ap;
+
+  d.openBreach(target.id);
+  d.resolveBreach('force');
+  assert.equal(target.owned, true, 'the host is taken');
+  assert.equal(s.ap, apBefore - 1, 'not outclassed enough to be free');
+});
+
+test('light touch: without the capability, an outclassed door still costs the action', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = {};
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = 1;
+  s.ap = d.maxAP();
+  const apBefore = s.ap;
+
+  d.openBreach(target.id);
+  d.resolveBreach('force');
+  assert.equal(target.owned, true, 'the host is taken');
+  assert.equal(s.ap, apBefore - 1, 'no capability, no refund');
+});
+
 // City generation already promises the opening doorstep is beatable, at
 // worst after growing a little -- but nothing renewed that promise further
 // in. A landmark-hardened door reachable early, with nothing left to sweep
@@ -2564,7 +2615,6 @@ test('tree: every effect on a card changes something the engine reads', () => {
     power: d.power(), cover: d.cover(), threshold: d.strikeThreshold(),
     drift: d.heatPerTurn(), sweep: d.sweepPrice(),
     presence: d.presenceYield().insight,
-    force: d.approachHeat(window.APPROACHES.find(a => a.id === 'force')),
     buy: d.costOf(window.APPROACHES.find(a => a.id === 'buy'), { defense: 20, type: 'corporate' }).cash,
     quiet: d.costOf(window.APPROACHES.find(a => a.id === 'quiet'), { defense: 20, type: 'corporate' }).insight,
   });
@@ -2579,7 +2629,6 @@ test('tree: every effect on a card changes something the engine reads', () => {
     ['nothing_to_see', 'drift', (a, b) => Math.abs(b) < Math.abs(a)],
     ['survey', 'sweep', (a, b) => b < a],
     ['standing_orders', 'presence', (a, b) => b > a],
-    ['light_touch', 'force', (a, b) => b < a],
     ['fixers', 'buy', (a, b) => b < a],
   ];
   checks.forEach(([id, key, ok]) => {

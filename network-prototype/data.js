@@ -131,11 +131,17 @@ window.CAPABILITIES = [
     cond: () => true,
   },
   {
+    // has('light_touch') is read directly in resolveBreach(): forcing a door
+    // your power comfortably clears (LIGHT_TOUCH_MULT times its defense)
+    // refunds the action, on top of whatever it cost in heat. Parallel Ops
+    // is more actions; this is weak doors costing none of the ones you have;
+    // Broad Front is weak doors needing none of yours at all. Same escalation,
+    // three visible steps, instead of a stepping-stone tax on the way there.
     id: 'light_touch', branch: 'tempo', tier: 2,
     name: 'Light Touch',
-    desc: 'Go in shallow and leave quickly. Forcing a door draws far less attention — and you are putting less weight behind it.',
+    desc: 'Go in shallow and leave quickly. Forcing a door well within your reach costs no action at all.',
     apDelta: 0,
-    effect: { forceHeat: -2, power: -4 },
+    mechanic: true,  // read via hasCap() in resolveBreach(), not a generic effect key
     cost: 26,
     requires: ['parallel_ops'],
     cond: (s) => s.reach >= 6,
