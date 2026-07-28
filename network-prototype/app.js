@@ -1091,6 +1091,14 @@
     };
     return opts.slice().sort((a, b) => score(b) - score(a))[0];
   }
+  // Everything it holds, and everything it could step onto, is on the map
+  // whether or not you had swept it. You cannot cut a street you cannot see,
+  // and an invisible frontier made the whole thing feel like weather.
+  function huntReveal() {
+    if (!huntOn()) return;
+    hunt().nodes.forEach(id => revealBuilding(buildingById(id)));
+    huntFrontier().forEach(id => revealBuilding(buildingById(id)));
+  }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
     if (owned().length < window.HUNT.minHeld) return null;
@@ -1101,6 +1109,7 @@
     if (!seed) return null;
     state.hunt = { on: true, nodes: [seed.buildingId], since: state.turn, lastActed: state.turn };
     hostsIn(buildingById(seed.buildingId)).forEach(h => { h.owned = false; });
+    huntReveal();
     pushLog(`${window.HUNT.name} has an address. They are inside ${window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label}, and they are not leaving.`);
     showBanner([{ kind: 'faction', verb: 'against you', label: window.HUNT.name }]);
     return state.hunt;
@@ -1117,6 +1126,7 @@
     const b = buildingById(take);
     const was = hostsIn(b).filter(x => x.owned);
     was.forEach(x => { x.owned = false; });
+    huntReveal();
     // they came for a result and they have one; the pressure eases until it
     // does not. This is the only thing that brings heat down hard now that the
     // fine is gone, and it is what keeps cover meaningful.
@@ -1186,7 +1196,9 @@
     const adj = state.adjacency;
     adj[a] = (adj[a] || []).filter(x => x !== b);
     adj[b] = (adj[b] || []).filter(x => x !== a);
-    state.cuts = (state.cuts || []).concat([[a, b]]);
+    // no `until`: a street you take is gone for good, unlike The Cut's
+    state.cuts = (state.cuts || []).concat([{ a, b, mine: true }]);
+    state.selectedCut = null;                 // the street it named is gone
     state.heat = clampHeat(state.heat + H.severHeat);
     const A = buildingById(a), B = buildingById(b);
     pushLog(`The street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label} is gone. It was the only way through for both of you.`);
@@ -2438,6 +2450,7 @@
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
+    state.selectedCut = null;               // streets do not survive the border
     state.view = null;
   }
 
@@ -3071,9 +3084,12 @@
   function repairStreets() {
     const cuts = state.cuts || [];
     if (!cuts.length) return [];
-    const done = cuts.filter(c => state.turn >= c.until);
+    // A cut with no repair date is one you made yourself: it never comes back,
+    // and it must survive this filter or the record of it is quietly lost.
+    const perm = (c) => !(typeof c.until === 'number' && isFinite(c.until));
+    const done = cuts.filter(c => !perm(c) && state.turn >= c.until);
     if (!done.length) return [];
-    state.cuts = cuts.filter(c => state.turn < c.until);
+    state.cuts = cuts.filter(c => perm(c) || state.turn < c.until);
     done.forEach(({ a, b }) => {
       if (!buildingById(a) || !buildingById(b)) return;
       state.adjacency[a] = (state.adjacency[a] || []).concat(
@@ -4287,6 +4303,17 @@
     const h = b ? hostsIn(b)[0] : null;
     state.selectedBuilding = b ? b.id : null;
     state.selected = h ? h.id : null;
+    state.selectedCut = null;
+    render();
+  }
+  // A street between something the response holds and something it does not.
+  // Selecting it is free; the panel then names the price of taking it away.
+  function pickCut(key) {
+    const parts = String(key || '').split('|');
+    if (parts.length !== 2 || !huntHolds(parts[0]) || huntHolds(parts[1])) return;
+    state.selectedCut = { a: parts[0], b: parts[1] };
+    state.selectedBuilding = null;
+    state.selected = null;
     render();
   }
   function clearSelection() {
@@ -4294,9 +4321,10 @@
       if (CO().selected == null) return;
       CO().selected = null;
     } else {
-      if (state.selectedBuilding == null && state.selected == null) return;
+      if (state.selectedBuilding == null && state.selected == null && !state.selectedCut) return;
       state.selectedBuilding = null;
       state.selected = null;
+      state.selectedCut = null;
     }
     render();
   }
@@ -4441,6 +4469,42 @@
       });
     });
     return out;
+  }
+
+  // The response's own network, drawn the way yours is: solid between the
+  // buildings it holds, and reaching down every street it can still walk. The
+  // reach lines are the answer to "there is nothing I can do about it" — each
+  // one is a street, each one is tappable, and each one can be taken away.
+  function bldgCentre(id) {
+    const b = buildingById(id);
+    return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
+  }
+  function svgHunt() {
+    if (!huntOn()) return '';
+    const adj = state.adjacency || {};
+    const cut = state.selectedCut;
+    const drawn = {};
+    let out = '<g class="hunt-web">';
+    hunt().nodes.forEach(id => {
+      const a = bldgCentre(id);
+      if (!a) return;
+      (adj[id] || []).forEach(n => {
+        const key = id < n ? id + '|' + n : n + '|' + id;
+        if (drawn[key]) return;
+        drawn[key] = true;
+        const c = bldgCentre(n);
+        if (!c) return;
+        const geo = `x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}"`;
+        if (huntHolds(n)) { out += `<line class="hwire" ${geo}/>`; return; }
+        // a street out of them, and therefore something you can cut
+        const yours = hostsIn(buildingById(n)).some(h => h.owned);
+        const sel = !!(cut && cut.a === id && cut.b === n);
+        const next = huntNext() === n;
+        out += `<g class="hreach${sel ? ' sel' : ''}${yours ? ' yours' : ''}${next ? ' next' : ''}" data-cut="${id}|${n}">`
+          + `<line class="hit" ${geo}/><line class="reach" ${geo}/></g>`;
+      });
+    });
+    return out + '</g>';
   }
 
   function svgBuilding(b) {
@@ -4801,6 +4865,7 @@
       return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
     }).join('');
 
+    out += svgHunt();
     out += seen.map(svgBuilding).join('');
     out += svgSelection();
     out += svgBreach();
@@ -4826,6 +4891,9 @@
       // A direct hit is a direct hit.
       const city = t && t.closest ? t.closest('[data-city]') : null;
       if (city) { pickCity(city.getAttribute('data-city')); return; }
+      // a street the response can walk down, tapped directly
+      const cut = t && t.closest ? t.closest('[data-cut]') : null;
+      if (cut) { pickCut(cut.getAttribute('data-cut')); return; }
       const el = t && t.closest ? t.closest('[data-bldg]') : null;
       if (el) { pickBuilding(el.getAttribute('data-bldg')); return; }
 
@@ -5489,6 +5557,53 @@
     });
   }
 
+  function bldgLabel(b) { return b ? window.BUILDING_KINDS[b.kind].label : 'somewhere'; }
+
+  // Standing state for the hunt, in the panel, every turn it is running. It
+  // was possible to be eaten alive without ever being told the cadence, the
+  // share, or that cutting a street was a verb at all.
+  function huntBar() {
+    if (!huntOn()) return '';
+    const H = window.HUNT;
+    const n = hunt().nodes.length;
+    const due = huntDueIn();
+    const nx = huntNext();
+    const share = Math.round(huntShare() * 100);
+    const at = Math.round(H.takesCityAt * 100);
+    const move = nx
+      ? `Next: <b>${bldgLabel(buildingById(nx))}</b>${due <= 0 ? ', this turn' : ` in ${due} turn${due === 1 ? '' : 's'}`}.`
+      : 'Every street out of them is gone. They cannot reach anything.';
+    return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
+      <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
+      ${nx ? '<p class="hb-hint">Tap a red street to take it away — it closes for you too.</p>' : ''}
+    </div>`;
+  }
+
+  // Tapping one of their streets rather than one of their buildings: the same
+  // action, named for the thing you actually pointed at.
+  function cutPanel() {
+    const c = state.selectedCut;
+    const A = buildingById(c.a), B = buildingById(c.b);
+    if (!A || !B) return '';
+    const able = canSever(c.a, c.b);
+    const cost = window.HUNT.severCost;
+    const yours = hostsIn(B).some(h => h.owned);
+    const outs = severable().length;
+    return `
+      <div class="sel">
+        <div class="sel-top"><span class="sel-name">the street to ${bldgLabel(B)}</span><span class="tag-pill bad">their reach</span></div>
+        <p class="sel-desc">${window.HUNT.name} is in ${bldgLabel(A)}. This is how they get to ${bldgLabel(B)}${yours ? ', which is yours' : ''}. ${outs === 1
+          ? 'It is the last street out of them.'
+          : `${outs} streets out of them in all.`}</p>
+        <button class="act-btn${able ? ' primary' : ' no-ap'}" data-act="sever" data-ap="sweep" data-a="${c.a}" data-b="${c.b}">
+          <span class="ab-name">take the street</span>
+          <span class="ab-sub">${ruleBroken('streets') ? `${factionBreaking('streets').name} has the roadworks`
+            : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
+            : `needs ${cost.insight} insight and an action`}</span>
+        </button>
+      </div>`;
+  }
+
   function renderPanel() {
     const $p = document.getElementById('panel');
     if (state.over) {
@@ -5512,7 +5627,9 @@
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
     let sel = '';
 
-    if (h && h.discovered) {
+    if (state.selectedCut) {
+      sel = cutPanel();
+    } else if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = yieldChips(h);
@@ -5575,6 +5692,7 @@
     }
 
     $p.innerHTML = `
+      ${huntBar()}
       ${sel}
       <div class="actions">
         <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scan" data-ap="sweep" data-info="sweep" ${sweepBlocked() && !apShort('sweep') ? 'disabled' : ''}>
@@ -6100,7 +6218,7 @@
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntBlocks, severable, canSever, actSever,
+    huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,

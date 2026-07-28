@@ -2524,6 +2524,92 @@ test('hunt: a city it takes enough of is gone for good', () => {
   assert.equal(d.owned().length, 0, 'everything you had there went with it');
 });
 
+test('hunt: what it holds and what it can reach is on the map, swept or not', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // the honest case: a city you have barely swept, so the frontier is dark
+  s.hosts.slice(0, 20).forEach(h => { h.owned = true; h.discovered = true; });
+  s.hosts.forEach(h => { if (!h.owned) h.discovered = false; });
+  s.buildings.forEach(b => { b.discovered = d.hostsIn(b).some(x => x.owned); });
+  s.res.insight = 900;
+  s.heat = d.strikeThreshold() + 1;
+  d.huntStart();
+
+  const dark = () => d.huntFrontier().filter(id => !d.buildingById(id).discovered).length;
+  assert.equal(dark(), 0, 'nothing it can step onto is invisible to you');
+  for (let t = 0; t < 20; t++) { s.turn += 1; d.huntStep(); }
+  assert.equal(dark(), 0, 'and it stays that way as it walks');
+  assert.ok(d.hunt().nodes.every(id => d.buildingById(id).discovered),
+    'everything it holds is drawn');
+});
+
+test('hunt: it has a web of its own, and every strand of it is a street you can take', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 12; t++) { s.turn += 1; d.huntStep(); }
+  const svg = d.svgHunt();
+
+  // solid between what it holds, dashed down every street out of it
+  const wires = (svg.match(/class="hwire"/g) || []).length;
+  const reach = (svg.match(/data-cut="/g) || []).length;
+  assert.ok(wires > 0, 'it is drawn as a network, not a scatter of red boxes');
+  assert.equal(reach, d.severable().length,
+    'every street out of it is drawn, and only those');
+
+  // and the drawn strand is the thing the verb takes
+  const key = svg.match(/data-cut="([^"]+)"/)[1].split('|');
+  assert.equal(d.huntHolds(key[0]), true, 'a strand starts inside them');
+  assert.equal(d.huntHolds(key[1]), false, 'and ends outside');
+  assert.equal(d.canSever(key[0], key[1]), true, 'and it is severable');
+});
+
+test('hunt: tapping a street is how you cut it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 8; t++) { s.turn += 1; d.huntStep(); }
+  const e = d.severable().find(x => d.canSever(x.from, x.to));
+  assert.ok(e, 'there is a street to point at');
+
+  d.pickCut(e.from + '|' + e.to);
+  assert.deepEqual([s.selectedCut.a, s.selectedCut.b], [e.from, e.to], 'the tap selects it');
+  assert.equal(s.selectedBuilding, null, 'and not a building instead');
+
+  // a street that is not theirs is not a thing you can point at
+  d.pickCut(e.to + '|' + e.from);
+  assert.deepEqual([s.selectedCut.a, s.selectedCut.b], [e.from, e.to], 'backwards is refused');
+
+  s.ap = 9;
+  assert.equal(d.actSever(e.from, e.to), true, 'and the selection can be spent');
+  assert.equal(s.selectedCut, null, 'the street it named no longer exists');
+});
+
+test('hunt: a street you take stays taken, whatever The Cut is doing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 8; t++) { s.turn += 1; d.huntStep(); }
+  const e = d.severable().find(x => d.canSever(x.from, x.to));
+  s.ap = 9;
+  d.actSever(e.from, e.to);
+  assert.equal(s.cuts.length, 1, 'it is on the record');
+
+  // The Cut's own cuts heal on a timer; running that timer must not quietly
+  // drop yours off the list with them
+  const other = Object.keys(s.adjacency).find(k => k !== e.from && (s.adjacency[k] || []).length);
+  s.cuts.push({ a: other, b: s.adjacency[other][0], until: s.turn + 1 });
+  s.turn += 5;
+  d.repairStreets();
+  assert.equal(s.cuts.length, 1, 'theirs healed, yours did not');
+  assert.equal(s.cuts[0].mine, true, 'and the one left is yours');
+  assert.equal((s.adjacency[e.from] || []).indexOf(e.to), -1, 'the street is still gone');
+});
+
 test('hunt: it survives a save, because it is not going anywhere', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
