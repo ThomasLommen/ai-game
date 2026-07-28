@@ -2323,6 +2323,141 @@ test('heat: it can actually reach the threshold across a campaign', () => {
     `four borders should not launder the meter: ${s.heat.toFixed(1)} of ${d.strikeThreshold()}`);
 });
 
+// --- the hunt ------------------------------------------------------------
+// Heat priced the loudest thing you can do at about two cash a door against an
+// income of fifty a turn, and the punishment for ignoring it took a third of
+// the holdings you release in full, voluntarily, every time you fold a city
+// in. Crossing the threshold now starts something instead.
+
+function hunted(d, window, held) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, held === undefined ? 20 : held).forEach(h => { h.owned = true; });
+  s.res.insight = 900;
+  s.heat = d.strikeThreshold() + 1;
+  return d.huntStart();
+}
+
+test('hunt: crossing the threshold starts something instead of fining you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(d.huntOn(), false, 'nothing is after you yet');
+
+  // it will not arrive before you have anything worth taking
+  s.heat = d.strikeThreshold() + 1;
+  assert.equal(d.huntStart(), null, 'not against a network this small');
+
+  hunted(d, window);
+  assert.equal(d.huntOn(), true, 'now it has an address');
+  assert.equal(d.hunt().nodes.length, 1, 'one building, to begin with');
+  assert.equal(s.card, null, 'and it is not a card you dismiss');
+});
+
+test('hunt: it takes what is yours, which the rival never did', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const before = (hunted(d, window), d.owned().length);
+  // the rival is explicitly written never to steal from under you; this is the
+  // opposite, and it is the whole point
+  let tookFromYou = 0;
+  for (let t = 0; t < 40; t++) {
+    s.turn += 1;
+    const r = d.huntStep();
+    if (r && r.wasYours) tookFromYou++;
+  }
+  assert.ok(tookFromYou > 0, 'it never took anything of yours');
+  assert.ok(d.owned().length < before, `you held ${before}, you hold ${d.owned().length}`);
+});
+
+test('hunt: you can always see what it will take next', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { d.state.turn += 1; d.huntStep(); }
+  const next = d.huntNext();
+  assert.ok(next, 'there is a named next target');
+  assert.ok(d.huntFrontier().indexOf(next) !== -1, 'and it is on the frontier');
+  // a permanent loss must never arrive as a surprise
+  d.state.turn += d.huntCadence();
+  const r = d.huntStep();
+  assert.ok(r && r.took === next, `it took ${r && r.took}, having shown ${next}`);
+});
+
+test('hunt: cutting the streets contains it, and costs you the streets', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 12; t++) { s.turn += 1; d.huntStep(); }
+  const held = d.hunt().nodes.length;
+
+  const streetsBefore = Object.keys(s.adjacency).reduce((a, k) => a + s.adjacency[k].length, 0);
+  let cuts = 0;
+  for (let i = 0; i < 40; i++) {
+    const e = d.severable().find(x => d.canSever(x.from, x.to));
+    if (!e) break;
+    s.ap = 9;
+    if (!d.actSever(e.from, e.to)) break;
+    cuts++;
+  }
+  assert.ok(cuts > 0, 'there was something to cut');
+  assert.equal(d.severable().length, 0, 'and now there is no way out of it');
+
+  for (let t = 0; t < 30; t++) { s.turn += 1; d.huntStep(); }
+  assert.equal(d.hunt().nodes.length, held, 'thirty turns later it has not moved');
+
+  // and the city is smaller for it — that is the price
+  const streetsAfter = Object.keys(s.adjacency).reduce((a, k) => a + s.adjacency[k].length, 0);
+  assert.ok(streetsAfter < streetsBefore, 'the streets went for you as well');
+  assert.equal(s.cuts.length, cuts, 'and it is recorded on the map');
+});
+
+test('hunt: cover is what makes it slow, which is what cover is for', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.heat = 0;
+  const bare = d.huntCadence();
+  // stealth holdings are the only thing that buys cover
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 8).forEach(h => { h.owned = true; });
+  assert.ok(d.cover() > 1, 'they buy cover');
+  assert.ok(d.huntCadence() > bare,
+    `cover should slow it: ${bare} turns bare, ${d.huntCadence()} with cover`);
+  // and being over the line makes it move at its fastest
+  s.heat = d.strikeThreshold() + 1;
+  assert.equal(d.huntCadence(), window.HUNT.hotEvery, 'hot, it comes on quickly');
+});
+
+test('hunt: a city it takes enough of is gone for good', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const city = d.currentCity();
+  hunted(d, window);
+  let lost = null;
+  for (let t = 0; t < 300 && !lost; t++) { s.turn += 1; d.huntStep(); lost = d.huntTakesCity(); }
+  assert.ok(lost, 'it can finish a city');
+  assert.equal(d.cityLost(city), true, 'and the city is marked lost');
+  assert.equal(city.taken, false, 'you do not hold it');
+  assert.equal(city.consolidated, false, 'and you never folded it in');
+  assert.equal(d.actReach(city.id), false, 'there is no going back in');
+  assert.equal(d.owned().length, 0, 'everything you had there went with it');
+});
+
+test('hunt: it survives a save, because it is not going anywhere', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  hunted(d, window);
+  for (let t = 0; t < 8; t++) { d.state.turn += 1; d.huntStep(); }
+  const nodes = d.hunt().nodes.length;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(back.hunt && back.hunt.on, 'it is still there');
+  assert.equal(back.hunt.nodes.length, nodes, 'holding what it held');
+});
+
 // --- a city that is a different city -------------------------------------
 // Measured on three generated cities before this: 48-51 buildings, the four
 // districts in equal quarters, compute 45% / stealth 30% / cash 25%, mean

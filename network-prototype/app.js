@@ -982,6 +982,8 @@
     // an arrest, and nobody is arresting you any more.
     if (warShouldOpen()) openWar();
 
+    huntStep();           // and whatever is walking the streets toward you
+    huntTakesCity();      // ...and whether it has taken the whole thing
     cellStep();           // whoever you sent, and whether they have finished
     const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
     // Clearing a stale arrest is not a substitute for drawing a card. As an
@@ -991,7 +993,16 @@
     // last act.
     if (warOn() && state.card && state.card.kind === 'strike') state.card = null;
     if (!warOn() && state.heat >= strikeThreshold() && cooled && !state.card) {
-      state.card = { kind: 'strike' };
+      // The first time you cross, it starts the hunt instead of fining you. A
+      // fine was payable in the currency you have most of; this is not payable
+      // at all. Once it is running, crossing again only makes it move faster —
+      // one consequence for one meter, rather than two that ignore each other.
+      const started = huntStart();
+      if (started) {
+        state.lastStrikeTurn = state.turn;
+      } else if (!huntOn()) {
+        state.card = { kind: 'strike' };
+      }
     } else if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -1029,6 +1040,159 @@
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
     persistNow();
+  }
+
+  // --- the hunt ----------------------------------------------------------
+  // Crossing the threshold no longer fines you: it starts something, inside the
+  // city you are standing in, that walks along the streets and takes what you
+  // hold. See country.js for why the fine could never have worked.
+  function hunt() { return state.hunt || null; }
+  function huntOn() { const h = hunt(); return !!(h && h.on); }
+  function huntHolds(bid) { return huntOn() && state.hunt.nodes.indexOf(bid) !== -1; }
+  function huntShare() {
+    const all = (state.buildings || []).length;
+    return all ? (hunt() ? hunt().nodes.length : 0) / all : 0;
+  }
+  // How long between its moves. Cover is what makes you hard to follow — this
+  // is the first thing in the game that gives cover a job beyond gating one
+  // door, and it is why a stealth holding is worth taking.
+  function huntCadence() {
+    const H = window.HUNT;
+    if (state.heat >= strikeThreshold()) return H.hotEvery;
+    return Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+  }
+  function huntDueIn() {
+    const h = hunt();
+    if (!huntOn()) return null;
+    return Math.max(0, (h.lastActed + huntCadence()) - state.turn);
+  }
+  // Everything it could step onto next, along the streets from what it holds.
+  // Always shown: a permanent loss must never arrive as a surprise.
+  function huntFrontier() {
+    if (!huntOn()) return [];
+    const adj = state.adjacency || {};
+    const out = {};
+    hunt().nodes.forEach(id => {
+      (adj[id] || []).forEach(n => {
+        if (huntHolds(n)) return;
+        out[n] = true;
+      });
+    });
+    return Object.keys(out);
+  }
+  // what it will actually take, of those: yours first, and the biggest of them
+  function huntNext() {
+    const opts = huntFrontier();
+    if (!opts.length) return null;
+    const score = (bid) => {
+      const hs = hostsIn(buildingById(bid));
+      const mine = hs.some(h => h.owned);
+      return (mine ? 1000 : 0) + hs.reduce((a, h) => a + h.threads, 0);
+    };
+    return opts.slice().sort((a, b) => score(b) - score(a))[0];
+  }
+  function huntStart() {
+    if (huntOn() || state.scope !== 'city') return null;
+    if (owned().length < window.HUNT.minHeld) return null;
+    // it starts on something of yours: the point is that it takes, not that it
+    // races you for open ground the way the rival does
+    const mine = owned().slice().sort((a, b) => a.threads - b.threads);
+    const seed = mine[0];
+    if (!seed) return null;
+    state.hunt = { on: true, nodes: [seed.buildingId], since: state.turn, lastActed: state.turn };
+    hostsIn(buildingById(seed.buildingId)).forEach(h => { h.owned = false; });
+    pushLog(`${window.HUNT.name} has an address. They are inside ${window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label}, and they are not leaving.`);
+    showBanner([{ kind: 'faction', verb: 'against you', label: window.HUNT.name }]);
+    return state.hunt;
+  }
+  function huntStep() {
+    if (state.scope !== 'city') return null;
+    if (!huntOn()) return null;
+    const h = state.hunt;
+    if (state.turn - h.lastActed < huntCadence()) return null;
+    const take = huntNext();
+    if (!take) return null;                    // contained: every street cut
+    h.lastActed = state.turn;
+    h.nodes.push(take);
+    const b = buildingById(take);
+    const was = hostsIn(b).filter(x => x.owned);
+    was.forEach(x => { x.owned = false; });
+    // they came for a result and they have one; the pressure eases until it
+    // does not. This is the only thing that brings heat down hard now that the
+    // fine is gone, and it is what keeps cover meaningful.
+    state.heat = clampHeat(state.heat - window.HUNT.takeSheds);
+    pushLog(was.length
+      ? `They are in ${window.BUILDING_KINDS[b.kind].label} now. It was yours.`
+      : `They take ${window.BUILDING_KINDS[b.kind].label}. Nobody was using it.`);
+    return { took: take, wasYours: was.length > 0 };
+  }
+  // A building they hold is not yours to take, the same way the rival's are
+  function huntBlocks(host) { return !!host && huntHolds(host.buildingId); }
+
+  // Past a share of it, the city is theirs and it goes off the national map.
+  // This is the ratchet: early on there is no verb that takes a city back, so
+  // the loss is permanent and the only answers were the ones you had before it
+  // happened — sever a street, or be somewhere else.
+  function huntTakesCity() {
+    if (!huntOn() || huntShare() < window.HUNT.takesCityAt) return null;
+    const c = currentCity();
+    if (!c) return null;
+    c.lost = true;
+    c.taken = false;
+    c.consolidated = false;
+    c.snapshot = null;
+    // whatever you were holding in it goes with it
+    unpackCity(EMPTY_CITY());
+    state.hunt = null;
+    pushLog(`${c.name} is theirs. There is no version of going back in.`);
+    showBanner([{ kind: 'faction', verb: 'lost', label: c.name }]);
+    switchScope('country');
+    checkFactions();
+    persistNow();
+    render();
+    return c;
+  }
+  function cityLost(c) { return !!(c && c.lost); }
+
+  // Your answer, and the whole decision: the street goes for you as well. You
+  // contain it by making the city smaller, which costs you exactly the thing
+  // you came here to accumulate.
+  function severable() {
+    if (!huntOn()) return [];
+    const adj = state.adjacency || {};
+    const out = [];
+    hunt().nodes.forEach(id => {
+      (adj[id] || []).forEach(n => {
+        if (huntHolds(n)) return;             // internal to them, nothing to cut
+        out.push({ from: id, to: n });
+      });
+    });
+    return out;
+  }
+  function canSever(a, b) {
+    if (!huntOn() || state.card || state.over) return false;
+    if (!huntHolds(a) || huntHolds(b)) return false;
+    const adj = state.adjacency || {};
+    if ((adj[a] || []).indexOf(b) === -1) return false;
+    if (ruleBroken('streets')) return false;  // The Cut takes this away from you
+    const c = window.HUNT.severCost;
+    return Object.keys(c).every(k => (state.res[k] || 0) >= c[k]) && canAfford('sweep');
+  }
+  function actSever(a, b) {
+    if (!canSever(a, b)) return false;
+    const H = window.HUNT;
+    spendAP('sweep');
+    for (const k in H.severCost) state.res[k] -= H.severCost[k];
+    const adj = state.adjacency;
+    adj[a] = (adj[a] || []).filter(x => x !== b);
+    adj[b] = (adj[b] || []).filter(x => x !== a);
+    state.cuts = (state.cuts || []).concat([[a, b]]);
+    state.heat = clampHeat(state.heat + H.severHeat);
+    const A = buildingById(a), B = buildingById(b);
+    pushLog(`The street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label} is gone. It was the only way through for both of you.`);
+    persistNow();
+    render();
+    return true;
   }
 
   // --- the rival ---------------------------------------------------------
@@ -1072,7 +1236,13 @@
   function rivalStep() {
     const r = state.rival;
     if (!r) return null;
-    const heldCount = Object.keys(heldBuildingIds()).length;
+    // What has been taken out of this city, by anyone. It used to be only what
+    // you are holding right now, and the response takes buildings off you — so
+    // a hunted player shrank below the threshold and the rival never stirred,
+    // or stopped mid-expansion. A competitor notices a city being carved up;
+    // it does not check whose name is on the deeds.
+    const heldCount = Object.keys(heldBuildingIds()).length
+      + (huntOn() ? hunt().nodes.length : 0);
 
     if (!r.awake) {
       if (heldCount < window.RIVAL.wakesAtHeld) return null;
@@ -1109,7 +1279,7 @@
 
   // A building the rival holds cannot be taken by you — the city is finite now.
   function rivalBlocks(h) {
-    return !!h && rivalHolds(h.buildingId);
+    return (!!h && huntHolds(h.buildingId)) || (!!h && rivalHolds(h.buildingId));
   }
 
   // You only learn about the rival where you can see. Its first appearance is
@@ -2387,7 +2557,7 @@
 
   function actReach(id) {
     const c = cityById(id);
-    if (!c || !cityReachable(c) || !canAffordCountry('reach')) return false;
+    if (!c || cityLost(c) || !cityReachable(c) || !canAffordCountry('reach')) return false;
     // you handed this one over; walking into it yourself is not a second
     // route in, it is two of you working the same streets
     if (c.cell && !c.cell.done) return false;
@@ -3982,7 +4152,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
-      war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0,
+      war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, hunt: state.hunt || null,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -3996,7 +4166,7 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
-        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0,
+        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, hunt: saved.hunt || null,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -4245,8 +4415,13 @@
     const theirs = rivalHolds(b.id);
     const mine = !!(h && h.owned);
     const open = !!(h && isFrontier(h));
+    const hunted = huntHolds(b.id);
+    // what it will step onto next, marked before it happens — a permanent loss
+    // must never arrive as a surprise
+    const nextUp = huntOn() && huntNext() === b.id;
     const cls = ['bldg', b.kind, h ? h.role : '', b.landmark ? 'landmark' : '',
-                 theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : ''))];
+                 hunted ? 'hunted' : theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : '')),
+                 nextUp ? 'next-up' : ''];
     if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
     const fx = sweepFx && sweepFx.ids[b.id] !== undefined ? sweepDelay(sweepFx.ids[b.id]) : null;
     if (fx !== null) cls.push('found');
@@ -5300,6 +5475,30 @@
             </button>
             ${assetPanel(b)}
           </div>`;
+      } else if (huntBlocks(h)) {
+        // theirs. What you can still do is take the street away.
+        const adj = (state.adjacency || {})[b.id] || [];
+        const outs = adj.filter(n => !huntHolds(n));
+        sel = `
+          <div class="sel">
+            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill bad">theirs</span></div>
+            <p class="sel-desc">${window.HUNT.name} is inside. ${outs.length
+              ? `${outs.length} street${outs.length === 1 ? '' : 's'} out of it.`
+              : 'Every street out of it is gone. It cannot go anywhere from here.'}</p>
+            <div class="actions tight">
+            ${outs.map(n => {
+              const NB = buildingById(n);
+              const able = canSever(b.id, n);
+              const cost = window.HUNT.severCost;
+              return `<button class="act-btn${able ? '' : ' no-ap'}" data-act="sever" data-a="${b.id}" data-b="${n}">
+                <span class="ab-name">take the street to ${window.BUILDING_KINDS[NB.kind].label}</span>
+                <span class="ab-sub">${ruleBroken('streets') ? `${factionBreaking('streets').name} has the roadworks`
+                  : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
+                  : `needs ${cost.insight} insight and an action`}</span>
+              </button>`;
+            }).join('')}
+            </div>
+          </div>`;
       } else if (isFrontier(h)) {
         sel = `
           <div class="sel">
@@ -5381,6 +5580,7 @@
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'claim') claimAsset(b.getAttribute('data-bid'));
         else if (a === 'retool') actRetool(b.getAttribute('data-bid'));
+        else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
       });
     });
   }
@@ -5844,6 +6044,8 @@
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
+    hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
+    huntStart, huntStep, huntBlocks, severable, canSever, actSever,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,

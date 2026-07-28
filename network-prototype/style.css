@@ -1045,6 +1045,21 @@ footer .build { opacity: .55; font-size: 10px; }
   font-family: var(--mono, monospace); letter-spacing: .02em;
 }
 
+/* what the response holds, and what it is walking toward. Deliberately the
+   loudest thing on the city map: it is the only permanent loss in the game. */
+.bldg.hunted rect, .bldg.hunted .body {
+  fill: #2a1416; stroke: var(--heat); stroke-width: 2;
+}
+/* under #graph on purpose: the role rules are three classes deep
+   (.bldg.all-held.stealth .body) and would otherwise repaint the stroke of
+   the very building you are being warned about */
+#graph .bldg.next-up .body, #graph .bldg.next-up rect {
+  stroke: var(--heat); stroke-width: 2; stroke-dasharray: 5 4;
+  animation: next-up 1.6s linear infinite;
+}
+@keyframes next-up { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) { .bldg.next-up .body { animation: none; } }
+
 .cnode .prize {
   fill: var(--cover);
   stroke: #0d120f;

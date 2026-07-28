@@ -572,6 +572,56 @@ window.ASSET_RULES = {
   retoolKinds: ['warehouse', 'datacenter', 'office'],
 };
 
+// --- the hunt ------------------------------------------------------------
+// Heat used to be a cash tax. Forcing a door costs 3 heat, a wash sheds 11 for
+// 8 cash, so the loudest thing you can do priced at about two cash a door
+// against an income of fifty a turn. And the punishment for ignoring it was a
+// strike taking a third of your holdings — a third of the thing you release
+// deliberately, all of it, every time you fold a city in. The worst the state
+// could do was a smaller version of something you do to yourself and call
+// winning.
+//
+// So crossing the threshold no longer fines you. It starts something. It takes
+// a building of yours inside the city you are standing in, garrisons it, and
+// walks along the streets from there. What it holds, you do not.
+//
+// The important part is that it does not go away when you leave. A city it
+// takes enough of is lost off the national map for good — early on you have no
+// way to take one back, so every loss is permanent and the only answers are
+// spatial: sever the street it would have walked down, and accept that the
+// street is gone for you too. Later, when there are flocks, the cities it
+// holds are exactly what a flock knows how to attack, and the ratchet lets go.
+window.HUNT = {
+  name: 'the response',
+  // it does not arrive before you have anything to lose, or before there is a
+  // street network worth cutting
+  minHeld: 8,
+  // turns between moves. It slows down as your cover rises: cover is what
+  // makes you hard to follow, and until now its only job in the whole engine
+  // was gating one door type.
+  everyBase: 6,
+  perCover: 0.22,          // turns added per point of cover
+  everyMax: 14,
+  // and speeds up while you are over the line
+  hotEvery: 3,
+  // A strike used to drop heat to a quarter of the threshold — it was the only
+  // thing in the game that ever brought the meter down hard, and replacing it
+  // left every profile sitting permanently over the line at a mean of 34 to
+  // 61 against a threshold of 43. Permanently over means permanently at the
+  // fast cadence, which flattens the one thing cover was finally good for.
+  //
+  // So a result eases the pressure: they came for something and they got it.
+  // Heat builds, they take a building, it eases, it builds again — and how
+  // long that cycle takes is what cover buys you.
+  takeSheds: 9,
+  // what it takes off you when it moves onto something you hold
+  // (it takes the building; the stability loss is what that costs elsewhere)
+  takesCityAt: 0.45,       // share of a city it holds before the city is lost
+  // severing a street: loud, and it is gone for you as well
+  severCost: { insight: 6 },
+  severHeat: 4,
+};
+
 // --- what makes a city a different city ----------------------------------
 // Measured on three generated cities: 48-51 buildings, the four districts in
 // roughly equal quarters, compute 45% / stealth 30% / cash 25%, mean defense

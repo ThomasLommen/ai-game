@@ -129,6 +129,23 @@ function rank(h) { return h.role === 'stealth' ? 1 : 0; }
 function campaign(d, style) {
   const s = d.state;
 
+  // Contain the response before anything else. It takes what you hold and it
+  // does not give any of it back, so a turn spent cutting is worth more than a
+  // turn spent taking — but only while there is something worth walling off.
+  // Without this the profiles simply stood there and were eaten, and the
+  // report measured the bot's ignorance of the verb rather than the balance.
+  if (s.scope === 'city' && d.huntOn()) {
+    const next = d.huntNext();
+    const nextHost = next && s.hosts.find(h => h.buildingId === next && h.owned);
+    // cut when it is about to take something of yours, or when a couple of
+    // snips would seal it in entirely
+    const outs = d.severable();
+    if (outs.length && (nextHost || outs.length <= 2)) {
+      const cut = outs.find(e => d.canSever(e.from, e.to));
+      if (cut && d.actSever(cut.from, cut.to)) return 'sever';
+    }
+  }
+
   // Keep the plant you are standing on before you fold the city — it is the
   // only thing that survives, and it is what the war is fought out of.
   if (s.scope === 'city') {
