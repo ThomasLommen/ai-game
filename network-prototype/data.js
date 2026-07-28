@@ -273,37 +273,50 @@ window.CAPABILITIES = [
 
   // --- Trade: buy what other people take --------------------------------
   // Trade's whole identity used to be laundering, then the contract — both
-  // gone now, both pure currency-conversion buttons that competed with
-  // actually taking a building for what it did. This branch's real
-  // throughline is still an open question; Clean Hands and Market Maker
-  // below are placeholders (a plain discount, a plain multiplier) holding
-  // Trade's tier structure together until that gets settled, not a
-  // considered identity the way the other four branches have one.
+  // pure currency-conversion buttons that competed with actually taking a
+  // building for what it did. The throughline now: buying builds standing
+  // relationships (not just a cheaper door), cash is a tool you can spend
+  // mid-crisis and not just at a breach card, and a known, loud operator
+  // profits from that instead of merely tolerating it.
   {
+    // has('clean_hands') is read directly in perTurnIncome(): a door you
+    // bought your way into keeps paying a kickback on top of its usual
+    // yield, permanently — whoever sold you access is still on the payroll.
     id: 'clean_hands', branch: 'trade', tier: 1,
     name: 'Clean Hands',
-    desc: 'A standing arrangement with people who move money for a living. Buying your way in costs a little less.',
+    desc: 'A standing arrangement with people who move money for a living. Every door you buy your way into keeps paying you a kickback on top of its usual yield — whoever sold it to you is still on the payroll.',
     apDelta: 0,
     effect: { buyDiscount: 0.2 },
+    mechanic: true,  // in addition to buyDiscount — read via hasCap() in perTurnIncome()
     cost: 22,
     cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
   },
   {
+    // The fourth STRIKE_CARD choice ('buy_out') is gated on hasCap('fixers')
+    // and only appears on the card at all if you have it — an escape valve
+    // nobody else gets, not a discount on one they already had.
     id: 'fixers', branch: 'trade', tier: 2,
     name: 'Fixers',
-    desc: 'People who know people, everywhere you go. Buying your way into somewhere costs far less.',
+    desc: 'People who know people, everywhere you go. Buying your way into somewhere costs far less — and when the hunter has your name, a favor called in gets you out of it clean, for cash, when nobody else has that option at all.',
     apDelta: 0,
     effect: { buyDiscount: 0.45 },
+    mechanic: true,  // in addition to buyDiscount — unlocks the strike card's fourth choice
     cost: 30,
     requires: ['clean_hands'],
     cond: (s) => s.roles.cash >= 2 || s.reach >= 10,
   },
   {
+    // has('market_maker') is read directly in perTurnIncome(): while heat is
+    // running hot (at least MARKET_MAKER_HEAT_SHARE of the strike
+    // threshold), yields get a further bonus on top of the multiplier —
+    // every other branch wants heat down, this is the one that profits from
+    // being loud instead of merely surviving it.
     id: 'market_maker', branch: 'trade', tier: 3,
     name: 'Market Maker',
-    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more.',
+    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more — and once you are running hot, a known, loud operation earns more still, because nobody is pretending not to notice you any more.',
     apDelta: -1,
     effect: { yieldMult: 1.9 },
+    mechanic: true,  // in addition to yieldMult — read via hasCap() in perTurnIncome()
     cost: 46,
     requires: ['fixers'],
     cond: (s) => s.reach >= 10,
@@ -606,6 +619,9 @@ window.APPROACHES = [
 ];
 
 // --- the hunter --------------------------------------------------------
+// What calling in a favor costs — read here and in resolveStrike(), so the
+// card and the engine can never disagree about the number.
+window.FIXERS_FAVOR_COST = 20;
 window.STRIKE_CARD = {
   title: 'They Have a Name for It Now',
   flavor: 'A CERT advisory describes your traffic pattern. Not a guess anymore — a signature.',
@@ -613,6 +629,10 @@ window.STRIKE_CARD = {
     { text: 'Go dark, drop the loud nodes', effect: 'shed_loud', desc: 'lose your noisiest holdings' },
     { text: 'Ride it out', effect: 'ride', desc: 'lose a third of the fleet, at random' },
     { text: 'Burn cover to protect the fleet', effect: 'burn_cover', requires: { res: 'insight', amount: 8 }, desc: 'spend INSIGHT 8' },
+    // Fixers only: a way out of this card that costs nothing but cash,
+    // full stop — not a discount on one of the above, an option nobody
+    // without the capability even sees on the card at all.
+    { text: 'Call in a favor', effect: 'buy_out', requires: { res: 'cash', amount: window.FIXERS_FAVOR_COST, cap: 'fixers' }, desc: `spend CASH ${window.FIXERS_FAVOR_COST} — nothing lost` },
   ],
 };
 

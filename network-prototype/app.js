@@ -1162,18 +1162,28 @@
   // panel transcribing the raw table said "+2 insight" for a server that had
   // been paying 3.2 since the player bought Bulk Processing.
   const BULK_OPS_MATURE_TURNS = 3, BULK_OPS_BONUS = 1.6;
+  // Market Maker: a known, loud operation profits from that instead of just
+  // risking it — heat has to be at least this share of the strike threshold
+  // before the bonus kicks in, and this is the size of it.
+  const MARKET_MAKER_HEAT_SHARE = 0.5, MARKET_MAKER_HOT_BONUS = 1.4;
+  // Clean Hands: whoever sold you the door stays on the payroll — a holding
+  // you bought your way into keeps paying a kickback on top of its yield.
+  const CLEAN_HANDS_BOUGHT_BONUS = 1.4;
   function perTurnIncome() {
-    const mult = capEffect('yieldMult', 1);
+    const mult = capEffect('yieldMult', 1)
+      * ((hasCap('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
     // Bulk Processing does not make everything worth more on the spot — it
     // rewards ground you have actually settled into, not ground you took last
     // turn. A holding under three turns old pays exactly as it always did.
     const matures = hasCap('bulk_ops');
+    const cleanHands = hasCap('clean_hands');
     const out = {};
     const add = (k, v) => { out[k] = (out[k] || 0) + v; };
     owned().forEach(h => {
       const y = window.HOST_TYPES[h.type].yield || {};
-      const bonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
-      for (const k in y) add(k, y[k] * mult * bonus);
+      const maturedBonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
+      const boughtBonus = (cleanHands && h.boughtIn) ? CLEAN_HANDS_BOUGHT_BONUS : 1;
+      for (const k in y) add(k, y[k] * mult * maturedBonus * boughtBonus);
     });
     // finished cities pay whether or not you are standing in them — that is
     // the whole point of folding one in. presenceYield already carries the
@@ -1842,6 +1852,9 @@
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
     if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
+    if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
+    if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
+    if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
     return out.join('');
@@ -2715,6 +2728,9 @@
     if (out.hold) {
       h.owned = true;
       h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into
+      // Clean Hands reads this: whoever sold you the door stays on the
+      // payroll, permanently, however you came to hold it after
+      if (a.id === 'buy') h.boughtIn = true;
       // cumulative and never reset — owned() empties every time you fold a
       // city in, so anything keyed to it can only ever measure the city you
       // are standing in
@@ -2761,6 +2777,9 @@
     } else if (effect === 'burn_cover') {
       if (state.res.insight < 8) return;
       state.res.insight -= 8;
+    } else if (effect === 'buy_out') {
+      if (!hasCap('fixers') || state.res.cash < window.FIXERS_FAVOR_COST) return;
+      state.res.cash -= window.FIXERS_FAVOR_COST;
     }
     burned.forEach(h => { h.owned = false; h.stability = 1; });
     // At national scale the streets are not where you live. A strike that only
@@ -6885,7 +6904,7 @@
           <p class="flavor">${c.flavor}</p>
         </div>
         <div class="choices">
-          ${c.choices.map(ch => {
+          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || hasCap(ch.requires.cap)).map(ch => {
             const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
             return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
