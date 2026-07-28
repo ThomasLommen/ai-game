@@ -394,11 +394,17 @@ window.CAPABILITIES = [
   // Bulk Processing and two strands of −1 in one branch put you under the
   // floor, and because a line that runs itself is the whole idea.
   {
+    // Read directly via hasCap('standing_army'): perTurnIncome() pays a flat
+    // retainer whether or not war ever comes, and openWar() (the one moment
+    // it truly matters) spends that same war-chest to station a guard flock
+    // over as many folded-in cities as you can currently afford, instead of
+    // starting the war from zero.
     id: 'standing_army', branch: 'reach', tier: 3,
     name: 'Standing Army',
-    desc: 'The lines run whether or not you are watching them, and what comes off the end is heavier than what came off it last month. Nothing to fight yet. That is rather the point of having it first.',
+    desc: 'The lines run whether or not you are watching them, and what comes off the end is heavier than what came off it last month. It pays its own way in the meantime, a retainer either way. Nothing to fight yet — but if that ever changes, whatever you can afford to cover is already standing guard the instant it does, not built up from nothing.',
     apDelta: 0,
     effect: { flockBonus: 2, flockMult: 1.25 },
+    mechanic: true,  // in addition to flockBonus/flockMult — retainer income + auto-guard at war-open, read via hasCap()
     cost: 70,
     requires: ['pontoon'],
     // Not gated on presence, which is the obvious choice and the wrong one:

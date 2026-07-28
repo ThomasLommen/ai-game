@@ -1169,6 +1169,10 @@
   // Clean Hands: whoever sold you the door stays on the payroll — a holding
   // you bought your way into keeps paying a kickback on top of its yield.
   const CLEAN_HANDS_BOUGHT_BONUS = 1.4;
+  // Standing Army: a force raised in case the shooting starts is still a
+  // standing expense either way — it rents itself out for the duration,
+  // whether or not the war ever actually opens.
+  const STANDING_ARMY_RETAINER = 6;
   function perTurnIncome() {
     const mult = capEffect('yieldMult', 1)
       * ((hasCap('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
@@ -1194,6 +1198,7 @@
     // that is the whole point of it having survived the fold
     const a = assetYield();
     for (const k in a) add(k, a[k] * mult);
+    if (hasCap('standing_army')) add('cash', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -1898,6 +1903,7 @@
     if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
     if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
     if (c.id === 'standing_orders') add('cash', `anything slipping shores itself up at turn's end, for ${SHORE_INSIGHT_COST} insight, no action spent`);
+    if (c.id === 'standing_army') add('cash', `a retainer either way: +${STANDING_ARMY_RETAINER} cash a turn, and if war comes, it is already standing guard over what you can afford to cover`);
     if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
@@ -4164,6 +4170,24 @@
     pushLog('They have stopped trying to arrest you.');
     if (rolled.length) {
       pushLog(`The army is in ${rolled.length === 1 ? rolled[0].name : rolled.length + ' cities you had folded in'}. That is not policing.`);
+    }
+    // Standing Army: raised in case the shooting started, so if it does, it
+    // is already standing over what it is defending instead of building up
+    // from zero — but it costs exactly what fielding a flock always costs,
+    // for each city, so it only covers as much as you can actually afford
+    // the instant the war opens rather than arriving free.
+    if (hasCap('standing_army')) {
+      const guarded = [];
+      const cost = window.WAR.flockCost;
+      const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
+      priority.forEach(c => {
+        if (flocksFree() <= 0 || state.res.insight < cost) return;
+        const seat = launchSeat(c.id) || c;
+        if (fieldFlock(seat.id, c.id, 'guard')) { state.res.insight -= cost; guarded.push(c); }
+      });
+      if (guarded.length) {
+        pushLog(`The army you funded in case this came already stands over ${guarded.length === 1 ? guarded[0].name : guarded.length + ' cities'}.`);
+      }
     }
     showBanner([{ kind: 'war', verb: 'open war', label: 'They are coming for you' }]);
     return state.war;
