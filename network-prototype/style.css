@@ -990,11 +990,12 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 
 /* --- the country ----------------------------------------------------- */
-/* Land, not bands. Sea underneath, one coastline around the whole country,
-   and five territories that tile along irregular shared borders. A region you
-   have never been to is drawn but unlit — you can see the shape of the country
-   from the start, you just do not know anything about it yet. */
-.sea { fill: #05090c; }
+/* Land, not bands. Only the east is ever a coastline; the other three sides
+   of the country are simply not drawn as an edge at all, so there is one
+   place the ocean is visible rather than a jagged perimeter on all four. A
+   region you have never been to is drawn but unlit — you can see the shape of
+   the country from the start, you just do not know anything about it yet. */
+.sea { fill: #071013; }
 .coast {
   fill: #0b100e;
   stroke: color-mix(in srgb, var(--cover) 42%, transparent);
@@ -1012,6 +1013,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .terr.midlands{ fill: #0c110d; }
 .terr.capital { fill: #0c0f0f; }
 .terr.north   { fill: #0a0f0c; }
+/* the only borders drawn are the ones shared between two territories — the
+   outer edge of the first region and the last is not a border with anything */
 .terr-edge {
   fill: none; stroke: #202b26; stroke-width: 1.2; stroke-linejoin: round;
   stroke-dasharray: 9 6;
@@ -1020,6 +1023,14 @@ footer .build { opacity: .55; font-size: 10px; }
 .terr-edge.river {
   stroke: color-mix(in srgb, var(--cover) 40%, transparent); stroke-width: 2.6;
 }
+/* Lakes and forest stands: real shapes, not sprinkled marks — a road will
+   not cross one, so what is drawn is the same water the road generator
+   respected. */
+.water-forest .lake {
+  fill: color-mix(in srgb, var(--cover) 22%, #0a1518);
+  stroke: color-mix(in srgb, var(--cover) 38%, transparent); stroke-width: 1;
+}
+.water-forest .forest { fill: #16241a; opacity: .8; }
 /* the lie of the land: sparse, low contrast, never under a city */
 .terrain .tm { fill: none; stroke: #2b3a35; stroke-width: 1.1; }
 .terrain .tm.park { fill: #1e3324; stroke: none; }
@@ -1032,8 +1043,12 @@ footer .build { opacity: .55; font-size: 10px; }
   font-family: ui-monospace, Menlo, monospace;
 }
 
-.road { fill: none; stroke: #1e2724; stroke-width: 1.3; stroke-dasharray: 4 5; }
-.road.live { stroke: color-mix(in srgb, var(--cover) 55%, transparent); stroke-dasharray: none; stroke-width: 2.4; }
+/* A road, drawn like one: a dark casing under a lighter fill line, the way a
+   real map draws a road rather than as one abstract dashed edge. */
+.road-casing { fill: none; stroke: #101614; stroke-width: 4; stroke-linecap: round; }
+.road-line   { fill: none; stroke: #263430; stroke-width: 1.6; stroke-linecap: round; }
+.road-casing.live { stroke: color-mix(in srgb, var(--cover) 30%, #101614); stroke-width: 4.6; }
+.road-line.live   { stroke: color-mix(in srgb, var(--cover) 70%, transparent); stroke-width: 2.2; }
 
 .cnode { cursor: pointer; }
 .cnode .hit { fill: transparent; }

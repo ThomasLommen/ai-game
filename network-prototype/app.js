@@ -567,53 +567,55 @@
   const bandY0 = (i) => window.COUNTRY.pad + (i - 0.5) * window.COUNTRY.bandH;
   const LAND_COLS = 12;
   let landCache = null;
+  // Only one side of the country is ever a coastline: the east. The other
+  // three edges used to all wobble independently, with sea visible all the
+  // way around — four crooked lines fighting each other. Now the west, north
+  // and south simply run off past anywhere the camera can reach, unstroked,
+  // fading into the same dark ground as the sea rather than terminating in a
+  // border. What tells you a border exists is the label, the terrain
+  // underfoot, and the line between two territories — not a jagged edge.
   function buildLand(seed) {
     const K = window.COUNTRY;
     const N = window.REGIONS.length;
     const R = landRand(seed);
-    const W = K.mapW;
     const bandY = (i) => K.pad + (i - 0.5) * K.bandH;
 
-    // how far the land reaches east and west at the height of each border
-    const lefts = [], rights = [];
+    // the coast's anchor at each region border row, and how far west a city
+    // is allowed to sit at that row — two different numbers now, because the
+    // drawn land reaches much further west than anywhere worth placing a city
+    const rights = [], placeLeft = [];
     for (let i = 0; i <= N; i++) {
-      lefts.push(-CITY_PAD + 12 + R() * 70);
-      rights.push(W + CITY_PAD - 12 - R() * 70);
+      rights.push(K.mapW - 30 + R() * 40);
+      placeLeft.push(10 + R() * 40);
     }
-    // the borders between regions; the first and last are the coast
+    const farWest = -420;   // off camera on every side that is not the coast
+
+    // the borders between regions, gentle and uniform now: three of the four
+    // old edges are no longer drawn as an edge at all, so there is nothing
+    // left for a bigger wobble to make dramatic
     const borders = [];
     for (let i = 0; i <= N; i++) {
-      const edge = (i === 0 || i === N);
-      const w = wobble(R, LAND_COLS, K.bandH * (edge ? 0.32 : 0.3));
+      const w = wobble(R, LAND_COLS, K.bandH * 0.16);
       const pts = [];
       for (let c = 0; c <= LAND_COLS; c++) {
         const t = c / LAND_COLS;
-        pts.push({
-          x: lefts[i] + (rights[i] - lefts[i]) * t,
-          y: bandY(i) + w[c],
-        });
+        pts.push({ x: placeLeft[i] + (rights[i] - placeLeft[i]) * t, y: bandY(i) + w[c] });
       }
       borders.push(pts);
     }
-    // The east and west coasts between one border and the next. Shared by the
-    // outline and by the territory either side of it, so the coast is the same
-    // line whichever thing is drawing it — otherwise a bay in the coastline
-    // shows the territory sticking out into the sea behind it.
-    const segs = { left: [], right: [] };
+    // The one real coastline, the full height of the country, with headlands
+    // and bays so it reads as a coast rather than a wall.
+    const coastBulge = [];
     for (let i = 0; i < N; i++) {
-      ['left', 'right'].forEach(side => {
-        const key = side === 'left' ? lefts : rights;
-        const a = { x: key[i], y: bandY(i) }, b = { x: key[i + 1], y: bandY(i + 1) };
-        const steps = 3;
-        const push = [];
-        for (let k = 1; k < steps; k++) {
-          const t = k / steps;
-          // a headland or a bay, biggest in the middle of the run
-          const bulge = Math.sin(t * Math.PI) * (R() * 2 - 1) * 46;
-          push.push({ x: a.x + (b.x - a.x) * t + bulge, y: a.y + (b.y - a.y) * t });
-        }
-        segs[side].push(push);
-      });
+      const a = { x: rights[i], y: bandY(i) }, b = { x: rights[i + 1], y: bandY(i + 1) };
+      const steps = 3;
+      const push = [];
+      for (let k = 1; k < steps; k++) {
+        const t = k / steps;
+        const bulge = Math.sin(t * Math.PI) * (R() * 2 - 1) * 46;
+        push.push({ x: a.x + (b.x - a.x) * t + bulge, y: a.y + (b.y - a.y) * t });
+      }
+      coastBulge.push(push);
     }
     // a river runs along the northern border of any region the cities of which
     // are built around water — it is the same fact, said at country scale
@@ -622,7 +624,35 @@
       const T = window.TERRAIN[Rg.id];
       if (i > 0 && T && (T.bands || []).some(b => b.kind === 'water')) rivers.push(i);
     });
-    return { seed, borders, segs, rivers, N, W };
+
+    // Lakes and forest stands, one seeded pass, kept away from the coast and
+    // sized so a lake is a real obstacle: a road will not be routed across
+    // one. These are drawn before cities are placed, so placement can dodge
+    // them, and the lake centres are cheap enough to keep on the land object
+    // for the road pass to test against later.
+    const lakes = [], forests = [];
+    window.REGIONS.forEach((Rg, ri) => {
+      const left = placeLeft[ri], right = Math.min(rights[ri], rights[ri + 1]) - 40;
+      if (R() < 0.65 && right > left + 60) {
+        lakes.push({
+          region: Rg.id,
+          cx: left + R() * (right - left),
+          cy: bandY(ri) + (R() - 0.5) * K.bandH * 0.55,
+          r: 16 + R() * 14,
+        });
+      }
+      for (let f = 0; f < 2; f++) {
+        if (right <= left) continue;
+        forests.push({
+          region: Rg.id,
+          cx: left + R() * (right - left),
+          cy: bandY(ri) + (R() - 0.5) * K.bandH * 0.7,
+          r: 20 + R() * 16,
+        });
+      }
+    });
+
+    return { seed, N, borders, placeLeft, rights, farWest, coastBulge, rivers, lakes, forests };
   }
   function land() {
     const seed = (CO() && CO().seed) || 1;
@@ -644,10 +674,24 @@
     }
     return pts[pts.length - 1].y;
   }
-  // and how wide the land is at the height of a given region border
+  // how wide the *placeable* land is at a given region border — not the far
+  // drawn edge, which exists only so the camera never meets a hard line
   function bandSpan(L, i) {
-    const pts = L.borders[i];
-    return { left: pts[0].x, right: pts[pts.length - 1].x };
+    return { left: L.placeLeft[i], right: L.rights[i] };
+  }
+  // a lake blocks a spot, and it blocks a road that would cross it
+  function nearLake(L, x, y, pad) {
+    return L.lakes.some(k => Math.hypot(k.cx - x, k.cy - y) < k.r + pad);
+  }
+  function roadHitsLake(L, a, b) {
+    return L.lakes.some(k => {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((k.cx - a.x) * dx + (k.cy - a.y) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const px = a.x + dx * t, py = a.y + dy * t;
+      return Math.hypot(k.cx - px, k.cy - py) < k.r + 6;
+    });
   }
 
   function makeCountry() {
@@ -657,7 +701,7 @@
     let cid = 0;
     // the land first: cities are scattered into it, not laid out beside it
     const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
-    landCache = buildLand(seed);
+    const L = landCache = buildLand(seed);
 
     window.REGIONS.forEach((R, ri) => {
       // the first name in the home list belongs to the home city itself, so it
@@ -678,36 +722,56 @@
         kinds.push('root');
       }
       shuffleArr(kinds);
-      // Scattered into the region's territory rather than spaced along it.
-      // A settled city is drawn as its constellation, about fifty pixels
-      // across, so the spacing is a real constraint and not a nicety: dart
-      // throwing with a minimum gap, falling back to the loosest spot found
-      // if a region is too full to place another comfortably.
+      // Scattered into the region's territory rather than spaced along it. A
+      // defended city is drawn as its constellation once settled, about fifty
+      // pixels across, so its spacing is a real constraint. A town never
+      // walks its streets and never draws one, so most of them are instead
+      // pulled in close around a defended city — a handful of towns hugging
+      // one seat is what makes that seat read as a real, big place rather
+      // than a dot the same size as everything else. A couple of towns are
+      // left to roam the wider territory, for variety.
       const placed = [];
+      const hubs = [];
       const inset = 34;
-      const put = () => {
-        const L = landCache;
+      const put = (near) => {
         const sp0 = bandSpan(L, ri), sp1 = bandSpan(L, ri + 1);
         const left = Math.max(sp0.left, sp1.left) + inset;
         const right = Math.min(sp0.right, sp1.right) - inset;
         let best = null;
         for (let tries = 0; tries < 90; tries++) {
-          const x = left + Math.random() * (right - left);
-          const top = borderYAt(L, ri, x) + inset;
-          const bot = borderYAt(L, ri + 1, x) - inset;
-          if (bot <= top) continue;
-          const py = top + Math.random() * (bot - top);
+          let x, y;
+          if (near) {
+            const rad = 46 + Math.random() * 34;
+            const ang = Math.random() * Math.PI * 2;
+            x = Math.max(left, Math.min(right, near.x + Math.cos(ang) * rad));
+            const top = borderYAt(L, ri, x) + inset, bot = borderYAt(L, ri + 1, x) - inset;
+            if (bot <= top) continue;
+            y = Math.max(top, Math.min(bot, near.y + Math.sin(ang) * rad));
+          } else {
+            x = left + Math.random() * (right - left);
+            const top = borderYAt(L, ri, x) + inset, bot = borderYAt(L, ri + 1, x) - inset;
+            if (bot <= top) continue;
+            y = top + Math.random() * (bot - top);
+          }
+          if (nearLake(L, x, y, 20)) continue;
           const gap = placed.reduce((m, p) =>
-            Math.min(m, Math.hypot(p.x - x, p.y - py)), Infinity);
-          if (gap >= K.minCityGap) return { x, y: py };
-          if (!best || gap > best.gap) best = { x, y: py, gap };
+            Math.min(m, Math.hypot(p.x - x, p.y - y)), Infinity);
+          // a town clustered around a hub only needs to clear the other
+          // things in that cluster, not the full spacing a constellation
+          // needs — towns never walk their streets and never draw one
+          const need = near ? K.minCityGap * 0.35 : K.minCityGap;
+          if (gap >= need) return { x, y };
+          if (!best || gap > best.gap) best = { x, y, gap };
         }
         return best || { x: (left + right) / 2, y: bandY0(ri) };
       };
       kinds.forEach((kind) => {
         const CK = window.CITY_KINDS[kind];
-        const at = put();
+        const near = (!CK.contest && hubs.length && Math.random() < 0.65)
+          ? hubs[Math.floor(Math.random() * hubs.length)] : null;
+        const at = put(near);
         placed.push(at);
+        if (CK.contest) hubs.push(at);
         cities.push({
           id: 'c' + (cid++),
           name: kind === 'home' ? homeName : names[(ni++) % names.length],
@@ -729,60 +793,77 @@
     assignPrizes(cities);
     assignTraits(cities);
 
-    // Roads. Proximity first, for the look of the thing — but the country has
-    // to have a *spine* of defended cities, because reach only propagates
-    // through places you actually walked. Without that you could fold your way
-    // from the suburbs to the north without ever taking a defended city.
+    // Roads. Hub and spoke, not a mesh: a town's only way in is through the
+    // defended city it hangs off, the same as reach itself only ever
+    // propagates through a city you actually walked. Linking every nearby
+    // pair used to give 49 roads for 18 cities and put a route to everywhere
+    // from everywhere — the map read as a graph because it was one.
+    // Lake-blocking only vetoes the *optional* proximity pass below, never the
+    // guaranteed backbone (the spine chain, the cross-region join, a town's
+    // one link to its hub) -- those have no fallback candidate, and reach
+    // only ever propagates through a road that exists, so a lake sitting
+    // between the two nearest defended cities must not strand a whole region.
     const link = (a, b) => {
       if (!a || !b || a === b) return;
       (roads[a.id] = roads[a.id] || []).indexOf(b.id) === -1 && roads[a.id].push(b.id);
       (roads[b.id] = roads[b.id] || []).indexOf(a.id) === -1 && roads[b.id].push(a.id);
     };
+    // The nearest of a list, preferring one a road can actually reach without
+    // crossing a lake — but a town must always come away with a link to its
+    // hub, so if every candidate crosses water this still returns the nearest
+    // rather than nothing.
     const nearestOf = (a, list) => {
-      let best = null;
+      let best = null, bestClear = null;
       list.forEach(b => {
         if (b === a) return;
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (!best || d < best.d) best = { d, b };
+        if (!roadHitsLake(L, a, b) && (!bestClear || d < bestClear.d)) bestClear = { d, b };
       });
-      return best && best.b;
+      return (bestClear || best) && (bestClear || best).b;
     };
-    // Everything within reach of everything else gave 49 roads for 18 cities:
-    // a cat's cradle laid over the country, and the single loudest reason the
-    // map read as a graph rather than a place. A road is kept only if no third
-    // city sits between its two ends — formally, inside the circle that has
-    // the road as its diameter. That is the Gabriel graph, it contains the
-    // minimum spanning tree, so reach still propagates everywhere it did, and
-    // it is what a road network actually looks like from above.
-    const between = (a, b) => {
+    // A road between two defended cities survives only if no third defended
+    // city sits between them — the Gabriel graph, restricted to the spine
+    // rather than every city. It contains the minimum spanning tree, so the
+    // backbone stays connected even where a lake or a bad angle vetoes the
+    // direct line.
+    const between = (a, b, pool) => {
       const d2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
       const ab = d2(a, b);
-      return cities.some(c => c !== a && c !== b && d2(a, c) + d2(b, c) < ab);
+      return pool.some(c => c !== a && c !== b && d2(a, c) + d2(b, c) < ab);
     };
-    cities.forEach(a => cities.forEach(b => {
-      if (a.id >= b.id) return;
-      if (Math.hypot(a.x - b.x, a.y - b.y) > K.roadReach) return;
-      if (between(a, b)) return;
-      link(a, b);
-    }));
-
     const spineOf = (regionId) =>
       cities.filter(c => c.region === regionId && window.CITY_KINDS[c.kind].contest);
+    const allSpine = cities.filter(c => window.CITY_KINDS[c.kind].contest);
+    allSpine.forEach(a => allSpine.forEach(b => {
+      if (a.id >= b.id) return;
+      if (Math.hypot(a.x - b.x, a.y - b.y) > K.roadReach * 1.6) return;
+      if (between(a, b, allSpine)) return;
+      if (roadHitsLake(L, a, b)) return;      // this pass is optional; a lake just skips it
+      link(a, b);
+    }));
     window.REGIONS.forEach((R, ri) => {
       const spine = spineOf(R.id).slice().sort((a, b) => a.x - b.x);
+      // a chain as a floor, in case the Gabriel pass above left a region's
+      // own seats disconnected from each other
       for (let i = 1; i < spine.length; i++) link(spine[i - 1], spine[i]);
-      // every town hangs off the defended city nearest to it
+      // every town hangs off the defended city nearest to it, and nothing else
       cities.filter(c => c.region === R.id && !window.CITY_KINDS[c.kind].contest)
         .forEach(t => link(t, nearestOf(t, spine)));
       // and each band is joined to the last one, defended city to defended city
       if (ri > 0) {
+        // the one link between regions is essential -- reach never propagates
+        // to anywhere past it -- so it prefers a lake-free pair but is never
+        // vetoed into leaving two regions disconnected
         const prev = spineOf(window.REGIONS[ri - 1].id);
-        let best = null;
+        let best = null, bestClear = null;
         spine.forEach(a => prev.forEach(b => {
           const d = Math.hypot(a.x - b.x, a.y - b.y);
           if (!best || d < best.d) best = { d, a, b };
+          if (!roadHitsLake(L, a, b) && (!bestClear || d < bestClear.d)) bestClear = { d, a, b };
         }));
-        if (best) link(best.a, best.b);
+        const pick = bestClear || best;
+        if (pick) link(pick.a, pick.b);
       }
     });
 
@@ -4889,19 +4970,20 @@
   // The box the view is allowed to pan around. The coastline wanders outside
   // the old rectangle -- a headland reached x = 694 against a map width of 620
   // -- so a fixed box left parts of the country unreachable by panning.
+  // The pan box only has to reach the one real edge — the coast. The other
+  // three sides are drawn far past anywhere worth panning to, so the box that
+  // matters is bounded by the coastline and by clampView's own -CITY_PAD floor
+  // on the other sides, not by where the geometry technically stops.
   function countryBounds() {
     const K = window.COUNTRY;
     const base = { w: K.mapW, h: K.pad * 2 + (window.REGIONS.length - 1) * K.bandH };
     const L = landCache;
     if (!L) return base;
-    let maxX = base.w, maxY = base.h;
-    L.borders.forEach(b => b.forEach(p => {
-      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-    }));
-    ['left', 'right'].forEach(side => L.segs[side].forEach(seg => seg.forEach(p => {
-      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-    })));
-    return { w: Math.ceil(maxX), h: Math.ceil(maxY) };
+    let maxX = 0;
+    L.rights.forEach(x => { maxX = Math.max(maxX, x); });
+    L.coastBulge.forEach(seg => seg.forEach(p => { maxX = Math.max(maxX, p.x); }));
+    const maxY = L.borders[L.N][0].y;
+    return { w: Math.ceil(maxX) + CITY_PAD, h: Math.ceil(maxY) };
   }
 
   const pathOf = (pts) => pts.map((p, i) =>
@@ -4910,37 +4992,54 @@
   // Sea, coast, territories, water and the lie of the land. Drawn under
   // everything, in one pass, from the same geometry the cities were scattered
   // into — so a city never sits in the sea and a border is a border for both.
+  //
+  // Only the east edge is a coastline. The land polygon's other three sides
+  // sit at `farWest`/far north/far south — outside anywhere the pan box
+  // reaches — so panning toward them just runs out of camera against plain
+  // ground, rather than meeting a second, third and fourth crooked coast.
   function svgRegions() {
     const L = land();
-    const B = countryBounds();
-    const first = L.borders[0], last = L.borders[L.N];
-    // the sea is everything the land is not, so it is simply a big rectangle
-    // with the country drawn on top of it
-    let out = `<rect class="sea" x="${-CITY_PAD * 3}" y="${-CITY_PAD * 3}"`
-      + ` width="${B.w + CITY_PAD * 6}" height="${B.h + CITY_PAD * 6}"/>`;
+    const coastTop = L.borders[0][L.borders[0].length - 1].y;
+    const coastBot = L.borders[L.N][L.borders[L.N].length - 1].y;
+    const farN = coastTop - 300, farS = coastBot + 300;
 
-    // the coastline: the outer edge of the stack of territories
-    let outline = first.slice();
+    // the real coastline, top to bottom, following the coast anchors and bulges
+    const coastPts = [];
     for (let i = 0; i < L.N; i++) {
-      outline = outline.concat(L.segs.right[i], [L.borders[i + 1][L.borders[i + 1].length - 1]]);
+      coastPts.push({ x: L.rights[i], y: L.borders[i][L.borders[i].length - 1].y }, ...L.coastBulge[i]);
     }
-    outline = outline.concat(last.slice().reverse());
-    for (let i = L.N - 1; i >= 0; i--) {
-      outline = outline.concat(L.segs.left[i].slice().reverse(), [L.borders[i][0]]);
-    }
-    out += `<path class="coast" d="${pathOf(outline)} Z"/>`;
+    coastPts.push({ x: L.rights[L.N], y: L.borders[L.N][L.borders[L.N].length - 1].y });
+    const coastMinX = Math.min(...coastPts.map(p => p.x)), coastMaxX = Math.max(...coastPts.map(p => p.x));
+
+    // sea: a rect east of the coastline, the only place drawn as ocean —
+    // north, south and west are not part of this shape at all, so there is no
+    // seam to see there, only ground running past the reachable camera
+    let out = `<rect class="sea" x="${(coastMinX - 20).toFixed(0)}" y="${farN.toFixed(0)}"`
+      + ` width="${(coastMaxX - coastMinX + 420).toFixed(0)}" height="${(farS - farN).toFixed(0)}"/>`;
+    const landPoly = [
+      { x: L.farWest, y: farN }, { x: coastPts[0].x, y: farN },
+      ...coastPts,
+      { x: coastPts[coastPts.length - 1].x, y: farS }, { x: L.farWest, y: farS },
+    ];
+    out += `<path class="coast" d="${pathOf(landPoly)} Z"/>`;
 
     window.REGIONS.forEach((R, ri) => {
       const known = CO().cities.some(c => c.region === R.id && c.known);
-      const poly = L.borders[ri].slice()
-        .concat(L.segs.right[ri], L.borders[ri + 1].slice().reverse(), L.segs.left[ri].slice().reverse());
+      const east = [L.borders[ri][L.borders[ri].length - 1]]
+        .concat(L.coastBulge[ri], [L.borders[ri + 1][L.borders[ri + 1].length - 1]]);
+      const poly = [{ x: L.farWest, y: L.borders[ri][0].y }]
+        .concat(L.borders[ri], east, L.borders[ri + 1].slice().reverse(),
+                [{ x: L.farWest, y: L.borders[ri + 1][0].y }]);
       out += `<path class="terr ${R.id}${known ? ' known' : ''}" d="${pathOf(poly)} Z"/>`;
     });
-    // territory borders on top of the fills, so a shared edge is one line
+    // territory borders on top of the fills, so a shared edge is one line —
+    // only the internal ones: the top of the first region and the bottom of
+    // the last are not borders with anything, so nothing is drawn there
     for (let i = 1; i < L.N; i++) {
       out += `<path class="terr-edge${L.rivers.indexOf(i) !== -1 ? ' river' : ''}"`
         + ` d="${pathOf(L.borders[i])}"/>`;
     }
+    out += svgWater();
     out += svgTerrain();
     window.REGIONS.forEach((R, ri) => {
       if (!CO().cities.some(c => c.region === R.id && c.known)) return;
@@ -4951,6 +5050,37 @@
       out += `<text class="band-tag" x="${x.toFixed(0)}" y="${(borderYAt(L, ri, x) + 24).toFixed(0)}">${R.label}</text>`;
     });
     return out;
+  }
+
+  // an irregular blob around a centre — used for both lakes and forest
+  // stands, seeded so the shape is stable across renders
+  function blobPath(R, cx, cy, r) {
+    const n = 9;
+    let out = '';
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const rr = r * (0.72 + R() * 0.4);
+      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.82;
+      out += `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)} `;
+    }
+    return out + 'Z';
+  }
+  // Lakes and forests, drawn as real shapes rather than sprinkled marks —
+  // this is also why a road will not cross one, so what you see on the map
+  // and what the road generator respected are the same water.
+  function svgWater() {
+    const L = land();
+    const R = landRand((L.seed ^ 0x2545f491) >>> 0);
+    let out = '<g class="water-forest">';
+    L.forests.forEach(f => {
+      if (!CO().cities.some(c => c.region === f.region && c.known)) return;
+      out += `<path class="forest" d="${blobPath(R, f.cx, f.cy, f.r)}"/>`;
+    });
+    L.lakes.forEach(k => {
+      if (!CO().cities.some(c => c.region === k.region && c.known)) return;
+      out += `<path class="lake" d="${blobPath(R, k.cx, k.cy, k.r)}"/>`;
+    });
+    return out + '</g>';
   }
 
   // What the ground is made of, taken from the same terrain table that shapes
@@ -4976,6 +5106,7 @@
         if (bot <= top) continue;
         const y = top + R() * (bot - top);
         if (near(x, y)) continue;              // never under a city
+        if (nearLake(L, x, y, 6)) continue;     // and never inside a lake
         const s = 3 + R() * 2;
         if (kind === 'water') {
           out += `<path class="tm water" d="M${(x - s * 1.6).toFixed(1)} ${y.toFixed(1)}`
@@ -5086,7 +5217,11 @@
       const len = Math.hypot(dx, dy) || 1;
       const lean = ((key.charCodeAt(1) * 31 + key.charCodeAt(key.length - 1) * 7) % 21 - 10) / 100;
       const cx = mx - dy * lean, cy = my + dx * lean;
-      out += `<path class="road${live ? ' live' : ''}" d="M${a.x} ${a.y} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x} ${b.y}"/>`;
+      // a road, not a graph edge: a dark casing under a lighter fill, the way
+      // a real road is drawn on a real map, rather than one dashed abstract line
+      const d = `M${a.x} ${a.y} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x} ${b.y}`;
+      out += `<path class="road-casing${live ? ' live' : ''}" d="${d}"/>`;
+      out += `<path class="road-line${live ? ' live' : ''}" d="${d}"/>`;
       void len;
     }));
     out += CO().cities.filter(c => c.known).map(svgCity).join('');
@@ -6654,7 +6789,7 @@
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
-    buildLand, borderYAt, bandSpan, landCache: () => landCache,
+    buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
