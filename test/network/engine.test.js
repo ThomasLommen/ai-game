@@ -264,6 +264,51 @@ test('breach: a met gate takes the host and grows your power', () => {
 // (walking away is covered by "backing out of a breach costs no turn" below —
 // it used to spend a turn, which made "open the card, leave" a free turn button.)
 
+// City generation already promises the opening doorstep is beatable, at
+// worst after growing a little -- but nothing renewed that promise further
+// in. A landmark-hardened door reachable early, with nothing left to sweep
+// towards either, was a real dead end: not enough power to force it, no
+// route around it, nothing left to discover that might have been easier.
+test('breach: a lone impossibly hard door with nothing left to sweep is not a dead end', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const seat = d.owned()[0];
+  // every door off the seat becomes impossibly hard, not just the one this
+  // test happens to look at -- a real dead end needs every currently
+  // reachable option to be unusable, not just one of several
+  d.neighbours(seat).filter(n => !n.owned).forEach(n => { n.discovered = true; n.defense = 999; });
+  // and nothing else left to discover either -- buildings and hosts each
+  // carry their own `discovered` flag
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  assert.equal(d.sweepBlocked(), 'nothing', 'nothing left to sweep towards');
+  const frontier = s.hosts.filter(h => d.isFrontier(h));
+  assert.ok(frontier.length > 0, 'there is still a door, just not one you can use');
+  assert.equal(frontier.some(h => d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')), false,
+    'none of them are usable yet -- the dead end this is testing for');
+
+  d.ensureFrontierIsOpen();
+  const after = s.hosts.filter(h => d.isFrontier(h));
+  assert.equal(after.some(h => d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')), true,
+    'at least one door opens instead of staying a dead end');
+});
+
+test('breach: a frontier that is already open is left alone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const seat = d.owned()[0];
+  const target = d.neighbours(seat).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = 1; // trivially forceable
+  const before = target.defense;
+
+  d.ensureFrontierIsOpen();
+  assert.equal(target.defense, before, 'a door you can already get through is not touched');
+});
+
 // Force used to cost a flat 3 heat no matter the door, while quiet and buy
 // both scale their price with the target's own defense — so force got
 // relatively *cheaper* the deeper the campaign went, and the other two got

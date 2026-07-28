@@ -361,6 +361,19 @@ body {
   -webkit-overflow-scrolling: touch;
   min-height: 0;
 }
+/* The persistent resource row is under the full-screen card, not gone —
+   carried into the card itself so a choice gated on POWER or costing
+   INSIGHT is never being decided blind. Same .res pills as #res-row,
+   just laid out here instead. */
+.card-res {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 14px;
+}
+.card-res .res { cursor: default; }
 .card {
   background: var(--surface);
   border: 1px solid var(--line);

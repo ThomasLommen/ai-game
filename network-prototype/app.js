@@ -2283,6 +2283,25 @@
     return state.res.insight >= sweepPrice() ? 'insight' : 'cash';
   }
 
+  // City generation already promises the opening doorstep is one you could
+  // get through, at worst after growing a little — but that promise was
+  // never renewed further in. A sweep can turn up nothing but a single
+  // landmark-hardened door, and once that door is also the only thing left
+  // to sweep towards, there is no way forward at all: not enough power to
+  // force it, no route around it, and nothing left to discover that might
+  // have been easier. Same fix as the doorstep, just not a one-time thing:
+  // whenever the frontier and the unswept map both run dry at once, the
+  // easiest door still open gets capped down to something reachable.
+  function ensureFrontierIsOpen() {
+    if (state.scope !== 'city' || state.over || sweepBlocked() !== 'nothing') return;
+    const frontier = (state.hosts || []).filter(h => isFrontier(h));
+    if (!frontier.length) return;
+    // "leave it alone" is always usable and takes nothing — it does not count
+    if (frontier.some(h => approachesFor(h).some(a => a.usable && a.def.id !== 'walk'))) return;
+    const easiest = frontier.reduce((a, b) => (defenseOf(a) <= defenseOf(b) ? a : b));
+    easiest.defense = Math.min(easiest.defense, Math.max(1, Math.round(power())));
+  }
+
   function actScan() {
     if (!canAfford('sweep')) return;
     if (!sweepTargets().length) return;           // nothing to find — don't burn an action
@@ -6751,11 +6770,26 @@
       </button>`;
   }
 
+  // A full-screen card covers the persistent resource row along with
+  // everything else on the page — which meant a choice gated on POWER or
+  // costing INSIGHT you might not have was being decided blind, with no way
+  // to check. Carried into the card itself, since that is the one thing
+  // guaranteed to still be on screen.
+  function cardResourceStrip() {
+    return `<div class="card-res">
+      <span class="res insight"><b>${Math.floor(state.res.insight)}</b> insight</span>
+      <span class="res cash"><b>${Math.floor(state.res.cash)}</b> cash</span>
+      <span class="res power"><b>${power()}</b> power</span>
+      <span class="res cover"><b>${cover()}</b> cover</span>
+    </div>`;
+  }
+
   function renderCard($p) {
     if (state.card.kind === 'event') {
       const ev = eventById(state.card.eventId);
       if (!ev) { state.card = null; renderPanel(); return; }
       $p.innerHTML = `
+        ${cardResourceStrip()}
         <div class="card event">
           <span class="card-kicker mono">SOMETHING HAPPENS</span>
           <h2 class="serif">${ev.title}</h2>
@@ -6782,6 +6816,7 @@
     if (state.card.kind === 'strike') {
       const c = window.STRIKE_CARD;
       $p.innerHTML = `
+        ${cardResourceStrip()}
         <div class="card strike">
           <span class="card-kicker mono">THE HUNTER</span>
           <h2 class="serif">${c.title}</h2>
@@ -6861,6 +6896,7 @@
   }
 
   function render() {
+    ensureFrontierIsOpen();
     renderGraph();
     renderHud();
     renderConsolidate();
@@ -6891,7 +6927,7 @@
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
