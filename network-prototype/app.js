@@ -6265,7 +6265,11 @@
     // map for attention. It is the moment the game is actually asking you
     // something; it now takes the whole screen, the same way the capability
     // sheet already does.
-    $p.classList.toggle('card-open', !state.over && !!state.card);
+    // Full screen for the moments that are actually interrupting play — an
+    // event, the hunter's own card. Opening a door happens dozens of times a
+    // city; taking the whole screen for the single most frequent tap in the
+    // game would slow down the core loop it is supposed to be quick to reach.
+    $p.classList.toggle('card-open', !state.over && !!state.card && state.card.kind !== 'breach');
     if (state.over) {
       // Winning the war also ends the run, so the end panel has to know which
       // ending it is showing — otherwise taking the whole country congratulated

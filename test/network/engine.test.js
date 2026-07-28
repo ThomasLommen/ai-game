@@ -325,6 +325,33 @@ test('sweeping costs insight, and is blocked when you cannot pay', () => {
   assert.equal(s.ap, ap - 1, 'and it cost an action');
 });
 
+test('a card takes the whole screen, except a breach -- that one is the core loop', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const panelOpen = () => window.document.getElementById('panel').classList.contains('card-open');
+
+  s.card = { kind: 'event', eventId: window.EVENTS[0].id };
+  d.render();
+  assert.equal(panelOpen(), true, 'an event takes the screen');
+
+  s.card = { kind: 'strike' };
+  d.render();
+  assert.equal(panelOpen(), true, 'so does the hunter');
+
+  s.card = null;
+  s.res.insight = 999;
+  d.actScan();
+  const target = s.hosts.find(h => d.isFrontier(h));
+  d.render();
+  d.openBreach(target.id);
+  assert.equal(panelOpen(), false, 'a breach does not -- it is the single most frequent tap in the game');
+
+  s.card = null;
+  d.render();
+  assert.equal(panelOpen(), false, 'and nothing does when there is no card at all');
+});
+
 test('sweep advertises what it will actually find, not its raw capacity', () => {
   // sweepReach() is a capacity: stealth holdings and capabilities raise it,
   // and a before/after capability comparison should show that raw number. But
