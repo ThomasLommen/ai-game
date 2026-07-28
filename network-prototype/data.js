@@ -201,9 +201,13 @@ window.CAPABILITIES = [
     // would put Depth two actions under base for a tree with exactly one
     // node anywhere that grants one back, which is a branch you cannot
     // actually finish, not a choice.
+    //
+    // has('total_embed') is also read directly in longSoakProtects(): Long
+    // Soak is safe after a wait, this collapses the wait to zero — anything
+    // you take is already as solid as a matured holding, the moment you take it.
     id: 'total_embed', branch: 'depth', tier: 3,
     name: 'Total Embed',
-    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything.',
+    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and nothing you hold needs time to settle in any more. It already has.',
     apDelta: 0,
     effect: { power: 14, threadBonus: 1 },
     cost: 46,

@@ -1238,9 +1238,11 @@
   }
 
   // Long Soak: how many turns a holding needs before it stops being losable
-  // at all — to churn, or to a hunter strike's own burn pool.
+  // at all — to churn, or to a hunter strike's own burn pool. Total Embed
+  // collapses that wait to zero: everything is safe the moment you take it.
   const LONG_SOAK_MATURE_TURNS = 5;
   function longSoakProtects(h) {
+    if (hasCap('total_embed')) return true;
     return hasCap('long_soak') && (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS;
   }
   function endTurn(opts) {
@@ -1822,6 +1824,7 @@
     // at the specific point in the engine where they live — still need to
     // say something here, or a card reads as though buying it did nothing.
     if (c.id === 'long_soak') add('cover', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding cannot be lost at all`);
+    if (c.id === 'total_embed') add('cover', 'nothing you hold needs time to settle in — it is safe immediately');
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
