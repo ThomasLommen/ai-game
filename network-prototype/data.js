@@ -339,11 +339,17 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 8,
   },
   {
+    // sweepTargetsFrom() / the "sweep from here" button (owned-building panel)
+    // are read directly via hasCap('survey') in app.js: a sweep stops being
+    // "somewhere adjacent to anything you hold" and becomes "this building's
+    // own unrevealed neighbours" — you pick which building to sweep from,
+    // which is a real choice about where the frontier grows next.
     id: 'survey', branch: 'reach', tier: 1,
     name: 'Survey',
-    desc: 'Read the street before you walk it. Sweeps turn up an extra building and cost less.',
+    desc: 'Read the street before you walk it. Sweep from any building you hold, choosing where the frontier grows instead of leaving it to chance — sweeps also turn up an extra building and cost less, wherever you point them.',
     apDelta: 0,
     effect: { sweepReach: 1, sweepDiscount: 1 },
+    mechanic: true,  // in addition to sweepReach/sweepDiscount — targeted sweep, read via hasCap()
     cost: 20,
     cond: (s) => s.reach >= 4,
   },

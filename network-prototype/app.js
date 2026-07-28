@@ -1852,6 +1852,7 @@
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
     if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
+    if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
     if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
@@ -2299,6 +2300,13 @@
   // Discovery follows territory, not sight: you can only see one street past
   // what you actually hold. A sweep reveals whole buildings, since a building
   // is the unit you look at.
+  // Survey's whole point: instead of "somewhere adjacent to anything you
+  // hold", a specific building's own unrevealed neighbours — so choosing
+  // which of your buildings to sweep from is a real choice about where the
+  // frontier grows, not just a bigger random pool.
+  function sweepTargetsFrom(bid) {
+    return buildingNeighbours(bid).map(buildingById).filter(b => b && !b.discovered);
+  }
   function sweepTargets() {
     const held = heldBuildingIds();
     return (state.buildings || []).filter(b => {
@@ -2338,16 +2346,17 @@
     easiest.defense = Math.min(easiest.defense, Math.max(1, Math.round(power())));
   }
 
-  function actScan() {
+  function actScan(fromId) {
+    const pool = (fromId != null && hasCap('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
-    if (!sweepTargets().length) return;           // nothing to find — don't burn an action
+    if (!pool.length) return;                     // nothing to find — don't burn an action
     if (sweepBlocked() === 'poor') return;
     const payer = sweepPayer();
     spendAP('sweep');
     if (payer === 'insight') state.res.insight -= sweepPrice();
     else state.res.cash -= window.SWEEP_CASH;
     const reach = sweepReach();
-    const targets = sweepTargets();
+    const targets = pool.slice();
     const found = [];
     for (let i = 0; i < reach && targets.length; i++) {
       const idx = Math.floor(Math.random() * targets.length);
@@ -6434,6 +6443,15 @@
               <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady'
                 : `restore stability ${chip('cost insight', '&minus;2 insight')}`}</span>
             </button>
+            ${hasCap('survey') && sweepTargetsFrom(b.id).length ? `
+            <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep" ${sweepBlocked() === 'poor' && !apShort('sweep') ? 'disabled' : ''}>
+              <span class="ab-name">sweep from here</span>
+              <span class="ab-sub">${apShort('sweep') ? 'no actions left'
+                : sweepBlocked() === 'poor' ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} cash`
+                : sweepPayer() === 'insight'
+                  ? `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
+                  : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
+            </button>` : ''}
             ${hidePanel(b)}
             ${assetPanel(b)}
           </div>`;
@@ -6520,6 +6538,7 @@
         }
         const a = b.getAttribute('data-act');
         if (a === 'scan') actScan();
+        else if (a === 'scanfrom') actScan(b.getAttribute('data-bid'));
         else if (a === 'lielow') actLieLow();
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
@@ -7011,7 +7030,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     swarmFrontStep, hideMarginalCost, hasCap,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
