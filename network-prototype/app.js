@@ -2345,12 +2345,15 @@
   }
 
   // Heat is regional: what you did in the estuary stays in the estuary, and is
-  // still waiting for you when you go back.
+  // still waiting for you when you go back. But it is not left behind — some
+  // of it travels with you, or crossing a border is an amnesty rather than a
+  // relief, and the meter resets itself every city.
   function enterRegion(regionId) {
     if (state.region === regionId) return;
     if (state.region) CO().regionHeat[state.region] = state.heat;
     state.region = regionId;
-    state.heat = CO().regionHeat[regionId] || 0;
+    const waiting = CO().regionHeat[regionId] || 0;
+    state.heat = clampHeat(Math.max(waiting, state.heat * window.COUNTRY.heatCarry));
   }
 
   // --- country actions ---

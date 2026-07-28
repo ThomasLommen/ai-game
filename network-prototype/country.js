@@ -97,6 +97,17 @@ window.COUNTRY = {
   roadReach: 230,
   // how fast an idle region forgets about you
   coolPerTurn: 1.1,
+  // How much of your heat comes with you when you cross a border. It used to
+  // be none: entering a region you had never been to set heat to zero, and
+  // with one defended city per region *every city you take is a new region* —
+  // so the campaign's pressure meter was wiped clean five times a run by the
+  // ordinary act of getting on with it. Heat could not accumulate, so nothing
+  // keyed to it could ever matter, and no punishment attached to it could ever
+  // have landed however hard it hit.
+  //
+  // Moving still helps, which was the point of sharding it by region in the
+  // first place — it is a relief, not an amnesty.
+  heatCarry: 0.6,
   // moving between cities is the core country-scale decision, so it is not free
   moveCost: 1,
   // fallback share of a city you must hold before you can fold it in; each

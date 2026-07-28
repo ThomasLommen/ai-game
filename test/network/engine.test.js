@@ -2286,6 +2286,43 @@ test('tree: every branch can actually be finished from a standing start', () => 
   });
 });
 
+test('heat: crossing a border is a relief, not an amnesty', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 16).forEach(h => { h.owned = true; });
+  s.heat = 38;
+
+  // There is one defended city per region, so every city you take is in a new
+  // region. Setting heat to zero on arrival wiped the campaign's pressure
+  // meter five times a run, by the ordinary act of getting on with it — which
+  // is why nothing keyed to the threshold could ever bite.
+  d.enterRegion('estuary');
+  assert.ok(s.heat > 0, 'somewhere new is not a clean sheet');
+  assert.ok(s.heat < 38, 'but it is quieter than where you just were');
+  assert.ok(Math.abs(s.heat - 38 * window.COUNTRY.heatCarry) < 0.01,
+    `expected ${38 * window.COUNTRY.heatCarry}, got ${s.heat}`);
+
+  // and what you left behind is still there when you go back
+  const left = d.state.country.regionHeat.home;
+  assert.equal(left, 38, 'the estuary does not forget what you did at home');
+  d.enterRegion('home');
+  assert.ok(s.heat >= left, 'and it is waiting for you');
+});
+
+test('heat: it can actually reach the threshold across a campaign', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 16).forEach(h => { h.owned = true; });
+  // walk the whole country the way a campaign does, hot the entire way
+  const regions = window.REGIONS.map(r => r.id);
+  s.heat = d.strikeThreshold() * 0.95;
+  regions.forEach(r => { d.enterRegion(r); s.heat += 6; });
+  assert.ok(s.heat > d.strikeThreshold() * 0.4,
+    `four borders should not launder the meter: ${s.heat.toFixed(1)} of ${d.strikeThreshold()}`);
+});
+
 // --- a city that is a different city -------------------------------------
 // Measured on three generated cities before this: 48-51 buildings, the four
 // districts in equal quarters, compute 45% / stealth 30% / cash 25%, mean
