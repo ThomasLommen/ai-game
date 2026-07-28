@@ -5481,6 +5481,10 @@
 
     $svg.addEventListener('click', (e) => {
       if (dragMoved) return;
+      // A breach stays in the panel instead of covering the map, so the map
+      // underneath is still tappable — reaching past the card for it reads as
+      // backing out of the decision, the same as pressing "leave it alone".
+      if (state.card && state.card.kind === 'breach') { resolveBreach('walk'); return; }
       const t = e.target;
 
       // A direct hit is a direct hit.
