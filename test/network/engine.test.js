@@ -2674,24 +2674,33 @@ test('tree: every effect on a card changes something the engine reads', () => {
       `${id} was supposed to move ${key}: ${base[key]} -> ${after[key]}`);
   });
 
-  // Long Soak is a one-time save, not an ongoing decay rate — it only shows
-  // up the turn a holding would actually be lost, so this has to put a
-  // holding right on that edge rather than measure a plain turn.
+  // Long Soak is a standing fact about a holding you have kept long enough —
+  // checked by maturity (heldSince), not a one-time coin flip — so this has
+  // to put a holding right on the edge of loss and vary how long it has
+  // actually been held, not just whether the capability is owned.
   s.caps = {};
   const victim = d.owned().find(h => !h.origin);
+  victim.heldSince = s.turn; // just taken — nowhere near matured
   victim.stability = 0.001;
   s.card = null;
   d.endTurn({ silent: true });
   assert.equal(victim.owned, false, 'without Long Soak, the edge is where it is actually lost');
 
   victim.owned = true;
+  victim.heldSince = s.turn; // still fresh
   victim.stability = 0.001;
-  victim.soakSaved = false;
   s.caps = { long_soak: 1 };
   s.card = null;
   d.endTurn({ silent: true });
-  assert.equal(victim.owned, true, 'Long Soak was supposed to save it once');
-  assert.ok(victim.stability > 0, 'and leave it standing, not merely un-lost');
+  assert.equal(victim.owned, false, 'Long Soak does not protect a holding that has not matured yet');
+
+  victim.owned = true;
+  victim.heldSince = -100; // long since matured
+  victim.stability = 0.001;
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(victim.owned, true, 'Long Soak protects a holding matured past the threshold');
+  assert.ok(victim.stability > 0, 'and leaves it standing, not merely un-lost');
 });
 
 test('tree: multipliers compose, they do not add up', () => {
@@ -6891,4 +6900,285 @@ test('caps: it is not offered until you are a national concern', () => {
   assert.equal(d.capBlocked(cap), 'early', 'nothing to raise it over yet');
   conqueredCountry(d, window, 0.5);
   assert.equal(d.capBlocked(cap), null, 'and it opens when you are one');
+});
+
+// --- redesigned capabilities: what each one actually changes -------------
+
+test('caps: Survey aims a sweep at one building instead of anywhere held', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const heldA = s.hosts[0];
+  const heldB = s.hosts.find(h => h.buildingId !== heldA.buildingId);
+  assert.ok(heldB, 'the board needs two distinct buildings to test with');
+  heldA.owned = true; heldA.discovered = true;
+  heldB.owned = true; heldB.discovered = true;
+  const bA = heldA.buildingId, bB = heldB.buildingId;
+  // Wire the adjacency directly instead of trusting this city's own random
+  // layout to happen to give each held building a distinct neighbour.
+  const others = s.buildings.filter(b => b.id !== bA && b.id !== bB);
+  assert.ok(others.length >= 2, 'the board needs two more buildings to test with');
+  const nA = others[0].id, nB = others[1].id;
+  // Replace, not append: bA and bB may already be adjacent to each other's
+  // pick in the city's own real graph, which would let a sweep from bA find
+  // nB too and make the test flaky against nothing this capability did. The
+  // reverse edge is still added (sweepTargets() reads a candidate's own
+  // neighbour list), just not merged into bA/bB's outgoing side.
+  s.adjacency[bA] = [nA];
+  s.adjacency[bB] = [nB];
+  s.adjacency[nA] = (s.adjacency[nA] || []).concat(bA);
+  s.adjacency[nB] = (s.adjacency[nB] || []).concat(bB);
+  s.buildings.forEach(b => { b.discovered = (b.id === bA || b.id === bB); });
+  s.res.insight = 1000;
+  s.ap = 5;
+
+  // without Survey, sweeping from a specific building is not a thing —
+  // the global pool includes both candidates
+  assert.ok(d.sweepTargets().some(b => b.id === nA) && d.sweepTargets().some(b => b.id === nB),
+    'both candidates sit in the untargeted pool');
+
+  s.caps = { survey: 1 };
+  d.actScan(bA);
+  assert.equal(d.buildingById(nA).discovered, true, 'the building off the chosen one turned up');
+  assert.equal(d.buildingById(nB).discovered, false, 'the one off the other building was left alone');
+});
+
+test('caps: Pontoon reveals ground past a settled holding, once it has matured', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts[0];
+  h.owned = true; h.discovered = true; h.heldSince = s.turn;
+  const bId = h.buildingId;
+  // Wire the two-hop chain directly rather than trusting this city's own
+  // random layout to happen to have one this shape.
+  const others = s.buildings.filter(b => b.id !== bId);
+  assert.ok(others.length >= 2, 'the board needs two more buildings to test with');
+  const nb1 = others[0].id, nb2 = others[1].id;
+  s.adjacency[bId] = [nb1];
+  s.adjacency[nb1] = [nb2];
+  s.buildings.forEach(b => { b.discovered = (b.id === bId); });
+
+  s.caps = {};
+  assert.equal(d.pontoonReveals().length, 0, 'nothing without the capability');
+
+  s.caps = { pontoon: 1 };
+  assert.equal(d.pontoonReveals().length, 0, 'and nothing before it has matured');
+
+  h.heldSince = s.turn - 100;
+  const surfaced = d.pontoonReveals();
+  assert.ok(surfaced.some(b => b.id === nb2), 'ground two streets past a matured holding gives itself up');
+  assert.equal(d.buildingById(nb2).discovered, true, 'and it is actually revealed, not just listed');
+});
+
+test('caps: Standing Orders shores up decaying holdings automatically', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts.find(hh => !hh.origin);
+
+  h.owned = true; h.stability = 0.5;
+  s.res.insight = 100;
+  s.caps = {};
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.ok(h.stability < 0.9, 'without Standing Orders nothing tops it back up');
+
+  h.owned = true; h.stability = 0.5;
+  s.res.insight = 100;
+  s.caps = { standing_orders: 1 };
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(h.stability, 1, 'Standing Orders shored it up on its own');
+  assert.ok(s.res.insight < 100, 'and it cost the usual insight, not nothing');
+});
+
+test('caps: Standing Army pays a retainer either way, and funds a real war-open defense', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  s.caps = {};
+  const plainCash = d.perTurnIncome().cash || 0;
+  s.caps = { standing_army: 1 };
+  const withRetainer = d.perTurnIncome().cash || 0;
+  assert.ok(withRetainer > plainCash, 'it earns its keep before there is anything to fight');
+
+  conqueredCountry(d, window);
+  s.res.insight = window.WAR.flockCost; // exactly one flock's worth, no more
+  d.openWar();
+  const guards = d.flocks().filter(f => f.mode === 'guard');
+  assert.equal(guards.length, 1, `only what was affordable got guarded: ${guards.length}`);
+  assert.equal(s.res.insight, 0, 'and it actually spent the going rate, not given free');
+});
+
+test('caps: Quiet Protocol makes hiding cost no action', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  const target = d.huntNext();
+  assert.ok(target, 'they have somewhere to go');
+  s.card = null;
+
+  s.caps = {};
+  s.ap = d.maxAP();
+  const apBefore = s.ap;
+  assert.equal(d.actHide(target), true);
+  assert.equal(s.ap, apBefore - d.apCost('lielow'), 'without the capability, hiding costs the action');
+
+  d.actUnhide(target);
+  s.caps = { quiet_protocol: 1 };
+  s.ap = d.maxAP();
+  const apBefore2 = s.ap;
+  assert.equal(d.actHide(target), true);
+  assert.equal(s.ap, apBefore2, 'Quiet Protocol refunds it, so hiding costs nothing');
+});
+
+test('caps: False Floor lowers what quiet actually needs, not just what it costs', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const origin = d.owned()[0];
+  const target = d.neighbours(origin).find(n => !n.owned);
+  assert.ok(target, 'the origin needs an open neighbour to test with');
+  target.discovered = true;
+  target.defense = 100;
+
+  const needOf = (g) => Number(g.label.match(/\d+/)[0]);
+  s.caps = {};
+  const before = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
+  s.caps = { quiet_protocol: 1, false_floor: 1 };
+  const after = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
+  assert.ok(needOf(after) < needOf(before), `the gate itself did not move: ${before.label} -> ${after.label}`);
+});
+
+test('caps: Nothing To See sheds heat on every quiet win, not merely costing none', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const origin = d.owned()[0];
+  const candidates = d.neighbours(origin).filter(n => !n.owned);
+  assert.ok(candidates.length >= 2, 'need two open neighbours to test with');
+
+  const tryQuiet = (target) => {
+    target.discovered = true;
+    target.defense = 0; // gate trivially met whatever this board's cover happens to be
+    s.res.insight = 999;
+    s.heat = 20;
+    s.ap = d.maxAP();
+    s.card = null;
+    d.openBreach(target.id);
+    d.resolveBreach('quiet');
+    return s.heat;
+  };
+
+  s.caps = {};
+  const without = tryQuiet(candidates[0]);
+  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  const withCap = tryQuiet(candidates[1]);
+  assert.ok(withCap < without, `Nothing To See did not shed the extra heat: ${without} -> ${withCap}`);
+});
+
+test('caps: Nothing To See is immune to an audited camera and a traced buy', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.country.factions.civic_eyes.awake = true;
+  assert.equal(d.ruleBroken('cameras'), true, 'civic eyes are watching');
+
+  s.caps = {};
+  assert.equal(d.civicEyesAudited(), true, 'without the capstone, an audited camera counts against you');
+  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  assert.equal(d.civicEyesAudited(), false, 'Nothing To See is immune to it');
+
+  s.country.factions.ledger.awake = true;
+  const h = { defense: 20 };
+  s.caps = {};
+  const traced = d.approachHeat(window.APPROACHES.find(a => a.id === 'buy'), h);
+  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  const untraced = d.approachHeat(window.APPROACHES.find(a => a.id === 'buy'), h);
+  assert.ok(untraced < traced, 'Nothing To See also throws off the Ledger trace');
+});
+
+test('caps: Clean Hands keeps paying a kickback on every door you bought your way into', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts.find(hh => !hh.origin && Object.keys(window.HOST_TYPES[hh.type].yield || {}).length);
+  assert.ok(h, 'the board needs a non-seat host that actually yields something');
+  h.owned = true; h.boughtIn = true;
+  const key = Object.keys(window.HOST_TYPES[h.type].yield || {})[0];
+
+  s.caps = {};
+  const plain = d.perTurnIncome()[key] || 0;
+  s.caps = { clean_hands: 1 };
+  const withKickback = d.perTurnIncome()[key] || 0;
+  assert.ok(withKickback > plain, `a bought-in holding did not pay more: ${plain} -> ${withKickback}`);
+
+  h.boughtIn = false;
+  s.caps = {};
+  const plain2 = d.perTurnIncome()[key] || 0;
+  s.caps = { clean_hands: 1 };
+  const noBonus = d.perTurnIncome()[key] || 0;
+  assert.equal(noBonus, plain2, 'forced or slipped-in ground gets no kickback');
+});
+
+test('caps: Fixers unlocks an escape hatch on the strike card nobody else has', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.card = { kind: 'strike' };
+  s.caps = {};
+  d.render();
+  let html = window.document.getElementById('panel').innerHTML;
+  assert.ok(!html.includes('Call in a favor'), 'the option does not even show without Fixers');
+
+  s.caps = { clean_hands: 1, fixers: 1 };
+  s.res.cash = window.FIXERS_FAVOR_COST;
+  d.render();
+  html = window.document.getElementById('panel').innerHTML;
+  assert.ok(html.includes('Call in a favor'), 'and it does with Fixers');
+
+  const before = s.res.cash;
+  d.resolveStrike('buy_out');
+  assert.equal(s.res.cash, before - window.FIXERS_FAVOR_COST, 'and using it actually spends the cost');
+});
+
+test('caps: Market Maker pays more once you are running hot', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts.find(hh => !hh.origin && Object.keys(window.HOST_TYPES[hh.type].yield || {}).length);
+  assert.ok(h, 'the board needs a non-seat host that actually yields something');
+  h.owned = true;
+  const key = Object.keys(window.HOST_TYPES[h.type].yield || {})[0];
+  s.caps = { market_maker: 1 };
+
+  s.heat = 0;
+  const cool = d.perTurnIncome()[key] || 0;
+  s.heat = d.strikeThreshold() * 0.9;
+  const hot = d.perTurnIncome()[key] || 0;
+  assert.ok(hot > cool, `running hot did not pay more: ${cool} -> ${hot}`);
+});
+
+test("caps: Total Embed collapses Long Soak's wait to zero", () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const h = s.hosts.find(hh => !hh.origin);
+
+  h.owned = true; h.heldSince = s.turn; h.stability = 0.001; // just taken, on the edge
+  s.caps = { long_soak: 1 };
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(h.owned, false, 'Long Soak alone does not protect an unmatured holding');
+
+  h.owned = true; h.heldSince = s.turn; h.stability = 0.001;
+  s.caps = { long_soak: 1, total_embed: 1 };
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(h.owned, true, 'Total Embed protects it immediately, with no maturity wait at all');
 });
