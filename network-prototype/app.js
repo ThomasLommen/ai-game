@@ -1820,6 +1820,7 @@
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
+    if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
     return out.join('');
@@ -2634,6 +2635,8 @@
   // Light Touch: how far ahead your power has to be over a door's defense
   // for forcing it to read as "well within reach" and refund the action.
   const LIGHT_TOUCH_MULT = 2;
+  // Deep Root: how much of a neighbour's defense a forced door shakes loose.
+  const DEEP_ROOT_RIPPLE = 0.2;
   function resolveBreach(approachId) {
     const card = state.card;
     if (!card || card.kind !== 'breach') return;
@@ -2666,6 +2669,17 @@
     // force — the heat still applies as normal, only the action is free.
     if (win && a.id === 'force' && hasCap('light_touch') && power() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
       state.ap += apCost('breach'); // undoing this same turn's spendAP() above, never over the cap
+    }
+    // Deep Root: forcing a door loosens the block around it too, permanently
+    // — every neighbour's own defense, discovered or not, so a door taken
+    // now leaves fewer moves needed for the rest of the cluster.
+    if (win && a.id === 'force' && hasCap('deep_root')) {
+      buildingNeighbours(h.buildingId).forEach(bid => {
+        hostsIn(buildingById(bid)).forEach(n => {
+          if (n.owned) return;
+          n.defense = Math.max(1, Math.round(n.defense * (1 - DEEP_ROOT_RIPPLE)));
+        });
+      });
     }
     if (out.hold) {
       h.owned = true;

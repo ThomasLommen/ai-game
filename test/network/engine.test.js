@@ -315,6 +315,44 @@ test('light touch: without the capability, an outclassed door still costs the ac
   assert.equal(s.ap, apBefore - 1, 'no capability, no refund');
 });
 
+test('deep root: forcing a door loosens everything touching it, permanently', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = { deep_root: 1 };
+  const seat = d.owned()[0];
+  const target = d.neighbours(seat).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = 1;
+  const nextDoor = d.neighbours(target).find(n => n.id !== seat.id && !n.owned);
+  assert.ok(nextDoor, 'the door has a neighbour of its own to loosen');
+  const before = nextDoor.defense;
+
+  d.openBreach(target.id);
+  d.resolveBreach('force');
+  assert.equal(target.owned, true, 'the door is taken');
+  assert.ok(nextDoor.defense < before, 'and the block around it loosens too');
+});
+
+test('deep root: without the capability, the block around a forced door is untouched', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = {};
+  const seat = d.owned()[0];
+  const target = d.neighbours(seat).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = 1;
+  const nextDoor = d.neighbours(target).find(n => n.id !== seat.id && !n.owned);
+  assert.ok(nextDoor, 'the door has a neighbour of its own');
+  const before = nextDoor.defense;
+
+  d.openBreach(target.id);
+  d.resolveBreach('force');
+  assert.equal(target.owned, true, 'the door is taken');
+  assert.equal(nextDoor.defense, before, 'no capability, nothing loosens');
+});
+
 // City generation already promises the opening doorstep is beatable, at
 // worst after growing a little -- but nothing renewed that promise further
 // in. A landmark-hardened door reachable early, with nothing left to sweep
@@ -744,10 +782,8 @@ test('capabilities move the action budget in both directions', () => {
   d.buyCap('parallel_ops');
   assert.equal(d.maxAP(), base + 1, 'parallel operations buy you tempo');
 
-  const powerBefore = d.power();
   d.buyCap('deep_root');
   assert.equal(d.maxAP(), base, 'deep root costs a permanent action');
-  assert.ok(d.power() > powerBefore, 'and pays for it in force');
 });
 
 test('a capability can never strand you with no actions at all', () => {

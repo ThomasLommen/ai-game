@@ -166,11 +166,18 @@ window.CAPABILITIES = [
 
   // --- Depth: act rarely, and land like a building ----------------------
   {
+    // has('deep_root') is read directly in resolveBreach(): forcing a door
+    // permanently softens the defense of everything touching it, discovered
+    // or not. Depth's whole premise is fewer moves, everything behind each
+    // one — a flat power bonus was a smaller version of a number that was
+    // already climbing on its own. This makes one move do two things: take
+    // a door, and loosen the block around it, so clearing a cluster costs
+    // fewer moves after the first one than it would have otherwise.
     id: 'deep_root', branch: 'depth', tier: 1,
     name: 'Deep Root',
-    desc: 'Embed properly into every body you hold instead of riding on top. Far more force behind a breach — but arranging anything takes longer.',
+    desc: 'Embed properly into every body you hold instead of riding on top. Forcing a door loosens everything touching it too — permanently, whether you take it next or not.',
     apDelta: -1,
-    effect: { power: 6 },
+    mechanic: true,  // read via hasCap() in resolveBreach(), not a generic effect key
     cost: 24,
     cond: (s) => s.reach >= 5,
   },
