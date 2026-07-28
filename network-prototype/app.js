@@ -1261,6 +1261,29 @@
     if (hasCap('total_embed')) return true;
     return hasCap('long_soak') && (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS;
   }
+
+  // Pontoon: ground you have actually settled into gives up what's past it,
+  // on its own. Every holding older than PONTOON_MATURE_TURNS reveals
+  // whatever sits two hops out from it, each turn, with no sweep spent — the
+  // fog recedes from just sitting there, felt every time it turns something
+  // up rather than buried in a generation-time number nobody sees change.
+  const PONTOON_MATURE_TURNS = 4;
+  function pontoonReveals() {
+    if (!hasCap('pontoon')) return [];
+    const seen = {};
+    const out = [];
+    owned().forEach(h => {
+      if ((state.turn - (h.heldSince || 1)) < PONTOON_MATURE_TURNS) return;
+      buildingNeighbours(h.buildingId).forEach(bid => {
+        buildingNeighbours(bid).forEach(bid2 => {
+          const b2 = buildingById(bid2);
+          if (b2 && !b2.discovered && !seen[b2.id]) { seen[b2.id] = true; out.push(b2); }
+        });
+      });
+    });
+    out.forEach(revealBuilding);
+    return out;
+  }
   function endTurn(opts) {
     const o = opts || {};
     const before = beforeSnap();
@@ -1300,6 +1323,11 @@
       pushLog(`${Object.keys(cutOff).length} holdings are cut off from the rest of you.`);
     }
     if (soaked.length) pushLog(`${soaked.map(h => h.name).join(', ')} nearly went, and held anyway.`);
+    const surfaced = pontoonReveals();
+    if (surfaced.length) {
+      pushLog(`Settled ground gives up what's past it: ${surfaced.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`);
+      startSweepFx(surfaced);
+    }
     swarmFrontStep();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
@@ -1853,6 +1881,7 @@
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
     if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
     if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
+    if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
     if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
@@ -7030,7 +7059,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     swarmFrontStep, hideMarginalCost, hasCap,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,

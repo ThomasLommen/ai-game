@@ -354,11 +354,17 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 4,
   },
   {
+    // pontoonReveals() is read directly via hasCap('pontoon') in endTurn():
+    // every holding older than PONTOON_MATURE_TURNS gives up whatever sits
+    // two streets past it, on its own, no sweep spent — the fog recedes just
+    // from sitting there, checked and surfaced every single turn rather than
+    // baked once into a generation-time number nobody sees change.
     id: 'pontoon', branch: 'reach', tier: 2,
     name: 'Pontoon',
-    desc: 'Your own way over the water, the line, the moor — laid where you need it rather than where the council put it.',
+    desc: 'Ground you have actually settled into does not stay a dead end. Anything you have held a few turns gives up what sits two streets past it, on its own — you also get your own way over the water or the line, laid where you need it rather than where the council put it.',
     apDelta: 0,
     effect: { extraCrossings: 1 },
+    mechanic: true,  // in addition to extraCrossings — passive reveal, read via hasCap()
     cost: 38,
     requires: ['survey'],
     cond: (s) => s.reach >= 7,
