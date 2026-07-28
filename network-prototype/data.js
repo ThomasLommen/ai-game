@@ -219,12 +219,13 @@ window.CAPABILITIES = [
   {
     // effect.freeHideSlots is read directly in hiddenCover(): the first two
     // hidden buildings cost no upkeep at all, rather than a lower heat floor
-    // that only matters once heat is already a problem. Cover's whole
-    // identity is the hide, and this makes the hide usable from turn one
-    // instead of needing a stealth economy built up first to afford it.
+    // that only matters once heat is already a problem. has('quiet_protocol')
+    // is also read directly in actHide(): hiding itself costs no action, on
+    // top of that. Cover's whole identity is the hide, and this makes the
+    // whole verb free rather than merely cheaper.
     id: 'quiet_protocol', branch: 'cover', tier: 1,
     name: 'Quiet Protocol',
-    desc: 'Everything routed through indirection, always. The first two buildings you hide from the response cost no upkeep at all — everything past that still does.',
+    desc: 'Everything routed through indirection, always. The first two buildings you hide from the response cost no upkeep at all, and hiding one costs no action either.',
     apDelta: -1,
     effect: { freeHideSlots: 2 },
     cost: 28,

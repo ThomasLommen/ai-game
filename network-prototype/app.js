@@ -1573,6 +1573,10 @@
   function actHide(bid) {
     if (!canHide(bid)) return false;
     spendAP('lielow');
+    // Quiet Protocol: hiding something costs no action at all, on top of the
+    // first two costing no ongoing upkeep either — the branch's own core
+    // verb, made completely free rather than just cheaper.
+    if (hasCap('quiet_protocol')) state.ap += apCost('lielow');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -1819,6 +1823,7 @@
     if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
     if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
+    if (c.id === 'quiet_protocol') add('cover', 'hiding something costs no action');
     if (e.quietDiscount) add('cost insight', `slipping in quietly ${pct(1 - e.quietDiscount)}`);
     // Mechanics with no generic effect key at all — read directly, by id,
     // at the specific point in the engine where they live — still need to
