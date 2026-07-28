@@ -253,14 +253,17 @@ window.CAPABILITIES = [
     cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
   },
   {
-    // has('nothing_to_see') is read directly wherever a buy could get
-    // matched: Cover's culmination is that nothing about you resolves into a
-    // pattern, and a payment pattern is exactly the thing Ledger is built to
-    // find. This is the one route that survives Ledger entirely without
-    // needing the event-card counter everyone else has to go looking for.
+    // has('nothing_to_see') is read directly in resolveBreach(): a completed
+    // quiet entry sheds heat instead of merely costing none — felt every
+    // time the branch's own verb is used, whatever the factions are up to
+    // that game. Also read in civicEyesAudited() and wherever a buy could
+    // get matched: Cover's culmination survives the one faction built to
+    // attack the branch's own resource (Civic Eyes, on stealth's cover) and,
+    // as a bonus rather than the point, Ledger's trace too — without ever
+    // needing the event-card counters everyone else has to go looking for.
     id: 'nothing_to_see', branch: 'cover', tier: 3,
     name: 'Nothing To See',
-    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, it takes much more of it before anyone acts, and nothing you buy your way through ever resolves into a pattern worth matching.',
+    desc: 'Whatever they are looking for, it does not look like you. A completed quiet entry sheds heat rather than merely costing none, heat accumulates far more slowly in general, it takes much more of it before anyone acts, and neither an audited camera nor a matched payment ever gives you away.',
     apDelta: 0,
     effect: { driftMult: 0.6, thresholdMult: 1.3 },
     cost: 48,

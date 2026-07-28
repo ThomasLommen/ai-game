@@ -1028,15 +1028,21 @@
     if (!hs.length) return 0;
     return hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length;
   }
+  // Civic Eyes audits the camera network, turning a stealth holding from
+  // cover into a witness — unless you found the corner of the audit that
+  // never got finished (blind_spot), or Nothing To See makes the whole
+  // question moot (Cover's own capstone, immune to the one faction built to
+  // attack the branch's own resource).
+  function civicEyesAudited() {
+    return ruleBroken('cameras') && !has('blind_spot') && !hasCap('nothing_to_see');
+  }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
   // lying low resets heat to zero and the whole pressure system is toothless.
   // Stealth holdings are what lower the floor: that is what they are for.
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
-    // audited cameras are not cover, they are witnesses — unless you found the
-    // corner of the audit that never got finished
-    const audited = ruleBroken('cameras') && !has('blind_spot');
+    const audited = civicEyesAudited();
     const quiet = audited ? 0 : ownedOf('stealth').length;
     const loudPart = 0.8 * loud;
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
@@ -1061,7 +1067,7 @@
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
   function rawCover() {
-    const eyes = (ruleBroken('cameras') && !has('blind_spot'))
+    const eyes = civicEyesAudited()
       ? 0
       : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
@@ -1198,7 +1204,7 @@
     // normally your stealth kit buys heat down; audited, every one of them
     // is a thing reporting where you are
     const stealthCount = ownedOf('stealth').length;
-    h += (ruleBroken('cameras') && !has('blind_spot'))
+    h += civicEyesAudited()
       ? window.HEAT.AUDITED_CAMERA * stealthCount
       : -window.HEAT.IOT_COVER * stealthCount;
     h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
@@ -1831,6 +1837,7 @@
     // say something here, or a card reads as though buying it did nothing.
     if (c.id === 'long_soak') add('cover', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding cannot be lost at all`);
     if (c.id === 'total_embed') add('cover', 'nothing you hold needs time to settle in — it is safe immediately');
+    if (c.id === 'nothing_to_see') add('cover', `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`);
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
@@ -2659,6 +2666,8 @@
   const LIGHT_TOUCH_MULT = 2;
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
   const DEEP_ROOT_RIPPLE = 0.2;
+  // Nothing To See: how much heat a completed quiet entry sheds.
+  const NOTHING_TO_SEE_HEAT_SHED = 3;
   function resolveBreach(approachId) {
     const card = state.card;
     if (!card || card.kind !== 'breach') return;
@@ -2719,6 +2728,12 @@
     // exactly the way a sweep does
     if (opened.length) startSweepFx(opened);
     state.heat = clampHeat(state.heat + (win ? approachHeat(a, h) : 0) + (out.heat || 0));
+    // Nothing To See: a completed quiet entry actively sheds heat, instead
+    // of merely costing none — felt every time the branch's own verb is
+    // used, not contingent on whichever faction happens to be awake.
+    if (win && a.id === 'quiet' && hasCap('nothing_to_see')) {
+      state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
+    }
 
     state.card = null;
     state.selected = null;
