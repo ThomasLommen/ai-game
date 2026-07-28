@@ -429,6 +429,11 @@ function playOne(strategyName) {
   let shortTurns = 0, countedTurns = 0, peakShort = 0, roomZeroTurns = 0;
   let lastCounted = -1;
   const countryMoves = {};
+  // The response. Whether it starts, how far it gets, whether cutting streets
+  // is a price anyone actually pays, and whether paying it ever works. Without
+  // these the report says nothing about the only permanent loss in the game.
+  let huntStarts = 0, huntPeak = 0, huntTurns = 0, severs = 0, huntSealed = 0;
+  let huntTook = 0, huntWasOn = false, huntLastTurn = -1;
 
   for (let guard = 0; guard < MAX_TURNS * 8 && d.state.turn < MAX_TURNS; guard++) {
     if (d.state.over) break;
@@ -467,8 +472,22 @@ function playOne(strategyName) {
     const doneNow = d.state.country.cities.filter(c => c.consolidated).length;
     while (consolidatedAt.length < doneNow) consolidatedAt.push(d.state.turn);
 
+    if (d.huntOn()) {
+      if (!huntWasOn) huntStarts++;
+      huntWasOn = true;
+      const n = d.hunt().nodes.length;
+      huntPeak = Math.max(huntPeak, n);
+      huntTook = Math.max(huntTook, n);
+      if (d.state.turn !== huntLastTurn) { huntLastTurn = d.state.turn; huntTurns++; }
+      // sealed in: nowhere left for it to step, which is what cutting is for
+      if (!d.huntFrontier().length) huntSealed++;
+    } else {
+      huntWasOn = false;
+    }
+
     const apBefore = d.state.ap;
     const action = strat(d);
+    if (action === 'sever') severs++;
     if (action && (action.startsWith('reach') || action === 'travel' || action === 'consolidate')) {
       countryMoves[action] = (countryMoves[action] || 0) + 1;
     }
@@ -514,6 +533,8 @@ function playOne(strategyName) {
     countedTurns,
     shortShare: countedTurns ? shortTurns / countedTurns : 0,
     peakShort: Math.round(peakShort),
+    huntStarts, huntPeak, huntTurns, severs, huntSealed, huntTook,
+    citiesLost: d.state.country.cities.filter(c => c.lost).length,
     citiesTotal: d.state.country.cities.length,
     citiesTaken: d.state.country.cities.filter(c => c.taken).length,
     citiesDone: d.state.country.cities.filter(c => c.consolidated).length,
@@ -691,6 +712,22 @@ function run() {
   if (fought.length) {
     console.log(`     opened on turn ${fmt(mean(fought.map(r => r.warOpenedTurn)), 0)}` +
       ` · ${fmt(mean(fought.map(r => r.warSorties)), 1)} sorties · ${fmt(mean(fought.map(r => r.warKills)), 1)} kills`);
+  }
+
+  // The response. It is the only thing in the game that takes and does not
+  // give back, and cutting a street is the only answer to it — so if nobody
+  // ever pays for a cut, or paying never seals it, the verb is decoration.
+  const chased = all.filter(r => r.huntStarts > 0);
+  console.log('\n   the response — the only loss you do not get back:');
+  console.log(`     started in ${pct(chased.length, all.length)} of games` +
+    ` · ${fmt(mean(all.map(r => r.huntStarts)), 2)} times a game`);
+  if (chased.length) {
+    console.log(`     ran for ${fmt(mean(chased.map(r => r.huntTurns)), 0)} turns` +
+      ` · took ${fmt(mean(chased.map(r => r.huntPeak)), 1)} buildings at its widest`);
+    console.log(`     ${fmt(mean(chased.map(r => r.severs)), 1)} streets cut a game` +
+      ` · sealed in on ${pct(mean(chased.map(r => r.huntTurns ? r.huntSealed / r.huntTurns : 0)), 1)} of the turns it was running`);
+    console.log(`     ${fmt(mean(all.map(r => r.citiesLost)), 2)} cities lost to it a game` +
+      ` · ${pct(all.filter(r => r.citiesLost > 0).length, all.length)} of games lost one`);
   }
 
   console.log('\n   standing and plant:');
