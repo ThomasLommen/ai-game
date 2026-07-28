@@ -418,6 +418,7 @@ body {
 .gate.met { color: var(--cover); border-color: color-mix(in srgb, var(--cover) 45%, transparent); }
 .gate.unmet, .cost.unmet { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, transparent); }
 .cost { color: var(--cash); border-color: color-mix(in srgb, var(--cash) 40%, transparent); }
+.cost.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 40%, transparent); }
 
 .panel-msg {
   background: var(--surface);

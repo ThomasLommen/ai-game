@@ -1020,6 +1020,14 @@
   function defenseOf(h) {
     return h.defense + (has('known_capable') ? 2 : 0);
   }
+  // A representative door, for readouts that have to name one without a
+  // specific host in hand — force's heat cost and "a door defends at" both
+  // stand for the whole board this way.
+  function avgDefense() {
+    const hs = state.hosts || [];
+    if (!hs.length) return 0;
+    return hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length;
+  }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
   // lying low resets heat to zero and the whole pressure system is toothless.
@@ -1223,7 +1231,7 @@
     revealBuilding(best);
     cameraVision();
     const force = window.APPROACHES.find(a => a.id === 'force');
-    state.heat = clampHeat(state.heat + approachHeat(force));
+    state.heat = clampHeat(state.heat + approachHeat(force, h));
     pushLog(`The frontier forces itself: ${window.BUILDING_KINDS[best.kind].label} took itself in, unattended.`);
     return h;
   }
@@ -1835,17 +1843,16 @@
       'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
       'cash a turn': Math.round((perTurnIncome().cash || 0) * 10) / 10,
       'a door costs to buy': Math.round((1 - capEffect('buyDiscount', 0)) * 100) + '% of list',
-      'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force')) * 10) / 10 + ' heat',
+      // Force's heat now reads the door's own defense, so a single number
+      // has to stand for "a door" in general — the same average defense
+      // the line below already works out.
+      'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force'), { defense: avgDefense() }) * 10) / 10 + ' heat',
       'a sweep turns up': sweepReach(),
       'crossings you can lay': capEffect('extraCrossings', 0),
       'holdings decay at': Math.round(churnMult() * 100) + '%',
       // the world hardening against you is a real effect with a real number,
       // and nothing measured it — so Known Quantity reported nothing at all
-      'a door defends at': (() => {
-        const hs = state.hosts || [];
-        if (!hs.length) return 0;
-        return Math.round((hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length) * 10) / 10;
-      })(),
+      'a door defends at': Math.round(avgDefense() * 10) / 10,
     };
   }
   function readoutDiff(before, after) {
@@ -2561,13 +2568,23 @@
     return out;
   }
   // what an approach actually costs you in attention, after capabilities
-  function approachHeat(def) {
+  // `h` is the host being bought/forced/slipped into — force's own price
+  // reads its defense; everything else already carries its price on `def`.
+  // A caller with no particular host in mind (a readout, a summary) gets the
+  // same flat number force used to be, so leaving `h` off never breaks.
+  function approachHeat(def, h) {
     // Ledger matches payment patterns against outage reports. Buying your
     // way in resolving is exactly that pattern, unless you have a way to be
     // untraceable or have already gotten off its match list.
     const traced = def.id === 'buy' && ruleBroken('buy') && !has('ledger_inside') && !hasCap('nothing_to_see');
+    // Floored at the old flat cost, not below it — an early cheap scaling
+    // this shallow (0.3, matched to quiet's own insight multiplier) undercuts
+    // 3 for most of the common early host types, which would make force
+    // *cheaper* than before against exactly the doors it was already winning
+    // on. It should only ever cost more than it used to, against harder doors.
+    const base = def.id === 'force' ? Math.max(3, Math.round((h ? h.defense : 10) * 0.3)) : (def.heat || 0);
     const mod = def.id === 'force' ? capEffect('forceHeat', 0) : traced ? window.HEAT.LEDGER_TRACE : 0;
-    return Math.max(0, (def.heat || 0) + mod);
+    return Math.max(0, base + mod);
   }
 
   function approachesFor(h) {
@@ -2626,7 +2643,7 @@
     // a camera you just took shows you the street it watches, so blip those in
     // exactly the way a sweep does
     if (opened.length) startSweepFx(opened);
-    state.heat = clampHeat(state.heat + (win ? approachHeat(a) : 0) + (out.heat || 0));
+    state.heat = clampHeat(state.heat + (win ? approachHeat(a, h) : 0) + (out.heat || 0));
 
     state.card = null;
     state.selected = null;
@@ -6795,6 +6812,12 @@
           const contracts = [];
           if (a.gate) contracts.push(`<span class="gate ${a.gate.met ? 'met' : 'unmet'}">${a.gate.label}${a.gate.met ? '' : ' — not met'}</span>`);
           if (a.cost) for (const k in a.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.cost[k]} ${k.toUpperCase()}</span>`);
+          // Force used to be the one approach with nothing priced on its own
+          // card — its heat cost only ever showed up later, as the bar
+          // moving. Every approach that actually costs heat says so here now,
+          // the same way insight and cash costs already do.
+          const heatCost = approachHeat(a.def, h);
+          if (heatCost > 0) contracts.push(`<span class="cost heat">+${Math.round(heatCost * 10) / 10} HEAT</span>`);
           const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
           return `<button class="choice-strip" data-app="${a.def.id}" ${noAp ? 'disabled' : ''}>
             <span class="ctext">${a.def.text}</span>

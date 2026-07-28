@@ -522,7 +522,11 @@ window.APPROACHES = [
     avail: () => true,
     // needs raw breach power over the host's defense
     gate: (s, h) => ({ label: 'needs POWER ' + h.defense, met: s.power >= h.defense }),
-    heat: 3,
+    // Heat scales with the door's own defense, worked out in approachHeat() —
+    // not a flat number here. Quiet and buy both get pricier against a harder
+    // door; a flat force cost got relatively *cheaper* by comparison the
+    // deeper the campaign went, which is backwards for three routes meant to
+    // stay comparable. Same 0.3 multiplier as quiet's own insight cost.
     onWin: { hold: true },
     onFail: { heat: 2 },
     flavorWin: 'It gives all at once, the way things do when you stop being polite.',

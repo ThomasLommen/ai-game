@@ -281,7 +281,11 @@ function breach(d, host, prefer, offered) {
       if (m) { chosen = m; break; }
     }
   } else {
-    opts.sort((a, b) => (a.def.heat || 0) - (b.def.heat || 0));
+    // Force's heat is worked out from the door's own defense now, not a flat
+    // number on the definition — read it the same way the real card does,
+    // or force reads as free (tied with quiet at 0) and wins every tie by
+    // sitting first in the approaches list.
+    opts.sort((a, b) => d.approachHeat(a.def, host) - d.approachHeat(b.def, host));
     chosen = opts[0];
   }
   d.resolveBreach(chosen.def.id);

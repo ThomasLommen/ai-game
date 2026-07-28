@@ -264,6 +264,40 @@ test('breach: a met gate takes the host and grows your power', () => {
 // (walking away is covered by "backing out of a breach costs no turn" below —
 // it used to spend a turn, which made "open the card, leave" a free turn button.)
 
+// Force used to cost a flat 3 heat no matter the door, while quiet and buy
+// both scale their price with the target's own defense — so force got
+// relatively *cheaper* the deeper the campaign went, and the other two got
+// relatively pricier. Three routes meant to stay comparable should not drift
+// apart like that.
+test('force: a harder door costs more heat, the same way quiet and buy cost more of theirs', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const force = window.APPROACHES.find(a => a.id === 'force');
+  const soft = { defense: 4 };
+  const hard = { defense: 30 };
+  assert.ok(d.approachHeat(force, hard) > d.approachHeat(force, soft),
+    'a harder door should cost more heat to force');
+});
+
+test('force: heat cost is on the card itself, not just the bar after the fact', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
+  target.discovered = true;
+  target.defense = 20;
+  s.res.insight = 999; s.res.cash = 999; s.ap = 9;
+
+  d.openBreach(target.id);
+  const list = d.approachesFor(target);
+  const force = list.find(a => a.def.id === 'force');
+  assert.ok(d.approachHeat(force.def, target) > 0, 'forcing this door costs real heat');
+  // rendered onto the panel, not left to the heat bar to explain later
+  d.render();
+  const html = window.document.getElementById('panel').innerHTML;
+  assert.ok(/HEAT/.test(html), 'the card names the heat cost');
+});
+
 test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
   // regression guard for a real exploit — discovery used to spread from any
   // *discovered* host, so a player could reveal all 30 hosts from the start
