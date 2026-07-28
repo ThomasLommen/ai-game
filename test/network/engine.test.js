@@ -2641,10 +2641,12 @@ test('hide: you pay for it out of the cover that was slowing them down', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  // a small network on purpose: owning the whole city wakes Quiet Hours on the
-  // first end of turn, and Quiet Hours is what takes hiding away
-  hunted(d, window, 10);
-  s.hosts.filter(h => h.role === 'stealth').slice(0, 6).forEach(h => { h.owned = true; });
+  // a small network on purpose: the first faction on the ladder wakes on what
+  // you hold, and the first faction is the one that takes hiding away
+  hunted(d, window, 8);
+  s.hosts.filter(h => h.role === 'stealth' && !h.owned).slice(0, 4).forEach(h => { h.owned = true; });
+  const wakesAt = Math.min(...window.FACTIONS.map(f => (f.wakes || {}).held || 99));
+  assert.ok(d.owned().length < wakesAt, `held ${d.owned().length}, ladder starts at ${wakesAt}`);
   s.heat = 0;
   const coverBefore = d.cover();
   const cadenceBefore = d.huntCadence();
@@ -2725,6 +2727,31 @@ test('hide: it survives a save and does not leak into the next city', () => {
   // a hide is a fact about one city's buildings, not about you
   d.unpackCity(d.EMPTY_CITY ? d.EMPTY_CITY() : { buildings: [], hosts: [], links: [], adjacency: {} });
   assert.equal(d.hidden().length, 0, 'and it does not follow you across the border');
+});
+
+test('hunt: it belongs to the city it is in, not to you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  const wasHolding = d.hunt().nodes.slice();
+  assert.ok(wasHolding.length > 1, 'it is running and has spread');
+
+  // Building ids restart at b0 in every city. A hunt carried across a border
+  // therefore "held" whatever shared an id in the new one: measured before this
+  // was fixed, 4 of the first 8 buildings including your seat, 0.63 of a city
+  // against a 0.45 loss threshold — the next city was gone on arrival.
+  const paused = d.packCity();
+  assert.deepEqual(paused.hunt.nodes.join('|'), wasHolding.join('|'),
+    'a city you step out of keeps its own');
+  d.unpackCity(d.EMPTY_CITY());
+  assert.equal(d.huntOn(), false, 'and it does not come with you');
+  assert.equal(d.hidden().length, 0, 'nor does anything you were hiding from it');
+
+  d.unpackCity(paused);
+  assert.equal(d.huntOn(), true, 'going back down into it, it is where you left it');
+  assert.equal(d.hunt().nodes.join('|'), wasHolding.join('|'), 'holding exactly what it held');
 });
 
 test('hunt: it survives a save, because it is not going anywhere', () => {

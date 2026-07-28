@@ -2515,6 +2515,7 @@
       adjacency: state.adjacency, bands: state.bands, dims: state.dims, rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
+      hunt: state.hunt || null,
     };
   }
   function unpackCity(p) {
@@ -2524,6 +2525,13 @@
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
     state.hidden = p.hidden || [];
+    // The response is a fact about one city's buildings. Building ids restart
+    // at b0 in every city, so a hunt left running across a border silently
+    // "held" whatever happened to share an id in the new one — measured: enter
+    // the next city and it is already on 4 of your 8 buildings, including your
+    // seat, at 0.63 of a city against a 0.45 loss threshold. The city was gone
+    // before you looked at it.
+    state.hunt = p.hunt || null;
     state.selectedCut = null;               // streets do not survive the border
     state.view = null;
   }
@@ -2533,7 +2541,7 @@
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, hidden: [],
+    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null,
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
