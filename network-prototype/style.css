@@ -1291,9 +1291,9 @@ footer .build { opacity: .55; font-size: 10px; }
 .event-row.faction .event-label { color: var(--heat); }
 .event-row.faction-gone { border-color: var(--insight); }
 .event-row.faction-gone .event-label { color: var(--insight); }
-/* A faction row is a standing condition, not a trophy: five of them stacked
-   as full-height cards pushed the map off a phone screen. One line each, with
-   the whole tell on hover and in the country panel. */
+/* A faction row is a standing condition, not a trophy: several of them
+   stacked as full-height cards pushed the map off a phone screen. One line
+   each, with the whole tell on hover and in the country panel. */
 .tray-item.faction {
   border-color: color-mix(in srgb, var(--heat) 45%, var(--line));
   border-left-color: var(--heat);

@@ -1227,6 +1227,7 @@
     h.owned = true;
     h.heldSince = state.turn;
     state.everHeld = (state.everHeld || 0) + 1;
+    state.timesForced = (state.timesForced || 0) + 1;
     h.stability = 1;
     revealBuilding(best);
     cameraVision();
@@ -1994,6 +1995,9 @@
       // the escalation's first rung, and the card that foreshadows it — has to
       // read this instead.
       doors: everHeld(),
+      // doors forced specifically — the Adjusters' own rung, and the cards
+      // that lead up to it, read this rather than `doors`.
+      forced: state.timesForced || 0,
       turn: state.turn, res: state.res, tags: state.tags,
       roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
@@ -2577,13 +2581,17 @@
     // way in resolving is exactly that pattern, unless you have a way to be
     // untraceable or have already gotten off its match list.
     const traced = def.id === 'buy' && ruleBroken('buy') && !has('ledger_inside') && !hasCap('nothing_to_see');
+    // The Adjusters read forcing a door specifically, the same way Ledger
+    // reads buying one — unless you have gotten off their list.
+    const adjusted = def.id === 'force' && ruleBroken('force') && !has('unlisted');
     // Floored at the old flat cost, not below it — an early cheap scaling
     // this shallow (0.3, matched to quiet's own insight multiplier) undercuts
     // 3 for most of the common early host types, which would make force
     // *cheaper* than before against exactly the doors it was already winning
     // on. It should only ever cost more than it used to, against harder doors.
     const base = def.id === 'force' ? Math.max(3, Math.round((h ? h.defense : 10) * 0.3)) : (def.heat || 0);
-    const mod = def.id === 'force' ? capEffect('forceHeat', 0) : traced ? window.HEAT.LEDGER_TRACE : 0;
+    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.ADJUSTERS_TRACE : 0)
+      : traced ? window.HEAT.LEDGER_TRACE : 0;
     return Math.max(0, base + mod);
   }
 
@@ -2628,6 +2636,9 @@
     const win = entry.usable;
     const out = win ? a.onWin : (a.onFail || {});
     let opened = [];
+    // The Adjusters read this, not how much you hold overall — cumulative
+    // and never reset, the same reasoning as everHeld below.
+    if (win && a.id === 'force') state.timesForced = (state.timesForced || 0) + 1;
     if (out.hold) {
       h.owned = true;
       h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into
@@ -3389,6 +3400,7 @@
     if (typeof w === 'number') return conquest() >= w;      // an older save's shape
     if (!w) return false;
     if (w.held !== undefined && everHeld() >= w.held) return true;
+    if (w.forced !== undefined && (state.timesForced || 0) >= w.forced) return true;
     if (w.cities !== undefined && conquest() >= w.cities) return true;
     return false;
   }
@@ -4658,7 +4670,7 @@
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
-      war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, hunt: state.hunt || null,
+      war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -4672,7 +4684,7 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
-        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
+        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },

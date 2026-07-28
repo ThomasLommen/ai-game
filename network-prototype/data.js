@@ -497,6 +497,7 @@ window.HEAT = {
   ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
   LEDGER_TRACE: 8,      // ledger: a buy it is watching gets traced instead of going clean
+  ADJUSTERS_TRACE: 8,   // adjusters: a door it is watching costs this much more to force
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,
@@ -623,6 +624,7 @@ window.TAG_INFO = {
   found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one faction ---
   rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
+  unlisted:       { label: 'Not on Their List',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
   ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — buying your way in stops getting traced' },
   blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
   spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
@@ -1232,6 +1234,40 @@ window.EVENTS = [
     choices: [
       { text: 'Go dark for a long while', apply: (s) => { s.heat -= 14; } },
       { text: 'Use the room you just made', apply: (s) => { s.res.insight += 12; s.heat += 3; } },
+    ],
+  },
+
+  // --- The Adjusters: forcing a door stops being the free one ------------
+  {
+    id: 'adjusters_warning', once: true,
+    cond: (s) => s.forced >= 4 && !s.awake('adjusters') && !s.broken('adjusters'),
+    title: 'Somebody Is Counting the Splinters',
+    flavor: 'Every door forced open leaves the same kind of mess, and enough of them start looking like a caseload.',
+    choices: [
+      { text: 'Get ahead of the file', cost: { insight: 9 }, apply: (s) => { s.tags.add('unlisted'); } },
+      { text: 'Force one more before it matters', apply: (s) => { s.heat += 4; } },
+      { text: 'Ignore it', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'adjusters_bite',
+    cond: (s) => s.gone('force') && s.res.insight >= 16 && !s.tags.has('unlisted'),
+    title: 'The File Gets Thicker',
+    flavor: 'Every forced door is the same shape in their report: hurried, loud, and now expensive.',
+    choices: [
+      { text: 'Slow down for a while', apply: (s) => { s.heat -= 8; } },
+      { text: 'Pay to have the file closed', cost: { insight: 16 }, apply: (s) => { s.tags.add('unlisted'); } },
+      { text: 'Force through it anyway', gate: { stat: 'power', min: 50 }, apply: (s) => { s.heat += 6; s.res.insight += 8; } },
+    ],
+  },
+  {
+    id: 'adjusters_counter',
+    cond: (s) => s.gone('force') && !s.tags.has('unlisted') && s.res.cash >= 16,
+    title: 'Not on Their List',
+    flavor: 'The file is only as good as whoever is filing it, and filing clerks can be paid too.',
+    choices: [
+      { text: 'Pay the clerk', cost: { cash: 16 }, apply: (s) => { s.tags.add('unlisted'); } },
+      { text: "Feed them somebody else's doors", cost: { cash: 10 }, apply: (s) => { s.heat -= 7; } },
     ],
   },
 

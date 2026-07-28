@@ -175,6 +175,8 @@ window.CITY_NAMES = {
 //   wakes    — what has to be true before they take an interest, as either:
 //                { held: n }    doors you have ever taken, cumulative, so this
 //                               can be crossed inside your first city
+//                { forced: n }  doors forced specifically, cumulative — the
+//                               Adjusters read your habit, not your total
 //                { cities: s }  share of the country's *defended* cities folded
 //                               in. Towns do not count — they are not milestones.
 //              whichever fires first.
@@ -209,6 +211,22 @@ window.FACTIONS = [
     blurb: 'A volunteer rota watching for the wrong kind of stillness. They noticed that the quiet places were getting quieter.',
     onWake: 'Somebody worked out that the safest-looking parts of the network were the ones being used. Going dark stops helping.',
     onBreak: 'The rota disbands the week after their coordinator stops answering. The quiet is yours again.',
+  },
+  {
+    // Nothing in the ladder ever answered forcing a door — Civic Eyes taxes
+    // quiet's cover, Ledger taxes buy's cash, and force sailed through the
+    // whole faction system untouched, which is a lot of why it stayed the
+    // reliable fallback no matter what the other two cost. No region of its
+    // own, the same as the other one: this is not a place you can go and
+    // take, it is a response to a pattern, and it keeps responding.
+    id: 'adjusters', region: null, tier: 1.5,
+    name: 'The Adjusters',
+    breaks: 'force',
+    wakes: { forced: 8, cities: 0.15 },
+    tell: 'forcing a door costs noticeably more heat',
+    blurb: 'Whoever insures these places started comparing notes on the doors that keep getting kicked in. Somebody gets called out to write it up properly, every time, whether or not anyone asked them to.',
+    onWake: 'Forcing a door was never quiet. It is, now, also on the record — every one you force from here draws more of it.',
+    onBreak: '',
   },
   {
     id: 'ledger', region: 'midlands', tier: 2,

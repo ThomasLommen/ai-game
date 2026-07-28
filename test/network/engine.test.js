@@ -1640,6 +1640,25 @@ test('factions: every one of them deletes a rule, and no two delete the same one
   });
 });
 
+test('the adjusters: enough forced doors wakes them, and force starts costing more', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const force = window.APPROACHES.find(a => a.id === 'force');
+  const target = { defense: 20 };
+
+  assert.equal(d.factionAwake('adjusters'), false, 'nobody is counting yet');
+  const before = d.approachHeat(force, target);
+
+  s.timesForced = 8; // this faction's own wake rung
+  d.checkFactions();
+  assert.equal(d.factionAwake('adjusters'), true, 'enough forced doors gets noticed');
+  assert.ok(d.approachHeat(force, target) > before, 'and force costs more heat now');
+
+  s.tags.add('unlisted');
+  assert.equal(d.approachHeat(force, target), before, 'off their list, it costs what it always did');
+});
+
 test('the quiet hours: going dark stops shedding heat, and the turn is still gone', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -1914,7 +1933,7 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 // spread of plausible campaign states and checks the whole deck is live.
 
 function sampleContexts(window) {
-  const RULES = ['lielow', 'buy', 'cameras', 'streets', 'mirror'];
+  const RULES = ['lielow', 'force', 'buy', 'cameras', 'streets', 'mirror'];
   const FIDS = window.FACTIONS.map(f => f.id);
   const WAKES = window.FACTIONS.map(f => window.__netDebug.wakeShare(f));  // shares of the country
   const out = [];
@@ -1923,7 +1942,7 @@ function sampleContexts(window) {
     const awake = new Set(o.awakeIds || []);
     const done = new Set(o.brokenIds || []);
     return Object.assign({
-      held: 0, doors: 0, heat: 0, power: 2, cover: 1, turn: 1,
+      held: 0, doors: 0, forced: 0, heat: 0, power: 2, cover: 1, turn: 1,
       res: { insight: 0, cash: 0 }, tags: new Set(o.tags || []),
       roles: { compute: 0, cash: 0, stealth: 0 },
       districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
@@ -1982,6 +2001,7 @@ function sampleContexts(window) {
               awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
               over: {
                 held, doors: Math.max(held, Math.round(conq * 95)),
+                forced: Math.max(held, Math.round(conq * 40)),
                 heat, presence, scope, regionTier, conquest: conq,
                 power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
                 cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
