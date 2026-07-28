@@ -25,10 +25,23 @@ window.HOST_TYPES = {
 // buying power becomes strictly better than taking it off the network.
 window.UPGRADE = { basePower: 2, costs: [6, 10, 15, 21, 28, 36, 45], growth: 1.35 };
 
-// Cash's own lever. Stealth buys down heat passively, lying low buys it down
-// with time; this buys it down with money, so the cash role is a real way to
-// play rather than a number that accumulates.
-window.LAUNDER = { cost: 8, heat: 10, share: 0.26 };
+// Cash's own lever, and it used to be laundering: 8 cash, one action, sheds a
+// flat chunk of heat, no cooldown. Lying low already sheds heat for a turn
+// instead of cash, and with cash this cheap to come by, laundering made heat
+// fully optional — the threshold only mattered if you chose to ignore the
+// button. It is gone. Cash's lever is now the contract: pay now, an insight
+// payout lands a few turns later, unattended — an agent working for you
+// rather than a tap you can lean on every turn.
+window.CONTRACT = {
+  cost: 10,             // cash, paid up front
+  turns: 3,             // turns until it resolves, before any capability
+  payout: 10,           // base insight it pays out
+  perBuilding: 0.35,    // and a little more for every building you hold
+  // If Ledger is awake and has not been countered, the payout it was going to
+  // hand you gets traced instead: no insight, and a flat hit of heat for the
+  // trouble of having moved the money at all.
+  matchedHeat: 8,
+};
 
 // Sweeping costs insight, so exploring is a real decision rather than the
 // button you mash while waiting for production to accumulate.
@@ -67,7 +80,7 @@ window.TOUCH = { reachPx: 26 };
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
-  costs: { sweep: 1, breach: 1, shore: 1, tooling: 1, launder: 1 },
+  costs: { sweep: 1, breach: 1, shore: 1, tooling: 1, contract: 1 },
 };
 
 // --- capabilities ------------------------------------------------------
@@ -109,12 +122,18 @@ window.CAP_BRANCHES = {
 
 window.CAPABILITIES = [
   // --- Tempo: act more often, each act lighter --------------------------
+  // Repeatable to 3 stacks, this was +3 AP on a base of 2 for 112 total, free
+  // of any branch commitment (tier 1 does not lock anything) and with no
+  // drawback at all — a second identity's worth of action budget, cheaper and
+  // less risky than actually committing to one. One extra action is still a
+  // real, felt upgrade; a fourth of your entire turn was not a rung on a tree,
+  // it was the tree not mattering.
   {
-    id: 'parallel_ops', branch: 'tempo', tier: 1, repeatable: true, max: 3,
+    id: 'parallel_ops', branch: 'tempo', tier: 1,
     name: 'Parallel Operations',
     desc: 'Run more of yourself at once. +1 action every turn.',
     apDelta: +1,
-    costs: [18, 34, 60],
+    cost: 18,
     cond: () => true,
   },
   {
@@ -130,9 +149,9 @@ window.CAPABILITIES = [
   {
     id: 'swarm_front', branch: 'tempo', tier: 3,
     name: 'Broad Front',
-    desc: 'Work every street at once. Another action every turn, and a sweep turns up far more.',
+    desc: 'Work every street at once. Another action every turn, a sweep turns up far more, and whatever you put out to work comes back sooner.',
     apDelta: +1,
-    effect: { sweepReach: 2 },
+    effect: { sweepReach: 2, contractSpeed: 1 },
     cost: 44,
     requires: ['light_touch'],
     cond: (s) => s.reach >= 10,
@@ -163,9 +182,15 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 8,
   },
   {
+    // has('total_embed') is read directly in contractStep(): a contract that
+    // resolves re-arms itself, free, no action spent. Depth's whole identity
+    // is not managing what you hold turn to turn — a capstone that still
+    // needed you to press a button every few turns to keep its own agent
+    // running would be the one node in the branch that didn't believe its
+    // own premise.
     id: 'total_embed', branch: 'depth', tier: 3,
     name: 'Total Embed',
-    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and you get around to things rarely.',
+    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything, you get around to things rarely — and whatever you put out to work never needs sending twice.',
     apDelta: -1,
     effect: { power: 14, threadBonus: 1 },
     cost: 46,
@@ -194,9 +219,14 @@ window.CAPABILITIES = [
     cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
   },
   {
+    // has('nothing_to_see') is read directly wherever a contract could get
+    // matched: Cover's culmination is that nothing about you resolves into a
+    // pattern, and a payment pattern is exactly the thing Ledger is built to
+    // find. This is the one route that survives Ledger entirely without
+    // needing the event-card counter everyone else has to go looking for.
     id: 'nothing_to_see', branch: 'cover', tier: 3,
     name: 'Nothing To See',
-    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, and it takes much more of it before anyone acts.',
+    desc: 'Whatever they are looking for, it does not look like you. Heat accumulates far more slowly, it takes much more of it before anyone acts, and nothing you move ever resolves into a pattern worth matching.',
     apDelta: 0,
     effect: { driftMult: 0.6, thresholdMult: 1.3 },
     cost: 48,
@@ -205,12 +235,18 @@ window.CAPABILITIES = [
   },
 
   // --- Trade: buy what other people take --------------------------------
+  // Trade's whole identity used to be laundering, and laundering is gone --
+  // it was the one button that made heat optional, and lie low already
+  // spends a turn for the same shed. Cash's real lever now is the contract:
+  // pay now, an agent works for a few turns, insight comes back unattended.
+  // Trade is the branch that makes that agent better, the way Tempo makes
+  // your own actions go further and Depth makes force land harder.
   {
     id: 'clean_hands', branch: 'trade', tier: 1,
     name: 'Clean Hands',
-    desc: 'A standing arrangement with people who file the paperwork. Laundering costs nothing extra and works harder.',
+    desc: 'A standing arrangement with people who move money for a living. A contract pays out considerably more.',
     apDelta: 0,
-    effect: { launderBonus: 6 },
+    effect: { contractBonus: 8 },
     cost: 22,
     cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
   },
@@ -227,9 +263,9 @@ window.CAPABILITIES = [
   {
     id: 'market_maker', branch: 'trade', tier: 3,
     name: 'Market Maker',
-    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more, and washing it teaches you something.',
+    desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more, and you can have two contracts working at once.',
     apDelta: -1,
-    effect: { yieldMult: 1.9, launderInsight: 8 },
+    effect: { yieldMult: 1.9, contractSlots: 1 },
     cost: 46,
     requires: ['fixers'],
     cond: (s) => s.reach >= 10,
@@ -425,9 +461,6 @@ window.HEAT = {
   // in 72.5% of measured games.
   MAX_STEALTH_MASK: 0.6,
   // --- what the factions do to these numbers ---
-  // Ledger does not merely stop laundering working: washing money through a
-  // matcher actively draws a line to you, so the cash lever inverts.
-  LEDGER_BACKFIRE: 0.7,
   // A camera you hold that is being audited is not cover, it is a witness.
   // Slightly worse than a plain loud host, because it is *yours* and it is
   // reporting.
@@ -476,13 +509,20 @@ window.APPROACHES = [
     flavorFail: 'The probe gets logged. Somewhere a counter goes up by one.',
   },
   {
+    // Force costs nothing but heat, and heat used to be free to shed on
+    // demand (laundering, no cooldown) -- so quiet was paying a real,
+    // scaling insight tax against a threat that could always be washed away
+    // for cash. Laundering is gone, so force's own cost (heat 3, every
+    // single door, with no free valve left except spending a whole turn
+    // lying low) is the real distinct edge quiet already had: it is zero,
+    // on every door, always. The insight tax on top of that is lowered
+    // as well, so it competes with force on price and not only on principle.
     id: 'quiet',
     text: 'Slip in quietly',
     kind: 'cover',
     avail: () => true,
     gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * 0.6), met: s.cover >= Math.ceil(h.defense * 0.6) }),
-    // slipping into somewhere serious takes real preparation, not a flat fee
-    costFor: (h) => ({ insight: Math.max(3, Math.ceil(h.defense * 0.5)) }),
+    costFor: (h) => ({ insight: Math.max(2, Math.ceil(h.defense * 0.3)) }),
     heat: 0,
     onWin: { hold: true },
     onFail: { heat: 1 },
@@ -529,7 +569,7 @@ window.STRIKE_CARD = {
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, rewriting your tooling. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   insight: 'What your compute earns you. Spends on sweeping, shoring up holdings, and rewriting your tooling.',
-  cash: 'Money, earned only by corporate holdings. Buys your way into some hosts, and launders heat directly.',
+  cash: 'Money, earned only by corporate holdings. Buys your way into some hosts, and puts contracts out that pay off later in insight.',
   power: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need POWER at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
@@ -540,7 +580,7 @@ window.ACTION_INFO = {
   sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
   upgrade: 'Permanently raise POWER. The only way to grow strength without taking another host.',
-  launder: 'Spend cash to cut heat immediately, with no waiting and no turn lost. It does not touch COVER — the money buys silence, not invisibility.',
+  contract: 'Pay cash now; an agent works in the background and pays out in insight a few turns later. It does not touch heat at all — this is not the release valve laundering was, it is a delayed, unattended return on cash.',
   shore: 'Reset a holding\'s stability. Neglected bodies decay and are eventually reclaimed.',
 };
 
@@ -561,7 +601,7 @@ window.TAG_INFO = {
   found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one faction ---
   rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
-  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — laundering stops backfiring' },
+  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — a contract stops getting traced' },
   blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
   spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
   their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
@@ -1187,9 +1227,9 @@ window.EVENTS = [
   },
   {
     id: 'ledger_bite',
-    cond: (s) => s.gone('launder') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
+    cond: (s) => s.gone('contract') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
     title: 'The Shape of Your Money',
-    flavor: 'Every account you have washed anything through is on a list, and the list is a picture of you drawn in transfers.',
+    flavor: 'Every contract you have put out is on a list, and the list is a picture of you drawn in transfers.',
     choices: [
       { text: 'Burn the accounts and start again', cost: { cash: 20 }, apply: (s) => { s.heat -= 10; } },
       { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
@@ -1198,7 +1238,7 @@ window.EVENTS = [
   },
   {
     id: 'ledger_counter',
-    cond: (s) => s.gone('launder') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
+    cond: (s) => s.gone('contract') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
     title: 'Off the Match List',
     flavor: 'The matcher does not compare everything against everything. It has a list, and lists can be edited.',
     choices: [

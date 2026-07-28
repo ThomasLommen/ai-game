@@ -59,14 +59,15 @@ const STRATEGIES = {
     return null;
   },
 
-  // chase corporate holdings and use money as the heat valve
+  // chase corporate holdings and put spare cash to work
   money(d) {
     const c = campaign(d, 'money'); if (c) return c;
-    // Measured: at a 0.55 trigger this profile laundered 255 times in a 350
-    // turn campaign and broke into 56 buildings. Money is the heat valve, not
-    // the game — reach for it when a strike is actually close.
-    if (d.state.res.cash >= 8 && d.state.heat > d.strikeThreshold() * 0.82
-        && !d.ruleBroken('launder')) { d.actLaunder(); return 'launder'; }
+    // Cash's lever is the contract now, not a heat valve: it does not touch
+    // heat at all, so there is no reason to hold it back for a warm reading.
+    // Put it out whenever there is spare cash and nothing already running.
+    if (d.state.res.cash >= (global.CONTRACT_COST || 10) * 1.5 && d.canRunContract()) {
+      d.actContract(); return 'contract';
+    }
     if (buyCapability(d, null, 'money')) return 'cap';
     const rich = pickTarget(d, (a, b) => (roleRank(b) - roleRank(a)) || (a.defense - b.defense));
     if (rich) return breach(d, rich, null, OFFERED);
@@ -100,7 +101,12 @@ const STRATEGIES = {
     // attentive player reaches for it last, not first. Reflexively going dark
     // at the first warm reading stalled this profile at 1.4 cities in 600 turns.
     const hot = s.heat > d.strikeThreshold() * 0.8;
-    if (hot && s.res.cash >= (global.LAUNDER_COST || 8) && !d.ruleBroken('launder')) { d.actLaunder(); return 'launder'; }
+    // Laundering used to be reached for here, reactively, once heat ran warm.
+    // The contract does not touch heat at all, so it is put out opportunistically
+    // whenever there is spare cash, not in response to the meter.
+    if (s.res.cash >= (global.CONTRACT_COST || 10) * 1.5 && d.canRunContract()) {
+      d.actContract(); return 'contract';
+    }
     // Shore what is actually about to fall, and never at the cost of being
     // able to look at the next street: 666 reflexive shore actions drained
     // this profile's insight and left it with no frontier for 300 turns.
@@ -410,7 +416,7 @@ function playOne(strategyName) {
   CAPS = w.CAPABILITIES;
   CITY_KINDS = w.CITY_KINDS;
   LEGIT = w.LEGIT;
-  global.LAUNDER_COST = w.LAUNDER.cost;
+  global.CONTRACT_COST = w.CONTRACT.cost;
   global.SWEEP_COST = w.SWEEP_COST;
   const strat = STRATEGIES[strategyName];
 
@@ -778,5 +784,5 @@ module.exports = {
   resolveCard,
   campaign,
   playOne,
-  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; LEGIT = w.LEGIT; global.LAUNDER_COST = w.LAUNDER.cost; global.SWEEP_COST = w.SWEEP_COST; },
+  init(w) { CAPS = w.CAPABILITIES; CITY_KINDS = w.CITY_KINDS; LEGIT = w.LEGIT; global.CONTRACT_COST = w.CONTRACT.cost; global.SWEEP_COST = w.SWEEP_COST; },
 };

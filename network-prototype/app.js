@@ -927,6 +927,7 @@
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
       ally: null,          // { name, trust } once something else joins you
       war: null,           // the last act — null until they stop trying to arrest you
+      contracts: [],       // agents working in the background, cash spent already
       seen: [],            // systems the player has actually met, so none arrive unasked
       over: false,
     };
@@ -1235,6 +1236,7 @@
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
     cellStep();           // whoever you sent, and whether they have finished
+    contractStep();       // and whichever contract just came due
     const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
     // Clearing a stale arrest is not a substitute for drawing a card. As an
     // `else if` this swallowed the event draw for the entire war: measured,
@@ -1739,8 +1741,9 @@
     if (e.churnMult) add('cover', `decay ${pct(e.churnMult)}`);
     if (e.yieldMult) add('cash', `income ${pct(e.yieldMult, true)}`);
     if (e.presenceMult) add('cash', `presence pays ${pct(e.presenceMult, true)}`);
-    if (e.launderBonus) add('cover', `laundering sheds ${e.launderBonus} more`);
-    if (e.launderInsight) add('insight', `laundering +${e.launderInsight} insight`);
+    if (e.contractBonus) add('insight', `a contract pays +${e.contractBonus} more`);
+    if (e.contractSlots) add('insight', `+${e.contractSlots} contract at once`);
+    if (e.contractSpeed) add('insight', `a contract takes ${e.contractSpeed} fewer turns`);
     if (e.buyDiscount) add('cost cash', `buying in ${pct(1 - e.buyDiscount)}`);
     if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
     if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
@@ -1772,11 +1775,12 @@
       'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
       // Four capabilities used to report nothing at all on purchase, because
       // nothing here measured what they touched: the two income multipliers,
-      // the launder bonus and the buy discount.
+      // the contract bonus and the buy discount.
       'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
       'cash a turn': Math.round((perTurnIncome().cash || 0) * 10) / 10,
-      'a wash sheds': Math.round(launderShed() * 10) / 10,
-      'a wash pays': capEffect('launderInsight', 0),
+      'a contract pays': contractPayout(),
+      'a contract takes': contractTurns() + ' turns',
+      'contracts at once': contractSlots(),
       'a door costs to buy': Math.round((1 - capEffect('buyDiscount', 0)) * 100) + '% of list',
       'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force')) * 10) / 10 + ' heat',
       'a sweep turns up': sweepReach(),
@@ -2482,33 +2486,64 @@
     render();
   }
 
-  function actLaunder() {
-    if (!canAfford('launder')) return;
-    if (state.res.cash < window.LAUNDER.cost) return;
-    spendAP('launder');
+  // --- the contract --------------------------------------------------------
+  // Cash's lever used to be laundering: pay a flat 8, shed heat immediately,
+  // no cooldown, every turn you had the cash — which was always. Heat was
+  // pressure in name only, because the release valve never ran dry. Lying low
+  // already sheds heat for a turn instead of money, so this is not that:
+  // paying out now buys an agent working in the background, on its own
+  // schedule, for a payout you cannot touch until it lands.
+  function contractSlots() { return capEffect('contractSlots', 1); }
+  function contractTurns() { return Math.max(1, window.CONTRACT.turns - capEffect('contractSpeed', 0)); }
+  function contractPayout() {
+    const K = window.CONTRACT;
+    return Math.round(K.payout + owned().length * K.perBuilding + capEffect('contractBonus', 0));
+  }
+  function contracts() { return state.contracts || (state.contracts = []); }
+  function canRunContract() { return contracts().length < contractSlots(); }
+  function contractDueIn() {
+    if (!contracts().length) return null;
+    return Math.max(0, Math.min(...contracts().map(c => c.due)) - state.turn);
+  }
+  function actContract() {
+    if (!canAfford('contract')) return;
+    if (state.res.cash < window.CONTRACT.cost) return;
+    if (!canRunContract()) return;
+    spendAP('contract');
     const before = beforeSnap();
-    state.res.cash -= window.LAUNDER.cost;
-    // Ledger matches payment patterns against outage reports. Washing money
-    // through it does not clean anything — it draws a shape somebody is
-    // already looking for.
-    // Somebody inside the clearing house drops your accounts off the match
-    // list. It does not clean the money — it just stops it pointing at you.
-    const matched = ruleBroken('launder') && !has('ledger_inside');
-    const neutral = ruleBroken('launder') && has('ledger_inside');
-    state.heat = matched
-      ? clampHeat(state.heat + launderShed() * window.HEAT.LEDGER_BACKFIRE)
-      : neutral
-        ? state.heat
-        : clampHeat(state.heat - launderShed());
-    state.res.insight += capEffect('launderInsight', 0);
+    state.res.cash -= window.CONTRACT.cost;
+    contracts().push({ due: state.turn + contractTurns(), payout: contractPayout() });
     afterSnap(before);
-    pushLog(matched
-      ? 'The money moves, and it moves in a pattern somebody is watching for.'
-      : neutral
-        ? 'The money moves. Your accounts are not on the list it is matched against.'
-        : 'Money moves, and so does the paperwork pointing at you.');
+    pushLog(`Money moves. Something comes back for it in ${contractTurns()} turns.`);
     persistNow();
     render();
+  }
+  // Resolved in endTurn, silently as far as the player's actions go — this is
+  // the whole point: it is not a button you lean on, it is a thing that was
+  // already running.
+  function contractStep() {
+    const due = contracts().filter(c => state.turn >= c.due);
+    if (!due.length) return [];
+    state.contracts = contracts().filter(c => state.turn < c.due);
+    // Ledger matches payment patterns against outage reports. A contract
+    // resolving is exactly that pattern, unless you have a way to be
+    // untraceable or have already gotten off its match list.
+    const matched = ruleBroken('contract') && !has('ledger_inside') && !hasCap('nothing_to_see');
+    due.forEach(c => {
+      if (matched) {
+        state.heat = clampHeat(state.heat + window.CONTRACT.matchedHeat);
+        pushLog('A contract comes due, and it comes back traced. No payout, and it draws a line to you.');
+      } else {
+        state.res.insight += c.payout;
+        pushLog(`A contract pays out: +${c.payout} insight.`);
+        // Total Embed: you are not running this any more, it runs itself —
+        // a resolved contract re-arms on its own, free, no action spent.
+        if (hasCap('total_embed') && canRunContract()) {
+          contracts().push({ due: state.turn + contractTurns(), payout: contractPayout() });
+        }
+      }
+    });
+    return due;
   }
 
   function shoreNeeded(h) { return !!h && h.owned && h.stability < 0.9; }
@@ -2743,10 +2778,6 @@
   // it right now, on this frontier, with three doors left to find, cannot
   // possibly turn up four.
   function sweepFound() { return Math.min(sweepReach(), sweepTargets().length); }
-  function launderShed() {
-    return Math.max(window.LAUNDER.heat, strikeThreshold() * window.LAUNDER.share)
-      + capEffect('launderBonus', 0);
-  }
 
   // Nothing held, nothing folded in, and nowhere half-taken to go back to.
   function ruined() {
@@ -4628,6 +4659,7 @@
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, hunt: state.hunt || null,
+      contracts: state.contracts || [],
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
   }
@@ -4642,6 +4674,7 @@
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
+        contracts: saved.contracts || [],
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -6227,6 +6260,12 @@
 
   function renderPanel() {
     const $p = document.getElementById('panel');
+    // A card interrupting play — a breach, an event, the hunter — used to sit
+    // in the same small scrolling box as everything else, competing with the
+    // map for attention. It is the moment the game is actually asking you
+    // something; it now takes the whole screen, the same way the capability
+    // sheet already does.
+    $p.classList.toggle('card-open', !state.over && !!state.card);
     if (state.over) {
       // Winning the war also ends the run, so the end panel has to know which
       // ending it is showing — otherwise taking the whole country congratulated
@@ -6342,15 +6381,15 @@
           <span class="ab-sub">${apShort('tooling') ? 'no actions left'
             : `${chip('power', 'power +' + window.UPGRADE.basePower)}${chip('cost insight', '&minus;' + upgradeCost() + ' insight')}`}</span>
         </button>
-        <button class="act-btn ${ruleBroken('launder') ? 'broken' : ''}${apShort('launder') ? ' no-ap' : ''}" data-act="launder" data-ap="launder" data-info="launder" ${state.res.cash < window.LAUNDER.cost && !apShort('launder') ? 'disabled' : ''}>
-          <span class="ab-name">launder</span>
-          <span class="ab-sub">${apShort('launder')
+        <button class="act-btn ${ruleBroken('contract') && !has('ledger_inside') && !hasCap('nothing_to_see') ? 'broken' : ''}${apShort('contract') ? ' no-ap' : ''}${!canRunContract() ? ' pending' : ''}" data-act="contract" data-ap="contract" data-info="contract" ${(!canRunContract() || (state.res.cash < window.CONTRACT.cost && !apShort('contract'))) ? 'disabled' : ''}>
+          <span class="ab-name">put out a contract</span>
+          <span class="ab-sub">${apShort('contract')
             ? 'no actions left'
-            : ruleBroken('launder')
-            ? `${factionBreaking('launder').name} matches the payments`
-            : `${chip('cover', 'heat &minus;' + Math.round(launderShed()))}${
-                capEffect('launderInsight', 0) ? chip('insight', '+' + capEffect('launderInsight', 0) + ' insight') : ''
-              }${chip('cost cash', '&minus;' + window.LAUNDER.cost + ' cash')}`}</span>
+            : !canRunContract()
+            ? `running — back in ${contractDueIn()} turn${contractDueIn() === 1 ? '' : 's'}`
+            : ruleBroken('contract') && !has('ledger_inside') && !hasCap('nothing_to_see')
+            ? `${factionBreaking('contract').name} matches the payments — gets traced instead`
+            : `${chip('insight', '+' + contractPayout() + ' insight in ' + contractTurns() + ' turns')}${chip('cost cash', '&minus;' + window.CONTRACT.cost + ' cash')}`}</span>
         </button>
       </div>
     `;
@@ -6369,7 +6408,7 @@
         if (a === 'scan') actScan();
         else if (a === 'lielow') actLieLow();
         else if (a === 'upgrade') actUpgrade();
-        else if (a === 'launder') actLaunder();
+        else if (a === 'contract') actContract();
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
         else if (a === 'consolidate') actConsolidate();
@@ -6831,13 +6870,14 @@
   window.__netState = state;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
-    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, actUpgrade, actLaunder, upgradeCost, sweepTargets,
+    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, actUpgrade, actContract, upgradeCost, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    actContract, contractStep, contracts, contractPayout, contractTurns, contractSlots, canRunContract, contractDueIn,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,

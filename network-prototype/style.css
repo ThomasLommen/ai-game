@@ -294,6 +294,12 @@ body {
 .act-btn.no-ap .ab-name { color: var(--muted); }
 .act-btn.no-ap .ab-sub { color: var(--muted); }
 
+/* A contract already working: disabled for a different reason than being
+   broke, so it gets a different look — something is happening, it is just
+   not back yet. */
+.act-btn.pending { border-style: dashed; border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
+.act-btn.pending .ab-sub { color: var(--insight); }
+
 /* the beat when you press one anyway */
 .refused { animation: refuseShake 480ms cubic-bezier(.36, .07, .19, .97) both; }
 @keyframes refuseShake {
@@ -329,11 +335,32 @@ body {
 .log-row { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 .log-row .mono { color: var(--line); margin-right: 6px; }
 
+/* A card takes the whole screen while it is up, the same way the capability
+   sheet does — it is the moment the game is actually asking you something,
+   not one more box competing with the map underneath it. */
+/* renderCard() emits the card and its list of choices as siblings, not one
+   nested block, so the full-screen container has to stack and centre them
+   itself rather than centring a single child. */
+#panel.card-open {
+  position: fixed; inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  padding: calc(var(--safe-top) + 16px) 16px var(--safe-bottom);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+}
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 18px 18px 20px;
+}
+#panel.card-open .card,
+#panel.card-open .choices {
+  width: 100%; max-width: 480px;
 }
 .card.strike { border-color: var(--heat); background: color-mix(in srgb, var(--heat) 7%, var(--surface)); }
 .card-kicker { font-size: 10px; letter-spacing: .16em; color: var(--muted); }

@@ -508,7 +508,7 @@ test('every stat and action shown to the player has an explanation', () => {
   ['insight', 'cash', 'power', 'cover', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
-  ['sweep', 'lielow', 'upgrade', 'launder', 'shore'].forEach(k => {
+  ['sweep', 'lielow', 'upgrade', 'contract', 'shore'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
 });
@@ -621,18 +621,54 @@ test('a capability can never strand you with no actions at all', () => {
 });
 
 test('repeatable capabilities respect their cap and escalate in price', () => {
+  // Parallel Operations was the only repeatable capability, and it was the
+  // whole problem: +1 AP, three times, free of any branch commitment, on a
+  // base of 2 actions -- a second identity's worth of budget for one cheap,
+  // consequence-free tier-1 node. It is now a single, non-repeatable rung.
+  // The repeatable/escalating-cost machinery itself is still real engine
+  // behaviour -- content may use it again -- so this test exercises it
+  // directly on a synthetic capability rather than depending on game content.
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 100000;
+  const synthetic = {
+    id: '__test_repeatable', branch: 'reach', tier: 1, repeatable: true, max: 3,
+    name: 'Test Rung', apDelta: 0, costs: [10, 20, 40], cond: () => true,
+  };
+  window.CAPABILITIES.push(synthetic);
+  try {
+    const first = d.capCost(synthetic);
+    d.buyCap(synthetic.id);
+    assert.ok(d.capCost(synthetic) > first, 'the next one costs more');
+
+    for (let i = 0; i < 10; i++) d.buyCap(synthetic.id);
+    assert.equal(d.capCount(synthetic.id), synthetic.max, 'it stops at its maximum');
+  } finally {
+    window.CAPABILITIES.pop();
+  }
+});
+
+test('parallel operations is one rung, not three -- the tempo fix', () => {
+  // Measured before this: +3 AP on a base of 2, for 112 total, with no branch
+  // lock (tier 1 never commits you) and no drawback of any kind. Depth and
+  // Cover's own capstones charge -1 AP each against that same base-2 economy
+  // -- crippling on its own, nothing at all once Tempo had already tripled
+  // your budget for free.
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   s.res.insight = 100000;
   const c = d.capById('parallel_ops');
+  assert.equal(c.repeatable, undefined, 'no longer repeatable');
+  assert.equal(c.cost, 18, 'the price of the one rung is unchanged');
 
-  const first = d.capCost(c);
+  const base = d.maxAP();
   d.buyCap('parallel_ops');
-  assert.ok(d.capCost(c) > first, 'the next one costs more');
-
-  for (let i = 0; i < 10; i++) d.buyCap('parallel_ops');
-  assert.equal(d.capCount('parallel_ops'), c.max, 'it stops at its maximum');
+  assert.equal(d.maxAP(), base + 1, 'one action, not three');
+  assert.equal(d.capBlocked(c), 'owned', 'and it cannot be bought again');
+  d.buyCap('parallel_ops');
+  assert.equal(d.maxAP(), base + 1, 'a second attempt buys nothing more');
 });
 
 test('persistence: the budget and everything bought survive a round trip', () => {
@@ -836,16 +872,110 @@ test('shoring up spends insight and restores stability', () => {
   assert.ok(h.stability > 0.5, 'stability restored');
 });
 
-test('laundering converts cash into heat relief — the cash playstyle lever', () => {
+// Laundering was cash's whole lever: 8 cash, one action, sheds heat on the
+// spot, no cooldown, every turn you had the money. Since cash is easy to
+// come by, heat was never really a threat — it only rose if you let it, and
+// lie low already spends a turn for the same shed. The contract is what
+// replaced it: cash buys an agent that pays out in insight, unattended, a
+// few turns later. It does not touch heat at all.
+test('a contract turns cash into a delayed insight payout, not heat relief', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.res.cash = window.LAUNDER.cost;
+  s.res.cash = window.CONTRACT.cost;
   s.heat = 20;
 
-  d.actLaunder();
+  d.actContract();
   assert.equal(s.res.cash, 0, 'cash is spent');
-  assert.ok(s.heat < 20 - window.LAUNDER.heat + 5, 'heat dropped meaningfully');
+  assert.equal(s.heat, 20, 'heat is untouched — this is not the old valve');
+  assert.equal(d.contracts().length, 1, 'an agent is now working');
+
+  const insightBefore = s.res.insight;
+  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.ok(s.res.insight > insightBefore, 'it paid out once it came due');
+  assert.equal(d.contracts().length, 0, 'and it is done');
+});
+
+test('only one contract runs at a time in the base game', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.cash = window.CONTRACT.cost * 3;
+  s.ap = 9;
+  assert.equal(d.canRunContract(), true);
+  d.actContract();
+  assert.equal(d.canRunContract(), false, 'the slot is taken');
+  const cashBefore = s.res.cash;
+  d.actContract();
+  assert.equal(s.res.cash, cashBefore, 'a second attempt spends nothing');
+  assert.equal(d.contracts().length, 1, 'and starts nothing');
+});
+
+// --- capabilities that touch the contract, not a flat number --------------
+// Trade's whole identity was laundering; Depth and Cover's capstones now each
+// give their agent a distinct behaviour rather than one more stat. All three
+// are read with hasCap(), not has() — total_embed and nothing_to_see are
+// capability ids, not tags, and the first version of this used has() for
+// them, which checks state.tags and is always false for a capability. It
+// silently no-op'd both: the capstones reported their new terms honestly and
+// then did nothing when the moment came.
+
+test('total embed: a resolved contract re-arms itself, free, once you are fully committed to depth', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 100000; s.res.cash = 100000;
+  s.hosts.slice(0, 30).forEach(h => { h.owned = true; });
+  d.buyCap('deep_root'); d.buyCap('long_soak'); d.buyCap('total_embed');
+  assert.ok(d.capCount('total_embed') > 0, 'the capstone bought cleanly');
+
+  d.actContract();
+  const cashBefore = s.res.cash;
+  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.equal(d.contracts().length, 1, 'it re-armed on its own');
+  assert.equal(s.res.cash, cashBefore, 'and it cost nothing to do it');
+  assert.ok(d.contracts()[0].due > s.turn, 'the new one has not come due yet');
+});
+
+test('total embed does nothing without the capstone -- it is not a base rule', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.cash = 100000;
+  d.actContract();
+  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.equal(d.contracts().length, 0, 'no capstone, no re-arm');
+});
+
+test('nothing to see: a contract survives Ledger untraced, without the event-card counter', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.insight = 100000; s.res.cash = 100000;
+  s.hosts.slice(0, 30).forEach(h => { h.owned = true; });
+  d.buyCap('quiet_protocol'); d.buyCap('false_floor'); d.buyCap('nothing_to_see');
+  assert.ok(d.capCount('nothing_to_see') > 0, 'the capstone bought cleanly');
+  assert.equal(s.tags.has('ledger_inside'), false, 'and not through the usual counter');
+
+  s.country.factions.ledger.awake = true;
+  d.actContract();
+  const insightBefore = s.res.insight, heatBefore = s.heat;
+  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.ok(s.res.insight > insightBefore, 'it paid out anyway');
+  assert.equal(s.heat, heatBefore, 'and was never traced');
+});
+
+test('without nothing to see, an awake Ledger matches the contract as normal', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.res.cash = 100000;
+  s.country.factions.ledger.awake = true;
+  d.actContract();
+  const insightBefore = s.res.insight, heatBefore = s.heat;
+  for (let t = 0; t <= d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.equal(s.res.insight, insightBefore, 'matched, it pays out nothing');
+  assert.ok(s.heat > heatBefore, 'and draws heat instead');
 });
 
 test('stage label tracks how much you hold', () => {
@@ -1557,26 +1687,30 @@ test('the quiet hours: going dark stops shedding heat, and the turn is still gon
   assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
 });
 
-test('ledger: laundering stops cleaning and starts pointing at you', () => {
+test('ledger: a contract stops paying out and starts pointing at you', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.slice(0, 8).forEach(h => { h.owned = true; });
 
   s.res.cash = 60; s.ap = 4; s.card = null;
-  s.heat = d.heatFloor() + 20;
-  const start = s.heat;
-  d.actLaunder();
-  assert.ok(s.heat < start, 'normally money buys heat down');
+  d.actContract();
+  const insightBefore = s.res.insight;
+  const heatBefore = s.heat;
+  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.ok(s.res.insight > insightBefore, 'normally a contract pays out');
+  assert.equal(s.heat, heatBefore, 'and never touches heat either way');
 
   wake(d, 'ledger');
   s.res.cash = 60; s.ap = 4; s.card = null;
-  s.heat = d.heatFloor() + 20;
-  const matched = s.heat;
   const cashBefore = s.res.cash;
-  d.actLaunder();
-  assert.ok(s.heat > matched, 'matched, washing money raises heat instead');
-  assert.ok(s.res.cash < cashBefore, 'and it still costs you the cash');
+  d.actContract();
+  assert.ok(s.res.cash < cashBefore, 'putting it out still costs the cash');
+  const insightMatched = s.res.insight;
+  const heatMatched = s.heat;
+  for (let t = 0; t < d.contractTurns(); t++) { s.turn += 1; d.contractStep(); }
+  assert.equal(s.res.insight, insightMatched, 'matched, it pays out nothing');
+  assert.ok(s.heat > heatMatched, 'and it draws a line to you instead');
 });
 
 test('civic eyes: your own cameras stop covering you and start reporting', () => {
@@ -1782,7 +1916,7 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 // spread of plausible campaign states and checks the whole deck is live.
 
 function sampleContexts(window) {
-  const RULES = ['lielow', 'launder', 'cameras', 'streets', 'mirror'];
+  const RULES = ['lielow', 'contract', 'cameras', 'streets', 'mirror'];
   const FIDS = window.FACTIONS.map(f => f.id);
   const WAKES = window.FACTIONS.map(f => window.__netDebug.wakeShare(f));  // shares of the country
   const out = [];
@@ -4088,7 +4222,7 @@ test('no actions: every action that costs one refuses without spending anything'
   const before = snapshot();
   d.actScan();
   d.actUpgrade();
-  d.actLaunder();
+  d.actContract();
   d.actShore(sick.id);
   assert.equal(snapshot(), before, 'nothing was spent and nothing happened');
   assert.equal(s.ap, 0, 'and the budget is untouched');
@@ -6062,11 +6196,16 @@ test('meeting: an old save with no record of it does not crash', () => {
   assert.doesNotThrow(() => { d.noticed(); d.plantKnown(); d.spinKnown(); });
 });
 
-test('meeting: laundering no longer claims to buy cover', () => {
+test('meeting: a contract does not claim to touch heat at all', () => {
+  // Laundering used to claim cover it did not buy. Its replacement has the
+  // opposite risk in the other direction: it would be easy to describe the
+  // contract as a heat lever out of habit, when the entire point of building
+  // it was that cash's lever stopped being heat.
   const { window } = loadNetwork();
-  const txt = window.ACTION_INFO.launder;
-  assert.ok(/heat/i.test(txt), 'it says what it actually does');
-  assert.ok(!/^Turn cash into cover/.test(txt), 'and not what it does not');
+  const txt = window.ACTION_INFO.contract;
+  assert.ok(/insight/i.test(txt), 'it says what it actually does');
+  assert.ok(!/cut heat|heat down|sheds heat|heat relief/i.test(txt),
+    'and does not claim the thing it was built to stop being');
 });
 
 test('meeting: the hint at the bottom is about the map you are looking at', () => {
