@@ -137,12 +137,12 @@ function campaign(d, style) {
   if (s.scope === 'city' && d.huntOn()) {
     const next = d.huntNext();
     const nextHost = next && s.hosts.find(h => h.buildingId === next && h.owned);
-    // cut when it is about to take something of yours, or when a couple of
-    // snips would seal it in entirely
     // The quiet answer first where it is available: it keeps the street, and
     // cover you are not spending on a hide is only worth the turns it adds to
     // their cadence. Cutting is the fallback and the permanent one.
     if (next && nextHost && d.canHide(next) && d.actHide(next)) return 'hide';
+    // cut when it is about to take something of yours, or when a couple of
+    // snips would seal it in entirely
     const outs = d.severable();
     if (outs.length && (nextHost || outs.length <= 2)) {
       const cut = outs.find(e => d.canSever(e.from, e.to));
