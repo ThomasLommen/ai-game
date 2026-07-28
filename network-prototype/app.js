@@ -891,6 +891,8 @@
 
   function freshState() {
     const g = makeCity();
+    const seat0 = g.hosts.find(h => h.owned);
+    if (seat0) seat0.heldSince = 1;
     const country = makeCountry();
     return {
       scope: 'city',       // 'city' while you are walking one, 'country' above it
@@ -1069,7 +1071,12 @@
   // Cover held down keeping buildings off the response's map. It is spent: it
   // does not slow them down, it does not open a quiet door, it does nothing but
   // hold the hide. That is the trade the stealth answer is made of.
-  function hiddenCover() { return hidden().length * window.HUNT.hideCover; }
+  // Quiet Protocol's first two hidden buildings hold themselves down for
+  // free — everything past that still costs cover, same as ever.
+  function hiddenCover() {
+    const free = capEffect('freeHideSlots', 0);
+    return Math.max(0, hidden().length - free) * window.HUNT.hideCover;
+  }
   function cover() { return Math.max(0, rawCover() - hiddenCover()); }
   function stageFor(count) {
     let s = window.STAGES[0];
@@ -1147,13 +1154,19 @@
   // turn will run — every yield in the game is multiplied by yieldMult, and a
   // panel transcribing the raw table said "+2 insight" for a server that had
   // been paying 3.2 since the player bought Bulk Processing.
+  const BULK_OPS_MATURE_TURNS = 3, BULK_OPS_BONUS = 1.6;
   function perTurnIncome() {
     const mult = capEffect('yieldMult', 1);
+    // Bulk Processing does not make everything worth more on the spot — it
+    // rewards ground you have actually settled into, not ground you took last
+    // turn. A holding under three turns old pays exactly as it always did.
+    const matures = hasCap('bulk_ops');
     const out = {};
     const add = (k, v) => { out[k] = (out[k] || 0) + v; };
     owned().forEach(h => {
       const y = window.HOST_TYPES[h.type].yield || {};
-      for (const k in y) add(k, y[k] * mult);
+      const bonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
+      for (const k in y) add(k, y[k] * mult * bonus);
     });
     // finished cities pay whether or not you are standing in them — that is
     // the whole point of folding one in. presenceYield already carries the
@@ -1193,6 +1206,35 @@
     return h * capEffect('driftMult', 1);
   }
 
+  // Broad Front: once a turn, the weakest thing on the frontier forces its
+  // own way in — free of the action it would otherwise cost you. It is still
+  // a forced door: heat is charged exactly as if you had walked over and
+  // kicked it in yourself. Tempo's capstone acts on its own rather than
+  // making you faster; this is the first thing in the game that does.
+  function swarmFrontStep() {
+    if (state.scope !== 'city' || state.card || !hasCap('swarm_front')) return null;
+    let best = null, bestDef = Infinity;
+    (state.buildings || []).forEach(b => {
+      const h = hostsIn(b)[0];
+      if (!h || !isFrontier(h)) return;
+      const def = defenseOf(h);
+      if (power() < def) return;
+      if (def < bestDef) { bestDef = def; best = b; }
+    });
+    if (!best) return null;
+    const h = hostsIn(best)[0];
+    h.owned = true;
+    h.heldSince = state.turn;
+    state.everHeld = (state.everHeld || 0) + 1;
+    h.stability = 1;
+    revealBuilding(best);
+    cameraVision();
+    const force = window.APPROACHES.find(a => a.id === 'force');
+    state.heat = clampHeat(state.heat + approachHeat(force));
+    pushLog(`The frontier forces itself: ${window.BUILDING_KINDS[best.kind].label} took itself in, unattended.`);
+    return h;
+  }
+
   function endTurn(opts) {
     const o = opts || {};
     const before = beforeSnap();
@@ -1210,16 +1252,30 @@
     const cutOff = {};
     strandedHosts().forEach(h => { cutOff[h.id] = true; });
     const lost = [];
+    const soaked = [];
+    const longSoak = hasCap('long_soak');
     owned().forEach(h => {
       if (h.origin) return; // only the seat you started from is safe
       const rate = window.HOST_TYPES[h.type].churn * churnMult()
         * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
       h.stability -= rate;
-      if (h.stability <= 0) { h.owned = false; h.stability = 1; lost.push(h); }
+      if (h.stability <= 0) {
+        // Long Soak: the first time this specific holding would be lost, it
+        // survives instead — once. A second neglect kills it the normal way.
+        if (longSoak && !h.soakSaved) {
+          h.soakSaved = true;
+          h.stability = 0.2;
+          soaked.push(h);
+        } else {
+          h.owned = false; h.stability = 1; lost.push(h);
+        }
+      }
     });
     if (Object.keys(cutOff).length) {
       pushLog(`${Object.keys(cutOff).length} holdings are cut off from the rest of you.`);
     }
+    if (soaked.length) pushLog(`${soaked.map(h => h.name).join(', ')} nearly went, and held anyway.`);
+    swarmFrontStep();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -1491,13 +1547,20 @@
   function hidden() { return state.hidden || (state.hidden = []); }
   function isHidden(bid) { return hidden().indexOf(bid) !== -1; }
   function hideRoom() { return rawCover() - hiddenCover(); }
+  // What hiding one more would actually cost — zero, while a free slot from
+  // Quiet Protocol is still open, hideCover otherwise. canHide checks this
+  // rather than hideRoom() directly, or a free slot would still demand spare
+  // cover it is not supposed to need.
+  function hideMarginalCost() {
+    return hidden().length < capEffect('freeHideSlots', 0) ? 0 : window.HUNT.hideCover;
+  }
   function canHide(bid) {
     if (!huntOn() || state.card || state.over) return false;
     if (isHidden(bid) || huntHolds(bid) || rivalHolds(bid)) return false;
     const b = buildingById(bid);
     if (!b || !buildingHeld(b)) return false;         // only what is yours
     if (ruleBroken('lielow')) return false;           // Quiet Hours watches the quiet
-    return hideRoom() >= window.HUNT.hideCover && canAfford('lielow');
+    return hideRoom() >= hideMarginalCost() && canAfford('lielow');
   }
   function actHide(bid) {
     if (!canHide(bid)) return false;
@@ -1750,6 +1813,14 @@
     if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
     if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
     if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
+    if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
+    if (e.quietDiscount) add('cost insight', `slipping in quietly ${pct(1 - e.quietDiscount)}`);
+    // Mechanics with no generic effect key at all — read directly, by id,
+    // at the specific point in the engine where they live — still need to
+    // say something here, or a card reads as though buying it did nothing.
+    if (c.id === 'long_soak') add('cover', 'the first near-loss survives instead, once each');
+    if (c.id === 'clean_hands') add('insight', 'a contract can be called in early');
+    if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
     return out.join('');
@@ -2505,6 +2576,22 @@
     if (!contracts().length) return null;
     return Math.max(0, Math.min(...contracts().map(c => c.due)) - state.turn);
   }
+  // Clean Hands: a pending contract can be called in early for half its
+  // payout, freeing the slot immediately rather than waiting out the clock.
+  // Free of the action budget — it is a decision about what you already
+  // started, not a new thing you are doing.
+  function canRecallContract() { return hasCap('clean_hands') && contracts().length > 0; }
+  function actRecallContract() {
+    if (!canRecallContract()) return false;
+    const c = contracts().reduce((a, b) => (a.due <= b.due ? a : b));
+    state.contracts = contracts().filter(x => x !== c);
+    const payout = Math.round(c.payout / 2);
+    state.res.insight += payout;
+    pushLog(`Called in early: +${payout} insight, and the slot is free again.`);
+    persistNow();
+    render();
+    return true;
+  }
   function actContract() {
     if (!canAfford('contract')) return;
     if (state.res.cash < window.CONTRACT.cost) return;
@@ -2573,7 +2660,9 @@
     if (!raw) return raw;
     const cut = def.id === 'buy'
       ? Math.min(0.85, capEffect('buyDiscount', 0) + ((cityTrait() || {}).buyCut || 0))
-      : 0;
+      : def.id === 'quiet'
+        ? Math.min(0.85, capEffect('quietDiscount', 0))
+        : 0;
     if (!cut) return raw;
     const out = {};
     for (const k in raw) out[k] = Math.max(1, Math.round(raw[k] * (1 - cut)));
@@ -2628,6 +2717,7 @@
     let opened = [];
     if (out.hold) {
       h.owned = true;
+      h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into
       // cumulative and never reset — owned() empties every time you fold a
       // city in, so anything keyed to it can only ever measure the city you
       // are standing in
@@ -2904,6 +2994,8 @@
         extraCrossings: capEffect('extraCrossings', 0),
       });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
+      const seat0 = state.hosts.find(h => h.owned);
+      if (seat0) seat0.heldSince = state.turn;
     }
     state.cityId = c.id;
     enterRegion(c.region);
@@ -6224,11 +6316,14 @@
     const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
     if (!touching) return '';
     const able = canHide(b.id);
+    const marginal = hideMarginalCost();
     return `<button class="act-btn${able ? '' : ' no-ap'}${ruleBroken('lielow') ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ruleBroken('lielow') ? `${factionBreaking('lielow').name} is watching the quiet`
-        : able ? `${chip('cover', 'they cannot see it')}${chip('cost cover', '&minus;' + H.hideCover + ' cover a turn')}`
-        : hideRoom() < H.hideCover ? `needs ${H.hideCover} cover to hold, you have ${Math.max(0, hideRoom())}`
+        : able ? `${chip('cover', 'they cannot see it')}${marginal
+            ? chip('cost cover', '&minus;' + marginal + ' cover a turn')
+            : chip('cost none', 'free — Quiet Protocol')}`
+        : hideRoom() < marginal ? `needs ${marginal} cover to hold, you have ${Math.max(0, hideRoom())}`
         : 'needs an action'}</span>
     </button>`;
   }
@@ -6413,6 +6508,7 @@
         else if (a === 'lielow') actLieLow();
         else if (a === 'upgrade') actUpgrade();
         else if (a === 'contract') actContract();
+        else if (a === 'recall') actRecallContract();
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
         else if (a === 'consolidate') actConsolidate();
@@ -6882,6 +6978,7 @@
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     actContract, contractStep, contracts, contractPayout, contractTurns, contractSlots, canRunContract, contractDueIn,
+    canRecallContract, actRecallContract, swarmFrontStep, hideMarginalCost, hasCap,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,

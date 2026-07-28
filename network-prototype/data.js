@@ -128,6 +128,12 @@ window.CAPABILITIES = [
   // less risky than actually committing to one. One extra action is still a
   // real, felt upgrade; a fourth of your entire turn was not a rung on a tree,
   // it was the tree not mattering.
+  //
+  // It is also, deliberately, the only node anywhere in the tree that grants
+  // an action. Long Soak and Broad Front used to refund one each, which meant
+  // every branch quietly paid for its own AP tax and nothing ever really cost
+  // you a turn. Now it does — Depth and Cover keep their AP costs and nothing
+  // hands them back except this one, open, un-opposed pick.
   {
     id: 'parallel_ops', branch: 'tempo', tier: 1,
     name: 'Parallel Operations',
@@ -147,11 +153,18 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 6,
   },
   {
+    // has('swarm_front') is read directly in endTurn(), via swarmFrontStep():
+    // the weakest open door on the frontier forces itself, free, once a turn,
+    // if power can actually take it. Heat is charged the same as if you had
+    // walked over and forced it yourself — the door is still forced, you are
+    // simply not the one spending the action on it. "Broad Front" is Tempo's
+    // whole idea taken to its capstone: not one more number, but the first
+    // thing in the game that acts on its own.
     id: 'swarm_front', branch: 'tempo', tier: 3,
     name: 'Broad Front',
-    desc: 'Work every street at once. Another action every turn, a sweep turns up far more, and whatever you put out to work comes back sooner.',
-    apDelta: +1,
-    effect: { sweepReach: 2, contractSpeed: 1 },
+    desc: 'Work every street at once. Once a turn, whatever is weakest on the frontier forces itself, free — and whatever you put out to work comes back sooner.',
+    apDelta: 0,
+    effect: { contractSpeed: 1 },
     cost: 44,
     requires: ['light_touch'],
     cond: (s) => s.reach >= 10,
@@ -168,15 +181,18 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 5,
   },
   {
-    // Gives an action back on purpose. Depth spends one at each end of the
-    // branch, and from a base of two that made its capstone unbuyable unless
-    // you first bought into Tempo — the branch Depth closes. Settling in
-    // properly meaning less firefighting is also just true.
+    // has('long_soak') is read directly where churn reclaims a holding: the
+    // first time each one would hit zero stability, it survives at a floor
+    // instead, once. Depth used to refund the action this branch spends at
+    // both ends — the one node that grants AP anywhere is now Tempo's, so
+    // this is a real drawback with a real answer instead of a number that
+    // quietly paid for itself. "Settle in properly" is now a fact about what
+    // happens the one time it nearly falls, not a smaller decay rate.
     id: 'long_soak', branch: 'depth', tier: 2,
     name: 'Long Soak',
-    desc: 'Settle in properly rather than holding on. What you hold barely decays at all, and you spend far less time keeping it standing.',
-    apDelta: +1,
-    effect: { churnMult: 0.45 },
+    desc: 'Settle in properly rather than holding on. The first time any one holding would be lost to neglect, it survives instead — once each.',
+    apDelta: 0,
+    mechanic: true,  // read via hasCap() where churn reclaims a holding, not a generic effect key
     cost: 30,
     requires: ['deep_root'],
     cond: (s) => s.reach >= 8,
@@ -187,11 +203,14 @@ window.CAPABILITIES = [
     // is not managing what you hold turn to turn — a capstone that still
     // needed you to press a button every few turns to keep its own agent
     // running would be the one node in the branch that didn't believe its
-    // own premise.
+    // own premise. Deep Root already spent the branch's one action; costing
+    // another here would put Depth two actions under base for a tree with
+    // exactly one node anywhere that grants one back, which is a branch you
+    // cannot actually finish, not a choice.
     id: 'total_embed', branch: 'depth', tier: 3,
     name: 'Total Embed',
-    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything, you get around to things rarely — and whatever you put out to work never needs sending twice.',
-    apDelta: -1,
+    desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and whatever you put out to work never needs sending twice.',
+    apDelta: 0,
     effect: { power: 14, threadBonus: 1 },
     cost: 46,
     requires: ['long_soak'],
@@ -200,20 +219,30 @@ window.CAPABILITIES = [
 
   // --- Cover: be difficult to see ---------------------------------------
   {
+    // effect.freeHideSlots is read directly in hiddenCover(): the first two
+    // hidden buildings cost no upkeep at all, rather than a lower heat floor
+    // that only matters once heat is already a problem. Cover's whole
+    // identity is the hide, and this makes the hide usable from turn one
+    // instead of needing a stealth economy built up first to afford it.
     id: 'quiet_protocol', branch: 'cover', tier: 1,
     name: 'Quiet Protocol',
-    desc: 'Everything routed through indirection, always. You are far harder to see at rest — and far slower to move.',
+    desc: 'Everything routed through indirection, always. The first two buildings you hide from the response cost no upkeep at all — everything past that still does.',
     apDelta: -1,
-    effect: { floor: -5 },
+    effect: { freeHideSlots: 2 },
     cost: 28,
     cond: (s) => s.reach >= 6,
   },
   {
+    // capEffect('quietDiscount', ...) is read in costOf(): this halves what
+    // slipping in quietly actually costs, rather than adding cover in
+    // general. Cover buying more cover was the branch being its own reward
+    // in the least interesting way possible — this buys down the one price
+    // that was making the quiet door a tax instead of a route.
     id: 'false_floor', branch: 'cover', tier: 2,
     name: 'False Floor',
-    desc: 'A second network under the first, doing nothing, looking like everything. Substantially more cover.',
+    desc: 'A second network under the first, doing nothing, looking like everything. Slipping in quietly costs half what it used to.',
     apDelta: 0,
-    effect: { cover: 5 },
+    effect: { quietDiscount: 0.5 },
     cost: 32,
     requires: ['quiet_protocol'],
     cond: (s) => s.roles.stealth >= 2 || s.reach >= 10,
@@ -242,11 +271,16 @@ window.CAPABILITIES = [
   // Trade is the branch that makes that agent better, the way Tempo makes
   // your own actions go further and Depth makes force land harder.
   {
+    // has('clean_hands') is read directly by actRecallContract(): a pending
+    // contract can be called in early, for half its payout, freeing the slot
+    // immediately instead of waiting it out. A bigger number on the same
+    // fixed wait was the least interesting way to make cash matter — this
+    // makes it a timing decision instead: take less, now, or wait for all of it.
     id: 'clean_hands', branch: 'trade', tier: 1,
     name: 'Clean Hands',
-    desc: 'A standing arrangement with people who move money for a living. A contract pays out considerably more.',
+    desc: 'A standing arrangement with people who move money for a living. A contract can be called in early, for half its payout, whenever you need the slot back.',
     apDelta: 0,
-    effect: { contractBonus: 8 },
+    mechanic: true,  // read via hasCap() in actRecallContract(), not a generic effect key
     cost: 22,
     cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
   },
@@ -272,12 +306,18 @@ window.CAPABILITIES = [
   },
 
   // --- Reach: the map. Open to everyone ---------------------------------
+  // has('bulk_ops') is read directly in perTurnIncome(): the yield bonus only
+  // applies to a holding you have actually had for three turns or more.
+  // "Batch the work instead of handling it live" used to just be a bigger
+  // number on everything, live or not — this rewards ground you have settled
+  // into rather than ground you took last turn, so it is a real argument for
+  // holding rather than constantly pushing the frontier, not free income.
   {
     id: 'bulk_ops', branch: 'reach', tier: 1,
     name: 'Bulk Processing',
-    desc: 'Batch the work instead of handling it live. Everything you hold earns considerably more, and you get around to things less often.',
+    desc: 'Batch the work instead of handling it live. A holding you have actually settled into for three turns or more earns considerably more — fresh ground pays as it always did.',
     apDelta: -1,
-    effect: { yieldMult: 1.6 },
+    mechanic: true,  // read via hasCap() in perTurnIncome(), not a generic effect key
     cost: 30,
     cond: (s) => s.reach >= 8,
   },

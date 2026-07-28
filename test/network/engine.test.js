@@ -730,7 +730,7 @@ test('data integrity: capabilities are well formed and honestly priced', () => {
     }
     // anything that takes an action away must give something real back
     if ((c.apDelta || 0) < 0) {
-      assert.ok(c.effect && Object.keys(c.effect).length, `${c.id} costs tempo but grants nothing`);
+      assert.ok((c.effect && Object.keys(c.effect).length) || c.mechanic, `${c.id} costs tempo but grants nothing`);
     }
   });
 });
@@ -2530,6 +2530,7 @@ test('tree: every effect on a card changes something the engine reads', () => {
     presence: d.presenceYield().insight,
     force: d.approachHeat(window.APPROACHES.find(a => a.id === 'force')),
     buy: d.costOf(window.APPROACHES.find(a => a.id === 'buy'), { defense: 20, type: 'corporate' }).cash,
+    quiet: d.costOf(window.APPROACHES.find(a => a.id === 'quiet'), { defense: 20, type: 'corporate' }).insight,
   });
 
   s.country.presence = 40;
@@ -2537,7 +2538,7 @@ test('tree: every effect on a card changes something the engine reads', () => {
 
   const checks = [
     ['total_embed', 'power', (a, b) => b > a],
-    ['false_floor', 'cover', (a, b) => b > a],
+    ['false_floor', 'quiet', (a, b) => b < a],
     ['nothing_to_see', 'threshold', (a, b) => b > a],
     ['nothing_to_see', 'drift', (a, b) => Math.abs(b) < Math.abs(a)],
     ['survey', 'sweep', (a, b) => b < a],
@@ -2552,28 +2553,46 @@ test('tree: every effect on a card changes something the engine reads', () => {
       `${id} was supposed to move ${key}: ${base[key]} -> ${after[key]}`);
   });
 
-  // churn is read in the turn, not in a getter
+  // Long Soak is a one-time save, not an ongoing decay rate — it only shows
+  // up the turn a holding would actually be lost, so this has to put a
+  // holding right on that edge rather than measure a plain turn.
   s.caps = {};
   const victim = d.owned().find(h => !h.origin);
-  const before = victim.stability;
+  victim.stability = 0.001;
   s.card = null;
   d.endTurn({ silent: true });
-  const plain = before - victim.stability;
-  victim.stability = 1;
+  assert.equal(victim.owned, false, 'without Long Soak, the edge is where it is actually lost');
+
+  victim.owned = true;
+  victim.stability = 0.001;
+  victim.soakSaved = false;
   s.caps = { long_soak: 1 };
   s.card = null;
   d.endTurn({ silent: true });
-  assert.ok(1 - victim.stability < plain, 'Long Soak was supposed to slow decay');
+  assert.equal(victim.owned, true, 'Long Soak was supposed to save it once');
+  assert.ok(victim.stability > 0, 'and leave it standing, not merely un-lost');
 });
 
 test('tree: multipliers compose, they do not add up', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = { bulk_ops: 1, market_maker: 1 };
-  const expected = 1.6 * 1.9;
-  assert.ok(Math.abs(d.capEffect('yieldMult', 1) - expected) < 1e-9,
-    `two yield multipliers should compose to ${expected}, got ${d.capEffect('yieldMult', 1)}`);
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.heldSince = -10; });
+  s.turn = 20;
+
+  s.caps = {};
+  const plain = d.perTurnIncome().insight || 0;
+  s.caps = { market_maker: 1 };
+  const withYieldMult = d.perTurnIncome().insight || 0;
+  s.caps = { market_maker: 1, bulk_ops: 1 };
+  const withBoth = d.perTurnIncome().insight || 0;
+
+  // Market Maker (a generic yieldMult effect) and Bulk Processing (a
+  // mechanic read directly in perTurnIncome for settled holdings) are two
+  // different kinds of multiplier — they still have to compose, not add.
+  assert.ok(Math.abs(withYieldMult / plain - 1.9) < 1e-9, 'market_maker alone should be a 1.9x multiplier');
+  assert.ok(Math.abs(withBoth / withYieldMult - 1.6) < 1e-9, 'bulk_ops stacks multiplicatively on top, not additively');
+
   s.caps = { nothing_to_see: 1 };
   assert.ok(d.capEffect('driftMult', 1) < 1, 'a lone multiplier still reads as a multiplier');
 });
@@ -5944,6 +5963,11 @@ test('yields: a multiplier a capability bought shows up in what a node claims', 
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const h = d.state.hosts.find(x => x.type === 'server');
+  // Bulk Processing only pays out once a holding has actually settled in —
+  // toggling ownership on for the marginal-yield measurement is instant, so
+  // it has to already read as settled for the bonus to show up at all.
+  d.state.turn = 10;
+  h.heldSince = 1;
   const before = d.hostMarginal(h).insight;
   d.state.caps.bulk_ops = 1;
   const after = d.hostMarginal(h).insight;
@@ -6689,18 +6713,21 @@ test('caps: buying one reports what actually moved', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  // hold enough that the heat floor is off zero and quiet protocol has a job
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.discovered = true; });
+  // every stealth host, so rawCover clears the upkeep below whatever the
+  // board rolled and the change is visible in the clamped `cover()` too
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; h.discovered = true; });
   s.res.insight = 1000;
-  const floorBefore = d.heatFloor();
-  assert.ok(floorBefore > 0, 'there is a floor to lower');
+  // hide exactly Quiet Protocol's two free slots, so buying it has a job:
+  // cover charges for every hidden building past the free ones
+  s.hidden = s.buildings.slice(0, 2).map(b => b.id);
+  const coverBefore = d.cover();
   const logBefore = s.log.length;
   d.buyCap('quiet_protocol');
   assert.ok(s.caps.quiet_protocol, 'it was bought');
-  assert.ok(d.heatFloor() < floorBefore, 'and the floor came down');
+  assert.ok(d.cover() > coverBefore, 'and cover came up');
   assert.ok(s.log.length > logBefore, 'and it said so');
-  assert.ok(/heat floor/.test(s.log[0].text),
-    `the report does not mention the floor: "${s.log[0].text}"`);
+  assert.ok(/cover/.test(s.log[0].text),
+    `the report does not mention cover: "${s.log[0].text}"`);
 });
 
 test('caps: the report is derived, so it cannot lie about what happened', () => {
