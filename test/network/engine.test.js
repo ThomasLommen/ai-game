@@ -1016,8 +1016,8 @@ test('land: cities are scattered into territory, not spaced along a line', () =>
   const d = window.__netDebug;
   const K = window.COUNTRY;
   // pooled over boards: one generated country can look organic by luck
-  let evenX = 0, pairs = 0, tooClose = 0, total = 0;
-  const spreads = [];
+  let pairs = 0, tooClose = 0, total = 0;
+  const spreads = [], rhos = [];
   for (let g = 0; g < 8; g++) {
     const co = (g === 0 ? d.state.country : loadNetwork().window.__netDebug.state.country);
     window.REGIONS.forEach(R => {
@@ -1033,10 +1033,19 @@ test('land: cities are scattered into territory, not spaced along a line', () =>
         const ys = here.map(c => c.y);
         spreads.push(Math.max(...ys) - Math.min(...ys));
       }
-      // and it spaced them at equal intervals along x, which nothing random does
-      const xs = here.map(c => c.x).sort((a, b) => a - b);
-      const gaps = xs.slice(1).map((x, i) => x - xs[i]);
-      if (gaps.length > 1 && Math.max(...gaps) - Math.min(...gaps) < 12) evenX++;
+      // The signature of the old layout that chance does not reproduce: x was
+      // `pad + span * i / (n - 1)` plus 26px of jitter against 150px of
+      // spacing, so a region's cities ran left to right in the order they were
+      // created, every time. Rank correlation of index against x was +1.
+      // ("Are the gaps even" is not that test: three random points have two
+      // gaps and they are within 12px of each other often enough to fail on
+      // luck, which this test did before it measured the right thing.)
+      if (here.length >= 3) {
+        const order = here.map((c, i) => ({ i, x: c.x })).sort((a, b) => a.x - b.x);
+        const n = here.length;
+        const dsq = order.reduce((a, o, rank) => a + (o.i - rank) ** 2, 0);
+        rhos.push(1 - (6 * dsq) / (n * (n * n - 1)));
+      }
     });
     co.cities.forEach(a => co.cities.forEach(b => {
       if (a.id >= b.id) return;
@@ -1048,7 +1057,9 @@ test('land: cities are scattered into territory, not spaced along a line', () =>
   const meanSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
   assert.ok(meanSpread > 40,
     `regions spread their cities ${meanSpread.toFixed(0)}px vertically; the row layout managed 26`);
-  assert.ok(evenX <= 2, `${evenX} regions still spaced their cities evenly`);
+  const meanRho = rhos.reduce((a, b) => a + b, 0) / rhos.length;
+  assert.ok(Math.abs(meanRho) < 0.45,
+    `cities still run in creation order across their region (rho ${meanRho.toFixed(2)}; the row layout scored 1.00)`);
   // and the scatter still leaves room for the constellations
   assert.ok(tooClose / pairs < 0.02, `${tooClose} of ${pairs} pairs are on top of each other`);
 });
@@ -2825,6 +2836,102 @@ test('hide: it survives a save and does not leak into the next city', () => {
   assert.equal(d.hidden().length, 0, 'and it does not follow you across the border');
 });
 
+// --- and it follows ------------------------------------------------------
+// Walking out of a city shook it off completely and for free, so the only
+// permanent threat in the game was optional: contain it badly, fold the city
+// in, and it was gone.
+
+function walkOn(d, window) {
+  // finish here and step into the next city that is not already settled
+  const s = d.state;
+  const co = s.country;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.actConsolidate();
+  // a defended city: a town folds in from a distance, so reaching one settles
+  // it on the spot and there is nothing to walk into
+  const next = co.cities.find(c => !c.consolidated && !c.lost && c.id !== co.at
+    && window.CITY_KINDS[c.kind].contest);
+  d.actReach(next.id);
+  d.enterCity(next.id);
+  s.scope = 'city';
+  return next;
+}
+
+test('chase: leaving buys a head start, not an escape', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  assert.equal(d.huntOn(), true);
+  s.res.insight = 9000; s.res.cash = 9000;
+
+  walkOn(d, window);
+  assert.equal(d.huntOn(), false, 'it did not come with you');
+  const c = d.chase();
+  assert.ok(c, 'but it is looking');
+  assert.ok(d.chaseDueIn() > 0, 'and it is not here yet');
+
+  // it must be visible before it lands
+  s.ap = 9;
+  d.state.selected = null;
+  assert.ok(d.chaseDueIn() !== null, 'the panel has a number to show');
+
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
+  s.turn += d.followDelay();
+  const came = d.chaseStep();
+  assert.ok(came, 'it turned up');
+  assert.equal(d.huntOn(), true, 'and it is running here now');
+  assert.equal(d.hunt().nodes.length, 1, 'from one building, starting over');
+  assert.equal(d.chase(), null, 'and it is no longer on the road');
+});
+
+test('chase: cover is what buys the distance', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.heat = 0;
+  const bare = d.followDelay();
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 8).forEach(h => { h.owned = true; });
+  assert.ok(d.cover() > 1, 'stealth holdings buy cover');
+  assert.ok(d.followDelay() > bare,
+    `cover should lengthen the road: ${bare} bare, ${d.followDelay()} with cover`);
+});
+
+test('chase: a city you already settled is finished and off the board', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  s.res.insight = 9000; s.res.cash = 9000;
+  const next = walkOn(d, window);
+  assert.ok(d.chase(), 'it is following');
+
+  // pretend the city you walked into is one you had already folded in
+  next.consolidated = true;
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; });
+  s.turn += d.followDelay() + 5;
+  assert.equal(d.chaseStep(), null, 'it cannot come into a settled city');
+  assert.equal(d.huntOn(), false, 'nothing is running there');
+  assert.ok(d.chase(), 'and it is still out there waiting for somewhere it can go');
+});
+
+test('chase: it survives a save, because it is on its way', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 4; t++) { s.turn += 1; d.huntStep(); }
+  s.res.insight = 9000; s.res.cash = 9000;
+  walkOn(d, window);
+  const at = d.chase().at;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.ok(back.country.chase, 'still coming');
+  assert.equal(back.country.chase.at, at, 'and from the same turn');
+});
+
 test('hunt: it belongs to the city it is in, not to you', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -4167,11 +4274,16 @@ test('war: ground routes follow roads, air routes ignore them', () => {
   conqueredCountry(d, window);
   d.openWar();
   const cities = d.state.country.cities;
+  // A long journey, not merely a lot of hops. Since the roads were thinned to
+  // a road network, hop count stopped implying distance: four hops around a
+  // cluster can be a short walk, and between two cities that close a
+  // helicopter never leaves the two endpoints and the route reads as a ground
+  // route. Ask for both.
   let pair = null;
   for (const a of cities) {
     for (const b of cities) {
       const r = d.roadPath(a.id, b.id);
-      if (r && r.length >= 4) { pair = [a, b]; break; }
+      if (r && r.length >= 4 && Math.hypot(a.x - b.x, a.y - b.y) > 220) { pair = [a, b]; break; }
     }
     if (pair) break;
   }

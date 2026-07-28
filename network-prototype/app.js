@@ -1150,6 +1150,7 @@
     if (warShouldOpen()) openWar();
 
     hideUpkeep();         // what you can still afford to keep off their map
+    chaseStep();          // whether the one you walked away from has found you
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
     cellStep();           // whoever you sent, and whether they have finished
@@ -1268,20 +1269,59 @@
     hunt().nodes.forEach(id => revealBuilding(buildingById(id)));
     huntFrontier().forEach(id => revealBuilding(buildingById(id)));
   }
-  function huntStart() {
-    if (huntOn() || state.scope !== 'city') return null;
-    if (owned().length < window.HUNT.minHeld) return null;
-    // it starts on something of yours: the point is that it takes, not that it
-    // races you for open ground the way the rival does
+  // It always arrives the same way: one building, the smallest thing you hold,
+  // and it takes that building off you on the way in.
+  function huntSeed(line) {
     const mine = owned().slice().sort((a, b) => a.threads - b.threads);
     const seed = mine[0];
     if (!seed) return null;
     state.hunt = { on: true, nodes: [seed.buildingId], since: state.turn, lastActed: state.turn };
     hostsIn(buildingById(seed.buildingId)).forEach(h => { h.owned = false; });
     huntReveal();
-    pushLog(`${window.HUNT.name} has an address. They are inside ${window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label}, and they are not leaving.`);
+    pushLog(line(window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label));
     showBanner([{ kind: 'faction', verb: 'against you', label: window.HUNT.name }]);
     return state.hunt;
+  }
+  function huntStart() {
+    if (huntOn() || state.scope !== 'city') return null;
+    if (owned().length < window.HUNT.minHeld) return null;
+    // it starts on something of yours: the point is that it takes, not that it
+    // races you for open ground the way the rival does
+    return huntSeed((what) =>
+      `${window.HUNT.name} has an address. They are inside ${what}, and they are not leaving.`);
+  }
+
+  // --- and it follows -----------------------------------------------------
+  // Walking out of a city shook it off completely and for free, which made the
+  // only permanent threat in the game optional: contain it badly, fold the
+  // city in, and it was gone. Leaving is now a head start, not an escape.
+  function chase() { return (CO() || {}).chase || null; }
+  function followDelay() {
+    const H = window.HUNT;
+    return Math.min(H.followMax, Math.round(H.followBase + cover() * H.followPerCover));
+  }
+  function chaseDueIn() {
+    const c = chase();
+    if (!c) return null;
+    return Math.max(0, (c.at + followDelay()) - state.turn);
+  }
+  // called wherever a city stops being the one you are standing in
+  function armChase() {
+    if (!huntOn()) return null;
+    CO().chase = { at: state.turn, from: state.cityId || null };
+    return CO().chase;
+  }
+  function chaseStep() {
+    const c = chase();
+    if (!c || state.scope !== 'city' || huntOn()) return null;
+    const here = currentCity();
+    // a city you already settled is finished and off the board
+    if (!here || here.consolidated || here.lost) return null;
+    if (state.turn - c.at < followDelay()) return null;
+    if (!owned().length) return null;              // nothing here to take yet
+    CO().chase = null;
+    return huntSeed((what) =>
+      `${window.HUNT.name} found you again. They are in ${what} now, and they start over from there.`);
   }
   function huntStep() {
     if (state.scope !== 'city') return null;
@@ -2708,6 +2748,7 @@
   });
 
   function leaveCity() {
+    armChase();
     const here = currentCity();
     if (here && !here.consolidated && (state.buildings || []).length) here.snapshot = packCity();
     unpackCity(EMPTY_CITY());
@@ -2725,6 +2766,7 @@
       return true;
     }
     const here = currentCity();
+    if (here && here.id !== c.id) armChase();
     if (here && here.id !== c.id && !here.consolidated) here.snapshot = packCity();
 
     if (c.snapshot) {
@@ -2889,6 +2931,8 @@
     // record, not an asset: nothing can be done with it, it never churns, and
     // it costs half a kilobyte.
     c.web = settledWeb();
+    // folding a city in with the response still inside it is not shaking it off
+    armChase();
     CO().presence += gained;
     pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
     awardPrize(c);
@@ -5909,7 +5953,20 @@
   // was possible to be eaten alive without ever being told the cadence, the
   // share, or that cutting a street was a verb at all.
   function huntBar() {
-    if (!huntOn()) return '';
+    // Coming, but not here yet. It has to be visible before it lands or the
+    // reseed is a surprise, and a permanent loss must never be a surprise.
+    if (!huntOn()) {
+      const due = chaseDueIn();
+      if (due === null || state.scope !== 'city') return '';
+      const here = currentCity();
+      if (here && (here.consolidated || here.lost)) return '';
+      return `<div class="hunt-bar coming${due <= 2 ? ' urgent' : ''}">
+        <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
+          ? 'They are about to find this place.'
+          : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
+        <p class="hb-hint">Cover is what buys the distance. They start again from one building.</p>
+      </div>`;
+    }
     const H = window.HUNT;
     const n = hunt().nodes.length;
     const due = huntDueIn();
@@ -6595,6 +6652,7 @@
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
+    chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
     buildLand, borderYAt, bandSpan, landCache: () => landCache,
     packCity, unpackCity, EMPTY_CITY,

@@ -635,6 +635,18 @@ window.HUNT = {
   // the moment your cover falls the ones you cannot pay for come back on the
   // map. Quiet Hours, when it wakes, takes the whole trick away.
   hideCover: 3,
+  // Walking out of a city used to shake it off completely and for free, which
+  // made the one permanent threat in the game optional: contain it badly, fold
+  // the city in, and it was simply gone. Now leaving buys a head start rather
+  // than an escape — it turns up in the next city you are standing in, from
+  // one building, and starts again. Cover is what buys the head start, the
+  // same as it buys the time between its moves.
+  //
+  // It cannot follow you into a city you already settled: those are finished
+  // and off the board.
+  followBase: 7,
+  followPerCover: 0.5,
+  followMax: 16,
 };
 
 // --- what makes a city a different city ----------------------------------
