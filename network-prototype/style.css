@@ -1060,6 +1060,21 @@ footer .build { opacity: .55; font-size: 10px; }
 @keyframes next-up { to { stroke-dashoffset: -18; } }
 @media (prefers-reduced-motion: reduce) { .bldg.next-up .body { animation: none; } }
 
+/* A settled city, drawn as the network you built in it. Small and quiet at
+   whole-country zoom — you should read the shape of it, not count the dots —
+   and coloured by what you took, so a stealth city and a forced one look
+   different from across the map. */
+/* a bare field for the constellation to sit on, not a ring around it */
+.cnode .dot.settled { fill: rgba(16,23,20,.55); stroke: none; }
+.cnode.sel .dot.settled { stroke: var(--ink); stroke-width: 1.6; }
+.cnode .web .wn { stroke: none; opacity: .92; }
+.cnode .web .wn.r-c { fill: var(--insight); }
+.cnode .web .wn.r-a { fill: var(--cash); }
+.cnode .web .wn.r-s { fill: var(--cover); }
+.cnode .web .wn.lm  { stroke: #0d120f; stroke-width: .6; }
+/* what the response took: still there, still yours in shape, and gone */
+.cnode .web.gone .wn { fill: var(--heat); opacity: .3; }
+
 .cnode .prize {
   fill: var(--cover);
   stroke: #0d120f;

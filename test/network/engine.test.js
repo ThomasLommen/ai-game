@@ -2323,6 +2323,83 @@ test('heat: it can actually reach the threshold across a campaign', () => {
     `four borders should not launder the meter: ${s.heat.toFixed(1)} of ${d.strikeThreshold()}`);
 });
 
+// --- what you built, kept -------------------------------------------------
+// Folding a city in converted forty turns of work into one number and an empty
+// screen, five times a campaign. The map filling up is the best feeling the
+// game has and it was being deleted. This keeps a photograph of it — a record,
+// not an asset: nothing can be done with it and it never churns.
+
+function settle(d, window) {
+  const s = d.state;
+  const c = d.currentCity();
+  const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
+  s.hosts.slice(0, need + 2).forEach(h => { h.owned = true; h.discovered = true; });
+  s.ap = 9;
+  d.actConsolidate();
+  return c;
+}
+
+test('settled: folding a city in keeps the shape of what you took', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = settle(d, window);
+  const web = d.cityWeb(c);
+  assert.ok(web, 'there is a record');
+  assert.ok(web.length > 5, `only ${web.length} nodes kept`);
+  // normalised, so it can be drawn at any size on the national map
+  web.forEach(n => {
+    assert.ok(n.x >= 0 && n.x <= 1, `x out of range: ${n.x}`);
+    assert.ok(n.y >= 0 && n.y <= 1, `y out of range: ${n.y}`);
+    assert.ok('cas'.indexOf(n.r) !== -1, `unknown role ${n.r}`);
+  });
+  // and it is a photograph, not a holding
+  assert.equal(d.owned().length, 0, 'you are not holding it any more');
+});
+
+test('settled: the economy is untouched — it is a record, not an asset', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = settle(d, window);
+  assert.ok(c.granted > 0, 'presence was still granted');
+  assert.equal(d.state.country.presence, c.granted, 'and it is the whole of it');
+  // nothing in the record feeds power, cover or income
+  const before = { p: d.power(), c: d.cover(), i: JSON.stringify(d.perTurnIncome()) };
+  c.web = c.web.concat(c.web);          // twice the picture
+  assert.equal(d.power(), before.p, 'power does not read the picture');
+  assert.equal(d.cover(), before.c, 'nor cover');
+  assert.equal(JSON.stringify(d.perTurnIncome()), before.i, 'nor income');
+});
+
+test('settled: it costs almost nothing to keep', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = settle(d, window);
+  const bytes = JSON.stringify(d.cityWeb(c)).length;
+  assert.ok(bytes < 2000, `a settled city weighs ${bytes} bytes`);
+});
+
+test('settled: it survives a save, or it is not a record of anything', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = settle(d, window);
+  const n = d.cityWeb(c).length;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  const same = back.country.cities.find(x => x.id === c.id);
+  assert.ok(same.web && same.web.length === n, 'the picture came back');
+});
+
+test('settled: a city the response takes keeps its picture, and it is marked', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = settle(d, window);
+  assert.equal(d.cityLost(c), false);
+  // losing it must not erase it — a permanent loss you can see for the rest of
+  // the run is the whole reason to keep the picture at all
+  c.lost = true;
+  assert.ok(d.cityWeb(c), 'what you built there is still drawn');
+  assert.equal(d.cityLost(c), true, 'and it is marked as gone');
+});
+
 // --- the hunt ------------------------------------------------------------
 // Heat priced the loudest thing you can do at about two cash a door against an
 // income of fifty a turn, and the punishment for ignoring it took a third of

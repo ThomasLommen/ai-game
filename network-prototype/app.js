@@ -2585,6 +2585,32 @@
     return true;
   }
 
+  // Where your holdings stood, in the city's own coordinates, normalised to
+  // 0..1 so it can be drawn at any size on the national map.
+  function settledWeb() {
+    const held = owned();
+    if (!held.length) return null;
+    // cityBounds, not state.dims — dims is the block grid (4x4), not an extent
+    const box = cityBounds();
+    const W = box.w || 1, H = box.h || 1;
+    const seen = {};
+    const nodes = [];
+    held.forEach(h => {
+      if (seen[h.buildingId]) return;
+      seen[h.buildingId] = true;
+      const b = buildingById(h.buildingId);
+      if (!b) return;
+      nodes.push({
+        x: +((b.x + b.w / 2) / W).toFixed(3),
+        y: +((b.y + b.h / 2) / H).toFixed(3),
+        r: h.role[0],                       // c | a | s — compute, cash, stealth
+        l: b.landmark ? 1 : 0,
+      });
+    });
+    return nodes.length ? nodes : null;
+  }
+  function cityWeb(c) { return (c && c.web && c.web.length) ? c.web : null; }
+
   function actConsolidate() {
     if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
     const c = currentCity();
@@ -2598,6 +2624,13 @@
     c.consolidated = true;
     c.granted = gained;      // so taking it back costs exactly what it gave
     c.snapshot = null;
+    // and a photograph of what you actually built here, kept for the rest of
+    // the run. Folding a city in used to convert forty turns of work into one
+    // number and an empty screen — the map filling up is the best feeling the
+    // game has and it was being deleted five times a campaign. This is a
+    // record, not an asset: nothing can be done with it, it never churns, and
+    // it costs half a kilobyte.
+    c.web = settledWeb();
     CO().presence += gained;
     pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
     awardPrize(c);
@@ -4529,7 +4562,24 @@
     const r = c.kind === 'fold' ? 7 : c.kind === 'home' ? 13 : c.kind === 'root' ? 12 : 10;
     let out = `<g class="${cls.join(' ')}" data-city="${c.id}">`;
     out += `<circle class="hit" cx="${c.x}" cy="${c.y}" r="${r + 12}"/>`;
-    if (c.kind === 'root') {
+    // A city you finished is drawn as the network you actually built in it,
+    // in its own shape, for the rest of the run. Folding one in used to turn
+    // forty turns of work into a number and a blank screen.
+    const web = cityWeb(c);
+    if (web) {
+      // The constellation IS the node — no circle around it. At r * 2.5 it was
+      // twenty dots inside an eighteen-pixel ring, which reads as a smudge.
+      // You are meant to see the shape of what you took from across the map.
+      const span = r * 4.4;
+      out += `<circle class="dot settled" cx="${c.x}" cy="${c.y}" r="${span / 2 + 3}"/>`;
+      out += `<g class="web${cityLost(c) ? ' gone' : ''}">`;
+      web.forEach(n => {
+        const nx = (c.x - span / 2 + n.x * span).toFixed(1);
+        const ny = (c.y - span / 2 + n.y * span).toFixed(1);
+        out += `<circle class="wn r-${n.r}${n.l ? ' lm' : ''}" cx="${nx}" cy="${ny}" r="${n.l ? 2.4 : 1.7}"/>`;
+      });
+      out += '</g>';
+    } else if (c.kind === 'root') {
       // a seat is drawn as something with corners — it is not just a bigger dot
       const p = r * 1.15;
       out += `<rect class="dot" x="${c.x - p}" y="${c.y - p}" width="${p * 2}" height="${p * 2}" transform="rotate(45 ${c.x} ${c.y})"/>`;
@@ -4545,17 +4595,22 @@
     if (c.known && cityPrize(c) && !c.prizeTaken && !theirs && !warOn()) {
       out += `<circle class="prize" cx="${c.x + r * 0.86}" cy="${c.y - r * 0.86}" r="3.6"/>`;
     }
-    if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${r + 6}"/>`;
+    // the rings have to encircle the constellation, not sit inside it
+    const rr = web ? r * 2.2 + 3 : r;
+    if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${rr + 6}"/>`;
     if (CO().selected === c.id) {
-      out += `<circle class="pick-ring" cx="${c.x}" cy="${c.y}" r="${r + 10}"/>`;
+      out += `<circle class="pick-ring" cx="${c.x}" cy="${c.y}" r="${rr + 10}"/>`;
     }
+    // a settled city is drawn as a constellation wider than its old dot, so
+    // the name has to clear it rather than sit on top of what you built
+    const below = web ? r * 2.2 + 4 : r;
     const label = c.known ? (theirs ? window.MIRROR.name : c.name) : '?';
-    out += `<text class="ctag" x="${c.x}" y="${c.y + r + 13}">${label}</text>`;
-    if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + r + 24}">+${c.worth}</text>`;
+    out += `<text class="ctag" x="${c.x}" y="${c.y + below + 13}">${label}</text>`;
+    if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + below + 24}">+${c.worth}</text>`;
     // What kind of city it is, said on the map — this is the thing that makes
     // "which of these two next" a question with an answer.
     else if (c.known && !c.taken && !theirs && !warOn() && cityTraitOf(c)) {
-      out += `<text class="ctrait" x="${c.x}" y="${c.y + r + 24}">${cityTraitOf(c).label}</text>`;
+      out += `<text class="ctrait" x="${c.x}" y="${c.y + below + 24}">${cityTraitOf(c).label}</text>`;
     }
     out += '</g>';
     return out;
@@ -6041,7 +6096,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, cityById, currentCity,
+    makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
