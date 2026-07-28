@@ -813,7 +813,7 @@
   // Diminishing returns, deliberately. Linear cover meant every extra router
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
-  function cover() {
+  function rawCover() {
     const eyes = (ruleBroken('cameras') && !has('blind_spot'))
       ? 0
       : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
@@ -822,6 +822,11 @@
       + capEffect('cover', 0)
       + (has('clean_room') ? 2 : 0);
   }
+  // Cover held down keeping buildings off the response's map. It is spent: it
+  // does not slow them down, it does not open a quiet door, it does nothing but
+  // hold the hide. That is the trade the stealth answer is made of.
+  function hiddenCover() { return hidden().length * window.HUNT.hideCover; }
+  function cover() { return Math.max(0, rawCover() - hiddenCover()); }
   function stageFor(count) {
     let s = window.STAGES[0];
     for (const st of window.STAGES) if (count >= st.min) s = st;
@@ -982,6 +987,7 @@
     // an arrest, and nobody is arresting you any more.
     if (warShouldOpen()) openWar();
 
+    hideUpkeep();         // what you can still afford to keep off their map
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
     cellStep();           // whoever you sent, and whether they have finished
@@ -1075,6 +1081,7 @@
     hunt().nodes.forEach(id => {
       (adj[id] || []).forEach(n => {
         if (huntHolds(n)) return;
+        if (isHidden(n)) return;              // they do not know it is there
         out[n] = true;
       });
     });
@@ -1188,6 +1195,71 @@
     const c = window.HUNT.severCost;
     return Object.keys(c).every(k => (state.res[k] || 0) >= c[k]) && canAfford('sweep');
   }
+  // --- the quiet answer ----------------------------------------------------
+  // Severing works and it is loud: the street goes, permanently, for both of
+  // you, and the city is smaller for it. Hiding is the same problem answered
+  // the other way — the building comes off their map and the street stays open
+  // for you. It costs nothing up front and everything continuously: cover, per
+  // hidden building, every turn, out of the same pool that was slowing them
+  // down. So a wall of hidden buildings makes the rest of the city easier to
+  // walk, and the moment your cover falls the wall comes down.
+  function hidden() { return state.hidden || (state.hidden = []); }
+  function isHidden(bid) { return hidden().indexOf(bid) !== -1; }
+  function hideRoom() { return rawCover() - hiddenCover(); }
+  function canHide(bid) {
+    if (!huntOn() || state.card || state.over) return false;
+    if (isHidden(bid) || huntHolds(bid) || rivalHolds(bid)) return false;
+    const b = buildingById(bid);
+    if (!b || !buildingHeld(b)) return false;         // only what is yours
+    if (ruleBroken('lielow')) return false;           // Quiet Hours watches the quiet
+    return hideRoom() >= window.HUNT.hideCover && canAfford('lielow');
+  }
+  function actHide(bid) {
+    if (!canHide(bid)) return false;
+    spendAP('lielow');
+    hidden().push(bid);
+    pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
+    persistNow();
+    render();
+    return true;
+  }
+  // Free, and instant: you are letting go of something, not doing something.
+  function actUnhide(bid) {
+    if (!isHidden(bid)) return false;
+    state.hidden = hidden().filter(x => x !== bid);
+    pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is back on their map.`);
+    persistNow();
+    render();
+    return true;
+  }
+  // What you can no longer pay for stops being hidden — newest first, because
+  // the last one you put up is the one you were stretching for. This runs every
+  // turn: losing a stealth holding, or Quiet Hours waking, brings the wall down
+  // without anybody choosing it.
+  function hideUpkeep() {
+    if (!hidden().length) return [];
+    const lost = [];
+    if (ruleBroken('lielow')) {
+      lost.push(...hidden());
+      state.hidden = [];
+    } else {
+      // and anything you stopped holding was never hidden, it was just gone
+      state.hidden = hidden().filter(id => {
+        const b = buildingById(id);
+        if (b && buildingHeld(b) && !huntHolds(id)) return true;
+        lost.push(id);
+        return false;
+      });
+      while (hidden().length && hiddenCover() > rawCover()) lost.push(state.hidden.pop());
+    }
+    if (lost.length) {
+      pushLog(lost.length === 1
+        ? `${window.BUILDING_KINDS[(buildingById(lost[0]) || { kind: 'house' }).kind].label} is on their map again.`
+        : `${lost.length} buildings are on their map again.`);
+    }
+    return lost;
+  }
+
   function actSever(a, b) {
     if (!canSever(a, b)) return false;
     const H = window.HUNT;
@@ -2442,6 +2514,7 @@
       buildings: state.buildings, hosts: state.hosts, links: state.links,
       adjacency: state.adjacency, bands: state.bands, dims: state.dims, rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
+      hidden: state.hidden || [],
     };
   }
   function unpackCity(p) {
@@ -2450,6 +2523,7 @@
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
+    state.hidden = p.hidden || [];
     state.selectedCut = null;               // streets do not survive the border
     state.view = null;
   }
@@ -2459,7 +2533,8 @@
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, rival: { awake: false, buildings: [], lastActed: 0, seen: false },
+    bands: [], dims: { cols: 1, rows: 1 }, hidden: [],
+    rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
   function leaveCity() {
@@ -4200,7 +4275,7 @@
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
-      card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99,
+      card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, hunt: state.hunt || null,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
     };
@@ -4215,7 +4290,7 @@
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
-        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, hunt: saved.hunt || null,
+        cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -4500,7 +4575,9 @@
         const yours = hostsIn(buildingById(n)).some(h => h.owned);
         const sel = !!(cut && cut.a === id && cut.b === n);
         const next = huntNext() === n;
-        out += `<g class="hreach${sel ? ' sel' : ''}${yours ? ' yours' : ''}${next ? ' next' : ''}" data-cut="${id}|${n}">`
+        // the street is still there, they simply do not know what is on it
+        const blind = isHidden(n);
+        out += `<g class="hreach${sel ? ' sel' : ''}${yours ? ' yours' : ''}${next ? ' next' : ''}${blind ? ' blind' : ''}" data-cut="${id}|${n}">`
           + `<line class="hit" ${geo}/><line class="reach" ${geo}/></g>`;
       });
     });
@@ -4518,7 +4595,7 @@
     const nextUp = huntOn() && huntNext() === b.id;
     const cls = ['bldg', b.kind, h ? h.role : '', b.landmark ? 'landmark' : '',
                  hunted ? 'hunted' : theirs ? 'rival' : (mine ? 'all-held' : (open ? 'open' : '')),
-                 nextUp ? 'next-up' : ''];
+                 nextUp ? 'next-up' : '', isHidden(b.id) ? 'hid' : ''];
     if (state.selectedBuilding === b.id || (h && state.selected === h.id)) cls.push('sel');
     const fx = sweepFx && sweepFx.ids[b.id] !== undefined ? sweepDelay(sweepFx.ids[b.id]) : null;
     if (fx !== null) cls.push('found');
@@ -5573,10 +5650,37 @@
     const move = nx
       ? `Next: <b>${bldgLabel(buildingById(nx))}</b>${due <= 0 ? ', this turn' : ` in ${due} turn${due === 1 ? '' : 's'}`}.`
       : 'Every street out of them is gone. They cannot reach anything.';
+    const hid = hidden().length;
     return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
       <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
-      ${nx ? '<p class="hb-hint">Tap a red street to take it away — it closes for you too.</p>' : ''}
+      ${hid ? `<p class="hb-hid">${hid} hidden from them, holding down ${hiddenCover()} cover.</p>` : ''}
+      ${nx ? '<p class="hb-hint">Cut a red street and it closes for you too. Hide a building and it does not.</p>' : ''}
     </div>`;
+  }
+
+  // The quiet answer, offered on the building rather than on the street —
+  // because it is the building you are taking off their map, and the street
+  // stays where it is.
+  function hidePanel(b) {
+    if (!huntOn() || !b) return '';
+    const H = window.HUNT;
+    if (isHidden(b.id)) {
+      return `<button class="act-btn hiding" data-act="unhide" data-bid="${b.id}">
+        <span class="ab-name">stop hiding it</span>
+        <span class="ab-sub">${chip('cover', 'frees ' + H.hideCover + ' cover')}${chip('cost none', 'back on their map')}</span>
+      </button>`;
+    }
+    // only worth offering where it does something: on the edge of their reach
+    const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
+    if (!touching) return '';
+    const able = canHide(b.id);
+    return `<button class="act-btn${able ? '' : ' no-ap'}${ruleBroken('lielow') ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
+      <span class="ab-name">hide it</span>
+      <span class="ab-sub">${ruleBroken('lielow') ? `${factionBreaking('lielow').name} is watching the quiet`
+        : able ? `${chip('cover', 'they cannot see it')}${chip('cost cover', '&minus;' + H.hideCover + ' cover a turn')}`
+        : hideRoom() < H.hideCover ? `needs ${H.hideCover} cover to hold, you have ${Math.max(0, hideRoom())}`
+        : 'needs an action'}</span>
+    </button>`;
   }
 
   // Tapping one of their streets rather than one of their buildings: the same
@@ -5645,6 +5749,7 @@
               <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady'
                 : `restore stability ${chip('cost insight', '&minus;2 insight')}`}</span>
             </button>
+            ${hidePanel(b)}
             ${assetPanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
@@ -5754,6 +5859,8 @@
         else if (a === 'claim') claimAsset(b.getAttribute('data-bid'));
         else if (a === 'retool') actRetool(b.getAttribute('data-bid'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
+        else if (a === 'hide') actHide(b.getAttribute('data-bid'));
+        else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
       });
     });
   }
@@ -6219,6 +6326,8 @@
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
+    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
+    packCity, unpackCity, EMPTY_CITY,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
     LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,

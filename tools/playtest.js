@@ -139,6 +139,10 @@ function campaign(d, style) {
     const nextHost = next && s.hosts.find(h => h.buildingId === next && h.owned);
     // cut when it is about to take something of yours, or when a couple of
     // snips would seal it in entirely
+    // The quiet answer first where it is available: it keeps the street, and
+    // cover you are not spending on a hide is only worth the turns it adds to
+    // their cadence. Cutting is the fallback and the permanent one.
+    if (next && nextHost && d.canHide(next) && d.actHide(next)) return 'hide';
     const outs = d.severable();
     if (outs.length && (nextHost || outs.length <= 2)) {
       const cut = outs.find(e => d.canSever(e.from, e.to));
@@ -434,6 +438,7 @@ function playOne(strategyName) {
   // these the report says nothing about the only permanent loss in the game.
   let huntStarts = 0, huntPeak = 0, huntTurns = 0, severs = 0, huntSealed = 0;
   let huntTook = 0, huntWasOn = false, huntLastTurn = -1;
+  let hides = 0, hidePeak = 0, hideTurns = 0;
 
   for (let guard = 0; guard < MAX_TURNS * 8 && d.state.turn < MAX_TURNS; guard++) {
     if (d.state.over) break;
@@ -484,7 +489,9 @@ function playOne(strategyName) {
         huntTurns++;
         // sealed in: nowhere left for it to step, which is what cutting is for
         if (!d.huntFrontier().length) huntSealed++;
+        if (d.hidden().length) hideTurns++;
       }
+      hidePeak = Math.max(hidePeak, d.hidden().length);
     } else {
       huntWasOn = false;
     }
@@ -492,6 +499,7 @@ function playOne(strategyName) {
     const apBefore = d.state.ap;
     const action = strat(d);
     if (action === 'sever') severs++;
+    if (action === 'hide') hides++;
     if (action && (action.startsWith('reach') || action === 'travel' || action === 'consolidate')) {
       countryMoves[action] = (countryMoves[action] || 0) + 1;
     }
@@ -538,6 +546,7 @@ function playOne(strategyName) {
     shortShare: countedTurns ? shortTurns / countedTurns : 0,
     peakShort: Math.round(peakShort),
     huntStarts, huntPeak, huntTurns, severs, huntSealed, huntTook,
+    hides, hidePeak, hideTurns,
     citiesLost: d.state.country.cities.filter(c => c.lost).length,
     citiesTotal: d.state.country.cities.length,
     citiesTaken: d.state.country.cities.filter(c => c.taken).length,
@@ -730,6 +739,9 @@ function run() {
       ` · took ${fmt(mean(chased.map(r => r.huntPeak)), 1)} buildings at its widest`);
     console.log(`     ${fmt(mean(chased.map(r => r.severs)), 1)} streets cut a game` +
       ` · sealed in on ${pct(mean(chased.map(r => r.huntTurns ? r.huntSealed / r.huntTurns : 0)), 1)} of the turns it was running`);
+    console.log(`     ${fmt(mean(chased.map(r => r.hides)), 1)} buildings hidden a game` +
+      ` · ${fmt(mean(chased.map(r => r.hidePeak)), 1)} held at once at the widest` +
+      ` · hiding something on ${pct(mean(chased.map(r => r.huntTurns ? r.hideTurns / r.huntTurns : 0)), 1)} of those turns`);
     console.log(`     ${fmt(mean(all.map(r => r.citiesLost)), 2)} cities lost to it a game` +
       ` · ${pct(all.filter(r => r.citiesLost > 0).length, all.length)} of games lost one`);
   }

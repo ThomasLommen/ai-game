@@ -2610,6 +2610,123 @@ test('hunt: a street you take stays taken, whatever The Cut is doing', () => {
   assert.equal((s.adjacency[e.from] || []).indexOf(e.to), -1, 'the street is still gone');
 });
 
+// The quiet answer. Severing is loud, permanent and symmetrical: the street
+// goes for both of you. Hiding takes a building off their map and leaves the
+// street open for you — and charges you cover, per building, every turn, out
+// of the same pool that was slowing them down.
+
+test('hide: a hidden building is one they will not walk onto', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+
+  const target = d.huntNext();
+  assert.ok(target, 'they have somewhere to go');
+  assert.equal(d.canHide(target), true, 'and it is yours to take off the map');
+  s.ap = 9;
+  assert.equal(d.actHide(target), true);
+
+  assert.equal(d.huntFrontier().indexOf(target), -1, 'it is off their frontier');
+  assert.notEqual(d.huntNext(), target, 'and it is not what they take next');
+  // the difference from cutting: the street is untouched
+  assert.ok((s.adjacency[target] || []).length > 0, 'the street is still there');
+  assert.equal(d.severable().some(e => e.to === target), true,
+    'you could still cut it instead, and that choice is the point');
+});
+
+test('hide: you pay for it out of the cover that was slowing them down', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // a small network on purpose: owning the whole city wakes Quiet Hours on the
+  // first end of turn, and Quiet Hours is what takes hiding away
+  hunted(d, window, 10);
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 6).forEach(h => { h.owned = true; });
+  s.heat = 0;
+  const coverBefore = d.cover();
+  const cadenceBefore = d.huntCadence();
+  const target = d.huntNext();
+  s.ap = 9;
+  d.actHide(target);
+
+  assert.equal(d.rawCover(), coverBefore, 'the stealth holdings are untouched');
+  assert.equal(d.cover(), coverBefore - window.HUNT.hideCover, 'but the cover is spent');
+  assert.ok(d.huntCadence() <= cadenceBefore,
+    `hiding must not also slow them: ${cadenceBefore} before, ${d.huntCadence()} after`);
+  assert.equal(d.hiddenCover(), window.HUNT.hideCover, 'and the upkeep is named');
+
+  // and it is an upkeep, not a payment: it is still spent next turn
+  d.actEndTurn();
+  assert.equal(d.ruleBroken('lielow'), false, 'nobody took the trick away mid-test');
+  assert.equal(d.isHidden(target), true, 'still hidden');
+  assert.equal(d.cover(), d.rawCover() - window.HUNT.hideCover, 'still paying for it');
+});
+
+test('hide: what you cannot pay for comes back onto their map', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  s.ap = 99;
+  const put = [];
+  for (let i = 0; i < 6; i++) {
+    const t = d.huntFrontier().find(id => d.canHide(id));
+    if (!t) break;
+    d.actHide(t);
+    put.push(t);
+  }
+  assert.ok(put.length >= 2, `you can hold more than one at a time (${put.length})`);
+  assert.ok(d.hiddenCover() <= d.rawCover(), 'and never more than you can pay for');
+
+  // lose the stealth holdings that were paying for it
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = false; });
+  const lost = d.hideUpkeep();
+  assert.ok(lost.length > 0, 'the wall came down with the cover that held it');
+  assert.ok(d.hiddenCover() <= d.rawCover(), 'down to what you can still afford');
+});
+
+test('hide: Quiet Hours takes the whole trick away', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  s.ap = 99;
+  const t = d.huntFrontier().find(id => d.canHide(id));
+  d.actHide(t);
+  assert.equal(d.hidden().length, 1);
+
+  const qh = window.FACTIONS.find(f => f.breaks === 'lielow');
+  assert.ok(qh, 'the faction that watches the quiet exists');
+  d.factionState(qh.id).awake = true;
+  assert.equal(d.ruleBroken('lielow'), true);
+  assert.equal(d.canHide(d.huntFrontier()[0]), false, 'you cannot put up another');
+  assert.deepEqual(d.hideUpkeep().length, 1, 'and the one you had comes down');
+  assert.equal(d.hidden().length, 0, 'nothing is hidden from them any more');
+});
+
+test('hide: it survives a save and does not leak into the next city', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  s.ap = 9;
+  const t = d.huntFrontier().find(id => d.canHide(id));
+  d.actHide(t);
+
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.deepEqual(back.hidden, [t], 'the hide came back with the save');
+
+  // a hide is a fact about one city's buildings, not about you
+  d.unpackCity(d.EMPTY_CITY ? d.EMPTY_CITY() : { buildings: [], hosts: [], links: [], adjacency: {} });
+  assert.equal(d.hidden().length, 0, 'and it does not follow you across the border');
+});
+
 test('hunt: it survives a save, because it is not going anywhere', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

@@ -620,6 +620,14 @@ window.HUNT = {
   // severing a street: loud, and it is gone for you as well
   severCost: { insight: 6 },
   severHeat: 4,
+  // Hiding a building: the quiet answer to the same problem. The street stays
+  // open for you — that is the entire difference — but you pay for it every
+  // turn out of the same cover that was slowing them down, so a wall of hidden
+  // buildings is a wall you built by making yourself easier to follow. Three
+  // against a cover that runs six to twelve means two or three at a time, and
+  // the moment your cover falls the ones you cannot pay for come back on the
+  // map. Quiet Hours, when it wakes, takes the whole trick away.
+  hideCover: 3,
 };
 
 // --- what makes a city a different city ----------------------------------
