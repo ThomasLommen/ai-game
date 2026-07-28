@@ -2735,6 +2735,14 @@
     return 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
       + capEffect('sweepReach', 0);
   }
+  // What a sweep actually turns up right now, as opposed to what it is capable
+  // of turning up in general. sweepReach() is a capacity — it is what a
+  // capability comparison should show, since "how much did buying this widen
+  // it" is a question about the number, not about this particular street. The
+  // button offering the action has to answer a different question: pressing
+  // it right now, on this frontier, with three doors left to find, cannot
+  // possibly turn up four.
+  function sweepFound() { return Math.min(sweepReach(), sweepTargets().length); }
   function launderShed() {
     return Math.max(window.LAUNDER.heat, strikeThreshold() * window.LAUNDER.share)
       + capEffect('launderBonus', 0);
@@ -6318,8 +6326,8 @@
             : sweepBlocked() === 'poor'
               ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} cash`
               : sweepPayer() === 'insight'
-                ? `${chip('insight', 'turns up ' + sweepReach())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
-                : `${chip('insight', 'turns up ' + sweepReach())}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
+                ? `${chip('insight', 'turns up ' + sweepFound())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
+                : `${chip('insight', 'turns up ' + sweepFound())}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
         </button>
         <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
@@ -6829,7 +6837,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, launderShed, heatFloor, shoreNeeded,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, launderShed, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,

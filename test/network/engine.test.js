@@ -325,6 +325,47 @@ test('sweeping costs insight, and is blocked when you cannot pay', () => {
   assert.equal(s.ap, ap - 1, 'and it cost an action');
 });
 
+test('sweep advertises what it will actually find, not its raw capacity', () => {
+  // sweepReach() is a capacity: stealth holdings and capabilities raise it,
+  // and a before/after capability comparison should show that raw number. But
+  // the button that fires the action was quoting that same raw number as
+  // "turns up N" regardless of how many undiscovered buildings were actually
+  // on the frontier -- so late in a sweep, with one door left, it would say
+  // "turns up 4" and then find one, every time.
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 6).forEach(h => { h.owned = true; });
+  assert.ok(d.sweepReach() > 1, 'stealth holdings have raised the raw capacity');
+
+  // sweep until the frontier is smaller than the reach itself -- past this
+  // point a single scan would consume everything in one jump, so this is the
+  // one window where "how many are actually left" and "how many the sweep is
+  // capable of" genuinely disagree
+  for (let guard = 0; guard < 60 && d.sweepTargets().length >= d.sweepReach()
+       && d.sweepTargets().length > 0; guard++) {
+    s.res.insight = 999;
+    if (d.state.ap <= 0) { d.actEndTurn(); continue; }
+    d.actScan();
+  }
+  const left = d.sweepTargets().length;
+  if (left === 0) return;   // this board happened to exhaust exactly on the boundary
+  assert.ok(left < d.sweepReach(), `expected the frontier (${left}) below capacity (${d.sweepReach()})`);
+  assert.equal(d.sweepFound(), left,
+    `advertised turns-up must match the frontier (${left} left, reach ${d.sweepReach()})`);
+
+  // and it is never a promise the sweep cannot keep: what actually comes back
+  // is never more than what was advertised
+  s.res.insight = 999;
+  if (d.state.ap <= 0) d.actEndTurn();
+  const before = d.sweepFound();
+  const buildingsBefore = s.buildings.filter(b => b.discovered).length;
+  d.actScan();
+  const buildingsAfter = s.buildings.filter(b => b.discovered).length;
+  assert.ok((buildingsAfter - buildingsBefore) <= before,
+    `advertised turns-up ${before}, but ${buildingsAfter - buildingsBefore} buildings were revealed`);
+});
+
 test('events are only eligible when the board is actually in that situation', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
