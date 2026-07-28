@@ -311,10 +311,15 @@ test('a card takes the whole screen, except a breach -- that one is the core loo
   const d = window.__netDebug;
   const s = d.state;
   const panelOpen = () => window.document.getElementById('panel').classList.contains('card-open');
+  // A breach stays in the panel instead, so its own choices have to fit
+  // without the HUD above them — which compacts instead.
+  const hudCompact = () => ['topbar', 'heat-row', 'res-row']
+    .every(id => window.document.getElementById(id).classList.contains('compact'));
 
   s.card = { kind: 'event', eventId: window.EVENTS[0].id };
   d.render();
   assert.equal(panelOpen(), true, 'an event takes the screen');
+  assert.equal(hudCompact(), false, 'and the HUD stays as it is — the event has the whole screen to itself');
 
   s.card = { kind: 'strike' };
   d.render();
@@ -327,10 +332,12 @@ test('a card takes the whole screen, except a breach -- that one is the core loo
   d.render();
   d.openBreach(target.id);
   assert.equal(panelOpen(), false, 'a breach does not -- it is the single most frequent tap in the game');
+  assert.equal(hudCompact(), true, 'and the HUD gives up its own room instead, so the choices fit');
 
   s.card = null;
   d.render();
   assert.equal(panelOpen(), false, 'and nothing does when there is no card at all');
+  assert.equal(hudCompact(), false, 'and the HUD is back to its usual size');
 });
 
 test('sweep advertises what it will actually find, not its raw capacity', () => {

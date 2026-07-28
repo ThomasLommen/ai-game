@@ -6254,6 +6254,14 @@
     // city; taking the whole screen for the single most frequent tap in the
     // game would slow down the core loop it is supposed to be quick to reach.
     $p.classList.toggle('card-open', !state.over && !!state.card && state.card.kind !== 'breach');
+    // A breach stays in the panel rather than going full screen, but its
+    // choices still have to fit next to a map that does not move — so the
+    // HUD above it gives up some of its own room instead.
+    const breachOpen = !state.over && !!state.card && state.card.kind === 'breach';
+    ['topbar', 'heat-row', 'res-row'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('compact', breachOpen);
+    });
     if (state.over) {
       // Winning the war also ends the run, so the end panel has to know which
       // ending it is showing — otherwise taking the whole country congratulated

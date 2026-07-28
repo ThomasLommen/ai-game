@@ -74,6 +74,11 @@ body {
   font-size: 11px;
   color: var(--muted);
 }
+/* A breach stays in the panel instead of going full screen, so its own
+   choices have to fit above the map without the page ever scrolling. The
+   HUD is the one thing above it that is not load-bearing in the moment you
+   are actually choosing how to get in, so it gives up its slack first. */
+#topbar.compact { padding-top: 4px; }
 /* Each item breaks as a whole or not at all. Left to itself the bar split
    "TURN 1" across two lines at 320 wide, which reads as broken rather than
    as tight. */
@@ -85,6 +90,7 @@ body {
 
 /* heat — the pressure that stops you doing everything */
 #heat-row { margin-top: 8px; }
+#heat-row.compact { margin-top: 4px; }
 .heat-track {
   position: relative;
   height: 6px;
@@ -102,6 +108,7 @@ body {
 .heat-fill.warm { background: var(--cash); }
 .heat-fill.hot { background: var(--heat); }
 .heat-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); }
+#heat-row.compact .heat-meta { margin-top: 2px; }
 
 #res-row {
   display: flex;
@@ -109,6 +116,7 @@ body {
   gap: 7px;
   margin-top: 12px;
 }
+#res-row.compact { margin-top: 4px; gap: 5px; }
 .res {
   font: inherit;
   cursor: pointer;
@@ -119,6 +127,7 @@ body {
   border-radius: 999px;
   padding: 5px 11px;
 }
+#res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 13px; }
 .res.insight b { color: var(--insight); }
 .res.cash b { color: var(--cash); }
@@ -366,6 +375,18 @@ body {
 .card-kicker { font-size: 10px; letter-spacing: .16em; color: var(--muted); }
 .card h2 { margin: 8px 0 8px; font-size: 21px; }
 .card .flavor { margin: 0; font-size: 14px; font-style: italic; color: var(--ink-dim); line-height: 1.55; }
+
+/* A breach's own .card and .choices are the only ones ever drawn without
+   .card-open — an event or the hunter take the whole screen instead, where
+   this density is not needed. Force, quiet and buy stacked up as four
+   generously-padded choice strips under a full card was the actual overflow;
+   the compact HUD above only ever bought back a fraction of it. */
+#panel:not(.card-open) .card { padding: 12px 14px 14px; }
+#panel:not(.card-open) .card-kicker { font-size: 9.5px; }
+#panel:not(.card-open) .card h2 { margin: 3px 0; font-size: 17px; }
+#panel:not(.card-open) .card .flavor { font-size: 12.5px; line-height: 1.4; }
+#panel:not(.card-open) .choices { gap: 6px; margin-top: 6px; }
+#panel:not(.card-open) .choice-strip { padding: 8px 10px; gap: 3px; }
 
 .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .choice-strip {
