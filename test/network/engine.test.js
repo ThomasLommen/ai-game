@@ -7383,3 +7383,47 @@ test('home base: holding it enough still opens the country map on its own', () =
   assert.ok(s.buildings.length > 0, 'home stays fully loaded underneath, not emptied');
   assert.ok(d.owned().length > 0, 'and still yours to come back to');
 });
+
+// --- home base pivot, step 1d: the rival is a permanent fixture -----------
+// It already behaves this way: every city's rival state round-trips through
+// packCity/unpackCity on travel, and since home is never folded in or left
+// for good (step 1c), that existing per-city mechanism is what makes it
+// permanent for home specifically, with no new code. These lock that in.
+
+test('home base: the rival survives a trip to another city and back, mid-relationship', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, window.RIVAL.wakesAtHeld + 2).forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = d.hostsIn(b).some(h => h.owned); });
+  for (let i = 0; i < 8; i++) { s.turn += 1; d.rivalStep(); }
+  assert.equal(s.rival.awake, true, 'it woke up at home');
+  const before = JSON.stringify(s.rival);
+
+  const homeId = s.country.homeId;
+  d.setScope('country');
+  const target = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  s.ap = 9;
+  d.actReach(target.id);
+  assert.equal(s.rival.awake, false, 'a fresh city has its own, unrelated rival');
+
+  s.ap = 9;
+  d.actTravel(homeId);
+  assert.equal(d.currentCity().id, homeId);
+  assert.equal(JSON.stringify(s.rival), before, 'home\'s own rival picked up exactly where it left off');
+});
+
+test('home base: the rival\'s ceiling scales automatically as the map grows', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, window.RIVAL.wakesAtHeld + 2).forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = d.hostsIn(b).some(h => h.owned); });
+  d.rivalStep();
+  assert.equal(s.rival.awake, true);
+  const capBefore = Math.floor(s.buildings.length * window.RIVAL.maxShareOfCity);
+
+  d.growHomeBase();
+  const capAfter = Math.floor(s.buildings.length * window.RIVAL.maxShareOfCity);
+  assert.ok(capAfter > capBefore, 'more city, more room for the rival to take, automatically');
+});
