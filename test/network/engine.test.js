@@ -7340,6 +7340,48 @@ test('home base: growth fires automatically once reach crosses its milestone, on
   assert.equal(s.buildings.length, afterFirst, 'does not grow again until the next milestone');
 });
 
+test('home base: pontoon pulls the next expansion closer, via growthStep', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // exactly 8, whichever hosts happen to already be owned (the starting
+  // seat) or not — reach's other term (presence) starts at 0 either way
+  s.hosts.forEach(h => { h.owned = false; });
+  s.hosts.slice(0, 8).forEach(h => { h.owned = true; });
+  assert.equal(d.reach(), 8);
+
+  s.card = null;
+  const before = s.buildings.length;
+  d.endTurn({ silent: true });
+  assert.equal(s.buildings.length, before, 'reach 8 does not cross the base milestone of 10');
+  assert.equal(s.homeGrowth || 0, 0);
+
+  s.caps = { pontoon: 1 };
+  d.endTurn({ silent: true });
+  assert.ok(s.buildings.length > before, 'pontoon shrinks the threshold enough to cross it now');
+  assert.equal(s.homeGrowth, 1);
+});
+
+test('home base: master plan favours whichever trait is rarest, not just avoiding a repeat', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = { master_plan: 1 };
+  const traitIds = Object.keys(window.CITY_TRAITS).filter(k => window.CITY_TRAITS[k].at <= 0);
+  assert.ok(traitIds.length >= 2, 'need at least two eligible traits to test with');
+  const [rare, ...others] = traitIds;
+  // every OTHER trait in the pool gets a real share of the map; `rare` gets
+  // a small, strictly-smaller handful — every pool entry has to be covered,
+  // or an untouched one (count 0) would out-rank `rare` by accident
+  s.buildings.forEach((b, i) => { b.trait = others[i % others.length]; });
+  const rareCount = Math.max(1, Math.floor(s.buildings.length / (others.length * 10)));
+  for (let i = 0; i < rareCount; i++) s.buildings[i].trait = rare;
+
+  const picks = new Set();
+  for (let i = 0; i < 20; i++) picks.add(d.pickBatchTrait(0, null));
+  assert.deepEqual([...picks], [rare], `did not favour the rarest trait: ${[...picks]}`);
+});
+
 test('home base: homeGrowth survives a save/load round trip', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

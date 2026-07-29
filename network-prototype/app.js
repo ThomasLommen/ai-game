@@ -471,6 +471,17 @@
     const K = window.CITY_TRAITS;
     const pool = Object.keys(K).filter(k => K[k].at <= (regionTier || 0) && k !== avoid);
     if (!pool.length) return null;
+    // Reach branch reshape, step 5: Master Plan trades pure chance for
+    // deliberate variety — whichever trait is rarest across what already
+    // stands, not just whatever didn't happen last time.
+    if (hasCap('master_plan')) {
+      const counts = {};
+      pool.forEach(k => { counts[k] = 0; });
+      (state.buildings || []).forEach(b => { if (b.trait && counts[b.trait] !== undefined) counts[b.trait]++; });
+      const min = Math.min(...pool.map(k => counts[k]));
+      const rarest = pool.filter(k => counts[k] === min);
+      return rarest[Math.floor(Math.random() * rarest.length)];
+    }
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
@@ -1550,7 +1561,11 @@
     // step 1c removes them.
     if (state.scope === 'city' && state.cityId === CO().homeId) {
       const grown = state.homeGrowth || 0;
-      if (reach() >= (grown + 1) * HOME_GROWTH_REACH_STEP) {
+      // Reach branch reshape, step 5: Pontoon's own effect ("ground you have
+      // settled into does not stay a dead end") pulls the next expansion
+      // closer too, on top of what it already reveals.
+      const growthStep = Math.max(4, HOME_GROWTH_REACH_STEP - capEffect('growthStep', 0));
+      if (reach() >= (grown + 1) * growthStep) {
         const added = growHomeBase();
         state.homeGrowth = grown + 1;
         if (added.length) {
@@ -2151,6 +2166,7 @@
     if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
     if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
     if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
+    if (e.growthStep) add('insight', `home grows ${e.growthStep} reach sooner`);
     if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
     if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
@@ -2174,6 +2190,7 @@
     if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
+    if (c.id === 'master_plan') add('insight', 'home\'s next growth favours whichever character it has the least of');
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
     return out.join('');

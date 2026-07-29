@@ -361,10 +361,15 @@ window.CAPABILITIES = [
     // baked once into a generation-time number nobody sees change.
     id: 'pontoon', branch: 'reach', tier: 2,
     name: 'Pontoon',
-    desc: 'Ground you have actually settled into does not stay a dead end. Anything you have held a few turns gives up what sits two streets past it, on its own — you also get your own way over the water or the line, laid where you need it rather than where the council put it.',
+    desc: 'Ground you have actually settled into does not stay a dead end. Anything you have held a few turns gives up what sits two streets past it, on its own — you also get your own way over the water or the line, laid where you need it rather than where the council put it. Home grows a little sooner for it, too.',
     apDelta: 0,
-    effect: { extraCrossings: 1 },
-    mechanic: true,  // in addition to extraCrossings — passive reveal, read via hasCap()
+    // growthStep: subtracted from the reach a home-base expansion needs —
+    // read directly in endTurn() where growHomeBase() fires. Reach branch
+    // reshape, step 5: settled ground was already revealing more of the map
+    // on its own; pulling the map's own growth closer is the same idea one
+    // level up.
+    effect: { extraCrossings: 1, growthStep: 2 },
+    mechanic: true,  // in addition to extraCrossings/growthStep — passive reveal, read via hasCap()
     cost: 38,
     requires: ['survey'],
     cond: (s) => s.reach >= 7,
@@ -413,6 +418,22 @@ window.CAPABILITIES = [
     // 10 on some boards. A third of the country raises it, and once they have
     // mobilised it stays open however much of it they have taken back.
     cond: (s) => s.conquest >= 0.35 || !!s.war,
+  },
+  // Reach branch reshape, step 5: the branch already grows the map's own
+  // reach threshold sooner (Pontoon, above) — this is the other half, giving
+  // you a say in what actually arrives. Read directly via hasCap('master_plan')
+  // in pickBatchTrait(): instead of merely avoiding an immediate repeat, the
+  // next growth batch favours whichever trait your home base currently has
+  // the least of, so nothing arrives twice before everything has arrived once.
+  {
+    id: 'master_plan', branch: 'reach', tier: 3,
+    name: 'Master Plan',
+    desc: 'Zoned properly instead of left to whatever the district feels like next. Home\'s own growth favours whichever character it is shortest on, rather than leaving it to chance.',
+    apDelta: 0,
+    mechanic: true,  // read via hasCap() in pickBatchTrait(), no generic effect key
+    cost: 46,
+    requires: ['pontoon'],
+    cond: (s) => s.reach >= 10,
   },
 ];
 
