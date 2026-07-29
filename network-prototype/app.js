@@ -3092,8 +3092,13 @@
     return Math.max(3, Math.ceil(total * share));
   }
   function heldHere() { return Object.keys(heldBuildingIds()).length; }
+  // Home base pivot, step 1c: the home city is never folded in and never
+  // left for good — it is the one place personally walked, permanently, not
+  // a chapter you finish and move on from. Every other city still works the
+  // old way for now, until agents replace how they are taken.
   function canConsolidate() {
     const c = currentCity();
+    if (c && c.id === CO().homeId) return false;
     return !!c && !c.consolidated && state.scope === 'city' && heldHere() >= cityGoal(c);
   }
 
@@ -3705,7 +3710,10 @@
   // cities somebody had to defend.
   function conquest() {
     const cities = CO().cities || [];
-    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest);
+    // Home counts as defended (CITY_KINDS.home.contest is true) but can never
+    // be consolidated (home base pivot step 1c) — left in the denominator,
+    // full conquest would be permanently unreachable.
+    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.id !== CO().homeId);
     if (!defended.length) return 0;
     return defended.filter(c => c.consolidated).length / defended.length;
   }
@@ -6026,7 +6034,9 @@
     const $b = document.getElementById('consolidate');
     if (!$b) return;
     const cur = state.scope === 'city' ? currentCity() : null;
-    if (!cur || cur.consolidated || state.over) { $b.hidden = true; return; }
+    // The home city is permanent — it is never folded in, so there is nothing
+    // for this button to ever do there.
+    if (!cur || cur.consolidated || state.over || cur.id === CO().homeId) { $b.hidden = true; return; }
     const goal = cityGoal(cur);
     const held = heldHere();
     const ready = canConsolidate();

@@ -1259,6 +1259,21 @@ function holdToGoal(d) {
   return n;
 }
 
+// Home base pivot, step 1c: home is never folded in, so any test exercising
+// what folding a city in actually does has to be standing in a different
+// one first — hold enough of home to open the country map (same as the
+// player would), then walk to the nearest defended city reachable from it.
+function enterDefendedCity(d, window) {
+  const s = d.state;
+  holdToGoal(d);
+  assert.equal(d.setScope('country'), true, 'country map opens once home is held enough');
+  const target = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
+  assert.ok(target, 'there is a defended city to walk to');
+  s.ap = 9;
+  assert.equal(d.actReach(target.id), true, 'walks into it');
+  return target;
+}
+
 test('country: every region is on the map, and every city is walkable from home', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -1467,13 +1482,14 @@ test('country: a town folds in from a distance, a defended city has to be walked
   const d = window.__netDebug;
   const s = d.state;
 
+  // Home is never folded in (home base pivot step 1c) — the country map
+  // opens once it is held enough, the same way the player would reach it.
   holdToGoal(d);
-  s.ap = 9;
-  assert.equal(d.actConsolidate(), true, 'the home city folds in once you hold enough');
+  assert.equal(d.setScope('country'), true, 'holding enough of home opens the national map');
   assert.equal(s.scope, 'country', 'and puts you on the national map');
 
   const front = d.countryFrontier();
-  assert.ok(front.length, 'consolidating opens a frontier');
+  assert.ok(front.length, 'home being held enough opens a frontier');
 
   const town = front.find(c => c.kind === 'fold');
   if (town) {
@@ -1542,6 +1558,7 @@ test('country: presence pays every turn, whether or not you are standing there',
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
+  enterDefendedCity(d, window);
   holdToGoal(d);
   s.ap = 9;
   d.actConsolidate();
@@ -1649,8 +1666,13 @@ test('country: an unfinished city is still there when you come back to it', () =
 });
 
 // Fold in enough defended cities that `share` of the country is finished.
+// Home counts toward the defended denominator (CITY_KINDS.home.contest is
+// true) but can never contribute to the numerator — home base pivot step
+// 1c, it is never folded in — so it is excluded from what gets marked here
+// even though conquest()'s own math still divides by its presence.
 function conquerTo(d, window, share) {
-  const defended = d.state.country.cities.filter(c => window.CITY_KINDS[c.kind].contest);
+  const homeId = d.state.country.homeId;
+  const defended = d.state.country.cities.filter(c => window.CITY_KINDS[c.kind].contest && c.id !== homeId);
   const want = Math.ceil(share * defended.length);
   defended.slice(0, want).forEach(c => { c.taken = true; c.consolidated = true; });
   // You cannot fold a city in without having taken most of its doors — about
@@ -1680,10 +1702,16 @@ test('persistence: the country survives a round trip', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
+  const city = enterDefendedCity(d, window);
   holdToGoal(d);
   s.ap = 9;
   d.actConsolidate();
-  conquerTo(d, window, d.wakeShare(window.FACTIONS[0]));
+
+  // Consolidating a faction's own root city breaks that faction outright
+  // (breakFactionAt) — pick whichever faction was not just broken by taking
+  // `city`, so it is still free to wake on its own conquest share.
+  const faction = window.FACTIONS.find(f => (d.factionState(f.id) || {}).rootId !== city.id);
+  conquerTo(d, window, d.wakeShare(faction));
   d.checkFactions();
   const presence = s.country.presence;
 
@@ -1693,33 +1721,36 @@ test('persistence: the country survives a round trip', () => {
   assert.equal(round.country.presence, presence);
   assert.equal(round.country.cities.length, s.country.cities.length);
   assert.equal(round.region, s.region);
-  assert.equal(round.country.factions.quiet_hours.awake, true, 'woken factions stay woken');
-  assert.equal(round.country.cities.find(c => c.id === round.country.homeId).consolidated, true);
+  assert.equal(round.country.factions[faction.id].awake, true, 'woken factions stay woken');
+  assert.equal(round.country.cities.find(c => c.id === city.id).consolidated, true, 'what you folded in stays folded in');
+  assert.equal(round.country.cities.find(c => c.id === round.country.homeId).consolidated, false,
+    'home base is never folded in, saved or not');
 });
 
 test('country: a city you walk away from is frozen, not running in the background', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  holdToGoal(d);
-  s.ap = 9;
-  d.actConsolidate();
-
-  const hard = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
-  s.ap = 9;
-  d.actReach(hard.id);
+  // Home is never left for good (home base pivot step 1c), so this needs two
+  // ordinary defended cities rather than using home as the one walked away
+  // from — the snapshot-freeze behaviour under test is general, not specific
+  // to home.
+  const first = enterDefendedCity(d, window);
   s.buildings.slice(0, 4).forEach(b => { const h = d.hostsIn(b)[0]; h.owned = true; h.discovered = true; });
   const heldThere = d.owned().length;
   assert.ok(heldThere >= 4, 'you took some of it');
 
+  d.setScope('country');
+  const second = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest && c.id !== first.id);
+  assert.ok(second, 'there is somewhere else defended to go');
   s.ap = 9;
-  d.actTravel(s.country.homeId);
-  assert.equal(d.owned().length, 0,
-    'standing in another region, the streets you left are not still yours to run');
-  assert.equal(s.buildings.length, 0, 'and the city you left is not loaded');
+  d.actReach(second.id);
+  assert.equal(d.currentCity().id, second.id, 'standing somewhere else now');
+  assert.equal(d.owned().length, 1,
+    'just the new foothold — the streets you left are not still yours to run from here');
 
   s.ap = 9;
-  d.actTravel(hard.id);
+  d.actTravel(first.id);
   assert.equal(d.owned().length, heldThere, 'and it is all still there when you go back');
 });
 
@@ -2858,6 +2889,10 @@ test('heat: it can actually reach the threshold across a campaign', () => {
 
 function settle(d, window) {
   const s = d.state;
+  // Home is never folded in (home base pivot step 1c) — settle a different
+  // city instead, the first time this is called on a fresh board. A second
+  // call, already standing somewhere else, is left alone.
+  if (d.currentCity().id === s.country.homeId) enterDefendedCity(d, window);
   const c = d.currentCity();
   const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
   s.hosts.slice(0, need + 2).forEach(h => { h.owned = true; h.discovered = true; });
@@ -2941,7 +2976,9 @@ test('horizon: a settled city is visible from a different one, off in its real d
 
   // walk to a second, different city and look back
   const co = s.country;
-  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+  // home is excluded: it can never be consolidated (home base pivot step 1c),
+  // so it would otherwise always qualify as "a different, unconsolidated city"
+  const next = co.cities.find(c => c.id !== first.id && c.id !== co.homeId && !c.consolidated && !c.lost
     && window.CITY_KINDS[c.kind].contest);
   d.actReach(next.id);
   d.enterCity(next.id);
@@ -2971,7 +3008,9 @@ test('horizon: an unsettled or unknown city never appears, and the current city 
   const s = d.state;
   const first = settle(d, window);
   const co = s.country;
-  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+  // home is excluded: it can never be consolidated (home base pivot step 1c),
+  // so it would otherwise always qualify as "a different, unconsolidated city"
+  const next = co.cities.find(c => c.id !== first.id && c.id !== co.homeId && !c.consolidated && !c.lost
     && window.CITY_KINDS[c.kind].contest);
   d.actReach(next.id);
   d.enterCity(next.id);
@@ -2995,7 +3034,9 @@ test('horizon: a lost city still shows, marked the way the country map marks it'
   const first = settle(d, window);
   first.lost = true;
   const co = s.country;
-  const next = co.cities.find(c => c.id !== first.id && !c.consolidated && !c.lost
+  // home is excluded: it can never be consolidated (home base pivot step 1c),
+  // so it would otherwise always qualify as "a different, unconsolidated city"
+  const next = co.cities.find(c => c.id !== first.id && c.id !== co.homeId && !c.consolidated && !c.lost
     && window.CITY_KINDS[c.kind].contest);
   d.actReach(next.id);
   d.enterCity(next.id);
@@ -3343,15 +3384,19 @@ test('hide: it survives a save and does not leak into the next city', () => {
 // in, and it was gone.
 
 function walkOn(d, window) {
-  // finish here and step into the next city that is not already settled
+  // finish here and step into the next city that is not already settled.
+  // Home is never folded in (home base pivot step 1c) — settle a different
+  // city instead, same as settle() does.
   const s = d.state;
   const co = s.country;
+  if (d.currentCity().id === co.homeId) enterDefendedCity(d, window);
   s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
   d.actConsolidate();
   // a defended city: a town folds in from a distance, so reaching one settles
-  // it on the spot and there is nothing to walk into
-  const next = co.cities.find(c => !c.consolidated && !c.lost && c.id !== co.at
+  // it on the spot and there is nothing to walk into. Home is excluded: it
+  // can never be consolidated, so it would otherwise always qualify.
+  const next = co.cities.find(c => !c.consolidated && !c.lost && c.id !== co.at && c.id !== co.homeId
     && window.CITY_KINDS[c.kind].contest);
   d.actReach(next.id);
   d.enterCity(next.id);
@@ -3705,6 +3750,10 @@ test('held: a save from before the counter existed still escalates', () => {
   // You cannot finish a city without holding most of its doors, and owned()
   // empties the moment you fold one in. A continued game reached turn 44 with
   // nothing awake because the counter was absent and current holdings were 0.
+  // Home is never folded in (home base pivot step 1c) — needs a different
+  // city to test the same escalation.
+  const target = enterDefendedCity(d, window);
+
   const c = d.currentCity();
   const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
   s.hosts.slice(0, need + 2).forEach(h => { h.owned = true; h.discovered = true; });
@@ -3713,8 +3762,16 @@ test('held: a save from before the counter existed still escalates', () => {
   d.actConsolidate();
   assert.equal(d.owned().length, 0, 'the streets are released');
   assert.ok(d.everHeld() >= 14, `a finished city is a floor under this: ${d.everHeld()}`);
-  assert.ok(d.awakeFactions().some(f => f.id === 'quiet_hours'),
-    'and the first rung fires on a save that never recorded a door');
+
+  // Folding in quiet_hours' own root breaks it outright (breakFactionAt)
+  // before it ever gets a chance to wake at all — a real, if rare, board
+  // where `target` happens to be it. Anywhere else, the floor above should
+  // still fire the first rung same as ever.
+  const rootedHere = (d.factionState('quiet_hours') || {}).rootId === target.id;
+  assert.equal(d.awakeFactions().some(f => f.id === 'quiet_hours'), !rootedHere,
+    rootedHere
+      ? 'quiet_hours was broken on the way in, not woken — expected'
+      : 'the first rung fires on a save that never recorded a door');
 });
 
 test('held: the shape of a save is versioned, so an old board is retired', () => {
@@ -4688,7 +4745,9 @@ test('held: the rival keeps its own look, no halo and no lights', () => {
 // A country most of the way taken — the state the war is supposed to open in.
 function conqueredCountry(d, W, share) {
   const s = d.state, co = s.country;
-  const defended = co.cities.filter(c => W.CITY_KINDS[c.kind].contest);
+  // home counts as defended (CITY_KINDS.home.contest is true) but can never
+  // be consolidated (home base pivot step 1c)
+  const defended = co.cities.filter(c => W.CITY_KINDS[c.kind].contest && c.id !== co.homeId);
   defended.slice(0, Math.ceil(defended.length * (share === undefined ? 0.85 : share)))
     .forEach(c => {
       c.known = true; c.taken = true; c.consolidated = true;
@@ -5641,7 +5700,11 @@ test('plant: survives the city being folded in', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
+  // Home is never folded in (home base pivot step 1c) — needs a different
+  // city to test what surviving a fold-in actually means.
+  enterDefendedCity(d, window);
   const lm = s.buildings.find(b => b.landmark);
+  assert.ok(lm, 'this city has a landmark to claim');
   d.hostsIn(lm).forEach(h => { h.owned = true; });
   d.claimAsset(lm.id);
   const goal = d.cityGoal();
@@ -5804,7 +5867,9 @@ test('war: they pick something new once the old one is gone', () => {
   d.openWar();
   // guarantee something to move on to, rather than trusting the board to have
   // left more than one city standing after they mobilised
-  const spare = d.state.country.cities.filter(c => !c.consolidated && !d.stagingCities().includes(c));
+  // home is excluded: it can never be consolidated (home base pivot step 1c)
+  const spare = d.state.country.cities.filter(c =>
+    !c.consolidated && c.id !== d.state.country.homeId && !d.stagingCities().includes(c));
   while (d.myCities().length < 3 && spare.length) {
     const c = spare.pop();
     c.consolidated = true; c.taken = true; c.known = true;
@@ -5922,7 +5987,9 @@ test('war: losing most of the country loses the war', () => {
   // Build the country rather than hoping the board dealt one: how much they
   // walk back into when they mobilise varies, and with two cities left the
   // collapse threshold is already met before the test starts.
-  const spare = d.state.country.cities.filter(c => !c.consolidated && !d.stagingCities().includes(c));
+  // home is excluded: it can never be consolidated (home base pivot step 1c)
+  const spare = d.state.country.cities.filter(c =>
+    !c.consolidated && c.id !== d.state.country.homeId && !d.stagingCities().includes(c));
   while (d.myCities().length < 5 && spare.length) {
     const c = spare.pop();
     c.consolidated = true; c.taken = true; c.known = true;
@@ -6177,6 +6244,9 @@ test('screen: the way out of a city is offered on the city, and only there', () 
   const $b = window.document.getElementById('consolidate');
   assert.ok($b, 'the map carries it');
 
+  // Home is never folded in (home base pivot step 1c) and never shows this
+  // button at all — needs an ordinary city to test the button itself.
+  enterDefendedCity(d, window);
   d.state.scope = 'city';
   d.renderConsolidate();
   assert.equal($b.hidden, false, 'walking a city, it is there');
@@ -6192,6 +6262,9 @@ test('screen: it only offers the fold once you can actually make it', () => {
   const d = window.__netDebug;
   const s = d.state;
   const $b = window.document.getElementById('consolidate');
+  // Home is never folded in (home base pivot step 1c) and never shows this
+  // button at all — needs an ordinary city to test the button itself.
+  enterDefendedCity(d, window);
   s.scope = 'city';
   d.renderConsolidate();
   assert.equal(d.canConsolidate(), false, 'you have barely started');
@@ -6281,6 +6354,9 @@ test('screen: at country scale it names the country, not the street', () => {
 // plant, presence and flocks in one panel, plus a button offering to fabricate
 // a reputation you had not yet been asked to have.
 
+// The home city is never folded in (home base pivot, step 1c) — the country
+// map opens once you hold enough of it, via setScope, same as the player
+// would use, with home still fully loaded underneath.
 function atTheCountry(d) {
   const s = d.state;
   const goal = d.cityGoal();
@@ -6290,8 +6366,7 @@ function atTheCountry(d) {
     const h = d.hostsIn(b)[0];
     if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
   }
-  s.ap = 6;
-  assert.equal(d.actConsolidate(), true, 'the home city folds in');
+  assert.equal(d.setScope('country'), true, 'the country map opens once home is held enough');
   return d;
 }
 
@@ -7280,4 +7355,31 @@ test('home base: homeGrowth survives a save/load round trip', () => {
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(round.homeGrowth, 3);
   assert.equal(round.buildings.length, s.buildings.length);
+});
+
+// --- home base pivot, step 1c: home is never folded in --------------------
+
+test('home base: the home city can never be consolidated, however much of it you hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  assert.ok(d.heldHere() >= d.cityGoal(), 'home is held past its own goal');
+  assert.equal(d.canConsolidate(), false, 'but it can never be folded in');
+  assert.equal(d.actConsolidate(), false, 'and pressing the action does nothing');
+  assert.ok(d.owned().length > 0, 'nothing was released');
+  assert.equal(d.cityById(s.country.homeId).consolidated, false);
+});
+
+test('home base: holding it enough still opens the country map on its own', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(d.countryUnlocked(), false, 'nothing to show yet');
+  holdToGoal(d);
+  assert.equal(d.countryUnlocked(), true, 'held enough, even though it was never folded in');
+  assert.equal(d.setScope('country'), true);
+  assert.equal(s.scope, 'country');
+  assert.ok(s.buildings.length > 0, 'home stays fully loaded underneath, not emptied');
+  assert.ok(d.owned().length > 0, 'and still yours to come back to');
 });
