@@ -235,7 +235,7 @@ body {
 }
 
 #event-banner { display: none; flex-direction: column; gap: 6px; align-items: center; }
-#event-banner.show { display: flex; animation: bannerIn .28s ease-out; }
+#event-banner.show { display: flex; animation: bannerIn .28s ease-out; cursor: pointer; }
 .event-row {
   display: inline-flex;
   align-items: baseline;

@@ -7626,6 +7626,63 @@ test('alarm: shows only once the hunt exists, on top of the heat bar, not instea
   assert.ok($fill.style.width, 'and the bar underneath is still rendered alongside it');
 });
 
+// The stub setTimeout in load-network.js fires synchronously, which drains
+// a real auto-advance chain to completion inside a single showBanner() call
+// — fine for gameplay tests that never looked at the banner, useless for
+// testing the queue itself. Freezing window.setTimeout to capture the
+// callback instead of running it lets a test drive advancement by hand,
+// through the same tap (dismissBanner) a player would use.
+function freezeBannerTimer(window) {
+  window.setTimeout = () => 1;
+}
+
+test('banner: queues events instead of one call stomping another', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $b = window.document.getElementById('event-banner');
+  freezeBannerTimer(window);
+
+  d.showBanner([{ kind: 'a', verb: 'first', label: 'One' }]);
+  assert.ok($b.innerHTML.includes('One'), 'the first shows immediately');
+  assert.equal(d.bannerQueueLength(), 0, 'nothing queued yet — it is the one showing');
+
+  d.showBanner([{ kind: 'b', verb: 'second', label: 'Two' }]);
+  assert.ok($b.innerHTML.includes('One'), 'the first is not stomped by the second');
+  assert.equal(d.bannerQueueLength(), 1, 'the second waits its turn');
+});
+
+test('banner: a tap advances to the next queued row instead of just hiding', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $b = window.document.getElementById('event-banner');
+  freezeBannerTimer(window);
+
+  d.showBanner([{ kind: 'a', verb: 'first', label: 'One' }]);
+  d.showBanner([{ kind: 'b', verb: 'second', label: 'Two' }]);
+  d.dismissBanner();
+  assert.ok($b.innerHTML.includes('Two'), 'dismissing advances to the next one');
+  assert.equal($b.classList.contains('show'), true, 'and it is still up, not hidden');
+  assert.equal(d.bannerQueueLength(), 0);
+});
+
+test('banner: dismissing the last one hides it instead of leaving an empty banner up', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $b = window.document.getElementById('event-banner');
+  freezeBannerTimer(window);
+
+  d.showBanner([{ kind: 'a', verb: 'only', label: 'One' }]);
+  d.dismissBanner();
+  assert.equal($b.classList.contains('show'), false);
+});
+
+test('banner: a tap on an empty banner does nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.doesNotThrow(() => d.dismissBanner());
+  assert.doesNotThrow(() => d.dismissBanner());
+});
+
 test('everCrossed survives a save/load round trip', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

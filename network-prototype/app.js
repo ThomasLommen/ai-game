@@ -5137,14 +5137,36 @@
     setTimeout(() => { if (g.parentNode) g.parentNode.removeChild(g); }, 1200);
   }
 
-  let bannerToken = 0;
+  // A turn can raise several of these at once (a rival contact, a street
+  // cut, a stage landing, all from the same endTurn), and showBanner used to
+  // just overwrite whatever was already on screen — whichever call came
+  // last was the only one ever actually seen. Now every row goes on a
+  // queue and is shown one at a time, each getting its own full read
+  // window, advanced early only by a tap.
+  let bannerQueue = [];
+  let bannerTimer = null;
   function showBanner(rows) {
+    if (!rows || !rows.length) return;
+    bannerQueue.push(...rows);
+    if (!bannerTimer) advanceBanner();
+  }
+  function advanceBanner() {
     const $b = document.getElementById('event-banner');
-    if (!$b || !rows.length) return;
-    $b.innerHTML = rows.map(r => `<div class="event-row ${r.kind}"><span class="event-verb mono">${r.verb}</span><span class="event-label">${r.label}</span></div>`).join('');
+    if (!$b) return;
+    const row = bannerQueue.shift();
+    if (!row) {
+      $b.classList.remove('show');
+      bannerTimer = null;
+      return;
+    }
+    $b.innerHTML = `<div class="event-row ${row.kind}"><span class="event-verb mono">${row.verb}</span><span class="event-label">${row.label}</span></div>`;
     $b.classList.add('show');
-    const mine = ++bannerToken;
-    setTimeout(() => { if (mine === bannerToken) $b.classList.remove('show'); }, 1700);
+    bannerTimer = setTimeout(advanceBanner, 1700);
+  }
+  function dismissBanner() {
+    if (!bannerTimer) return;   // nothing showing — a tap on an empty banner does nothing
+    clearTimeout(bannerTimer);
+    advanceBanner();
   }
 
   // --- persistence -------------------------------------------------------
@@ -7442,12 +7464,16 @@
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    showBanner, dismissBanner, bannerQueueLength: () => bannerQueue.length,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
   };
 
   const $endTurn = document.getElementById('end-turn');
   if ($endTurn) $endTurn.addEventListener('click', () => actEndTurn());
+
+  const $banner = document.getElementById('event-banner');
+  if ($banner) $banner.addEventListener('click', () => dismissBanner());
 
   const $capsBtn = document.getElementById('caps-btn');
   if ($capsBtn) $capsBtn.addEventListener('click', () => openSheet('caps'));
