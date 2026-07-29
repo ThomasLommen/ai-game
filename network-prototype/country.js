@@ -329,10 +329,13 @@ window.AGENTS = {
   blurb: 'Nothing that walks. Nothing that can be arrested. Just cycles, pointed at a door until the door stops being a door.',
 };
 
-// How an agent is told to approach the city — the same three-way choice a
-// breach offers on a single building, at the scale of a whole city instead.
-// Picking one is not a resolve: it sets the method and the clock running, and
-// the city reports back once the clock runs out, same as the old cells did.
+// How an agent is told to approach the city — force, quiet, or cash, at the
+// scale of a whole city instead of a single building. Buying is a real
+// option here even though it is gone from the building-level breach card: a
+// single, deliberate country-scale spend is exactly what cash is for now,
+// unlike the tedium of pricing every door in a city individually. Picking
+// one is not a resolve: it sets the method and the clock running, and the
+// city reports back once the clock runs out, same as the old cells did.
 window.AGENT_APPROACHES = {
   force: {
     id: 'force', label: 'brute force it', turnMult: 0.75, heat: 10, failChance: 0.35,
@@ -622,7 +625,7 @@ window.HUNT = {
   // Heat/hunt rework: ending it for good, not walking away from it. Its
   // core — the very first building it took, the address it operates out of
   // — is dug in harder the longer it has run and the more it has since
-  // taken, same three-way choice as any door. Failing tips it off: it costs
+  // taken, same choice as any door. Failing tips it off: it costs
   // heat and pulls its next move closer, rather than costing nothing to try.
   confrontDefenseBase: 1.4,     // multiplier over the core's own defense, day one
   confrontDefensePerNode: 0.15, // and more again for every building it has added since
@@ -649,14 +652,8 @@ window.HUNT = {
 //   kinds     district kind lists replaced, so the role mix comes out skewed
 //   defense   flat modifier on every door
 //   denser    extra buildings per block
-//   buyCut    share off the price of buying a door here
 //   at        earliest region tier this can appear in
 window.CITY_TRAITS = {
-  shuttered: {
-    label: 'shuttered', tell: 'nothing here is for sale',
-    blurb: 'Half the addresses are dissolved companies with a receiver\'s number on the door. There is nobody left to take your money.',
-    closes: 'buy', at: 0,
-  },
   company_town: {
     label: 'a company town', tell: 'almost no money in it',
     blurb: 'One employer, four thousand people, and a high street that shut when the second shift did.',
@@ -686,13 +683,13 @@ window.CITY_TRAITS = {
     closes: 'quiet', defense: 2, at: 1,
   },
   old_money: {
-    label: 'old money', tell: 'hard doors, and every one has a price',
+    label: 'old money', tell: 'hard doors, kept that way on purpose',
     blurb: 'Doors that have been shut for two hundred years, and a great many people whose whole job is keeping them shut.',
     kinds: {
       residential: ['apartment', 'house', 'shop', 'cabinet'],
       commercial: ['finance', 'office', 'shop', 'mast'],
     },
-    defense: 5, buyCut: 0.4, at: 2,
+    defense: 5, at: 2,
   },
 };
 

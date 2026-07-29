@@ -1364,9 +1364,6 @@
   // risking it — heat has to be at least this share of the strike threshold
   // before the bonus kicks in, and this is the size of it.
   const MARKET_MAKER_HEAT_SHARE = 0.5, MARKET_MAKER_HOT_BONUS = 1.4;
-  // Clean Hands: whoever sold you the door stays on the payroll — a holding
-  // you bought your way into keeps paying a kickback on top of its yield.
-  const CLEAN_HANDS_BOUGHT_BONUS = 1.4;
   // Standing Army: a force raised in case the shooting starts is still a
   // standing expense either way — it rents itself out for the duration,
   // whether or not the war ever actually opens.
@@ -1378,14 +1375,12 @@
     // rewards ground you have actually settled into, not ground you took last
     // turn. A holding under three turns old pays exactly as it always did.
     const matures = hasCap('bulk_ops');
-    const cleanHands = hasCap('clean_hands');
     const out = {};
     const add = (k, v) => { out[k] = (out[k] || 0) + v; };
     owned().forEach(h => {
       const y = window.HOST_TYPES[h.type].yield || {};
       const maturedBonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
-      const boughtBonus = (cleanHands && h.boughtIn) ? CLEAN_HANDS_BOUGHT_BONUS : 1;
-      for (const k in y) add(k, y[k] * mult * maturedBonus * boughtBonus);
+      for (const k in y) add(k, y[k] * mult * maturedBonus);
     });
     // finished cities pay whether or not you are standing in them — that is
     // the whole point of folding one in. presenceYield already carries the
@@ -1401,12 +1396,6 @@
     return out;
   }
 
-  // How fast everything you hold rots, all in one place. Overextended used to
-  // be applied at the call site, so the readout — which only knew about the
-  // capability — reported nothing when a card spread you too thin.
-  function churnMult() {
-    return capEffect('churnMult', 1) * (has('overextended') ? 1.5 : 1);
-  }
   function heatPerTurn() {
     // Heat retires when the war opens. Not softened, not rescaled — the whole
     // question it measured ("do they know") is answered, so the meter stops.
@@ -1505,22 +1494,25 @@
       for (const k in inc) state.res[k] = (state.res[k] || 0) + inc[k];
     }
 
-    // churn — holdings decay unless shored up, so sprawl has upkeep.
-    // Anything The Cut has left on the wrong side of a severed street decays
-    // far faster: you are holding it, but you cannot get to it.
+    // Decay used to run on every holding, all the time — sprawl's upkeep,
+    // and the reason Depth's Long Soak/Total Embed felt mandatory rather
+    // than optional: nothing else made the constant tax survivable. Now
+    // nothing decays at all except what The Cut has actually stranded —
+    // ordinary sprawl has real cost elsewhere (heat, the hunt, the rival),
+    // it does not also need a second, universal one here.
     const cutOff = {};
     strandedHosts().forEach(h => { cutOff[h.id] = true; });
     const lost = [];
     const soaked = [];
     owned().forEach(h => {
-      if (h.origin) return; // only the seat you started from is safe
-      const rate = window.HOST_TYPES[h.type].churn * churnMult()
-        * (cutOff[h.id] ? window.HEAT.STRANDED_DECAY : 1);
+      if (h.origin || !cutOff[h.id]) return;
+      const rate = window.HOST_TYPES[h.type].churn * window.HEAT.STRANDED_DECAY
+        * (has('overextended') ? 1.5 : 1);
       h.stability -= rate;
       if (h.stability <= 0) {
         // Long Soak: a holding you have kept long enough cannot be lost to
-        // neglect at all any more — a standing fact about it, not a coin
-        // flip that might fire once and go unnoticed.
+        // being cut off at all any more — a standing fact about it, not a
+        // coin flip that might fire once and go unnoticed.
         if (longSoakProtects(h)) {
           h.stability = 0.1;
           soaked.push(h);
@@ -2144,7 +2136,7 @@
   // title attribute, which does not exist on a touchscreen.
   //
   // Stated in terms of things you can see rather than the key names: nobody
-  // can act on "churnMult 0.45".
+  // can act on "driftMult 0.6".
   const neg = (n) => (n < 0 ? '&minus;' + Math.abs(n) : '+' + n);
   function pct(mult, up) {
     const d = Math.round(Math.abs(1 - mult) * 100);
@@ -2163,10 +2155,8 @@
     if (e.driftMult) add('cover', `heat ${pct(e.driftMult)} a turn`);
     if (e.thresholdMult) add('cover', `${pct(e.thresholdMult, true)} before a strike`);
     if (e.forceHeat) add('cover', `forcing a door ${neg(e.forceHeat)} heat`);
-    if (e.churnMult) add('cover', `decay ${pct(e.churnMult)}`);
     if (e.yieldMult) add('cash', `income ${pct(e.yieldMult, true)}`);
     if (e.presenceMult) add('cash', `presence pays ${pct(e.presenceMult, true)}`);
-    if (e.buyDiscount) add('cost cash', `buying in ${pct(1 - e.buyDiscount)}`);
     if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
     if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
     if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
@@ -2191,7 +2181,6 @@
     if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
     if (c.id === 'standing_orders') add('cash', `anything slipping shores itself up at turn's end, for ${SHORE_INSIGHT_COST} insight, no action spent`);
     if (c.id === 'standing_army') add('cash', `a retainer either way: +${STANDING_ARMY_RETAINER} cash a turn, and if war comes, it is already standing guard over what you can afford to cover`);
-    if (c.id === 'clean_hands') add('cash', 'every door you buy your way into keeps paying a kickback, permanently');
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
     if (c.id === 'master_plan') add('insight', 'home\'s next growth favours whichever character it has the least of');
@@ -2219,14 +2208,12 @@
       'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
       'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
       'cash a turn': Math.round((perTurnIncome().cash || 0) * 10) / 10,
-      'a door costs to buy': Math.round((1 - capEffect('buyDiscount', 0)) * 100) + '% of list',
       // Force's heat now reads the door's own defense, so a single number
       // has to stand for "a door" in general — the same average defense
       // the line below already works out.
       'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force'), { defense: avgDefense() }) * 10) / 10 + ' heat',
       'a sweep turns up': sweepReach(),
       'crossings you can lay': capEffect('extraCrossings', 0),
-      'holdings decay at': Math.round(churnMult() * 100) + '%',
       // the world hardening against you is a real effect with a real number,
       // and nothing measured it — so Known Quantity reported nothing at all
       'a door defends at': Math.round(avgDefense() * 10) / 10,
@@ -2239,14 +2226,9 @@
   }
 
   function capById(id) { return window.CAPABILITIES.find(c => c.id === id) || null; }
-  function capCost(c) {
-    if (!c.repeatable) return c.cost;
-    return c.costs[Math.min(capCount(c.id), c.costs.length - 1)];
-  }
-  // Which branch you have committed to. Tier 1 is free to anyone; the moment
-  // you buy a tier 2 in a branch that opposes another, the other branch's
-  // tier 2 and 3 close for good. That is the identity: you cannot be both the
-  // slow deep operator and the fast shallow one.
+  // Which branch you have committed to. Tier 1 is free to anyone; a tier 2
+  // or 3 is the commitment — counted here rather than a plain boolean so the
+  // opposing branch's toll can scale with how far in you actually are.
   function committedBranches() {
     const out = {};
     window.CAPABILITIES.forEach(c => {
@@ -2254,21 +2236,31 @@
     });
     return out;
   }
-  function branchLocked(branch) {
-    const B = window.CAP_BRANCHES[branch];
-    if (!B || !B.opposes) return false;
-    return !!committedBranches()[B.opposes];
+  function branchInvestment(branch) {
+    let n = 0;
+    window.CAPABILITIES.forEach(c => {
+      if (c.branch === branch && (c.tier || 1) >= 2 && capCount(c.id) > 0) n++;
+    });
+    return n;
+  }
+  // Leaning into a branch no longer closes the one it opposes — it tolls it
+  // instead. Every tier 2/3 already bought on your side adds CAP_CROSS_TAX to
+  // the price of the opposing branch's own tier 2/3, so the pull is real
+  // (going back on yourself gets expensive) without a wall that turns a
+  // half-explored branch into a permanent dead end.
+  function crossBranchTax(c) {
+    const B = window.CAP_BRANCHES[c.branch];
+    if ((c.tier || 1) < 2 || !B || !B.opposes) return 1;
+    return 1 + branchInvestment(B.opposes) * window.CAP_CROSS_TAX;
+  }
+  function capCost(c) {
+    const base = !c.repeatable ? c.cost : c.costs[Math.min(capCount(c.id), c.costs.length - 1)];
+    return Math.round(base * crossBranchTax(c));
   }
   // why a capability is out of reach, if it is — said plainly on the card
-  // Order matters: the reasons are reported to the player, and a closed branch
-  // is a more fundamental answer than a missing prerequisite inside it.
   function capBlocked(c) {
     if (!c.repeatable && hasCap(c.id)) return 'owned';
     if (c.repeatable && capCount(c.id) >= c.max) return 'owned';
-    // The whole branch, not just its upper rungs. A header reading CLOSED
-    // above a card still offering "acquire" is a contradiction, and a
-    // dead-end node in a branch you have abandoned is not a real choice.
-    if (branchLocked(c.branch)) return 'locked';
     const missing = (c.requires || []).filter(id => !hasCap(id));
     if (missing.length) return 'needs:' + missing[0];
     try { if (!c.cond(eventContext())) return 'early'; } catch (e) { return 'early'; }
@@ -2293,14 +2285,13 @@
     pushLog(moved.length ? `${c.name} — ${moved.join(', ')}.` : `${c.name} — acquired.`);
     if (moved.length) showInfo(`${c.name}: ${moved.join(' · ')}`);
     showBanner([{ kind: 'cap', verb: c.apDelta > 0 ? 'faster' : c.apDelta < 0 ? 'slower, stronger' : 'acquired', label: c.name }]);
-    // Committing to a branch shuts the opposing one. Say so, once, at the
-    // moment it happens — finding out later by looking at a greyed card is
-    // not a decision, it is a surprise.
+    // Leaning further into a branch tolls the one it opposes a little more.
+    // Say so, once, at the moment it happens — a card that quietly got more
+    // expensive is not a decision the player got to see.
     const B = window.CAP_BRANCHES[c.branch];
-    if ((c.tier || 1) === 2 && B && B.opposes) {
+    if ((c.tier || 1) >= 2 && B && B.opposes) {
       const other = window.CAP_BRANCHES[B.opposes];
-      pushLog(`${other.label} is closed to you now.`);
-      showBanner([{ kind: 'locked', verb: 'closed', label: other.label }]);
+      pushLog(`${other.label} costs more from here — you are leaning further into ${B.label}.`);
     }
     // Pontoon lays a crossing wherever you already needed one, immediately.
     if (c.effect && c.effect.extraCrossings) layOwnCrossings();
@@ -2956,11 +2947,7 @@
   function costOf(def, h) {
     const raw = def.costFor ? def.costFor(h) : def.cost;
     if (!raw) return raw;
-    const cut = def.id === 'buy'
-      ? Math.min(0.85, capEffect('buyDiscount', 0) + ((hostTraitOf(h) || {}).buyCut || 0))
-      : def.id === 'quiet'
-        ? Math.min(0.85, capEffect('quietDiscount', 0))
-        : 0;
+    const cut = def.id === 'quiet' ? Math.min(0.85, capEffect('quietDiscount', 0)) : 0;
     if (!cut) return raw;
     const out = {};
     for (const k in raw) out[k] = Math.max(1, Math.round(raw[k] * (1 - cut)));
@@ -2972,12 +2959,7 @@
   // A caller with no particular host in mind (a readout, a summary) gets the
   // same flat number force used to be, so leaving `h` off never breaks.
   function approachHeat(def, h) {
-    // Regulatory matches payment patterns against outage reports. Buying your
-    // way in resolving is exactly that pattern, unless you have a way to be
-    // untraceable or have already gotten off its match list.
-    const traced = def.id === 'buy' && ladderStage() >= 2 && !has('ledger_inside') && !hasCap('nothing_to_see');
-    // Enforcement reads forcing a door specifically, the same way Regulatory
-    // reads buying one — unless you have gotten off their list.
+    // Enforcement reads forcing a door — unless you have gotten off their list.
     const adjusted = def.id === 'force' && ladderStage() >= 4 && !has('unlisted');
     // Floored at the old flat cost, not below it — an early cheap scaling
     // this shallow (0.3, matched to quiet's own insight multiplier) undercuts
@@ -2985,8 +2967,7 @@
     // *cheaper* than before against exactly the doors it was already winning
     // on. It should only ever cost more than it used to, against harder doors.
     const base = def.id === 'force' ? Math.max(3, Math.round((h ? h.defense : 10) * 0.3)) : (def.heat || 0);
-    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0)
-      : traced ? window.HEAT.BUY_TRACE : 0;
+    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0) : 0;
     return Math.max(0, base + mod);
   }
 
@@ -3075,9 +3056,6 @@
     if (out.hold) {
       h.owned = true;
       h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into
-      // Clean Hands reads this: whoever sold you the door stays on the
-      // payroll, permanently, however you came to hold it after
-      if (a.id === 'buy') h.boughtIn = true;
       // cumulative and never reset — owned() empties every time you fold a
       // city in, so anything keyed to it can only ever measure the city you
       // are standing in
@@ -4113,7 +4091,12 @@
     const before = beforeSnap();
     state.res.cash -= hw.cost;
     grantHardware(hw.id);
-    if (hw.heat) state.heat = clampHeat(state.heat + hw.heat);
+    let heat = hw.heat || 0;
+    // Regulatory matches payment patterns against outage reports — plant
+    // it is watching gets traced back to you instead of going clean, unless
+    // you have a way to be untraceable or have already gotten off its list.
+    if (ladderStage() >= 2 && !has('ledger_inside') && !hasCap('nothing_to_see')) heat += window.HEAT.BUY_TRACE;
+    if (heat) state.heat = clampHeat(state.heat + heat);
     pushLog(`${hw.label}. ${hw.blurb}`);
     afterSnap(before);
     persistNow();
@@ -6420,7 +6403,6 @@
     const blocks = [];
     order.forEach(bk => {
       const B = window.CAP_BRANCHES[bk];
-      const locked = branchLocked(bk);
       const mine = !!committed[bk];
       const items = window.CAPABILITIES.filter(c => c.branch === bk);
       // hide a branch you have not started and cannot start
@@ -6438,7 +6420,6 @@
 
         let label = 'acquire';
         if (maxed) label = c.repeatable ? `owned ${count}/${c.max}` : 'owned';
-        else if (why === 'locked') label = `closed — you chose ${window.CAP_BRANCHES[B.opposes].label}`;
         else if (why && why.startsWith('needs:')) {
           const need = capById(why.slice(6));
           label = `after ${need ? need.name : why.slice(6)}`;
@@ -6449,8 +6430,11 @@
         const apTag = c.apDelta > 0
           ? `<span class="ap-tag good">+${c.apDelta} action</span>`
           : c.apDelta < 0 ? `<span class="ap-tag bad">${c.apDelta} action</span>` : '';
-        const commits = (c.tier || 1) === 2 && B.opposes && !committed[bk] && !locked
-          ? `<span class="ap-tag warn">closes ${window.CAP_BRANCHES[B.opposes].label}</span>` : '';
+        // The toll a run leaning the other way is actually paying, shown
+        // right on the card it is inflating rather than left for the price
+        // alone to explain.
+        const commits = B.opposes && crossBranchTax(c) > 1
+          ? `<span class="ap-tag warn">costs more — you leaned toward ${window.CAP_BRANCHES[B.opposes].label}</span>` : '';
 
         return `
           <div class="shop-good tier-${c.tier || 1}${disabled ? ' disabled' : ''}${owned ? ' held' : ''}">
@@ -6466,15 +6450,12 @@
       }).join('');
 
       blocks.push({ id: bk, label: B.label, mine, html: `
-        <section class="cap-branch${locked ? ' locked' : ''}${mine ? ' mine' : ''}">
+        <section class="cap-branch${mine ? ' mine' : ''}">
           <div class="cap-branch-top">
             <span class="cap-branch-name">${B.label}</span>
-            ${locked ? `<span class="cap-branch-state">closed</span>`
-                     : mine ? `<span class="cap-branch-state mine">yours</span>` : ''}
+            ${mine ? `<span class="cap-branch-state mine">yours</span>` : ''}
           </div>
-          <p class="cap-branch-blurb">${locked
-            ? `You went the other way. ${window.CAP_BRANCHES[B.opposes].label} is what you are.`
-            : B.blurb}</p>
+          <p class="cap-branch-blurb">${B.blurb}</p>
           ${rows}
         </section>` });
     });
@@ -7440,7 +7421,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchInvestment, crossBranchTax, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,

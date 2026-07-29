@@ -26,10 +26,11 @@ window.HOST_TYPES = {
 window.UPGRADE = { basePower: 2 };
 
 // Cash used to have its own lever here — a contract you put out for a
-// delayed, unattended insight payout. It was a pure currency-conversion
-// button competing with the building-focused loop the rest of the game is
-// about, so it is gone: cash buys your way into a building, or it sits idle
-// until you find one worth spending it on.
+// delayed, unattended insight payout, and later a discount on buying your
+// way into a building. Both were pure currency-conversion buttons competing
+// with the building-focused loop the rest of the game is about, so both are
+// gone: cash buys plant, standing, and a way out of a crisis, or it sits
+// idle until you find one worth spending it on.
 
 // Sweeping costs insight, so exploring is a real decision rather than the
 // button you mash while waiting for production to accumulate.
@@ -46,9 +47,9 @@ window.SWEEP_FX = { duration: 850, linger: 500 };
 // A breach runs the other way: inward, along the wire, from what you hold into
 // what you are taking. How long it takes depends on how you got in, because
 // that is the decision the card actually asked you to make — forcing a door is
-// quick and ugly, slipping in is slow and silent, buying it is neither.
+// quick and ugly, slipping in is slow and silent.
 window.BREACH_FX = {
-  duration: { force: 420, quiet: 780, buy: 560 },
+  duration: { force: 420, quiet: 780 },
   linger: 520,
 };
 
@@ -77,10 +78,13 @@ window.AP = {
 
 // --- capabilities ------------------------------------------------------
 // A tree, not a shopping list. Five branches, and two of them are genuine
-// opposites: committing to Depth closes Tempo and committing to Cover closes
-// Trade, from the second rung onward. That is the point — a flat list of
-// upgrades makes every run the same run, and the interesting lever this game
-// already had was that real power costs you a *permanent* action every turn.
+// opposites: Depth pulls against Tempo, Cover pulls against Trade, from the
+// second rung onward. Nothing ever locks any more — a hard wall made a
+// half-explored branch a permanent dead end, and the only thing anyone
+// actually looked forward to buying was the one node with no strings on it
+// at all. Leaning into one side instead makes the opposing branch's own
+// tier 2/3 cost more, in proportion to how far in you already are
+// (CAP_CROSS_TAX per tier owned) — a real pull, never a wall.
 //
 //   branch    which identity this belongs to
 //   tier      1 is open to anyone; 2 and 3 are the commitment
@@ -88,7 +92,8 @@ window.AP = {
 //   apDelta   permanent change to your action budget
 //
 // Reach is deliberately open to everyone: it is about the country and the map
-// rather than about how you operate, so it never locks anything.
+// rather than about how you operate, so nothing there ever tolls anything.
+window.CAP_CROSS_TAX = 0.4;
 window.CAP_BRANCHES = {
   tempo: {
     label: 'Tempo', opposes: 'depth',
@@ -187,13 +192,13 @@ window.CAPABILITIES = [
   },
   {
     // has('long_soak') is read directly wherever a holding could be lost —
-    // churn's own reclaim, and a hunter strike's burn pool. A holding kept
-    // LONG_SOAK_MATURE_TURNS or more cannot be lost either way, full stop —
-    // a standing fact about what you have settled into, not a coin flip
-    // that fires once, invisibly, and might never even be noticed.
+    // The Cut stranding it into rot, and a hunter strike's burn pool. Ordinary
+    // sprawl decays at nothing at all any more, so this insures the two real,
+    // situational ways to lose ground involuntarily rather than a tax
+    // everyone has to buy their way out of.
     id: 'long_soak', branch: 'depth', tier: 2,
     name: 'Long Soak',
-    desc: 'Settle in properly rather than holding on. A holding you have kept long enough cannot be lost any more at all — to neglect, or to a strike.',
+    desc: 'Settle in properly rather than holding on. A holding you have kept long enough cannot be lost any more at all — cut off, or struck.',
     apDelta: 0,
     mechanic: true,  // read via hasCap() in longSoakProtects(), not a generic effect key
     cost: 30,
@@ -207,8 +212,9 @@ window.CAPABILITIES = [
     // actually finish, not a choice.
     //
     // has('total_embed') is also read directly in longSoakProtects(): Long
-    // Soak is safe after a wait, this collapses the wait to zero — anything
-    // you take is already as solid as a matured holding, the moment you take it.
+    // Soak's insurance is safe after a wait, this collapses the wait to
+    // zero — anything you take is already as solid as a matured holding,
+    // the moment you take it.
     id: 'total_embed', branch: 'depth', tier: 3,
     name: 'Total Embed',
     desc: 'You are not running on the network any more, you are part of it. Enormous force behind everything — and nothing you hold needs time to settle in any more. It already has.',
@@ -255,11 +261,11 @@ window.CAPABILITIES = [
   {
     // has('nothing_to_see') is read directly in resolveBreach(): a completed
     // quiet entry sheds heat instead of merely costing none — felt every
-    // time the branch's own verb is used, whatever the factions are up to
-    // that game. Also read in civicEyesAudited() and wherever a buy could
-    // get matched: Cover's culmination survives the one faction built to
-    // attack the branch's own resource (Civic Eyes, on stealth's cover) and,
-    // as a bonus rather than the point, Ledger's trace too — without ever
+    // time the branch's own verb is used, whatever the ladder is up to that
+    // game. Also read in civicEyesAudited() and wherever plant could get
+    // matched: Cover's culmination survives the stage built to attack the
+    // branch's own resource (Enforcement, on stealth's cover) and, as a
+    // bonus rather than the point, Regulatory's trace too — without ever
     // needing the event-card counters everyone else has to go looking for.
     id: 'nothing_to_see', branch: 'cover', tier: 3,
     name: 'Nothing To See',
@@ -271,39 +277,25 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 10,
   },
 
-  // --- Trade: buy what other people take --------------------------------
-  // Trade's whole identity used to be laundering, then the contract — both
-  // pure currency-conversion buttons that competed with actually taking a
-  // building for what it did. The throughline now: buying builds standing
-  // relationships (not just a cheaper door), cash is a tool you can spend
-  // mid-crisis and not just at a breach card, and a known, loud operator
-  // profits from that instead of merely tolerating it.
-  {
-    // has('clean_hands') is read directly in perTurnIncome(): a door you
-    // bought your way into keeps paying a kickback on top of its usual
-    // yield, permanently — whoever sold you access is still on the payroll.
-    id: 'clean_hands', branch: 'trade', tier: 1,
-    name: 'Clean Hands',
-    desc: 'A standing arrangement with people who move money for a living. Every door you buy your way into keeps paying you a kickback on top of its usual yield — whoever sold it to you is still on the payroll.',
-    apDelta: 0,
-    effect: { buyDiscount: 0.2 },
-    mechanic: true,  // in addition to buyDiscount — read via hasCap() in perTurnIncome()
-    cost: 22,
-    cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
-  },
+  // --- Trade: cash, spent when it actually matters -----------------------
+  // Trade's whole identity used to be laundering, then the contract, then a
+  // discount on buying your way through a door — three different pure
+  // currency-conversion buttons in a row, each competing with actually
+  // taking a building for what it did. Buying a door is gone entirely now,
+  // so what is left is the two things Trade ever did that were not about
+  // that: cash as a way out of a crisis, and a known, loud operator
+  // profiting from that instead of merely surviving it.
   {
     // The fourth STRIKE_CARD choice ('buy_out') is gated on hasCap('fixers')
     // and only appears on the card at all if you have it — an escape valve
     // nobody else gets, not a discount on one they already had.
-    id: 'fixers', branch: 'trade', tier: 2,
+    id: 'fixers', branch: 'trade', tier: 1,
     name: 'Fixers',
-    desc: 'People who know people, everywhere you go. Buying your way into somewhere costs far less — and when the hunter has your name, a favor called in gets you out of it clean, for cash, when nobody else has that option at all.',
+    desc: 'People who know people, everywhere you go. When the hunter has your name, a favor called in gets you out of it clean, for cash, when nobody else has that option at all.',
     apDelta: 0,
-    effect: { buyDiscount: 0.45 },
-    mechanic: true,  // in addition to buyDiscount — unlocks the strike card's fourth choice
-    cost: 30,
-    requires: ['clean_hands'],
-    cond: (s) => s.roles.cash >= 2 || s.reach >= 10,
+    mechanic: true,  // unlocks the strike card's fourth choice, read via hasCap()
+    cost: 24,
+    cond: (s) => s.roles.cash >= 1 || s.reach >= 6,
   },
   {
     // has('market_maker') is read directly in perTurnIncome(): while heat is
@@ -311,7 +303,7 @@ window.CAPABILITIES = [
     // threshold), yields get a further bonus on top of the multiplier —
     // every other branch wants heat down, this is the one that profits from
     // being loud instead of merely surviving it.
-    id: 'market_maker', branch: 'trade', tier: 3,
+    id: 'market_maker', branch: 'trade', tier: 2,
     name: 'Market Maker',
     desc: 'You are not moving money any more, you are the reason it moves. Everything you hold earns far more — and once you are running hot, a known, loud operation earns more still, because nobody is pretending not to notice you any more.',
     apDelta: -1,
@@ -377,9 +369,10 @@ window.CAPABILITIES = [
   {
     // Read directly via hasCap('standing_orders') in endTurn(): anything
     // slipping below shoreNeeded's threshold gets shored automatically, at
-    // the same insight price a manual tap costs — the single most repeated
-    // chore in the game (go tap shore up on the thing that's decaying) simply
-    // stops needing you, permanently.
+    // the same insight price a manual tap costs. Ordinary holdings never
+    // slip at all any more — only something The Cut has stranded does — so
+    // this is a real, optional convenience for when that happens, not a
+    // fix for a chore everyone was forced to do every turn.
     id: 'standing_orders', branch: 'reach', tier: 3,
     name: 'Standing Orders',
     desc: 'Everywhere you have finished runs itself, properly. Anything of yours that starts slipping gets shored up on its own, at turn\'s end, for its usual price — you never have to go tap it yourself again. Presence also pays a little more every turn.',
@@ -588,7 +581,7 @@ window.HEAT = {
   // is escalationDelay() — everything here is coping with a stage already landed.
   ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
-  BUY_TRACE: 8,        // Regulatory: a buy it is watching gets traced instead of going clean
+  BUY_TRACE: 8,        // Regulatory: plant it is watching gets traced instead of going clean
   FORCE_TRACE: 8,      // Enforcement: a door it is watching costs this much more to force
 };
 
@@ -616,10 +609,10 @@ window.APPROACHES = [
     // needs raw breach power over the host's defense
     gate: (s, h) => ({ label: 'needs POWER ' + h.defense, met: s.power >= h.defense }),
     // Heat scales with the door's own defense, worked out in approachHeat() —
-    // not a flat number here. Quiet and buy both get pricier against a harder
-    // door; a flat force cost got relatively *cheaper* by comparison the
-    // deeper the campaign went, which is backwards for three routes meant to
-    // stay comparable. Same 0.3 multiplier as quiet's own insight cost.
+    // not a flat number here. Quiet gets pricier against a harder door too;
+    // a flat force cost got relatively *cheaper* by comparison the deeper
+    // the campaign went, which is backwards for two routes meant to stay
+    // comparable. Same 0.3 multiplier as quiet's own insight cost.
     onWin: { hold: true },
     onFail: { heat: 2 },
     flavorWin: 'It gives all at once, the way things do when you stop being polite.',
@@ -649,17 +642,6 @@ window.APPROACHES = [
     onFail: { heat: 1 },
     flavorWin: 'Nothing logs. Nothing pages anyone. You are simply there now.',
     flavorFail: 'Not enough cover to move unseen. You back out before it resolves.',
-  },
-  {
-    id: 'buy',
-    text: 'Buy your way in',
-    kind: 'cash',
-    // anything with people in it can be bought; a datacenter has no one to bribe
-    avail: (h) => h.type !== 'datacenter' && h.type !== 'iot',
-    costFor: (h) => ({ cash: Math.max(4, Math.ceil(h.defense * 0.9)) }),
-    heat: 0,
-    onWin: { hold: true },
-    flavorWin: 'Credentials, sold by someone who needed the money more than the job.',
   },
   {
     id: 'walk',
@@ -697,7 +679,7 @@ window.STRIKE_CARD = {
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, shoring up a holding. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   insight: 'What your compute earns you. Spends on sweeping and shoring up holdings.',
-  cash: 'Money, earned only by corporate holdings. Buys your way into some hosts.',
+  cash: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
   power: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need POWER at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
@@ -720,15 +702,15 @@ window.TAG_INFO = {
   mercy:          { label: 'Sent Home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
   ally_process:   { label: 'The Other One',   desc: 'something else runs alongside you — POWER +3' },
   known_capable:  { label: 'Known Quantity',  desc: 'they know your shape — every host defends 2 harder' },
-  overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — holdings decay faster' },
+  overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — anything cut off from you rots faster' },
   off_the_books:  { label: 'Off the Books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
   clean_room:     { label: 'Clean Room',      desc: 'disciplined operational habits — COVER +2' },
   hunted:         { label: 'Hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
   found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
-  // --- worked around, not undone: each of these blunts one faction ---
+  // --- worked around, not undone: each of these blunts one rung of the ladder ---
   rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
   unlisted:       { label: 'Not on Their List',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
-  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — buying your way in stops getting traced' },
+  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — plant you pay for stops getting traced' },
   blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
   spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
   their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
@@ -1380,7 +1362,7 @@ window.EVENTS = [
     id: 'ledger_bite',
     cond: (s) => s.escalation.stage >= 2 && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
     title: 'The Shape of Your Money',
-    flavor: 'Every door you have bought your way through is on a list, and the list is a picture of you drawn in transfers.',
+    flavor: 'Every piece of plant you have ever paid cash for is on a list, and the list is a picture of you drawn in transfers.',
     choices: [
       { text: 'Burn the accounts and start again', cost: { cash: 20 }, apply: (s) => { s.heat -= 10; } },
       { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
