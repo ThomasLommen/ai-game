@@ -7427,3 +7427,72 @@ test('home base: the rival\'s ceiling scales automatically as the map grows', ()
   const capAfter = Math.floor(s.buildings.length * window.RIVAL.maxShareOfCity);
   assert.ok(capAfter > capBefore, 'more city, more room for the rival to take, automatically');
 });
+
+// --- home base pivot, step 1e: cities-with-character, per growth batch ----
+
+test('home base: the opening ground is plain, and a growth batch can pick its own trait', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.ok(s.buildings.every(b => !b.trait), 'nothing at turn one has a trait, same as ever');
+
+  let sawATrait = false;
+  for (let i = 0; i < 20 && !sawATrait; i++) {
+    const before = s.buildings.length;
+    const added = d.growHomeBase();
+    if (added.some(b => b.trait)) sawATrait = true;
+    assert.ok(added.every(b => b.trait === added[0].trait), 'one batch, one trait (or none), never mixed');
+    assert.equal(s.buildings.length, before + added.length);
+  }
+  assert.ok(sawATrait, 'over enough growth passes, at least one batch rolled a trait');
+});
+
+test('home base: two growth batches in a row never repeat the same trait', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  let last = undefined;
+  for (let i = 0; i < 15; i++) {
+    const added = d.growHomeBase();
+    const traitId = added[0] && added[0].trait;
+    if (traitId && last) assert.notEqual(traitId, last, 'back-to-back batches should not read as the same place');
+    if (traitId) last = traitId;
+  }
+});
+
+test('home base: a batch\'s trait actually governs that batch\'s buildings, not the whole city', () => {
+  // pinned so pickBatchTrait's roll is deterministic: pool[0] at tier 0 is
+  // 'shuttered' (see window.CITY_TRAITS' own key order)
+  const { window } = loadNetwork({ pinMathRandom: 0 });
+  const d = window.__netDebug;
+  const s = d.state;
+  const before = s.buildings.length;
+  const trait = 'shuttered';
+  const added = d.growHomeBase();
+  assert.ok(added.length, 'the forced batch still placed buildings');
+  assert.ok(added.every(b => b.trait === trait), `expected every new building shuttered, got ${added.map(b => b.trait)}`);
+
+  const shut = d.hostsIn(added.find(b => !b.landmark) || added[0])[0];
+  shut.discovered = true;
+  assert.equal(d.approachesFor(shut).some(a => a.def.id === 'buy'), false, 'shuttered ground has no buy approach');
+
+  const plain = s.buildings.slice(0, before).find(b => !b.landmark);
+  const ph = d.hostsIn(plain)[0];
+  ph.discovered = true;
+  assert.equal(d.approachesFor(ph).some(a => a.def.id === 'buy'), true, 'the rest of the city is untouched');
+});
+
+test('home base: growth trait survives a save/load round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  let added = [];
+  for (let i = 0; i < 10 && !added.some(b => b.trait); i++) added = d.growHomeBase();
+  const traited = s.buildings.find(b => b.trait);
+  assert.ok(traited, 'a trait turned up within a reasonable number of tries');
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  const back = round.buildings.find(b => b.id === traited.id);
+  assert.equal(back.trait, traited.trait);
+  assert.equal(round.lastGrowthTrait, s.lastGrowthTrait);
+});

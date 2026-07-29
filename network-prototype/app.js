@@ -457,6 +457,23 @@
   // once, at generation, and growth only ever extends past them.
   const HOME_GROWTH_ROWS = 2;
   const HOME_GROWTH_REACH_STEP = 10;
+
+  // Home base pivot, step 1e: cities-with-character repointed at districts —
+  // a trait was always picked once per city ("the second city is a different
+  // question"), which cannot mean anything for the one city that never ends.
+  // Instead each growth batch (see growHomeBase()) independently rolls its
+  // own, stamped onto just the buildings it adds — a newly-appeared corner
+  // of the base can read as a different neighbourhood from the one you
+  // started in, without the map ever needing more than one trait id per city.
+  // The opening batch stays untouched: home was always meant to teach the
+  // ropes plain, and that still holds for however much of it exists at turn 1.
+  function pickBatchTrait(regionTier, avoid) {
+    const K = window.CITY_TRAITS;
+    const pool = Object.keys(K).filter(k => K[k].at <= (regionTier || 0) && k !== avoid);
+    if (!pool.length) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   function growHomeBase() {
     const C = window.CITY;
     const dims = state.dims || { cols: C.cols, rows: C.rows };
@@ -464,6 +481,8 @@
     const startRow = dims.rows;
     const rowDistricts = C.rowDistricts;
     const bands = state.bands || [];
+    const traitId = pickBatchTrait(0, state.lastGrowthTrait);
+    const TR = (traitId && window.CITY_TRAITS[traitId]) || {};
 
     let nextBidNum = 1 + (state.buildings || []).reduce((m, b) => Math.max(m, parseInt(b.id.slice(1), 10)), -1);
     let nextHidNum = 1 + (state.hosts || []).reduce((m, h) => Math.max(m, parseInt(h.id.slice(1), 10)), -1);
@@ -479,10 +498,10 @@
         const cw = C.blockW / 2, ch = C.blockH / 2;
         for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
         shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]);
+        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
         for (let i = 0; i < Math.min(n, cells.length); i++) {
           const cell = cells[i];
-          const kind = pick(D.kinds);
+          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
           const K = window.BUILDING_KINDS[kind];
           const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
           const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
@@ -491,7 +510,7 @@
           if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
           newBuildings.push({
             id: 'b' + (nextBidNum++),
-            kind, district: districtKey, tier: D.tier,
+            kind, district: districtKey, tier: D.tier, trait: traitId || undefined,
             block: row * cols + col, row, col,
             x: bx2, y: by2, w, h,
             hostIds: [],
@@ -502,6 +521,7 @@
     }
 
     if (newBuildings.length) {
+      state.lastGrowthTrait = traitId;
       const newHosts = [];
       newBuildings.forEach(b => {
         const K = window.BUILDING_KINDS[b.kind];
@@ -510,7 +530,7 @@
           id: 'h' + (nextHidNum++),
           type: K.host, role: T.role, buildingId: b.id, district: b.district, ring: b.tier,
           name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
-          defense: Math.max(1, Math.round(rndInt(T.defense[0], T.defense[1]) + b.tier * 2)),
+          defense: Math.max(1, Math.round(rndInt(T.defense[0], T.defense[1]) + b.tier * 2 + (TR.defense || 0))),
           threads: Math.round(rndInt(T.threads[0], T.threads[1])),
           landmark: false,
           x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2),
@@ -668,6 +688,14 @@
   }
   // the one you are standing in, which is what the breach card has to obey
   function cityTrait() { return cityTraitOf(currentCity()); }
+  // Home base pivot, step 1e: a specific building's own trait, stamped by
+  // growHomeBase() onto whichever batch it was grown in, falling back to the
+  // whole-city trait for every other city (which never stamps buildings
+  // individually — one trait per city is still how they work).
+  function hostTraitOf(h) {
+    const b = h && buildingById(h.buildingId);
+    return (b && b.trait && window.CITY_TRAITS[b.trait]) || cityTraitOf(currentCity());
+  }
 
   function cityPrize(c) {
     return (c && c.prize && window.CITY_PRIZES[c.prize]) ? window.CITY_PRIZES[c.prize] : null;
@@ -1526,7 +1554,15 @@
       if (reach() >= (grown + 1) * HOME_GROWTH_REACH_STEP) {
         const added = growHomeBase();
         state.homeGrowth = grown + 1;
-        if (added.length) pushLog(`The map keeps going: ${added.length} more buildings just past the old edge.`);
+        if (added.length) {
+          pushLog(`The map keeps going: ${added.length} more buildings just past the old edge.`);
+          const traitId = added[0].trait;
+          const TR = traitId && window.CITY_TRAITS[traitId];
+          if (TR) {
+            pushLog(`The new ground reads as its own place: ${TR.blurb}`);
+            showBanner([{ kind: 'stage', verb: TR.label, label: TR.tell }]);
+          }
+        }
       }
     }
     swarmFrontStep();
@@ -2855,7 +2891,7 @@
     const raw = def.costFor ? def.costFor(h) : def.cost;
     if (!raw) return raw;
     const cut = def.id === 'buy'
-      ? Math.min(0.85, capEffect('buyDiscount', 0) + ((cityTrait() || {}).buyCut || 0))
+      ? Math.min(0.85, capEffect('buyDiscount', 0) + ((hostTraitOf(h) || {}).buyCut || 0))
       : def.id === 'quiet'
         ? Math.min(0.85, capEffect('quietDiscount', 0))
         : 0;
@@ -2894,7 +2930,7 @@
     // A city where nothing is for sale does not show you a price you cannot
     // pay — it does not show you the door at all. This is the trait doing the
     // same job a faction does, spatially: taking a tool away.
-    const closed = (cityTrait() || {}).closes;
+    const closed = (hostTraitOf(h) || {}).closes;
     return window.APPROACHES.filter(a => a.avail(h) && a.id !== closed).map(a => {
       let gate = a.gate ? a.gate(s, eff) : null;
       // False Floor: the cover a quiet entry needs drops at the gate itself,
@@ -5036,6 +5072,7 @@
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
+      lastGrowthTrait: state.lastGrowthTrait || null,
     };
   }
   function deserialize(saved) {
@@ -5053,6 +5090,7 @@
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
+        lastGrowthTrait: saved.lastGrowthTrait || null,
       };
     } catch (e) { return null; }
   }
@@ -7200,7 +7238,7 @@
     // A door that is simply missing reads as a bug. Say which one this city
     // does not have and why, on every card, because it is the rule of the
     // place rather than something about this particular building.
-    const TR = cityTrait();
+    const TR = hostTraitOf(h);
     const gone = TR && TR.closes
       ? `<p class="flavor closed">${TR.tell.charAt(0).toUpperCase() + TR.tell.slice(1)} — ${TR.label}.</p>`
       : '';
@@ -7288,7 +7326,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach,
+    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
