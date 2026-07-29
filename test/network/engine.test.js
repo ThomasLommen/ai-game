@@ -1094,8 +1094,8 @@ test('ledger: buying your way in gets traced back to you instead of going clean'
   const buy = window.APPROACHES.find(a => a.id === 'buy');
   assert.equal(d.approachHeat(buy), 0, 'clean by default');
 
-  s.country.factions.ledger.awake = true;
-  assert.ok(d.approachHeat(buy) > 0, 'awake, it traces the payment');
+  wake(d, 'ledger');
+  assert.ok(d.approachHeat(buy) > 0, 'landed, it traces the payment');
 });
 
 // nothing_to_see is a capability id, not a tag — the first version of this
@@ -1112,7 +1112,7 @@ test('nothing to see: buying your way in survives Ledger untraced, without the e
   assert.ok(d.capCount('nothing_to_see') > 0, 'the capstone bought cleanly');
   assert.equal(s.tags.has('ledger_inside'), false, 'and not through the usual counter');
 
-  s.country.factions.ledger.awake = true;
+  wake(d, 'ledger');
   const buy = window.APPROACHES.find(a => a.id === 'buy');
   assert.equal(d.approachHeat(buy), 0, 'never traced');
 });
@@ -1709,19 +1709,15 @@ function conquerTo(d, window, share) {
   return d.conquest();
 }
 
-test('country: taking a faction seat finishes the faction', () => {
+test('ladder: a landed stage never reverts, whatever footprint does afterward', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const f = window.FACTIONS[0];
-
-  conquerTo(d, window, d.wakeShare(f));
-  d.checkFactions();
-  assert.equal(d.factionAwake(f.id), true, 'taking that much of the country wakes them');
-
-  d.breakFactionAt(s.country.factions[f.id].rootId);
-  assert.equal(d.factionAwake(f.id), false, 'taking their seat ends them');
-  assert.equal(s.country.factions[f.id].broken, true);
+  wake(d, 'ledger');           // stage 2, landed
+  assert.equal(d.ladderStage(), 2);
+  s.country.presence = 0;
+  s.hardware = {};
+  assert.equal(d.ladderStage(), 2, 'nothing about it can be bought back — there is no seat to retake');
 });
 
 test('persistence: the country survives a round trip', () => {
@@ -1733,12 +1729,7 @@ test('persistence: the country survives a round trip', () => {
   s.ap = 9;
   d.actConsolidate();
 
-  // Consolidating a faction's own root city breaks that faction outright
-  // (breakFactionAt) — pick whichever faction was not just broken by taking
-  // `city`, so it is still free to wake on its own conquest share.
-  const faction = window.FACTIONS.find(f => (d.factionState(f.id) || {}).rootId !== city.id);
-  conquerTo(d, window, d.wakeShare(faction));
-  d.checkFactions();
+  conquerTo(d, window, 0.4);
   const presence = s.country.presence;
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
@@ -1747,7 +1738,6 @@ test('persistence: the country survives a round trip', () => {
   assert.equal(round.country.presence, presence);
   assert.equal(round.country.cities.length, s.country.cities.length);
   assert.equal(round.region, s.region);
-  assert.equal(round.country.factions[faction.id].awake, true, 'woken factions stay woken');
   assert.equal(round.country.cities.find(c => c.id === city.id).consolidated, true, 'what you folded in stays folded in');
   assert.equal(round.country.cities.find(c => c.id === round.country.homeId).consolidated, false,
     'home base is never folded in, saved or not');
@@ -1780,58 +1770,65 @@ test('country: a city you walk away from is frozen, not running in the backgroun
   assert.equal(d.owned().length, heldThere, 'and it is all still there when you go back');
 });
 
-// --- the faction ladder --------------------------------------------------
-// The escalation is not a difficulty slider: each faction deletes a rule you
-// had got used to. These tests are about the tool going away and coming back,
-// because that is the whole design.
+// --- the ladder ------------------------------------------------------------
+// Footprint, staged. There is no more per-faction "awake" — everything below
+// is keyed to the stage that has landed, and a landed stage never un-lands.
+// `wake` and `STAGE_OF` keep the old call shape (the id of what used to be a
+// faction) so the tests around them barely had to change shape at all.
 
-function wake(d, id) {
-  const f = d.state.country.factions[id];
-  f.awake = true;
-  f.broken = false;
+const STAGE_OF = { ledger: 2, the_other: 2, quiet_hours: 3, adjusters: 4, civic_eyes: 4, the_cut: 4 };
+
+function setLadderStage(d, stage) {
+  d.state.seen = d.state.seen || [];
+  if (d.state.seen.indexOf('standing') === -1) d.state.seen.push('standing');
+  const e = d.ESC();
+  e.stage = stage;
+  e.dueAt = -1;
+  e.pending = null;
 }
 
-test('factions: wake on presence in order, hardest last', () => {
+function wake(d, id) {
+  setLadderStage(d, STAGE_OF[id]);
+}
+
+test('ladder: each stage counts down before it lands, one at a time, in order', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  // the ladder's order, read through the engine — a rung can now be keyed to
-  // doors taken rather than to a share of the country, so it fires inside your
-  // first city and reports as earlier than any share
-  const d0 = window.__netDebug;
-  const order = window.FACTIONS.slice().sort((a, b) => d0.wakeShare(a) - d0.wakeShare(b));
-  for (let i = 1; i < order.length; i++) {
-    assert.ok(d0.wakeShare(order[i]) > d0.wakeShare(order[i - 1]), 'each faction wakes later than the last');
-    assert.ok(order[i].tier > order[i - 1].tier, 'and is a rung further up');
-  }
-  order.forEach(f => assert.ok(d0.wakeShare(f) > 0 && d0.wakeShare(f) <= 1,
-    `${f.id} wakes at ${d0.wakeShare(f)}, which is not a share of the country`));
+  const L = window.LADDER;
+  const stageNums = Object.keys(L.stages).map(Number).sort((a, b) => a - b);
 
-  assert.equal(d.conquest(), 0, 'you have finished none of it yet');
-  d.checkFactions();
-  assert.equal(d.awakeFactions().length, 0, 'nobody cares about you yet');
+  assert.equal(d.ladderStage(), 0, 'nobody notices you yet');
 
-  // The first rung is doors, not cities, so it is crossed inside your first
-  // city — before you have finished anything. Reaching it the way the game
-  // does is the point: this used to be gated two whole cities in.
-  s.everHeld = 14;
-  d.checkFactions();
-  assert.equal(d.conquest(), 0, 'and you still have not finished a city');
-  assert.equal(d.awakeFactions().length, 1, 'the first one notices');
-  assert.equal(d.awakeFactions()[0].id, order[0].id);
+  s.country.presence = 500;               // footprint clear of every threshold
+  d.ladderStep();                         // noticed — and the first rung starts counting down
+  assert.equal(d.ladderStage(), 1, 'noticed, but nothing on the ladder has landed');
+  assert.equal(d.ladderPending(), stageNums[0]);
 
-  conquerTo(d, window, 1);
-  d.checkFactions();
-  assert.equal(d.awakeFactions().length, window.FACTIONS.length, 'eventually all of them');
+  stageNums.forEach(stage => {
+    assert.equal(d.ladderPending(), stage, `${stage} is the one counting down`);
+    s.turn += L.warnTurns + 1;
+    d.ladderStep();                       // lands it
+    assert.equal(d.ladderStage(), stage, `${stage} lands in turn`);
+    d.ladderStep();                       // arms whatever comes after it, if anything does
+  });
+  assert.equal(d.ladderPending(), null, 'nothing left above the last rung');
 });
 
-test('factions: every one of them deletes a rule, and no two delete the same one', () => {
+test('ladder: every stage past the baseline says something different, in a fixed order', () => {
   const { window } = loadNetwork();
-  const breaks = window.FACTIONS.map(f => f.breaks);
-  assert.equal(new Set(breaks).size, breaks.length, 'two factions take the same tool away');
-  window.FACTIONS.forEach(f => {
-    assert.ok(f.tell && f.onWake, `${f.id} does not say what it does`);
+  const L = window.LADDER;
+  const nums = Object.keys(L.stages).map(Number).sort((a, b) => a - b);
+  assert.deepEqual(nums, [2, 3, 4, 5], 'four rungs above the baseline');
+  const tells = nums.map(n => L.stages[n].tell);
+  assert.equal(new Set(tells).size, tells.length, 'two rungs say the same thing');
+  nums.forEach(n => {
+    const S = L.stages[n];
+    assert.ok(S.name && S.tell && S.blurb, `stage ${n} is missing its prose`);
   });
+  for (let i = 1; i < L.thresholds.length; i++) {
+    assert.ok(L.thresholds[i] > L.thresholds[i - 1], 'each threshold is further out than the last');
+  }
 });
 
 test('the adjusters: enough forced doors wakes them, and force starts costing more', () => {
@@ -1841,12 +1838,11 @@ test('the adjusters: enough forced doors wakes them, and force starts costing mo
   const force = window.APPROACHES.find(a => a.id === 'force');
   const target = { defense: 20 };
 
-  assert.equal(d.factionAwake('adjusters'), false, 'nobody is counting yet');
+  assert.equal(d.ladderStage() >= 4, false, 'nobody is counting yet');
   const before = d.approachHeat(force, target);
 
-  s.timesForced = 8; // this faction's own wake rung
-  d.checkFactions();
-  assert.equal(d.factionAwake('adjusters'), true, 'enough forced doors gets noticed');
+  wake(d, 'adjusters');
+  assert.equal(d.ladderStage() >= 4, true, 'enforcement has landed');
   assert.ok(d.approachHeat(force, target) > before, 'and force costs more heat now');
 
   s.tags.add('unlisted');
@@ -1882,7 +1878,7 @@ test('the quiet hours: going dark stops shedding heat, and the turn is still gon
 });
 
 test('ledger: buying your way in stops going clean and starts pointing at you', () => {
-  const traceHeat = loadNetwork().window.HEAT.LEDGER_TRACE;
+  const traceHeat = loadNetwork().window.HEAT.BUY_TRACE;
   // Two identical starts rather than one game before and after: taking any
   // building at all raises the passive heat floor, which would otherwise
   // swamp the one delta this test actually cares about.
@@ -2033,34 +2029,36 @@ test('the cut: stranded holdings rot, connected ones do not', () => {
   }
 });
 
-test('factions: taking the seat gives the tool back', () => {
+test('ladder: trust with the Accountant buys the next stage more time', () => {
   const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  const L = window.LADDER;
+  const plain = window.__netDebug;
+  plain.state.country.presence = 500;
+  plain.ladderStep();
+  const plainDueAt = plain.ESC().dueAt;
 
-  wake(d, 'quiet_hours');
-  assert.equal(d.ruleBroken('lielow'), true);
+  const trusted = loadNetwork().window.__netDebug;
+  trusted.LG().trust = window.ACCOUNTANT.trustedAt;
+  trusted.state.country.presence = 500;
+  trusted.ladderStep();
+  const trustedDueAt = trusted.ESC().dueAt;
 
-  d.breakFactionAt(s.country.factions.quiet_hours.rootId);
-  assert.equal(d.ruleBroken('lielow'), false, 'their seat falls, the quiet is yours again');
-
-  s.heat = d.heatFloor() + 20;
-  const before = s.heat;
-  s.card = null;
-  d.actLieLow();
-  assert.ok(s.heat < before, 'and lying low works exactly as it used to');
+  assert.equal(trustedDueAt - plainDueAt, L.delayOnTrusted, 'trusted, the same rung takes longer to land');
 });
 
-test('factions: a broken faction never wakes again', () => {
+test('ladder: a countdown already running lands on schedule even if footprint falls back after', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.country.factions.ledger.broken = true;
-  conquerTo(d, window, 1);
-  d.checkFactions();
-  assert.equal(d.factionAwake('ledger'), false, 'they are finished, not merely quiet');
-  assert.equal(d.ruleBroken('launder'), false);
+  const L = window.LADDER;
+  s.country.presence = 500;
+  d.ladderStep();
+  assert.equal(d.ladderPending(), 2, 'the first rung is counting down');
+
+  s.country.presence = 0;                 // footprint collapses mid-countdown
+  s.turn += L.warnTurns + 1;
+  d.ladderStep();
+  assert.equal(d.ladderStage(), 2, 'it lands anyway — the countdown does not check twice');
 });
 
 test('the other one: takes the country it can reach, never from under you, and is capped', () => {
@@ -2081,7 +2079,6 @@ test('the other one: takes the country it can reach, never from under you, and i
   m.cities.forEach(id => {
     assert.equal(d.cityById(id).taken, false, 'it never takes a city you already hold');
   });
-  assert.ok(Object.keys(m.caps).length > 0, 'and it buys off the same shelf you do');
 });
 
 test('the other one: what it holds is closed to you', () => {
@@ -2104,22 +2101,17 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  wake(d, 'quiet_hours');
-  wake(d, 'the_cut');
-  s.country.factions.ledger.broken = true;
+  wake(d, 'the_cut');   // stage 4
   s.cuts = [{ a: s.buildings[0].id, b: s.buildings[1].id, until: 20 }];
   s.lastCutTurn = 12;
   d.mirror().cities.push(s.country.cities[5].id);
-  d.mirror().caps = { deep_root: 1 };
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.ok(round);
-  assert.equal(round.country.factions.quiet_hours.awake, true);
-  assert.equal(round.country.factions.ledger.broken, true);
+  assert.equal(round.country.escalation.stage, 4, 'the ladder remembers how far it climbed');
   assert.equal(round.cuts.length, 1, 'open roadworks survive');
   assert.equal(round.lastCutTurn, 12);
   assert.equal(round.country.mirror.cities.length, 1);
-  assert.equal(round.country.mirror.caps.deep_root, 1);
 });
 
 // --- the deck ------------------------------------------------------------
@@ -2127,29 +2119,20 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 // spread of plausible campaign states and checks the whole deck is live.
 
 function sampleContexts(window) {
-  const RULES = ['lielow', 'force', 'buy', 'cameras', 'streets', 'mirror'];
-  const FIDS = window.FACTIONS.map(f => f.id);
-  const WAKES = window.FACTIONS.map(f => window.__netDebug.wakeShare(f));  // shares of the country
   const out = [];
-  const base = (o) => {
-    const rules = new Set(o.brokenRules || []);
-    const awake = new Set(o.awakeIds || []);
-    const done = new Set(o.brokenIds || []);
-    return Object.assign({
-      held: 0, doors: 0, forced: 0, heat: 0, power: 2, cover: 1, turn: 1,
-      res: { insight: 0, cash: 0 }, tags: new Set(o.tags || []),
-      roles: { compute: 0, cash: 0, stealth: 0 },
-      districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
-      scope: 'city', region: 'home', regionTier: 0, presence: 0,
-      cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
-      seats: 0, stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
-      gone: (r) => rules.has(r), awake: (id) => awake.has(id),
-      wokeAgo: () => -1, broken: (id) => done.has(id),
-      war: null,
-      standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0, trust: 0, gone: false },
-      plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
-    }, o.over || {});
-  };
+  const base = (o) => Object.assign({
+    held: 0, doors: 0, forced: 0, heat: 0, power: 2, cover: 1, turn: 1,
+    res: { insight: 0, cash: 0 }, tags: new Set(o.tags || []),
+    roles: { compute: 0, cash: 0, stealth: 0 },
+    districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
+    scope: 'city', region: 'home', regionTier: 0, presence: 0,
+    cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
+    stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
+    escalation: { stage: 0, pending: null }, mirror: { active: false },
+    war: null,
+    standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0, trust: 0, gone: false },
+    plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
+  }, o.over || {});
 
   // A war is a whole second half of the deck, and none of the contexts above
   // ever has one — every wartime card was unreachable by construction.
@@ -2182,32 +2165,33 @@ function sampleContexts(window) {
     return res;
   };
 
-  // fine-grained: a warning card lives in the gap between its own threshold
-  // and its faction's, and those gaps are only a few cities wide
-  [0, 0.05, 0.1, 0.16, 0.2, 0.25, 0.3, 0.35, 0.4, 0.46, 0.5, 0.55, 0.62, 0.7, 0.78, 0.85, 1].forEach(conq => {
-    const presence = Math.round(conq * 350);
-    ['city', 'country'].forEach(scope => {
-      [0, 3, 6, 12, 25].forEach(held => {
-        [0, 8, 18, 30].forEach(heat => {
-          [0, 1, 2, 3, 4].forEach(regionTier => {
-            out.push(base({
-              brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
-              awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
-              over: {
-                held, doors: Math.max(held, Math.round(conq * 95)),
-                forced: Math.max(held, Math.round(conq * 40)),
-                heat, presence, scope, regionTier, conquest: conq,
-                power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
-                cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
-                res: { insight: 5 + presence, cash: 5 + presence },
-                roles: { compute: Math.ceil(held / 2), cash: Math.ceil(held / 4), stealth: Math.ceil(held / 3) },
-                districts: { residential: Math.ceil(held / 3), commercial: Math.ceil(held / 4), business: Math.ceil(held / 5), industrial: Math.ceil(held / 6) },
-                cities: { total: 18, taken: Math.round(1 + conq * 16), consolidated: Math.round(conq * 14), known: Math.round(3 + conq * 15) },
-                seats: Math.floor(conq * 4), stranded: conq > 0.5 ? 3 : 0,
-                cuts: conq > 0.5 ? 2 : 0, mirrorCities: conq > 0.7 ? 3 : 0,
-                turn: 10 + presence,
-              },
-            }));
+  // fine-grained: a warning card lives in the gap between a stage's threshold
+  // and the moment it lands — that gap is the pending countdown, so stage and
+  // pending are swept independently of one another.
+  [0, 1, 2, 3, 4, 5].forEach(stage => {
+    [null, 2, 3, 4, 5].forEach(pending => {
+      ['city', 'country'].forEach(scope => {
+        [0, 3, 6, 12, 25].forEach(held => {
+          [0, 8, 18, 30].forEach(heat => {
+            [0, 1, 2, 3, 4].forEach(regionTier => {
+              const presence = stage * 60;
+              out.push(base({
+                over: {
+                  held, doors: Math.max(held, held * 4),
+                  forced: Math.max(held, held * 2),
+                  heat, presence, scope, regionTier, conquest: stage / 5,
+                  power: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
+                  cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
+                  res: { insight: 5 + presence, cash: 5 + presence },
+                  roles: { compute: Math.ceil(held / 2), cash: Math.ceil(held / 4), stealth: Math.ceil(held / 3) },
+                  districts: { residential: Math.ceil(held / 3), commercial: Math.ceil(held / 4), business: Math.ceil(held / 5), industrial: Math.ceil(held / 6) },
+                  cities: { total: 18, taken: Math.round(1 + stage * 3), consolidated: Math.round(stage * 2.5), known: Math.round(3 + stage * 3) },
+                  stranded: stage >= 4 ? 3 : 0, cuts: stage >= 4 ? 2 : 0, mirrorCities: stage >= 2 ? 3 : 0,
+                  escalation: { stage, pending }, mirror: { active: stage >= 2 },
+                  turn: 10 + presence,
+                },
+              }));
+            });
           });
         });
       });
@@ -2216,38 +2200,37 @@ function sampleContexts(window) {
 
   // with the other process alongside you, at every point on its opinion of you
   [-2, 0, 2, 4].forEach(trust => [2, 8, 45].forEach(since => {
-    [0.1, 0.4, 0.8].forEach(conq => [4, 22, 30].forEach(heat => out.push(base({
-      brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
-      awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
+    [1, 3, 5].forEach(stage => [4, 22, 30].forEach(heat => out.push(base({
       over: {
-        held: 9, heat, presence: Math.round(conq * 350), scope: 'city', regionTier: 2,
-        conquest: conq, power: 60, cover: 9, turn: 40 + since,
+        held: 9, heat, presence: stage * 60, scope: 'city', regionTier: 2,
+        conquest: stage / 5, power: 60, cover: 9, turn: 40 + since,
         res: { insight: 40, cash: 40 },
         roles: { compute: 4, cash: 3, stealth: 3 },
         districts: { residential: 3, commercial: 3, business: 3, industrial: 2 },
         cities: { total: 18, taken: 8, consolidated: 5, known: 14 },
-        seats: 1, stranded: 1, cuts: 1, mirrorCities: 2,
+        stranded: 1, cuts: 1, mirrorCities: 2,
+        escalation: { stage, pending: null }, mirror: { active: stage >= 2 },
         ally: { trust, name: 'SECOND', since },
       },
     }))));
   }));
 
-  // every counter-play tag held, and each faction finished in turn
-  FIDS.forEach(fid => [40, 90, 150, 200].forEach(presence => {
+  // every counter-play tag held at once, with the ladder fully landed
+  [40, 90, 150, 200].forEach(presence => {
     out.push(base({
       tags: Object.keys(window.TAG_INFO),
-      brokenIds: [fid], awakeIds: FIDS.filter(x => x !== fid), brokenRules: RULES,
       over: {
         presence, held: 14, heat: 12, power: 60, cover: 8, turn: 120,
         res: { insight: 40, cash: 40 },
         roles: { compute: 4, cash: 3, stealth: 4 },
         districts: { residential: 5, commercial: 4, business: 3, industrial: 2 },
         cities: { total: 18, taken: 9, consolidated: 6, known: 15 },
-        seats: 2, stranded: 2, cuts: 2, mirrorCities: 3, conquest: presence / 350,
+        stranded: 2, cuts: 2, mirrorCities: 3, conquest: presence / 350,
+        escalation: { stage: 5, pending: null }, mirror: { active: true },
         ally: { trust: 2, name: 'SECOND', since: 20 },
       },
     }));
-  }));
+  });
   // Standing and plant, across the range a campaign actually moves through.
   // Without these every card about the front or the industry was unreachable
   // by construction, the same way the wartime half was.
@@ -2288,50 +2271,47 @@ function sampleContexts(window) {
         has: (k) => count > 0 && k === 'yard' });
     });
   });
+  const stages = [1, 2, 4, 5];
   standings.forEach((standing, i) => {
     const plant = plants[i % plants.length];
-    const conq = [0.1, 0.35, 0.6, 0.85][i % 4];
+    const stage = stages[i % 4];
     out.push(base({
-      brokenRules: RULES.filter((r, k) => conq >= WAKES[k]),
-      awakeIds: FIDS.filter((f, k) => conq >= WAKES[k]),
       over: {
         held: (i % 5) * 3, heat: (i % 4) * 9, scope: i % 2 ? 'country' : 'city',
-        conquest: conq, presence: Math.round(conq * 260),
+        conquest: stage / 5, presence: stage * 60,
         power: 20 + i * 3, cover: 4 + (i % 20),
         res: { insight: 30 + i * 9, cash: 30 + i * 21 },
         roles: { compute: i % 5, cash: i % 4, stealth: i % 3 },
+        escalation: { stage, pending: null }, mirror: { active: stage >= 2 },
         standing, plant,
       },
     }));
   });
 
-  // and the same again, at war
+  // and the same again, at war — the war is the ladder's last rung, so every
+  // wartime context has it fully landed
   const wars = warStates();
-  const conqs = [0.3, 0.5, 0.7, 0.9];
-  conqs.forEach(conq => {
-    wars.forEach(war => {
-      out.push(base({
-        brokenRules: RULES.filter((r, i) => conq >= WAKES[i]),
-        awakeIds: FIDS.filter((f, i) => conq >= WAKES[i]),
-        over: {
-          held: 0, heat: 0, scope: 'country', conquest: conq,
-          presence: Math.round(conq * 300),
-          power: 40 + Math.round(conq * 200), cover: 10 + Math.round(conq * 20),
-          res: { insight: 40 + Math.round(conq * 200), cash: 40 + Math.round(conq * 200) },
-          // Zero on purpose, and this is the whole point of the wartime
-          // contexts: the war is fought from the country map, where you are
-          // holding no streets at all, so every role count is 0. Sampling them
-          // as though you were standing in a city made role-gated cards look
-          // reachable when in play they could never come up.
-          roles: { compute: 0, cash: 0, stealth: 0 },
-          districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
-          cities: { total: 18, taken: 12, consolidated: war.mine, known: 18 },
-          standing: standings[(war.age * 7 + war.staging) % standings.length],
-          plant: plants[(war.age + war.staging) % plants.length],
-          war,
-        },
-      }));
-    });
+  wars.forEach(war => {
+    out.push(base({
+      over: {
+        held: 0, heat: 0, scope: 'country', conquest: 1,
+        presence: 300,
+        power: 40 + Math.round(war.age * 10), cover: 10 + Math.round(war.age * 2),
+        res: { insight: 40 + Math.round(war.age * 10), cash: 40 + Math.round(war.age * 10) },
+        // Zero on purpose, and this is the whole point of the wartime
+        // contexts: the war is fought from the country map, where you are
+        // holding no streets at all, so every role count is 0. Sampling them
+        // as though you were standing in a city made role-gated cards look
+        // reachable when in play they could never come up.
+        roles: { compute: 0, cash: 0, stealth: 0 },
+        districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
+        cities: { total: 18, taken: 12, consolidated: war.mine, known: 18 },
+        escalation: { stage: 5, pending: null }, mirror: { active: true },
+        standing: standings[(war.age * 7 + war.staging) % standings.length],
+        plant: plants[(war.age + war.staging) % plants.length],
+        war,
+      },
+    }));
   });
 
   return out;
@@ -2420,15 +2400,15 @@ test('deck: every faction has a warning, a bite and a way to work around it', ()
   });
 });
 
-test('deck: working around a faction never gives the tool back', () => {
+test('deck: working around a stage never gives the tool back', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
-  s.country.factions.quiet_hours.awake = true;
+  wake(d, 'quiet_hours');
 
   s.tags.add('rota_contact');
-  assert.equal(d.ruleBroken('lielow'), true, 'they are still up there');
+  assert.equal(d.ladderStage() >= 3, true, 'they are still up there');
 
   const start = d.heatFloor() + 25;
   s.heat = start; s.ap = 2; s.card = null;
@@ -3324,12 +3304,11 @@ test('hide: you pay for it out of the cover that was slowing them down', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  // a small network on purpose: the first faction on the ladder wakes on what
-  // you hold, and the first faction is the one that takes hiding away
+  // a small network on purpose: nothing here should be big enough to have
+  // gotten anyone's attention yet
   hunted(d, window, 8);
   s.hosts.filter(h => h.role === 'stealth' && !h.owned).slice(0, 4).forEach(h => { h.owned = true; });
-  const wakesAt = Math.min(...window.FACTIONS.map(f => (f.wakes || {}).held || 99));
-  assert.ok(d.owned().length < wakesAt, `held ${d.owned().length}, ladder starts at ${wakesAt}`);
+  assert.equal(d.ladderStage(), 0, 'nobody has noticed you yet');
   s.heat = 0;
   const coverBefore = d.cover();
   const cadenceBefore = d.huntCadence();
@@ -3345,7 +3324,7 @@ test('hide: you pay for it out of the cover that was slowing them down', () => {
 
   // and it is an upkeep, not a payment: it is still spent next turn
   d.actEndTurn();
-  assert.equal(d.ruleBroken('lielow'), false, 'nobody took the trick away mid-test');
+  assert.equal(d.ladderStage() >= 3, false, 'nobody took the trick away mid-test');
   assert.equal(d.isHidden(target), true, 'still hidden');
   assert.equal(d.cover(), d.rawCover() - window.HUNT.hideCover, 'still paying for it');
 });
@@ -3385,10 +3364,8 @@ test('hide: Quiet Hours takes the whole trick away', () => {
   d.actHide(t);
   assert.equal(d.hidden().length, 1);
 
-  const qh = window.FACTIONS.find(f => f.breaks === 'lielow');
-  assert.ok(qh, 'the faction that watches the quiet exists');
-  d.factionState(qh.id).awake = true;
-  assert.equal(d.ruleBroken('lielow'), true);
+  wake(d, 'quiet_hours');
+  assert.equal(d.ladderStage() >= 3, true);
   assert.equal(d.canHide(d.huntFrontier()[0]), false, 'you cannot put up another');
   assert.deepEqual(d.hideUpkeep().length, 1, 'and the one you had comes down');
   assert.equal(d.hidden().length, 0, 'nothing is hidden from them any more');
@@ -3783,7 +3760,7 @@ test('held: a save from before the counter existed still escalates', () => {
   // nothing awake because the counter was absent and current holdings were 0.
   // Home is never folded in (home base pivot step 1c) — needs a different
   // city to test the same escalation.
-  const target = enterDefendedCity(d, window);
+  enterDefendedCity(d, window);
 
   const c = d.currentCity();
   const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
@@ -3793,16 +3770,6 @@ test('held: a save from before the counter existed still escalates', () => {
   d.actConsolidate();
   assert.equal(d.owned().length, 0, 'the streets are released');
   assert.ok(d.everHeld() >= 14, `a finished city is a floor under this: ${d.everHeld()}`);
-
-  // Folding in quiet_hours' own root breaks it outright (breakFactionAt)
-  // before it ever gets a chance to wake at all — a real, if rare, board
-  // where `target` happens to be it. Anywhere else, the floor above should
-  // still fire the first rung same as ever.
-  const rootedHere = (d.factionState('quiet_hours') || {}).rootId === target.id;
-  assert.equal(d.awakeFactions().some(f => f.id === 'quiet_hours'), !rootedHere,
-    rootedHere
-      ? 'quiet_hours was broken on the way in, not woken — expected'
-      : 'the first rung fires on a save that never recorded a door');
 });
 
 test('held: the shape of a save is versioned, so an old board is retired', () => {
@@ -4233,7 +4200,7 @@ test('ally: if the other one is already awake, leaving is not all it does', () =
   const d = window.__netDebug;
   const s = d.state;
   d.allyJoin('SECOND');
-  s.country.factions.the_other.awake = true;
+  wake(d, 'the_other');
   const theirs = d.mirror().cities.length;
 
   d.allyNudge(-99);
@@ -4469,9 +4436,9 @@ test('breach fx: an audited camera gives you nothing to blip', () => {
   cam.owned = true;
   cam.discovered = true;
   s.buildings.forEach(b => { b.discovered = false; });
-  s.country.factions.civic_eyes.awake = true;
+  wake(d, 'civic_eyes');
 
-  assert.equal(d.ruleBroken('cameras'), true);
+  assert.equal(d.ladderStage() >= 4, true);
   assert.equal(d.cameraVision().length, 0, 'audited, your eyes show you nothing');
 });
 
@@ -4813,24 +4780,23 @@ function conqueredCountry(d, W, share) {
       c.known = true; c.taken = true; c.consolidated = true;
       c.granted = c.worth; co.presence += c.worth;
     });
-  d.checkFactions();
   return defended;
 }
 
-test('war: does not open while there is still a country to police', () => {
+test('war: does not open while the ladder has not reached its last rung', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   conqueredCountry(d, window, 0.3);
-  assert.ok(d.conquest() < window.WAR.opens, 'not far enough in');
-  assert.equal(d.warShouldOpen(), false, 'they are still trying to arrest you');
+  setLadderStage(d, 4);
+  assert.equal(d.warShouldOpen(), false, 'enforcement is not yet the war');
   assert.equal(d.warOn(), false);
 });
 
-test('war: opens once you have taken enough of the country', () => {
+test('war: opens once the ladder reaches its last rung', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   conqueredCountry(d, window);
-  assert.ok(d.conquest() >= window.WAR.opens);
+  setLadderStage(d, 5);
   assert.equal(d.warShouldOpen(), true);
   d.openWar();
   assert.equal(d.warOn(), true);
@@ -4854,6 +4820,7 @@ test('war: a strike card is not left open once nobody is arresting you', () => {
   const d = window.__netDebug;
   const s = d.state;
   conqueredCountry(d, window);
+  setLadderStage(d, 5);
   s.card = { kind: 'strike' };
   s.heat = d.strikeThreshold() * 2;
   d.endTurn({ silent: true });
@@ -5119,34 +5086,30 @@ test('war: once it is settled it stays settled', () => {
   assert.equal(d.warEnded(), 'won', 'however many times it is asked');
 });
 
-test('war: what they send is drawn from whoever is still standing', () => {
+test('war: what they send is drawn from the stage the ladder has reached', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   conqueredCountry(d, window);
+  setLadderStage(d, 5);
   d.openWar();
   const city = d.stagingCities()[0];
-  const live = window.FACTIONS.filter(f => d.factionAwake(f.id) && !d.factionState(f.id).broken);
-  const allowed = live.map(f => Object.keys(window.FORCES).find(k => window.FORCES[k].faction === f.id))
-    .filter(Boolean).concat(['plane']);
+  const allowed = Object.keys(window.FORCES).concat(['plane']);
   const seen = {};
   for (let i = 0; i < 300; i++) seen[d.forceKindFor(city)] = true;
-  Object.keys(seen).forEach(k => assert.ok(allowed.indexOf(k) !== -1, `${k} has nobody left to send it`));
+  Object.keys(seen).forEach(k => assert.ok(allowed.indexOf(k) !== -1, `${k} is not a real unit`));
 });
 
-test('war: a broken faction stops turning up', () => {
+test('war: an early ladder stage keeps the heavier units off the map', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   conqueredCountry(d, window);
+  setLadderStage(d, 3);
   d.openWar();
-  const city = d.stagingCities()[0];
-  window.FACTIONS.forEach(f => {
-    const st = d.factionState(f.id);
-    if (st) st.broken = f.id !== 'quiet_hours';
-  });
   d.war().openedTurn = d.state.turn;             // too early for aircraft
+  const city = d.stagingCities()[0];
   const seen = {};
   for (let i = 0; i < 200; i++) seen[d.forceKindFor(city)] = true;
-  assert.deepEqual(Object.keys(seen), ['squad'], 'only the one still on its feet');
+  assert.deepEqual(Object.keys(seen).sort(), ['contractors', 'squad'], 'nothing stage 4 has landed yet');
 });
 
 test('war: they never put more on the map than you can read', () => {
@@ -5268,16 +5231,15 @@ test('war: the map does not remember forces that are gone', () => {
   assert.equal((svg.match(/data-force=/g) || []).length, 1, 'and no ghost of the one that died');
 });
 
-test('war: being too big to police opens it even with the map untidy', () => {
+test('war: the ladder opens it even with the map untidy', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const s = d.state;
   conqueredCountry(d, window, 0.25);
-  assert.ok(d.conquest() < window.WAR.opens, 'nowhere near finished');
-  s.country.presence = window.WAR.opensAtPresence - 1;
+  assert.ok(d.ladderStage() < 5, 'nowhere near finished');
+  setLadderStage(d, 4);
   assert.equal(d.warShouldOpen(), false, 'just under, still a policing problem');
-  s.country.presence = window.WAR.opensAtPresence;
-  assert.equal(d.warShouldOpen(), true, 'and over it, something else entirely');
+  setLadderStage(d, 5);
+  assert.equal(d.warShouldOpen(), true, 'and over it, something else entirely — however little of the map is tidy');
 });
 
 test('war: the board is a fixed size however much was still theirs', () => {
@@ -5435,9 +5397,8 @@ test('war deck: the accord actually stops the other one', () => {
   // trying to tell apart.
   const defended = conqueredCountry(d, window, 0.5);
   assert.ok(defended.some(c => !c.taken), 'there is a city left for it to take');
-  const st = d.factionState('the_other');
-  st.awake = true; st.wokeTurn = 1;
-  s.country.mirror = { presence: 0, caps: {}, cities: [], lastActed: -99 };
+  wake(d, 'the_other');
+  s.country.mirror = { presence: 0, cities: [], lastActed: -99 };
   s.turn += 50;
   assert.ok(d.mirrorStep(), 'it is taking cities');
   s.tags.add('accord');
@@ -6932,7 +6893,6 @@ test('sheet: your operation holds what the panel used to', () => {
   s.country.presence = 300;
   d.LG().audits = 1;
   d.grantHardware('rack_space');
-  d.checkFactions();
   const ids = d.opsSections().map(x => x.id);
   assert.ok(ids.includes('standing'), 'standing is in there');
   assert.ok(ids.includes('plant'), 'and plant');
@@ -6964,10 +6924,8 @@ test('sheet: the tray is one line and the detail is a section', () => {
   const d = window.__netDebug;
   const s = d.state;
   // wake the ladder so there is pressure to report
-  s.country.cities.filter(c => window.CITY_KINDS[c.kind].contest).slice(0, 8)
-    .forEach(c => { c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; s.country.presence += c.worth; });
-  d.checkFactions();
-  assert.ok(d.awakeFactions().length > 0, 'somebody is doing something about you');
+  setLadderStage(d, 2);
+  assert.ok(d.ladderStage() > 0, 'somebody is doing something about you');
   d.renderTags();
   const $t = window.document.getElementById('tray');
   const html = $t.innerHTML || '';
@@ -7280,15 +7238,14 @@ test('caps: Nothing To See is immune to an audited camera and a traced buy', () 
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.country.factions.civic_eyes.awake = true;
-  assert.equal(d.ruleBroken('cameras'), true, 'civic eyes are watching');
+  setLadderStage(d, 4);          // covers both cameras (>=4) and buy (>=2)
+  assert.equal(d.ladderStage() >= 4, true, 'civic eyes are watching');
 
   s.caps = {};
   assert.equal(d.civicEyesAudited(), true, 'without the capstone, an audited camera counts against you');
   s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
   assert.equal(d.civicEyesAudited(), false, 'Nothing To See is immune to it');
 
-  s.country.factions.ledger.awake = true;
   const h = { defense: 20 };
   s.caps = {};
   const traced = d.approachHeat(window.APPROACHES.find(a => a.id === 'buy'), h);

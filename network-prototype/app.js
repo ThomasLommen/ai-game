@@ -1060,14 +1060,6 @@
       }
     });
 
-    // each region's seat is the root of its faction
-    const factions = {};
-    window.FACTIONS.forEach(f => {
-      const seat = f.region ? cities.find(c => c.region === f.region && c.kind === 'root') : null;
-      factions[f.id] = { awake: false, broken: false, rootId: seat ? seat.id : null, wokeTurn: 0 };
-      if (seat) seat.factionId = f.id;
-    });
-
     const home = cities.find(c => c.kind === 'home') || cities[0];
     home.taken = true;
     home.visited = true;
@@ -1075,7 +1067,7 @@
 
     return {
       cities, roads, at: home.id, homeId: home.id, seed,
-      presence: 0, factions,
+      presence: 0,
       regionHeat: {},          // heat you left behind, by region
       view: null,
       selected: null,
@@ -1237,10 +1229,10 @@
   // Civic Eyes audits the camera network, turning a stealth holding from
   // cover into a witness — unless you found the corner of the audit that
   // never got finished (blind_spot), or Nothing To See makes the whole
-  // question moot (Cover's own capstone, immune to the one faction built to
+  // question moot (Cover's own capstone, immune to the one thing built to
   // attack the branch's own resource).
   function civicEyesAudited() {
-    return ruleBroken('cameras') && !has('blind_spot') && !hasCap('nothing_to_see');
+    return ladderStage() >= 4 && !has('blind_spot') && !hasCap('nothing_to_see');
   }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
@@ -1307,9 +1299,9 @@
   // Returns what it turned up, so taking a camera can show you what it just
   // gave you rather than silently widening the map.
   function cameraVision() {
-    // Civic Eyes audits the camera network. Anything on it that answers to
+    // Enforcement audits the camera network. Anything on it that answers to
     // you answers loudly, so your eyes stop being eyes.
-    if (ruleBroken('cameras')) return [];
+    if (ladderStage() >= 4) return [];
     const eyes = owned().filter(h => h.role === 'stealth');
     if (!eyes.length) return [];
     const r2 = window.CITY.cameraVision * window.CITY.cameraVision;
@@ -1499,6 +1491,12 @@
   function endTurn(opts) {
     const o = opts || {};
     const before = beforeSnap();
+    // Captured before anything else this turn touches it: ladderStage() (and
+    // so cutStreets(), strandedHosts(), mirrorStep(), all called below) reads
+    // noticed(), which has the side effect of flipping the "seen" flag the
+    // first time it comes back true. Capturing this after any of them ran
+    // would find the flag already flipped and the introduction never fires.
+    const wasNoticed = hasSeen('standing');
     state.turn += 1;
 
     // production — suppressed when the player deliberately went dark
@@ -1583,7 +1581,7 @@
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
-    checkFactions();
+    ladderStep();
     afterSnap(before, { world: true });
     if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
@@ -1640,7 +1638,6 @@
     }
     // The moment standing stops being invisible, said out loud rather than
     // left to a chip quietly appearing in a sheet nobody has opened yet.
-    const wasNoticed = hasSeen('standing');
     if (!wasNoticed && noticed()) {
       pushLog(`${window.ACCOUNTANT.name}. You are the kind of company someone keeps an account of now, whichever way you ask them to keep it.`);
       showBanner([{ kind: 'ally', verb: 'keeping your books', label: window.ACCOUNTANT.name }]);
@@ -1777,6 +1774,7 @@
       revealBuilding(buildingById(h.buildingId));
       state.hunt = null;
       pushLog(`${H.name} is finished. You have the address back — everything else it took stays gone.`);
+      if (mirrorActive()) pushLog(`Whoever was paying for it stops. ${window.MIRROR.name} just lost the thing it was using to get rid of you.`);
       showBanner([{ kind: 'faction-gone', verb: 'finished', label: H.name }]);
     } else {
       state.heat = clampHeat(state.heat + H.confrontFailHeat);
@@ -1865,7 +1863,6 @@
     pushLog(`${c.name} is theirs. There is no version of going back in.`);
     showBanner([{ kind: 'faction', verb: 'lost', label: c.name }]);
     switchScope('country');
-    checkFactions();
     persistNow();
     render();
     return c;
@@ -1892,7 +1889,7 @@
     if (!huntHolds(a) || huntHolds(b)) return false;
     const adj = state.adjacency || {};
     if ((adj[a] || []).indexOf(b) === -1) return false;
-    if (ruleBroken('streets')) return false;  // The Cut takes this away from you
+    if (ladderStage() >= 4) return false;  // Enforcement takes this away from you
     const c = window.HUNT.severCost;
     return Object.keys(c).every(k => (state.res[k] || 0) >= c[k]) && canAfford('sweep');
   }
@@ -1919,7 +1916,7 @@
     if (isHidden(bid) || huntHolds(bid) || rivalHolds(bid)) return false;
     const b = buildingById(bid);
     if (!b || !buildingHeld(b)) return false;         // only what is yours
-    if (ruleBroken('lielow')) return false;           // Quiet Hours watches the quiet
+    if (ladderStage() >= 3) return false;          // Public watches the quiet
     return hideRoom() >= hideMarginalCost() && canAfford('lielow');
   }
   function actHide(bid) {
@@ -1946,12 +1943,12 @@
   }
   // What you can no longer pay for stops being hidden — newest first, because
   // the last one you put up is the one you were stretching for. This runs every
-  // turn: losing a stealth holding, or Quiet Hours waking, brings the wall down
-  // without anybody choosing it.
+  // turn: losing a stealth holding, or the ladder reaching Public, brings the
+  // wall down without anybody choosing it.
   function hideUpkeep() {
     if (!hidden().length) return [];
     const lost = [];
-    if (ruleBroken('lielow')) {
+    if (ladderStage() >= 3) {
       lost.push(...hidden());
       state.hidden = [];
     } else {
@@ -2370,18 +2367,15 @@
     return {
       held: owned().length, heat: state.heat, power: power(), cover: cover(),
       // doors you have ever taken. `held` empties every time you fold a city
-      // in, so anything that wants to be about the shape of your whole run —
-      // the escalation's first rung, and the card that foreshadows it — has to
-      // read this instead.
+      // in, so anything that wants to be about the shape of your whole run
+      // has to read this instead.
       doors: everHeld(),
-      // doors forced specifically — the Adjusters' own rung, and the cards
-      // that lead up to it, read this rather than `doors`.
       forced: state.timesForced || 0,
       turn: state.turn, res: state.res, tags: state.tags,
       roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
       // --- the country, so a card can be about where you are as well as what
-      // you hold. `gone` is the one a faction card is usually asking about.
+      // you hold.
       scope: state.scope,
       region: state.region,
       regionTier: regionById(state.region).tier,
@@ -2392,20 +2386,16 @@
         consolidated: cities.filter(c => c.consolidated).length,
         known: cities.filter(c => c.known).length,
       },
-      seats: cities.filter(c => c.factionId && c.consolidated).length,
       conquest: conquest(),   // share of the country's defended cities you have finished
       reach: reach(),
       ally: allyHere() ? { trust: state.ally.trust, name: state.ally.name, since: state.turn - state.ally.joined } : null,
-      gone: (rule) => ruleBroken(rule),
-      awake: (id) => factionAwake(id),
-      wokeAgo: (id) => {
-        const f = factionState(id);
-        return f && f.awake ? state.turn - f.wokeTurn : -1;
-      },
-      broken: (id) => !!(factionState(id) || {}).broken,
+      // the ladder: footprint, staged. `pending` is the stage currently
+      // counting down (or null), `stage` is the highest one that has landed.
+      escalation: { stage: ladderStage(), pending: ladderPending() },
       stranded: strandedHosts().length,
       cuts: (state.cuts || []).length,
       mirrorCities: ((co.mirror || {}).cities || []).length,
+      mirror: { active: mirrorActive() },
       regionHeat: co.regionHeat || {},
       // What the world thinks you are, and what you actually own — so a card
       // can be about the front, the plant, or the gap between the two.
@@ -2921,11 +2911,11 @@
     if (state.card || state.over || state.ap <= 0) return;
     const before = beforeSnap();
     state.ap = 0;
-    // The Quiet Hours watch for absence. While they are up, going dark buys
-    // you nothing — the turn is spent and the heat stays exactly where it was.
+    // Public watches for absence. Past that stage, going dark buys you
+    // nothing — the turn is spent and the heat stays exactly where it was.
     // A name inside the rota gets you a window they are not watching: not the
     // tool back, but not nothing either.
-    const watched = ruleBroken('lielow');
+    const watched = ladderStage() >= 3;
     const shed = watched
       ? (has('rota_contact') ? lieLowShed() * window.HEAT.ROTA_SHARE : 0)
       : lieLowShed();
@@ -2982,21 +2972,21 @@
   // A caller with no particular host in mind (a readout, a summary) gets the
   // same flat number force used to be, so leaving `h` off never breaks.
   function approachHeat(def, h) {
-    // Ledger matches payment patterns against outage reports. Buying your
+    // Regulatory matches payment patterns against outage reports. Buying your
     // way in resolving is exactly that pattern, unless you have a way to be
     // untraceable or have already gotten off its match list.
-    const traced = def.id === 'buy' && ruleBroken('buy') && !has('ledger_inside') && !hasCap('nothing_to_see');
-    // The Adjusters read forcing a door specifically, the same way Ledger
+    const traced = def.id === 'buy' && ladderStage() >= 2 && !has('ledger_inside') && !hasCap('nothing_to_see');
+    // Enforcement reads forcing a door specifically, the same way Regulatory
     // reads buying one — unless you have gotten off their list.
-    const adjusted = def.id === 'force' && ruleBroken('force') && !has('unlisted');
+    const adjusted = def.id === 'force' && ladderStage() >= 4 && !has('unlisted');
     // Floored at the old flat cost, not below it — an early cheap scaling
     // this shallow (0.3, matched to quiet's own insight multiplier) undercuts
     // 3 for most of the common early host types, which would make force
     // *cheaper* than before against exactly the doors it was already winning
     // on. It should only ever cost more than it used to, against harder doors.
     const base = def.id === 'force' ? Math.max(3, Math.round((h ? h.defense : 10) * 0.3)) : (def.heat || 0);
-    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.ADJUSTERS_TRACE : 0)
-      : traced ? window.HEAT.LEDGER_TRACE : 0;
+    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0)
+      : traced ? window.HEAT.BUY_TRACE : 0;
     return Math.max(0, base + mod);
   }
 
@@ -3472,7 +3462,6 @@
       pushLog(`Went to ${c.name}. It is defended.`);
       enterCity(c.id);
     }
-    checkFactions();
     persistNow();
     render();
     return true;
@@ -3581,8 +3570,6 @@
     unpackCity(EMPTY_CITY());
     // whatever you were holding street by street becomes one standing number
     switchScope('country');
-    breakFactionAt(c.id);
-    checkFactions();
     persistNow();
     render();
     return true;
@@ -3710,10 +3697,8 @@
       LG().agentFoot = (LG().agentFoot || 0) + A.footprint;
       pushLog(`${c.name} is yours. ${c.worth} presence, and nobody had to be there for it.`);
       out.push(c);
-      breakFactionAt(c.id);
     });
     if (out.length) {
-      checkFactions();
       // one report a turn: two cards back to back is a queue, not an event
       state.forced = (state.forced || []).concat(
         out.map(() => AGENT_REPORTS[Math.floor(Math.random() * AGENT_REPORTS.length)]));
@@ -3837,7 +3822,7 @@
     if (state.ally.trust > window.ALLY.leavesAt) return;
     const name = state.ally.name;
     state.ally.gone = true;
-    if (window.ALLY.defectsToMirror && factionAwake('the_other')) {
+    if (window.ALLY.defectsToMirror && ladderStage() >= window.MIRROR.wakesAtStage) {
       const m = mirror();
       const take = CO().cities.filter(c => !c.taken && !mirrorHolds(c.id))[0];
       if (take) { m.cities.push(take.id); m.presence += take.worth; }
@@ -3860,27 +3845,50 @@
     return n;
   }
 
-  // --- the factions ------------------------------------------------------
-  // The escalation, and the part that is deliberately not a difficulty slider.
-  // Each awake faction *deletes a rule* — a tool you had got used to leaning
-  // on stops working. You beat one by going and taking the city it runs from,
-  // which is why the country map has seats on it.
-  //
-  // `broken` is asked everywhere the deleted rule lives, through one predicate,
-  // so the ladder is a single concept in the code as well as in the fiction.
-  function factionState(id) { return (CO().factions || {})[id] || null; }
-  function factionAwake(id) {
-    const f = factionState(id);
-    return !!(f && f.awake && !f.broken);
+  // --- the ladder ----------------------------------------------------------
+  // Replaces the old faction system entirely: one dial (footprint), staged.
+  // Nothing here is undone by anything the player does — the only lever is
+  // ladderDelay(), which pushes back whatever is currently counting down
+  // toward landing. Stage 1 is LEGIT.noticeAt/the Accountant, already built;
+  // this only tracks stages 2 and up.
+  function ESC() {
+    if (!CO().escalation) CO().escalation = { stage: 1, dueAt: -1, pending: null };
+    return CO().escalation;
   }
-  // is this rule currently taken away from you?
-  function ruleBroken(rule) {
-    return window.FACTIONS.some(f => f.breaks === rule && factionAwake(f.id));
+  function ladderStage() {
+    if (!noticed()) return 0;
+    return Math.max(1, ESC().stage);
   }
-  function factionBreaking(rule) {
-    return window.FACTIONS.find(f => f.breaks === rule && factionAwake(f.id)) || null;
+  function ladderPending() { return ESC().pending; }
+  function ladderStageName(n) { return (window.LADDER.stages[n] || {}).name || ''; }
+  function ladderDelay(turns) {
+    const e = ESC();
+    if (e.dueAt > 0) e.dueAt += turns;
   }
-  function awakeFactions() { return window.FACTIONS.filter(f => factionAwake(f.id)); }
+  function ladderStep() {
+    if (!noticed()) return;
+    const E = window.LADDER;
+    const e = ESC();
+    const stageNums = Object.keys(E.stages).map(Number).sort((a, b) => a - b);
+    if (e.dueAt > 0) {
+      if (state.turn < e.dueAt) return;
+      e.stage = e.pending;
+      e.dueAt = -1;
+      e.pending = null;
+      const S = E.stages[e.stage];
+      pushLog(`${S.name}. ${S.blurb} Now: ${S.tell}.`);
+      showBanner([{ kind: e.stage >= 5 ? 'faction-gone' : 'faction', verb: S.name, label: S.tell }]);
+      return;
+    }
+    const nextStage = e.stage + 1;
+    if (stageNums.indexOf(nextStage) === -1) return;   // fully escalated already
+    const threshold = E.thresholds[stageNums.indexOf(nextStage)];
+    if (threshold === undefined || footprint() < threshold) return;
+    e.dueAt = state.turn + E.warnTurns + (accountantTrusted() ? E.delayOnTrusted : 0);
+    e.pending = nextStage;
+    pushLog(`Something is closing in. It will not stay quiet much longer.`);
+    showBanner([{ kind: 'faction', verb: 'closing in', label: E.stages[nextStage].name }]);
+  }
 
   // How much of the country you have actually finished, counting only the
   // cities somebody had to defend.
@@ -3905,59 +3913,21 @@
       .filter(c => c.consolidated && window.CITY_KINDS[c.kind].contest).length;
     return Math.max(state.everHeld || 0, owned().length, done * 15);
   }
-  // The share of the country at which a faction takes an interest, for
-  // anything that needs to reason about the ladder's order rather than about
-  // one game's state. A rung keyed only to doors reports as the share you
-  // would have reached by the time you had taken that many.
-  function wakeShare(f) {
-    const w = f.wakes;
-    if (typeof w === 'number') return w;
-    if (w && w.cities !== undefined) return w.cities;
-    // doors-only: it fires inside your first city, so it is earlier than any
-    // share the country can express
-    return 0.01;
-  }
-  function factionDue(f) {
-    const w = f.wakes;
-    if (typeof w === 'number') return conquest() >= w;      // an older save's shape
-    if (!w) return false;
-    if (w.held !== undefined && everHeld() >= w.held) return true;
-    if (w.forced !== undefined && (state.timesForced || 0) >= w.forced) return true;
-    if (w.cities !== undefined && conquest() >= w.cities) return true;
-    return false;
-  }
-  function checkFactions() {
-    window.FACTIONS.forEach(f => {
-      const st = factionState(f.id);
-      if (!st || st.awake || st.broken) return;
-      if (!factionDue(f)) return;
-      st.awake = true;
-      st.wokeTurn = state.turn;
-      pushLog(`${f.name}. ${f.onWake}`);
-      // waking is a beat, not a log line you might scroll past
-      showBanner([{ kind: 'faction', verb: 'against you', label: f.name }]);
-    });
-  }
-  function breakFactionAt(cityId) {
-    window.FACTIONS.forEach(f => {
-      const st = factionState(f.id);
-      if (!st || st.broken || st.rootId !== cityId) return;
-      st.broken = true;
-      const wasAwake = st.awake;
-      pushLog(`${f.name} is finished. ${f.onBreak}`);
-      if (wasAwake) showBanner([{ kind: 'faction-gone', verb: 'finished', label: f.name }]);
-    });
-  }
 
-  // The other one. Not a faction and not a hunter: something running the same
-  // play from the far end of the country, buying off the same list. Where the
-  // rival contests a city, this contests the map — every city it takes is one
-  // you will never fold in.
+  // The other one. Not the state, and not a hunter: something running the
+  // same play from the far end of the country. Where the rival contests a
+  // city, this contests the map — every city it takes is one you will never
+  // fold in or send an agent to. Wakes once the ladder reaches Regulatory
+  // (window.MIRROR.wakesAtStage) — decoupled from the old faction system
+  // entirely, and lighter than it used to be: it no longer buys capabilities
+  // on its own economy, since the only piece of that anyone ever actually
+  // felt was a city being gone.
   function mirror() {
-    if (!CO().mirror) CO().mirror = { presence: 0, caps: {}, cities: [], lastActed: 0 };
+    if (!CO().mirror) CO().mirror = { presence: 0, cities: [], lastActed: 0 };
     return CO().mirror;
   }
   function mirrorHolds(cityId) { return mirror().cities.indexOf(cityId) !== -1; }
+  function mirrorActive() { return ladderStage() >= window.MIRROR.wakesAtStage && mirror().cities.length > 0; }
 
   function mirrorHome() {
     // it starts as far from your centre of gravity as the country allows
@@ -3976,7 +3946,7 @@
   }
 
   function mirrorStep() {
-    if (!factionAwake('the_other')) return null;
+    if (ladderStage() < window.MIRROR.wakesAtStage) return null;
     // it agreed a line, and unlike most things in this game it keeps to it
     if (has('accord')) return null;
     const m = mirror();
@@ -3992,22 +3962,9 @@
       return { kind: 'woke', city: home };
     }
 
-    // it spends what it earns on the same shelf you buy from
-    m.presence += M.growthPerTurn;
-    const shelf = window.CAPABILITIES.filter(c => !m.caps[c.id] || c.repeatable);
-    const affordable = shelf.filter(c => m.presence >= (c.cost || (c.costs && c.costs[0]) || 99) * M.capPriceMult);
-    if (affordable.length && Math.random() < M.buyChance) {
-      const bought = affordable[Math.floor(Math.random() * affordable.length)];
-      const price = (bought.cost || bought.costs[0]) * M.capPriceMult;
-      m.presence -= price;
-      m.caps[bought.id] = (m.caps[bought.id] || 0) + 1;
-      pushLog(`It bought ${bought.name}. You know exactly what that does.`);
-    }
-
     const cap = Math.floor(CO().cities.length * M.maxShareOfCountry);
     if (m.cities.length >= cap) return null;
-    const cadence = Math.max(M.fastEvery, M.actEvery - Object.keys(m.caps).length)
-      + (has('their_shape') ? M.readSlowdown : 0);
+    const cadence = M.actEvery + (has('their_shape') ? M.readSlowdown : 0);
     if (state.turn - m.lastActed < cadence) return null;
 
     const options = mirrorTakeable();
@@ -4020,11 +3977,11 @@
     return { kind: 'took', city: took };
   }
 
-  // The Cut: it stops chasing you and starts taking the roads away. Every
-  // world turn it severs a street between two buildings you hold, and the map
-  // you were expanding across comes apart behind you.
+  // Enforcement: past that stage they stop chasing you and start taking the
+  // roads away. Every world turn it severs a street between two buildings you
+  // hold, and the map you were expanding across comes apart behind you.
   function cutStreets() {
-    if (!ruleBroken('streets')) return null;
+    if (ladderStage() < 4) return null;
     // a crew, not a weather system — and the council does eventually come and
     // put the street back, so this is a rhythm you play around rather than an
     // unwinding of the map
@@ -4098,11 +4055,11 @@
     return done;
   }
 
-  // What you hold but can no longer route back to. The Cut's real damage is
-  // not the missing line on the map, it is that half your network is suddenly
-  // on the wrong side of it and rotting.
+  // What you hold but can no longer route back to. The real damage of
+  // Enforcement severing streets is not the missing line on the map, it is
+  // that half your network is suddenly on the wrong side of it and rotting.
   function strandedHosts() {
-    if (!ruleBroken('streets')) return [];
+    if (ladderStage() < 4) return [];
     const seat = owned().find(h => h.origin) || owned()[0];
     if (!seat) return [];
     const held = heldBuildingIds();
@@ -4447,9 +4404,9 @@
   function warShouldOpen() {
     if (warOn()) return false;
     if (state.war && state.war.over) return false;
-    if (conquest() >= window.WAR.opens) return true;
-    // or simply being too big to police, however untidy the map is
-    return (CO().presence || 0) >= window.WAR.opensAtPresence;
+    // the ladder's last rung, not an independent conquest/presence check —
+    // war is now the reason the ladder was building toward, not a coincidence
+    return ladderStage() >= 5;
   }
 
   // The state mobilising. This is the beat, and it has to hurt: by the time
@@ -4680,18 +4637,13 @@
   // ladder finally gets a face: you can tell who has come for you by what is
   // on the road.
   function forceKindFor(city) {
-    const live = window.FACTIONS.filter(f => {
-      const st = factionState(f.id);
-      return st && st.awake && !st.broken;
-    });
     const W = window.WAR;
+    const stage = ladderStage();
     const pool = [];
-    live.forEach(f => {
-      const kind = Object.keys(window.FORCES).find(k => window.FORCES[k].faction === f.id);
-      if (!kind) return;
-      // a faction fights hardest out of its own region
-      pool.push(kind);
-      if (city.region === f.region) pool.push(kind, kind);
+    Object.keys(window.FORCES).forEach(k => {
+      const F = window.FORCES[k];
+      if (F.mirror) { if (mirrorActive()) pool.push(k); return; }
+      if (F.stage !== undefined && stage >= F.stage) pool.push(k);
     });
     // once it has run long enough they commit the air force, which nothing you
     // have can touch — but which also cannot take a city back
@@ -6265,13 +6217,11 @@
   function renderTags() {
     const $t = document.getElementById('tray');
     if (!$t) return;
-    // One line, never a scroll. It used to render a full-width row per awake
-    // faction — 109px of content in a 58px box on a narrow phone, which is
-    // nobody's idea of a scrollable area. The detail lives in the sheet.
-    const awake = awakeFactions();
+    // One line, never a scroll. The detail lives in the sheet.
+    const stage = ladderStage();
     const tags = [...(state.tags || [])].filter(t => window.TAG_INFO[t]);
     const bits = [];
-    if (awake.length) bits.push(`<span class="tray-pill bad">${awake.length} tool${awake.length === 1 ? '' : 's'} taken</span>`);
+    if (stage >= 2) bits.push(`<span class="tray-pill bad">${ladderStageName(stage)}</span>`);
     if (allyHere()) {
       const a = state.ally;
       bits.push(`<span class="tray-pill">${a.name}</span>`);
@@ -6279,7 +6229,7 @@
     if (!bits.length && !tags.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
     $t.style.display = 'flex';   // the base rule hides it; '' falls back to that
     // Two buttons, because they go to two different places: what is against
-    // you lives with the factions, and what the deck left you with now lives
+    // you lives with the ladder, and what the deck left you with now lives
     // on its own tab beside the tree it belongs with.
     $t.innerHTML =
       (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
@@ -6628,20 +6578,21 @@
         <p class="sel-desc dim">${Math.round(usableSpin())} of ${Math.round(spinCeil())} standing invented. ${window.LEGIT_INFO.ceiling}</p>` : ''}
         </div>` });
     }
-    const awake = awakeFactions();
-    if (awake.length) {
+    const stage = ladderStage();
+    if (stage >= 2) {
+      const E = window.LADDER;
+      const pending = ladderPending();
+      const landed = [];
+      for (let n = 2; n <= stage; n++) landed.push(E.stages[n]);
       out.push({ id: 'pressure', label: 'against you', done: false, html: `
         <div class="legit-top">
           <span class="eyebrow mono">against you</span>
-          <span class="mono dim">${awake.length} tool${awake.length === 1 ? '' : 's'} taken</span>
+          <span class="mono dim">${ladderStageName(stage)}</span>
         </div>
         <p class="sheet-note">${window.COUNTRY_INFO.factions}</p>
-        ${awake.map(f => {
-          const seat = cityById(factionState(f.id).rootId);
-          const where = seat ? (seat.known ? seat.name : `somewhere in ${regionById(f.region).label}`) : 'nowhere you can reach';
-          return `<div class="tray-item faction"><span class="tray-label">${f.name}</span>`
-            + `<span class="tray-desc">${f.tell} — ends at ${where}</span></div>`;
-        }).join('')}` });
+        ${landed.map(S => `<div class="tray-item faction"><span class="tray-label">${S.name}</span>`
+          + `<span class="tray-desc">${S.tell}</span></div>`).join('')}
+        ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>` : ''}` });
     }
     if (plantKnown()) {
       const own = hardwareOwned().map(id => window.HARDWARE.find(hw => hw.id === id)).filter(Boolean);
@@ -6805,9 +6756,9 @@
     if (!touching) return '';
     const able = canHide(b.id);
     const marginal = hideMarginalCost();
-    return `<button class="act-btn${able ? '' : ' no-ap'}${ruleBroken('lielow') ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
+    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
       <span class="ab-name">hide it</span>
-      <span class="ab-sub">${ruleBroken('lielow') ? `${factionBreaking('lielow').name} is watching the quiet`
+      <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${marginal
             ? chip('cost cover', '&minus;' + marginal + ' cover a turn')
             : chip('cost none', 'free — Quiet Protocol')}`
@@ -6834,7 +6785,7 @@
           : `${outs} streets out of them in all.`}</p>
         <button class="act-btn${able ? ' primary' : ' no-ap'}" data-act="sever" data-ap="sweep" data-a="${c.a}" data-b="${c.b}">
           <span class="ab-name">take the street</span>
-          <span class="ab-sub">${ruleBroken('streets') ? `${factionBreaking('streets').name} has the roadworks`
+          <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
             : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
             : `needs ${cost.insight} insight and an action`}</span>
         </button>
@@ -6929,7 +6880,7 @@
               const cost = window.HUNT.severCost;
               return `<button class="act-btn${able ? '' : ' no-ap'}" data-act="sever" data-a="${b.id}" data-b="${n}">
                 <span class="ab-name">take the street to ${window.BUILDING_KINDS[NB.kind].label}</span>
-                <span class="ab-sub">${ruleBroken('streets') ? `${factionBreaking('streets').name} has the roadworks`
+                <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
                   : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
                   : `needs ${cost.insight} insight and an action`}</span>
               </button>`;
@@ -6972,12 +6923,12 @@
                 ? `${chip('insight', 'turns up ' + sweepFound())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
                 : `${chip('insight', 'turns up ' + sweepFound())}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
         </button>
-        <button class="act-btn ${ruleBroken('lielow') ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
+        <button class="act-btn ${ladderStage() >= 3 ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
           <span class="ab-sub">${apShort('lielow')
             ? 'no actions left'
-            : ruleBroken('lielow')
-            ? `${factionBreaking('lielow').name} is watching the quiet`
+            : ladderStage() >= 3
+            ? `${ladderStageName(3)} is watching the quiet`
             : `${chip('cover', 'heat &minus;' + Math.round(lieLowShed()))}${chip('cost none', '&minus;1 turn')}`}</span>
         </button>
       </div>
@@ -7018,8 +6969,6 @@
     if (sel && sel.known) {
       const K = window.CITY_KINDS[sel.kind];
       const R = regionById(sel.region);
-      const fac = sel.factionId ? window.FACTIONS.find(f => f.id === sel.factionId) : null;
-      const facSt = fac ? factionState(fac.id) : null;
       // the kind is already on the pill beside the name; repeating it here is
       // what pushed this line onto a second row
       const lines = [R.label];
@@ -7038,8 +6987,6 @@
       else if (sel.taken) lines.push('you have a foothold here');
       else if (warOn()) lines.push('out of the war — nothing stages from here');
       else lines.push(K.blurb);
-      if (fac && !facSt.broken) lines.push(`<b>${fac.name}</b> runs the region from here`);
-      if (fac && facSt.broken) lines.push(`${fac.name} is finished`);
 
       const acts = [];
       if (!sel.taken && !(sel.agent && !sel.agent.done) && cityReachable(sel) && !warOn()) {
@@ -7484,7 +7431,7 @@
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
-    factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
+    everHeld, conquest, cutStreets, ESC, ladderStage, ladderPending, ladderStageName, ladderDelay, ladderStep, mirrorActive,
     LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,

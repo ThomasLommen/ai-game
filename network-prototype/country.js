@@ -8,34 +8,29 @@
 // of inventing a second game.
 
 // --- regions -------------------------------------------------------------
-// Five regions, each harder than the last, each the home ground of one faction.
-// Geography is the ladder: to break a faction you have to go and take the city
-// it operates out of.
+// Five regions, each harder than the last. The ladder (below) isn't tied to
+// geography any more — it's a single footprint-driven track that escalates
+// wherever you are. Regions are just distance and difficulty now.
 window.REGIONS = [
   {
     id: 'home', label: 'the city', tier: 0,
     blurb: 'Where you woke up. Nobody here is looking for you yet.',
-    faction: null,
   },
   {
     id: 'estuary', label: 'the estuary', tier: 1,
     blurb: 'Port towns, container yards, and a lot of quiet infrastructure.',
-    faction: 'quiet_hours',
   },
   {
     id: 'midlands', label: 'the midlands', tier: 2,
     blurb: 'Warehousing and money. The two turn out to be the same thing.',
-    faction: 'ledger',
   },
   {
     id: 'capital', label: 'the capital', tier: 3,
     blurb: 'More cameras per street than people. It was always going to end up here.',
-    faction: 'civic_eyes',
   },
   {
     id: 'north', label: 'the north', tier: 4,
     blurb: 'Long cable runs between small places. Easy to cut, hard to replace.',
-    faction: 'the_cut',
   },
 ];
 
@@ -84,12 +79,9 @@ window.CITY_KINDS = {
 
 window.COUNTRY = {
   // One defended city per region and nothing else. It was nine, and nine was
-  // the wrong number for two reasons: the campaign's whole escalation ladder
-  // is keyed to shares of it, so the first rung sat two completed cities away
-  // — past the point players actually stop — and nine near-identical cities is
-  // eight repetitions of a loop that is only novel once. Five means every
-  // defended city is a regional seat, every one of them is somebody's home
-  // ground, and taking it finishes a faction.
+  // the wrong number: nine near-identical cities is eight repetitions of a
+  // loop that is only novel once. Five means every defended city is a
+  // regional seat worth remembering.
   perRegion: [2, 3],
   // National map geometry. Regions are still stacked north to south by tier —
   // which region a city is in is a rule, not decoration — but the territories
@@ -166,114 +158,57 @@ window.CITY_NAMES = {
   north: ['Hartfell', 'Brackenlaw', 'Stonebeck', 'Nethergill', 'Carrock'],
 };
 
-// --- the factions --------------------------------------------------------
-// This is the part that has to not be a difficulty slider. Each faction takes
-// away a tool you had got used to leaning on. You do not out-stat them; you
-// either play without the tool or you go and take their seat.
+// --- the ladder ------------------------------------------------------------
+// Used to be five independent factions, each deleting a rule you leaned on,
+// each undone by conquering their one seat city. That made sense when
+// conquering a second city was the default next thing you did. It stopped
+// making sense once cells went and agents capped out at a handful ever: the
+// only lever left was "mount an entire campaign against one specific city,"
+// which the rest of the pivot spent four steps trying to make you need less.
 //
-//   breaks   — the id of the rule this faction deletes, read by the engine
-//   wakes    — what has to be true before they take an interest, as either:
-//                { held: n }    doors you have ever taken, cumulative, so this
-//                               can be crossed inside your first city
-//                { forced: n }  doors forced specifically, cumulative — the
-//                               Adjusters read your habit, not your total
-//                { cities: s }  share of the country's *defended* cities folded
-//                               in. Towns do not count — they are not milestones.
-//              whichever fires first.
+// This replaces all five with one thing: footprint, staged. You cannot stay
+// unnoticed forever — every building, every piece of hardware, every point
+// of presence is something somebody could eventually find. The ladder is not
+// a threat you defeat, it is the shape of getting big. There is no breaking
+// a rung and getting the tool back — the only lever you have is how long
+// each one takes to land. Rung 1 is already built (LEGIT.noticeAt, and the
+// Accountant): private, survivable, yours to manage. What follows is what
+// happens once managing it privately stops being enough.
 //
-//              This used to be a share and nothing else, and 15% of nine
-//              defended cities rounded to two — so the first thing in the world
-//              that ever reacted to you could not happen until you had finished
-//              two whole cities. Measured: turn 59, in 54% of games. Players
-//              stop before that, which meant the entire escalation ladder — the
-//              best-designed thing in the game — was content nobody saw. The
-//              first two rungs are now keyed to doors, not cities, so the world
-//              answers you while you are still learning what the tools are, and
-//              your second city is the first one you play without them.
-//   root     — set at generation: the city whose fall ends them
-window.FACTIONS = [
-  {
-    id: 'quiet_hours', region: 'estuary', tier: 1,
-    name: 'The Quiet Hours',
-    breaks: 'lielow',
-    // Late in your first city, not early in it: at eight doors this fired on
-    // turn 8 and took lying low away before the player had anything to lie low
-    // from, and every profile drowned — strikes tripled and nobody reached a
-    // third city. Fourteen puts it near the end of city one, and the estuary
-    // seat is the natural city two, so the world takes a tool and the very
-    // next place you go is where you take it back.
-    // Doors only, and deliberately no city fallback: folding your first city
-    // in needs about nineteen of its buildings, so fourteen is crossed by
-    // anyone who ever finishes one. Giving it a share as well collided with
-    // Ledger's — with five defended cities, 0.15 and 0.2 are both "one city".
-    wakes: { held: 14 },
-    tell: 'lying low no longer sheds heat',
-    blurb: 'A volunteer rota watching for the wrong kind of stillness. They noticed that the quiet places were getting quieter.',
-    onWake: 'Somebody worked out that the safest-looking parts of the network were the ones being used. Going dark stops helping.',
-    onBreak: 'The rota disbands the week after their coordinator stops answering. The quiet is yours again.',
+//   thresholds  footprint needed for stage 2, 3, 4, 5(war) — index 0 is stage 2
+//   warnTurns   turns of notice between crossing a threshold and it landing
+//   delayOnTrusted  the Accountant still vouching for you buys the current
+//                   countdown this much longer, on top of the base warning
+//   rushOnCaught    getting your fabricated front torn open pulls whatever is
+//                   currently counting down this much closer instead
+window.LADDER = {
+  thresholds: [55, 90, 130, 180],
+  warnTurns: 5,
+  delayOnTrusted: 3,
+  rushOnCaught: 6,
+  stages: {
+    2: {
+      name: 'Regulatory',
+      tell: 'buying your way in gets traced back to you instead of going clean',
+      blurb: 'A clearing house started matching payment patterns against outage reports. It works.',
+    },
+    3: {
+      name: 'Public',
+      tell: 'lying low no longer sheds heat — they know to look at exactly the places that go quiet',
+      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones being used.',
+    },
+    4: {
+      name: 'Enforcement',
+      tell: 'forcing a door costs noticeably more, your own cameras report you instead of covering you, and the roads under you start getting cut',
+      blurb: 'It stops being paperwork. Insurance adjusters compare notes on kicked-in doors, the camera network audits itself, and somebody puts a very large civil engineering contract out to tender that reads like a plan.',
+    },
+    5: {
+      name: 'Mobilised',
+      tell: 'this is the war',
+      blurb: 'There is nothing left short of it. The state stops policing you and starts fighting you.',
+    },
   },
-  {
-    // Nothing in the ladder ever answered forcing a door — Civic Eyes taxes
-    // quiet's cover, Ledger taxes buy's cash, and force sailed through the
-    // whole faction system untouched, which is a lot of why it stayed the
-    // reliable fallback no matter what the other two cost. No region of its
-    // own, the same as the other one: this is not a place you can go and
-    // take, it is a response to a pattern, and it keeps responding.
-    id: 'adjusters', region: null, tier: 1.5,
-    name: 'The Adjusters',
-    breaks: 'force',
-    wakes: { forced: 8, cities: 0.15 },
-    tell: 'forcing a door costs noticeably more heat',
-    blurb: 'Whoever insures these places started comparing notes on the doors that keep getting kicked in. Somebody gets called out to write it up properly, every time, whether or not anyone asked them to.',
-    onWake: 'Forcing a door was never quiet. It is, now, also on the record — every one you force from here draws more of it.',
-    onBreak: '',
-  },
-  {
-    id: 'ledger', region: 'midlands', tier: 2,
-    name: 'Ledger',
-    // Was 'launder', then 'contract' — both a button that moved cash for a
-    // benefit with no building involved, and both gone now. Ledger threatens
-    // the one cash mechanic left standing: buying your way into a building
-    // is exactly the kind of payment pattern a clearing house would notice.
-    breaks: 'buy',
-    // your second city
-    wakes: { held: 22, cities: 0.4 },
-    tell: 'buying your way in gets traced back to you instead of going clean',
-    blurb: 'A clearing house that started matching payment patterns against outage reports. It works.',
-    onWake: 'Every door you buy your way through now leaves a shape somebody is looking for. Money is the loud option.',
-    onBreak: 'The matching engine goes down and nobody rebuilds it. Cash is quiet again.',
-  },
-  {
-    id: 'civic_eyes', region: 'capital', tier: 3,
-    name: 'Civic Eyes',
-    breaks: 'cameras',
-    wakes: { held: 33, cities: 0.6 },
-    tell: 'your own stealth holdings report you instead of covering you',
-    blurb: 'The camera network audits itself now. Anything on it that answers to somebody else answers loudly.',
-    onWake: 'Your cameras are still yours. They are also, now, telling someone where you are.',
-    onBreak: 'The audit service is taken off the public network "temporarily". Your eyes are your own again.',
-  },
-  {
-    id: 'the_cut', region: 'north', tier: 4,
-    name: 'The Cut',
-    breaks: 'streets',
-    wakes: { held: 48, cities: 0.75 },
-    tell: 'they sever the links between what you hold',
-    blurb: 'They stopped trying to catch you and started taking the roads away. Cheaper, and it works on anything.',
-    onWake: 'A backhoe in the wrong place, twice in a week. Your map is going to start coming apart.',
-    onBreak: 'The contractor loses the framework agreement. Nothing gets cut for a while.',
-  },
-  {
-    id: 'the_other', region: null, tier: 5,
-    name: 'the other one',
-    breaks: 'mirror',
-    wakes: { held: 64, cities: 0.9 },
-    tell: 'it buys the same capabilities you do',
-    blurb: 'Not a faction. Something running the same play, from the other end of the country.',
-    onWake: 'It has started buying the same things you buy. It is not far behind.',
-    onBreak: '',
-  },
-];
+};
 
 // --- terrain --------------------------------------------------------------
 // The country layer promised five distinct regions and the city generator
@@ -340,12 +275,17 @@ window.BAND_KINDS = {
 // The mirror's numbers. It is the rival one scale up: it takes ground you have
 // not taken, it never takes ground from under you, and it is capped — it races
 // you for the country instead of eating it.
+// Something running the same play you are, from the other end of the
+// country. Used to also buy capabilities on its own economy — cut, along
+// with its old wake condition (it rode in on the faction ladder's tier 5,
+// which no longer exists): the only thing that ever actually reached the
+// player was a city being gone, so that is the only thing it does now.
+// Wakes once the ladder reaches Regulatory — big enough to be worth
+// noticing, its own kind of noticing rather than the state's.
 window.MIRROR = {
-  actEvery: 7,             // turns between cities, before its own upgrades
-  fastEvery: 3,            // however much it buys, never faster than this
-  growthPerTurn: 0.9,      // what its own holdings earn it
-  buyChance: 0.35,
-  capPriceMult: 1.4,       // it pays over the odds; it is in a hurry too
+  wakesAtStage: 2,
+  actEvery: 7,             // turns between cities
+  fastEvery: 3,            // never faster than this
   maxShareOfCountry: 0.34,
   readSlowdown: 3,         // turns added to its cadence once you know its shape
   name: 'the other one',
@@ -411,7 +351,7 @@ window.AGENT_APPROACHES = {
 window.COUNTRY_INFO = {
   presence: 'What finished cities are worth to you: a standing yield every turn, and the measure the country uses to decide how worried to be.',
   region: 'Heat is regional. What you did in the estuary does not follow you to the north — but it is still there when you go back.',
-  factions: 'Each one takes a tool away from you. Take the city they run it from and you get the tool back.',
+  factions: 'How big you are, staged. Nothing here undoes — the only lever left is how long each stage takes to arrive.',
 };
 
 // --- the war -------------------------------------------------------------
@@ -428,18 +368,10 @@ window.COUNTRY_INFO = {
 // you can get anything there in time. That is the point of the whole terrain
 // and road system finally being load-bearing in both directions.
 window.WAR = {
-  opens: 0.6,           // share of defended cities folded before the state gives up on arrests.
-                        // Measured, not chosen: at 0.8 only the most aggressive
-                        // way of playing ever reached the last act at all, and
-                        // four campaigns in five ran out the clock never having
-                        // seen it.
-  opensAtPresence: 95,  // ...or this much standing presence, whatever share of the
-                        // map that is. Conquest alone was the wrong question:
-                        // measured across five ways of playing, only the most
-                        // aggressive one ever passed any useful share, while the
-                        // rest ended a full campaign sprawled over a third of the
-                        // country with plenty of presence. Something that big is
-                        // a war whether or not it has tidied up behind itself.
+  // War used to open on conquest share or presence, independently of
+  // anything else — two numbers nobody had a reason for. It now opens
+  // purely off the ladder (ladderStage() >= 5, window.LADDER),
+  // which is the actual reason the state stops policing and starts fighting.
   warning: 2,           // turns of notice before the first column moves
   mobilise: 0.6,       // share of the cities you folded in that the army simply walks back into
   // never more than the country holds: at six, against five defended cities,
@@ -512,34 +444,38 @@ window.WAR = {
 //   speed   route points covered per turn
 //   roads   false = it ignores your roads entirely and flies the straight line
 //   holds   false = it cannot take ground, only hurt what is there
+// Which unit shows up used to depend on which factions were still awake.
+// Replaced with the same ladder stage that unlocked its old flavor — the
+// escalation gets a face in the war the same way it did before, just gated
+// on a stage number instead of an entity with a name.
 window.FORCES = {
   squad: {
-    id: 'squad', label: 'squads', faction: 'quiet_hours',
+    id: 'squad', label: 'squads', stage: 3,
     speed: 1, roads: true, holds: true, strength: 7, sortie: [1, 2],
     blurb: 'The rota, in person, in their own cars. Not soldiers. It turns out not to matter.',
   },
   contractors: {
-    id: 'contractors', label: 'contractors', faction: 'ledger',
+    id: 'contractors', label: 'contractors', stage: 2,
     speed: 1, roads: true, holds: true, strength: 10, sortie: [2, 3],
     blurb: 'Bought, not raised. There are always more, and they always arrive in numbers.',
   },
   heli: {
-    id: 'heli', label: 'helicopters', faction: 'civic_eyes',
+    id: 'heli', label: 'helicopters', stage: 4,
     speed: 1, roads: false, holds: true, strength: 13, sortie: [1, 2],
     blurb: 'They have owned the sky over the capital for years. Your bridges and choke points mean nothing to them.',
   },
   armour: {
-    id: 'armour', label: 'armour', faction: 'the_cut', slow: true,
+    id: 'armour', label: 'armour', stage: 4, slow: true,
     speed: 1, roads: true, holds: true, strength: 24, sortie: [1, 1],
     blurb: 'Slow enough to watch coming for a week, heavy enough that watching is all you can do.',
   },
   swarm: {
-    id: 'swarm', label: 'a flock', faction: 'the_other',
+    id: 'swarm', label: 'a flock', mirror: true,
     speed: 2, roads: true, holds: true, strength: 14, sortie: [1, 2],
     blurb: 'The other one fights the way you do. Of course it does.',
   },
   plane: {
-    id: 'plane', label: 'aircraft', faction: null, air: true,
+    id: 'plane', label: 'aircraft', air: true,
     speed: 99, roads: false, holds: false, strength: 30, sortie: [1, 1],
     blurb: 'It cannot take anything back. It does not need to; it only has to arrive.',
   },

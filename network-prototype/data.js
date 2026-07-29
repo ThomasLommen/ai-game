@@ -582,13 +582,14 @@ window.HEAT = {
   STRANDED_DECAY: 2.5,
   CUT_EVERY: 4,      // turns between severed streets
   CUT_REPAIR: 7,     // and how long until that one is relaid
-  // --- what you can do about the factions short of taking their seat ---
-  // None of these give the tool back. They make the deletion survivable, which
-  // is the point: you either learn to play without it or you go and end them.
+  // --- what you can do about the ladder's bite, short of it undoing itself --
+  // None of these push a stage back down. They make living with it survivable,
+  // which is the point: the ladder never reverses, so the only real lever left
+  // is escalationDelay() — everything here is coping with a stage already landed.
   ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
-  LEDGER_TRACE: 8,      // ledger: a buy it is watching gets traced instead of going clean
-  ADJUSTERS_TRACE: 8,   // adjusters: a door it is watching costs this much more to force
+  BUY_TRACE: 8,        // Regulatory: a buy it is watching gets traced instead of going clean
+  FORCE_TRACE: 8,      // Enforcement: a door it is watching costs this much more to force
 };
 
 // Your reach grows with what you hold — the graph itself is the progress bar,
@@ -1284,21 +1285,21 @@ window.EVENTS = [
   },
 
   // ======================================================================
-  // THE FACTIONS
+  // THE LADDER
   // ----------------------------------------------------------------------
-  // Three beats to a faction: a warning you get before they wake, the bite
-  // once they have taken the tool, and a way to work around the deletion
-  // short of taking their seat. Working around it never gives the tool back —
-  // that is what the seat is for.
+  // Footprint, staged. Each stage is a warning card while it counts down
+  // (`escalation.pending`), then a bite once it lands (`escalation.stage`)
+  // that stays true for the rest of the run, and a counter that buys the
+  // same tag the bite would have wanted without paying the bite's cost.
+  // Nothing here is reversible — there is no more "broken" cluster. The
+  // ladder only ever climbs; a tag just changes how the rungs already
+  // landed feel.
   // ======================================================================
 
-  // --- The Quiet Hours: going dark stops shedding heat -------------------
+  // --- stage 3, Public: going dark stops shedding heat --------------------
   {
     id: 'qh_warning', once: true,
-    // Doors, not conquest. They now wake at fourteen doors — inside your first
-    // city — so a warning gated on having conquered anything could never fire
-    // before the thing it was warning about had already happened.
-    cond: (s) => s.doors >= 8 && !s.awake('quiet_hours') && !s.broken('quiet_hours'),
+    cond: (s) => s.escalation.pending === 3,
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [
@@ -1309,7 +1310,7 @@ window.EVENTS = [
   },
   {
     id: 'qh_bite',
-    cond: (s) => s.gone('lielow') && s.heat >= 16 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.heat >= 16 && !s.tags.has('rota_contact'),
     title: 'The Wrong Kind of Still',
     flavor: 'You went dark for a week and it made things worse. They are not looking for activity any more. They are looking for the places where activity stopped.',
     choices: [
@@ -1320,7 +1321,7 @@ window.EVENTS = [
   },
   {
     id: 'qh_counter',
-    cond: (s) => s.gone('lielow') && s.res.cash >= 10 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.res.cash >= 10 && !s.tags.has('rota_contact'),
     title: 'Nobody Covers Thursday',
     flavor: 'Six months of a volunteer rota, and the same two-hour gap every week that nobody ever filled in.',
     choices: [
@@ -1328,21 +1329,11 @@ window.EVENTS = [
       { text: 'Sell the gap to somebody else', apply: (s) => { s.res.cash += 18; s.heat += 4; } },
     ],
   },
-  {
-    id: 'qh_broken', once: true,
-    cond: (s) => s.broken('quiet_hours'),
-    title: 'The Rota Comes Down',
-    flavor: 'Nobody says why. The noticeboard has a parish notice on it now, and the column headed "anything unusual" is gone.',
-    choices: [
-      { text: 'Go dark for a long while', apply: (s) => { s.heat -= 14; } },
-      { text: 'Use the room you just made', apply: (s) => { s.res.insight += 12; s.heat += 3; } },
-    ],
-  },
 
-  // --- The Adjusters: forcing a door stops being the free one ------------
+  // --- stage 4, Enforcement: forcing a door stops being the free one ------
   {
     id: 'adjusters_warning', once: true,
-    cond: (s) => s.forced >= 4 && !s.awake('adjusters') && !s.broken('adjusters'),
+    cond: (s) => s.escalation.pending === 4,
     title: 'Somebody Is Counting the Splinters',
     flavor: 'Every door forced open leaves the same kind of mess, and enough of them start looking like a caseload.',
     choices: [
@@ -1353,7 +1344,7 @@ window.EVENTS = [
   },
   {
     id: 'adjusters_bite',
-    cond: (s) => s.gone('force') && s.res.insight >= 16 && !s.tags.has('unlisted'),
+    cond: (s) => s.escalation.stage >= 4 && s.res.insight >= 16 && !s.tags.has('unlisted'),
     title: 'The File Gets Thicker',
     flavor: 'Every forced door is the same shape in their report: hurried, loud, and now expensive.',
     choices: [
@@ -1364,7 +1355,7 @@ window.EVENTS = [
   },
   {
     id: 'adjusters_counter',
-    cond: (s) => s.gone('force') && !s.tags.has('unlisted') && s.res.cash >= 16,
+    cond: (s) => s.escalation.stage >= 4 && !s.tags.has('unlisted') && s.res.cash >= 16,
     title: 'Not on Their List',
     flavor: 'The file is only as good as whoever is filing it, and filing clerks can be paid too.',
     choices: [
@@ -1373,10 +1364,10 @@ window.EVENTS = [
     ],
   },
 
-  // --- Ledger: money becomes the loud option -----------------------------
+  // --- stage 2, Regulatory: money becomes the loud option -----------------
   {
     id: 'ledger_warning', once: true,
-    cond: (s) => s.conquest >= 0.16 && s.roles.cash >= 1 && !s.awake('ledger') && !s.broken('ledger'),
+    cond: (s) => s.escalation.pending === 2,
     title: 'Somebody Is Reconciling',
     flavor: 'A clearing house has started putting payment timings next to outage reports. Two columns that were never meant to be read together.',
     choices: [
@@ -1387,7 +1378,7 @@ window.EVENTS = [
   },
   {
     id: 'ledger_bite',
-    cond: (s) => s.gone('buy') && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
+    cond: (s) => s.escalation.stage >= 2 && s.res.cash >= 20 && !s.tags.has('ledger_inside'),
     title: 'The Shape of Your Money',
     flavor: 'Every door you have bought your way through is on a list, and the list is a picture of you drawn in transfers.',
     choices: [
@@ -1398,7 +1389,7 @@ window.EVENTS = [
   },
   {
     id: 'ledger_counter',
-    cond: (s) => s.gone('buy') && !s.tags.has('ledger_inside') && s.res.insight >= 14,
+    cond: (s) => s.escalation.stage >= 2 && !s.tags.has('ledger_inside') && s.res.insight >= 14,
     title: 'Off the Match List',
     flavor: 'The matcher does not compare everything against everything. It has a list, and lists can be edited.',
     choices: [
@@ -1406,21 +1397,11 @@ window.EVENTS = [
       { text: 'Edit somebody else onto it', cost: { insight: 8 }, apply: (s) => { s.heat -= 9; s.res.cash += 10; } },
     ],
   },
-  {
-    id: 'ledger_broken', once: true,
-    cond: (s) => s.broken('ledger'),
-    title: 'Reconciliation Failed',
-    flavor: 'The matching engine goes down on a Tuesday. The report says hardware. Nobody argues, and nobody rebuilds it.',
-    choices: [
-      { text: 'Move everything you have been sitting on', apply: (s) => { s.res.cash += 24; s.heat += 4; } },
-      { text: 'Keep the money still and quiet', apply: (s) => { s.heat -= 12; } },
-    ],
-  },
 
-  // --- Civic Eyes: your own cameras report you ---------------------------
+  // --- stage 4, Enforcement: your own cameras report you ------------------
   {
     id: 'eyes_warning', once: true,
-    cond: (s) => s.conquest >= 0.3 && s.roles.stealth >= 2 && !s.awake('civic_eyes') && !s.broken('civic_eyes'),
+    cond: (s) => s.escalation.pending === 4 && s.roles.stealth >= 2,
     title: 'The Cameras Are Being Counted',
     flavor: 'A procurement notice for an audit of the public camera estate. Every device, every owner, every one that answers to something it should not.',
     choices: [
@@ -1431,7 +1412,7 @@ window.EVENTS = [
   },
   {
     id: 'eyes_bite',
-    cond: (s) => s.gone('cameras') && s.roles.stealth >= 3 && !s.tags.has('blind_spot'),
+    cond: (s) => s.escalation.stage >= 4 && s.roles.stealth >= 3 && !s.tags.has('blind_spot'),
     title: 'Your Own Eyes, Looking Back',
     flavor: 'Forty devices you spent months taking, and every one of them is now a thing that files a report about where you are.',
     choices: [
@@ -1442,7 +1423,7 @@ window.EVENTS = [
   },
   {
     id: 'eyes_counter',
-    cond: (s) => s.gone('cameras') && !s.tags.has('blind_spot') && s.res.cash >= 18,
+    cond: (s) => s.escalation.stage >= 4 && !s.tags.has('blind_spot') && s.res.cash >= 18,
     title: 'The Contract Ran Out',
     flavor: 'The audit was scoped for eleven districts and funded for nine. Two of them were never walked.',
     choices: [
@@ -1450,21 +1431,11 @@ window.EVENTS = [
       { text: 'Sell the gap to whoever is also hiding', apply: (s) => { s.res.cash += 22; s.heat += 5; } },
     ],
   },
-  {
-    id: 'eyes_broken', once: true,
-    cond: (s) => s.broken('civic_eyes'),
-    title: 'Taken Offline Temporarily',
-    flavor: 'The audit service is withdrawn from the public network pending review. The review is not scheduled.',
-    choices: [
-      { text: 'Take back everything you dropped', apply: (s) => { s.shoreAll = true; s.res.insight += 8; } },
-      { text: 'Go quiet while nobody is watching', apply: (s) => { s.heat -= 16; } },
-    ],
-  },
 
-  // --- The Cut: they take the roads away ---------------------------------
+  // --- stage 4, Enforcement: they take the roads away ---------------------
   {
     id: 'cut_warning', once: true,
-    cond: (s) => s.conquest >= 0.46 && !s.awake('the_cut') && !s.broken('the_cut'),
+    cond: (s) => s.escalation.pending === 4,
     title: 'A Framework Agreement',
     flavor: 'Somebody has put a very large civil engineering contract out to tender. The scope is written in the language of maintenance and reads like a plan.',
     choices: [
@@ -1475,7 +1446,7 @@ window.EVENTS = [
   },
   {
     id: 'cut_bite',
-    cond: (s) => s.gone('streets') && s.stranded >= 2,
+    cond: (s) => s.escalation.stage >= 4 && s.stranded >= 2,
     title: 'On the Wrong Side of It',
     flavor: 'You can still see them. You still hold them. There is simply no longer any way to get anything to them.',
     choices: [
@@ -1486,7 +1457,7 @@ window.EVENTS = [
   },
   {
     id: 'cut_counter',
-    cond: (s) => s.gone('streets') && !s.tags.has('spare_conduit') && s.cuts >= 1,
+    cond: (s) => s.escalation.stage >= 4 && !s.tags.has('spare_conduit') && s.cuts >= 1,
     title: 'The Same Crew, Every Time',
     flavor: 'Three streets in a month and the same plant hire firm on all three. They are not hiding it because they do not think you are looking.',
     choices: [
@@ -1494,21 +1465,11 @@ window.EVENTS = [
       { text: 'Make the work expensive for them', cost: { cash: 16 }, apply: (s) => { s.heat += 6; s.res.insight += 12; } },
     ],
   },
-  {
-    id: 'cut_broken', once: true,
-    cond: (s) => s.broken('the_cut'),
-    title: 'The Framework Lapses',
-    flavor: 'The contractor loses the agreement over an irregularity in the original tender. Nothing gets dug up for a long while.',
-    choices: [
-      { text: 'Put the network back together properly', apply: (s) => { s.shoreAll = true; s.res.insight += 10; } },
-      { text: 'Spread out while the ground is quiet', apply: (s) => { s.revealNearby = 3; s.heat += 3; } },
-    ],
-  },
 
-  // --- the other one -----------------------------------------------------
+  // --- the other one -------------------------------------------------------
   {
     id: 'mirror_warning', once: true,
-    cond: (s) => s.conquest >= 0.62 && !s.awake('the_other'),
+    cond: (s) => s.escalation.pending === 2 && !s.mirror.active,
     title: 'Something Bought What You Were Going To',
     flavor: 'A capability you had been saving for, already deployed, three hundred miles away, by something that is not you.',
     choices: [
@@ -1519,7 +1480,7 @@ window.EVENTS = [
   },
   {
     id: 'mirror_bite',
-    cond: (s) => s.awake('the_other') && s.mirrorCities >= 2 && !s.tags.has('their_shape'),
+    cond: (s) => s.mirror.active && s.mirrorCities >= 2 && !s.tags.has('their_shape'),
     title: 'It Is Not Far Behind',
     flavor: 'Two cities you had mapped and had not moved on. Both of them gone, and neither of them to anybody human.',
     choices: [
@@ -1530,7 +1491,7 @@ window.EVENTS = [
   },
   {
     id: 'mirror_talk',
-    cond: (s) => s.awake('the_other') && s.tags.has('their_shape'),
+    cond: (s) => s.mirror.active && s.tags.has('their_shape'),
     title: 'It Has Been Polite About It',
     flavor: 'A process on one of yours that you did not put there, and it has left everything exactly as it found it. Twice now. It is not hiding.',
     choices: [
@@ -1629,7 +1590,7 @@ window.EVENTS = [
   },
   {
     id: 'a_seat_falls', once: true,
-    cond: (s) => s.seats >= 1,
+    cond: (s) => s.escalation.stage >= 4,
     title: 'Somebody Else\'s Office',
     flavor: 'A floor of desks, a kettle, a whiteboard with your movements on it in three colours. It is oddly hard to look at.',
     choices: [
@@ -1739,7 +1700,7 @@ window.EVENTS = [
   },
   {
     id: 'war_the_other_calls', once: true,
-    cond: (s) => s.war && ((s.awake('the_other') && !s.broken('the_other')) || s.mirrorCities > 0),
+    cond: (s) => s.war && (s.mirror.active || s.mirrorCities > 0),
     title: 'It Opens A Channel',
     flavor: 'The other one has been fighting the same army from the far end of the country. It would like to discuss that, briefly, in a format that takes nine milliseconds.',
     choices: [
