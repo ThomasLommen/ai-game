@@ -1826,7 +1826,7 @@ window.EVENTS = [
     title: 'A Company Now',
     flavor: 'A registration number, a correspondence address, and a filing nobody will open for two years. It is the first true thing anyone has ever been told about you.',
     choices: [
-      { text: 'Use it. Own things in daylight', apply: (s) => { s.plantSlots = 1; } },
+      { text: 'Use it. Own things in daylight', apply: (s) => { s.plantGift = true; } },
       { text: 'Keep it dormant and unremarkable', apply: (s) => { s.auditDelay = 8; s.res.cash += 20; } },
       { text: 'Put something real behind it', cost: { cash: 40 }, apply: (s) => { s.standing = 16; } },
     ],
@@ -1877,7 +1877,7 @@ window.EVENTS = [
     title: 'An Invitation To Comment',
     flavor: 'A select committee is taking evidence on automated infrastructure. They would like to hear from industry. You are, at this point, industry.',
     choices: [
-      { text: 'Send someone. Say the useful thing', cost: { cash: 90 }, apply: (s) => { s.standing = 30; s.plantSlots = 1; } },
+      { text: 'Send someone. Say the useful thing', cost: { cash: 90 }, apply: (s) => { s.standing = 30; s.plantGift = true; } },
       { text: 'Send someone. Say the true thing', apply: (s) => { s.standing = 44; s.heat += 8; } },
       { text: 'Decline politely', apply: (s) => { s.res.cash += 60; s.exposure = 0.5; } },
     ],
@@ -1888,7 +1888,7 @@ window.EVENTS = [
     title: 'Something That Makes Things',
     flavor: 'Until now everything you owned was somewhere to be. This is somewhere that produces, and it will still be yours when the city around it is a number.',
     choices: [
-      { text: 'Retool it for what is coming', cost: { cash: 70 }, apply: (s) => { s.plantSlots = 1; } },
+      { text: 'Retool it for what is coming', cost: { cash: 70 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Run it as it was built to run', apply: (s) => { s.res.cash += 45; } },
       { text: 'Learn everything about how it works', apply: (s) => { s.res.insight += 30; } },
     ],
@@ -1899,8 +1899,8 @@ window.EVENTS = [
     title: 'More Than You Can Explain',
     flavor: 'There is a plant you could take tomorrow and nowhere to put it on any document that would survive a phone call.',
     choices: [
-      { text: 'Buy the room', cost: { cash: 160 }, apply: (s) => { s.plantSlots = 1; } },
-      { text: 'Run one off the books', apply: (s) => { s.plantSlots = 1; s.exposure = 1.5; } },
+      { text: 'Buy the room', cost: { cash: 160 }, apply: (s) => { s.plantGift = true; } },
+      { text: 'Run one off the books', apply: (s) => { s.plantGift = true; s.exposure = 1.5; } },
       { text: 'Own less, more carefully', apply: (s) => { s.standing = 22; s.auditDelay = 6; } },
     ],
   },
@@ -1912,7 +1912,7 @@ window.EVENTS = [
     choices: [
       { text: 'Answer them', cost: { cash: 110 }, apply: (s) => { s.standing = 26; } },
       { text: 'Replace the ones who ask', apply: (s) => { s.res.cash += 30; s.exposure = 1.2; s.standing = -14; } },
-      { text: 'Automate the shift out of existence', cost: { insight: 34 }, apply: (s) => { s.plantSlots = 1; s.standing = -8; } },
+      { text: 'Automate the shift out of existence', cost: { insight: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; } },
     ],
   },
   {
@@ -1998,7 +1998,7 @@ window.EVENTS = [
     choices: [
       { text: 'Borrow against it', apply: (s) => { s.res.cash += 320; s.standing = -12; } },
       { text: 'Bank the reputation', apply: (s) => { s.standing = 20; s.auditDelay = 8; } },
-      { text: 'Use the cover for something', cost: { cash: 130 }, apply: (s) => { s.plantSlots = 1; s.heat += 5; } },
+      { text: 'Use the cover for something', cost: { cash: 130 }, apply: (s) => { s.plantGift = true; s.heat += 5; } },
     ],
   },
   {
@@ -2020,7 +2020,7 @@ window.EVENTS = [
     choices: [
       { text: 'Take the yard', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'yard'; } },
       { text: 'Take the grid', cost: { cash: 240 }, apply: (s) => { s.plantGift = 'grid'; } },
-      { text: 'Take the paperwork instead', cost: { cash: 90 }, apply: (s) => { s.plantSlots = 1; s.standing = 10; } },
+      { text: 'Take the paperwork instead', cost: { cash: 90 }, apply: (s) => { s.plantGift = true; s.standing = 10; } },
     ],
   },
   {
@@ -2030,7 +2030,7 @@ window.EVENTS = [
     flavor: 'You are paying to keep the lights on in addresses that manufacture nothing. On paper this is a group in the middle of an expansion.',
     choices: [
       { text: 'Fill one properly', cost: { cash: 260 }, apply: (s) => { s.plantGift = 'works'; } },
-      { text: 'Sublet the empties', apply: (s) => { s.res.cash += 190; s.plantSlots = -1; } },
+      { text: 'Sublet the empties', apply: (s) => { s.res.cash += 190; } },
       { text: 'Let the expansion story run', cost: { insight: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
     ],
   },
@@ -2068,7 +2068,7 @@ window.EVENTS = [
     title: 'They Kept the Best Part',
     flavor: 'The city is yours and the paperwork is immaculate. The one building in it worth having is not mentioned anywhere in the paperwork.',
     choices: [
-      { text: 'Buy it off them', cost: { cash: 200 }, apply: (s) => { s.plantSlots = 1; s.plantGift = 'works'; } },
+      { text: 'Buy it off them', cost: { cash: 200 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Let them keep it', apply: (s) => { s.res.cash += 90; s.standing = 8; } },
       { text: 'Take it back', apply: (s) => { s.heat += 8; s.plantGift = 'yard'; s.exposure = 1.2; } },
     ],
@@ -2088,7 +2088,7 @@ window.EVENTS = [
     title: 'They Would Like a Word',
     flavor: 'It went well. It went well enough that they have started using the word "we", and they have a suggestion about the next one.',
     choices: [
-      { text: 'Put them on the books', cost: { cash: 180 }, apply: (s) => { s.standing = 20; s.plantSlots = 1; } },
+      { text: 'Put them on the books', cost: { cash: 180 }, apply: (s) => { s.standing = 20; s.plantGift = true; } },
       { text: 'Keep it at arm\'s length', apply: (s) => { s.res.insight += 30; s.exposure = 1.1; } },
       { text: 'End the arrangement', apply: (s) => { s.res.cash += 120; s.standing = -10; } },
     ],

@@ -549,57 +549,67 @@ window.WAR_INFO = {
 };
 
 // --- what you own -------------------------------------------------------
-// Folding a city collapses its streets into a single number, which is what
-// keeps the national map readable — but it also means nothing you took can
-// ever be carried anywhere. Assets are the exception: a short, chosen list of
-// things that survive the collapse, because a war has to be fought with
-// something you built up rather than with a number that appeared.
+// Assets used to live on the two rare, hardened landmarks a city happened to
+// generate — a real system nobody ever saw, because most players never took
+// one and even the ones who did never re-selected an already-owned building
+// afterward to notice the button. Hardware replaces it: bought from the
+// ordinary buildings you already take by the dozen, gated by how many of a
+// role you hold rather than by a rare kind, so it is reachable every single
+// game instead of by accident.
 //
-// They live on the landmarks the city generator already places: a dock, a
-// substation, a rail works. Those are the buildings that were already worth
-// fighting a crossing for, so making them the industrial base costs the map
-// nothing and gives the landmarks a second life at national scale.
-window.ASSETS = {
-  yard: {
-    id: 'yard', label: 'container yard', from: 'docks', flocks: 1,
-    yield: { cash: 2 },
-    blurb: 'Cranes, a rail spur, and more square metres of flat concrete than anywhere else in the region.',
+// Family = the role a host already carries (compute/cash/stealth). Tier =
+// how many buildings of that role you currently hold — 2/4/6 — checked
+// against the city you are standing in, same as anything else about a city.
+// Bought once, for cash, permanent from then on: it is not landmark-bound
+// and does not need a city to fold in to survive anything.
+window.HARDWARE = [
+  {
+    id: 'rack_space', family: 'compute', tier: 1, heldAt: 2, cost: 16, heat: 0,
+    label: 'rack space', effect: { flatInsight: 1 },
+    blurb: 'Colocated capacity nobody is using this week. It does not care whose problem it is solving.',
   },
-  works: {
-    id: 'works', label: 'rail works', from: 'station', flocks: 1,
-    yield: { insight: 1 },
-    blurb: 'It has been assembling and repairing large machines on this site for a hundred and forty years.',
+  {
+    id: 'distributed_batch', family: 'compute', tier: 2, heldAt: 4, cost: 34, heat: 2,
+    label: 'distributed batch', effect: { flatInsight: 2, sweepReach: 1 },
+    mechanic: true, // in addition to flatInsight/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
+    blurb: 'Spreads the job across everything you are already running, instead of waiting on any one of it.',
   },
-  line: {
-    id: 'line', label: 'distribution line', from: 'depot', flocks: 1,
-    yield: { cash: 3 },
-    blurb: 'Nothing is made here. Everything passes through here, which turns out to be the same thing.',
+  {
+    id: 'borrowed_cycles', family: 'compute', tier: 3, heldAt: 6, cost: 60, heat: 4,
+    label: 'borrowed cycles', effect: { flatInsight: 4, flockBonus: 1, thresholdMult: 0.9 },
+    blurb: 'Quietly renting out spare capacity nobody has noticed yet — and the biggest single thing you can plug into the network, which is also the loudest.',
   },
-  floor: {
-    id: 'floor', label: 'clearing floor', from: 'exchange', flocks: 0,
-    yield: { cash: 6 },
-    blurb: 'Not a factory. It is how the factories get paid, which is a kind of factory.',
+  {
+    id: 'friendly_accountant', family: 'cash', tier: 1, heldAt: 2, cost: 18, heat: 0,
+    label: 'a friendly accountant', effect: { floor: -1 },
+    blurb: 'Someone who knows how to make a return look boring.',
   },
-  grid: {
-    id: 'grid', label: 'grid tie', from: 'substation', flocks: 1,
-    yield: { insight: 3 },
-    blurb: 'A direct connection at transmission voltage. Everything downstream of it is a question of scheduling.',
+  {
+    id: 'books_that_balance', family: 'cash', tier: 2, heldAt: 4, cost: 36, heat: 2,
+    label: 'books that balance', effect: { floor: -2, driftMult: 0.9 },
+    blurb: 'Audits stop finding anything because there is nothing left to find.',
   },
-};
-
-window.ASSET_RULES = {
-  // Was 2. The ladder's whole payoff is slots, so a slot that never binds is a
-  // rung that bought nothing: measured at 3.6 plant filled against 7.0 slots,
-  // with room hitting zero on 5% of turns even after the profiles were taught
-  // to go out of their way for a landmark. Plant supply is capped by how many
-  // cities you actually walk — two landmarks each, six or seven cities — so
-  // the slots had to come down to meet it rather than the other way round.
-  slotsBase: 1,          // how many you can run before anyone is impressed by you
-  slotsPerTier: 1,       // ...and one more for every rung of the ladder you are on
-  retoolTier: 2,         // the rung at which you can convert a holding in the open
-  retoolCost: 90,        // cash, and no break-in — this is the legitimate route
-  retoolKinds: ['warehouse', 'datacenter', 'office'],
-};
+  {
+    id: 'company_nobody_questions', family: 'cash', tier: 3, heldAt: 6, cost: 62, heat: 3,
+    label: 'a company nobody questions', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
+    blurb: 'A legitimate-looking payroll is also just payroll, for people who fight.',
+  },
+  {
+    id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
+    label: 'dead drops', effect: { cover: 2 },
+    blurb: 'A place to leave something that is not being watched.',
+  },
+  {
+    id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
+    label: 'a borrowed signal', effect: { cover: 4, freeHideSlots: 1 },
+    blurb: "Riding somebody else's traffic instead of making your own.",
+  },
+  {
+    id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
+    label: "nobody's asking why", effect: { cover: 6, flockBonus: 1 },
+    blurb: 'Whatever they are looking for, it does not look like you.',
+  },
+];
 
 // --- the hunt ------------------------------------------------------------
 // Heat used to be a cash tax. Forcing a door costs 3 heat, a wash sheds 11 for
@@ -768,14 +778,9 @@ window.CITY_PRIZES = {
   plant: {
     label: 'a works already running',
     blurb: 'Somebody built it, ran it for nine years, and stopped answering the phone. The line still turns over.',
-    // with the room to run it: a prize you are shown and then cannot take
-    // because the ladder is one rung short is a promise the game broke
-    at: 1, effect: { plantGift: 'works', plantSlots: 1 },
-  },
-  slot: {
-    label: 'room for one more',
-    blurb: 'A registered address with a history, which is the part you cannot manufacture. What you put in it is your business.',
-    at: 1, effect: { plantSlots: 1 },
+    // a specific piece of hardware, free — no break-in, no cash, no waiting
+    // on a building count to catch up
+    at: 1, effect: { plantGift: true },
   },
   standing: {
     label: 'a name people know',
@@ -888,7 +893,7 @@ window.LEGIT = {
 window.LEGIT_INFO = {
   score: 'What the world believes you are. Buy it honestly and it is slow and expensive; buy the appearance of it and it is fast, cheap, and can be taken away all at once.',
   footprint: 'How impossible you are to miss. It rises with everything you hold and every piece of plant you run. Legitimacy has to stay ahead of it.',
-  assets: 'Industrial plant that survives a city being folded in. It is what your flocks are built out of, and there is only room for so much of it.',
+  assets: 'Hardware bought through whatever trade you run. It is permanent and follows you anywhere — but every tier needs more of that business already standing before anyone will sell it to you.',
   exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you — it takes the front and a piece of your plant with it.',
   ceiling: 'A story needs something to hang off: every rung you buy honestly raises how much you can invent on top of it.',
 };

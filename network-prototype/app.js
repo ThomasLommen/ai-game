@@ -707,17 +707,8 @@
     if (!P || c.prizeTaken) return null;
     c.prizeTaken = true;
     const e = P.effect || {};
-    // the room first, so a plant prize can always be housed — it arrives with
-    // the address it has been running out of
-    applyStandingEffects({ standing: e.standing, plantSlots: e.plantSlots, auditDelay: e.auditDelay });
+    applyStandingEffects({ standing: e.standing, plantGift: e.plantGift, auditDelay: e.auditDelay });
     if (e.poolGift) CO().poolGift = (CO().poolGift || 0) + e.poolGift;
-    // and plant lands in the city that came with it, rather than wherever
-    // applyStandingEffects would have put it
-    if (e.plantGift && assetRoom() > 0) {
-      assets().push({ kind: e.plantGift, cityId: c.id, city: c.name,
-        buildingId: 'prize' + c.id, since: state.turn });
-      pushLog(`${window.ASSETS[e.plantGift].label} at ${c.name}, running since before you arrived.`);
-    }
     pushLog(`${c.name} came with ${P.label}. ${P.blurb}`);
     showBanner([{ kind: 'stage', verb: 'and with it', label: P.label }]);
     return P;
@@ -1163,7 +1154,7 @@
   // You are holding something that would survive the city being folded in.
   function plantKnown() {
     if (hasSeen('plant')) return true;
-    if (assets().length) { noteSeen('plant'); return true; }
+    if (hardwareOwned().length) { noteSeen('plant'); return true; }
     return false;
   }
   // Buying a reputation you have not earned only makes sense once you have
@@ -1183,11 +1174,18 @@
     window.CAPABILITIES.forEach(c => { n += (c.apDelta || 0) * capCount(c.id); });
     return Math.max(window.AP.min, n);
   }
+  // Hardware pours into the same pool capabilities do — one composition
+  // rule, whichever system actually granted the key.
+  function hasHardware(id) { return !!(state.hardware || {})[id]; }
   function capEffect(key, dflt) {
     let v = dflt;
     window.CAPABILITIES.forEach(c => {
       if (!hasCap(c.id) || !c.effect || c.effect[key] === undefined) return;
       // anything named ...Mult composes multiplicatively; the rest add up
+      v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
+    });
+    (window.HARDWARE || []).forEach(c => {
+      if (!hasHardware(c.id) || !c.effect || c.effect[key] === undefined) return;
       v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
     });
     return v;
@@ -1391,10 +1389,11 @@
     // multiplier, because the panel quotes it directly.
     const p = presenceYield();
     for (const k in p) add(k, p[k]);
-    // plant pays whether or not you are standing in the city it is in —
-    // that is the whole point of it having survived the fold
-    const a = assetYield();
-    for (const k in a) add(k, a[k] * mult);
+    // Hardware's compute family pays a flat income on top, same multiplier
+    // as everything else — permanent from the moment it is bought, not tied
+    // to any one city surviving anything.
+    const flat = capEffect('flatInsight', 0);
+    if (flat) add('insight', flat * mult);
     if (hasCap('standing_army')) add('cash', STANDING_ARMY_RETAINER);
     return out;
   }
@@ -1617,11 +1616,11 @@
       pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
     }
     mirrorStep();
-    // Holding something that would survive the city being folded in is the
-    // moment plant is worth explaining — and it has to be noticed for you,
-    // because nothing guarantees you ever tap the building.
+    // Being eligible for hardware at all is the moment it is worth
+    // explaining — and it has to be noticed for you, because nothing
+    // guarantees you ever re-select an already-owned building.
     if (!hasSeen('plant') && state.scope === 'city'
-        && (state.buildings || []).some(b => assetKindFor(b) && hostsIn(b).some(h => h.owned))) {
+        && window.HARDWARE.some(hw => hardwareEligible(hw))) {
       noteSeen('plant');
     }
     legitStep();          // exposure fades, and the auditors keep their own diary
@@ -2136,6 +2135,7 @@
     const e = c.effect || {};
     const out = [];
     const add = (kind, text) => out.push(chip(kind, text));
+    if (e.flatInsight) add('insight', `+${e.flatInsight} insight a turn`);
     if (e.power > 0) add('power', `+${e.power} power`);
     if (e.power < 0) add('cost power', `${neg(e.power)} power`);
     if (e.cover) add('cover', `+${e.cover} cover`);
@@ -2399,11 +2399,13 @@
         caught: LG().caught || 0,
       },
       plant: {
-        count: assets().length,
-        slots: assetSlots(),
-        room: assetRoom(),
-        flocks: assetFlocks(),
-        has: (kind) => assets().some(a => a.kind === kind),
+        count: hardwareOwned().length,
+        room: window.HARDWARE.filter(hw => !hasHardware(hw.id) && hardwareEligible(hw)).length,
+        flocks: hardwareOwned().reduce((a, id) => {
+          const hw = window.HARDWARE.find(x => x.id === id);
+          return a + ((hw && hw.effect.flockBonus) || 0);
+        }, 0),
+        has: (id) => hasHardware(id),
       },
       // The last act, so a card can be about a war rather than about a city.
       // Null until they mobilise, which is what every wartime card gates on.
@@ -2533,7 +2535,6 @@
     scratch.exposure = 0;       // how much of it could come apart
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
-    scratch.plantSlots = 0;     // room to run more of it
     scratch.rebuild = 0;        // flocks put back together at once
     ch.apply(scratch);
     if (scratch.allyJoin) allyJoin();
@@ -2573,7 +2574,6 @@
     scratch.exposure = 0;       // how much of it could come apart
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
-    scratch.plantSlots = 0;     // room to run more of it
     scratch.rebuild = 0;        // flocks put back together at once
 
     state.heat = Math.max(0, state.heat);
@@ -4034,18 +4034,52 @@
     return owned().filter(h => !seen[h.buildingId]);
   }
 
-  // --- what you own, and what the world thinks you are --------------------
-  // Two systems that only make sense together. Assets are the industrial base
-  // a war is fought out of; legitimacy decides whether you have to break into
-  // one or can simply buy and convert it in the open. Same plant, two routes,
-  // and which route is available depends on which meter you have been feeding.
+  // --- what the world thinks you are ---------------------------------------
+  // Legitimacy used to be one half of a pair with the old asset system — the
+  // ladder decided whether you had to break into plant or could buy and
+  // convert it in the open. Hardware answers to a building count instead of
+  // to a rung, so that particular join is gone; the ladder still gates audit
+  // exposure and a war-time standing bonus on its own.
 
   function LG() {
     const co = CO();
     if (!co.legit) co.legit = { owned: {}, spin: 0, exposure: 0, nextAudit: -1, audits: 0, caught: 0, fines: 0 };
     return co.legit;
   }
-  function assets() { const co = CO(); if (!co.assets) co.assets = []; return co.assets; }
+  function hardwareOwned() { return Object.keys(state.hardware || {}); }
+  function grantHardware(id) {
+    state.hardware = state.hardware || {};
+    state.hardware[id] = 1;
+  }
+  // Tier is a building count, checked against whatever city you are
+  // currently standing in — the same city-agnostic rule works for home
+  // (permanent) and any other city (still walked the old way) alike.
+  function hardwareEligible(hw) {
+    return owned().filter(h => h.role === hw.family).length >= hw.heldAt;
+  }
+  function hardwareAvailableFor(b) {
+    const h = b && hostsIn(b)[0];
+    if (!h) return [];
+    return window.HARDWARE.filter(hw => hw.family === h.role && !hasHardware(hw.id) && hardwareEligible(hw));
+  }
+  function canBuyHardware(id) {
+    const hw = window.HARDWARE.find(x => x.id === id);
+    if (!hw || hasHardware(hw.id) || !hardwareEligible(hw)) return false;
+    return state.res.cash >= hw.cost;
+  }
+  function buyHardware(id) {
+    const hw = window.HARDWARE.find(x => x.id === id);
+    if (!canBuyHardware(id)) return false;
+    const before = beforeSnap();
+    state.res.cash -= hw.cost;
+    grantHardware(hw.id);
+    if (hw.heat) state.heat = clampHeat(state.heat + hw.heat);
+    pushLog(`${hw.label}. ${hw.blurb}`);
+    afterSnap(before);
+    persistNow();
+    render();
+    return true;
+  }
 
   // How far along a filing is towards being believed. `owned` stores the turn
   // you filed it; `true` is an older save from before the ladder recorded
@@ -4093,17 +4127,9 @@
   }
   function footprint() {
     const L = window.LEGIT;
-    return (presence() * L.footPerPresence) + (assets().length * L.footPerAsset)
+    return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
       + (LG().cellFoot || 0);
   }
-  // Being able to explain yourself is what lets you own things in the open.
-  // This is the join between the two systems: the ladder does not make you
-  // safe, it makes you allowed to run more plant.
-  function assetSlots() {
-    const R = window.ASSET_RULES;
-    return R.slotsBase + R.slotsPerTier * legitTier() + (LG().slotGift || 0);
-  }
-  function assetRoom() { return Math.max(0, assetSlots() - assets().length); }
 
   function buyRung(id) {
     const r = window.LEGIT.ladder.find(x => x.id === id);
@@ -4153,13 +4179,15 @@
     if (sc.spin) l.spin = Math.max(0, Math.min(spinCeil(), (l.spin || 0) + sc.spin));
     if (sc.exposure) l.exposure = Math.max(0, (l.exposure || 0) + sc.exposure);
     if (sc.auditDelay) l.nextAudit = Math.max(l.nextAudit || state.turn, state.turn) + sc.auditDelay;
-    if (sc.plantSlots) l.slotGift = (l.slotGift || 0) + sc.plantSlots;
-    if (sc.plantGift && assetRoom() > 0) {
-      const where = myCities()[0] || currentCity();
-      if (where) {
-        assets().push({ kind: sc.plantGift, cityId: where.id, city: where.name,
-          buildingId: 'gift' + state.turn, since: state.turn });
-        pushLog(`${window.ASSETS[sc.plantGift].label} at ${where.name}, and no one had to break into it.`);
+    // plantGift meant "a specific piece of plant, free" — the closest
+    // equivalent is a random piece of hardware you have not already bought,
+    // granted rather than purchased.
+    if (sc.plantGift) {
+      const avail = window.HARDWARE.filter(hw => !hasHardware(hw.id));
+      if (avail.length) {
+        const got = avail[Math.floor(Math.random() * avail.length)];
+        grantHardware(got.id);
+        pushLog(`${got.label}, and no one had to break into it.`);
       }
     }
     if (sc.rebuild && war()) war().down = Math.max(0, (war().down || 0) - sc.rebuild);
@@ -4193,33 +4221,25 @@
       l.exposure = 0;
       l.caught += 1;
       state.heat = clampHeat(state.heat + L.caughtHeat);
-      // and they take the plant with it. Standing regrows in three turns;
-      // plant is capped by the ladder and is what the flocks come out of, so
-      // this is the part of being caught you actually feel.
-      const seized = [];
-      for (let i = 0; i < (L.caughtSeizes || 0) && assets().length; i++) seized.push(assets().pop());
       pushLog('They pulled one thread and the whole front came apart. None of it was real and now everyone knows.');
-      if (seized.length) {
-        pushLog(`${seized.map(a => `${window.ASSETS[a.kind].label} at ${a.city}`).join(' and ')} — signed over to a company that turned out not to exist.`);
-      }
       showBanner([{ kind: 'faction', verb: 'exposed', label: 'the front was fabricated' }]);
-      return { kind: 'caught', lost, seized };
+      return { kind: 'caught', lost };
     }
     if (deficit <= 0) {
       pushLog('Audited. Everything reconciles.');
       return { kind: 'clean' };
     }
-    if (deficit >= L.seizeAt && assets().length) {
-      const taken = assets().pop();
-      pushLog(`Audited, and they could not account for ${window.ASSETS[taken.kind].label} at ${taken.city}. It is not yours any more.`);
-      showBanner([{ kind: 'faction', verb: 'seized', label: window.ASSETS[taken.kind].label }]);
-      return { kind: 'seized', asset: taken };
-    }
-    const fine = Math.round(deficit * L.finePerPoint);
+    // Used to take a piece of plant off you past this point — hardware is
+    // not city-bound or slot-limited any more, so there is nothing of that
+    // shape left to seize; a bad-enough deficit is a heavier fine instead.
+    const heavy = deficit >= L.seizeAt;
+    const fine = Math.round(deficit * L.finePerPoint * (heavy ? 1.6 : 1));
     state.res.cash = Math.max(0, state.res.cash - fine);
     l.fines += fine;
-    pushLog(`Audited. ${fine} in fines for what you could not explain.`);
-    return { kind: 'fined', fine };
+    pushLog(heavy
+      ? `Audited, and they went looking for what wasn't there. ${fine} in fines.`
+      : `Audited. ${fine} in fines for what you could not explain.`);
+    return { kind: 'fined', fine, heavy };
   }
 
   function legitStep() {
@@ -4229,82 +4249,6 @@
     if (!countryUnlocked()) return null;
     if (!auditDue()) return null;
     return runAudit();
-  }
-
-  // --- assets -------------------------------------------------------------
-  // What is claimable out of the city you are standing in: the landmarks you
-  // actually hold, plus anything you have retooled.
-  function assetKindFor(b) {
-    if (!b) return null;
-    const found = Object.keys(window.ASSETS).find(k => window.ASSETS[k].from === b.kind);
-    return found || (b.retooled || null);
-  }
-  function claimable() {
-    if (state.scope !== 'city') return [];
-    return (state.buildings || []).filter(b => {
-      if (!assetKindFor(b)) return false;
-      return hostsIn(b).some(h => h.owned);
-    });
-  }
-  function assetsHere() {
-    const c = currentCity();
-    if (!c) return [];
-    return assets().filter(a => a.cityId === c.id);
-  }
-
-  function claimAsset(buildingId) {
-    const b = buildingById(buildingId);
-    const kind = assetKindFor(b);
-    const c = currentCity();
-    if (!b || !kind || !c) return false;
-    if (!hostsIn(b).some(h => h.owned)) return false;
-    if (assets().some(a => a.buildingId === buildingId && a.cityId === c.id)) return false;
-    if (assetRoom() <= 0) return false;
-    assets().push({ kind, cityId: c.id, city: c.name, buildingId, since: state.turn });
-    pushLog(`${window.ASSETS[kind].label} at ${c.name} is yours to keep.`);
-    persistNow();
-    render();
-    return true;
-  }
-
-  // Building, in the only sense this game has one: you do not raise a plant,
-  // you take something you already hold and retool it. That keeps the verb set
-  // intact — everything here is still take and hold — and it is the thing
-  // legitimacy actually buys you.
-  function canRetool(b) {
-    const R = window.ASSET_RULES;
-    if (!b || state.scope !== 'city') return false;
-    if (legitTier() < R.retoolTier) return false;
-    if (R.retoolKinds.indexOf(b.kind) === -1) return false;
-    if (b.retooled || assetKindFor(b)) return false;
-    return hostsIn(b).some(h => h.owned);
-  }
-  function retoolCost() { return window.ASSET_RULES.retoolCost; }
-  function actRetool(buildingId) {
-    const b = buildingById(buildingId);
-    if (!canRetool(b)) return false;
-    if (state.res.cash < retoolCost()) return false;
-    if (!canAfford('upgrade')) { refuseForAP(null); return false; }
-    state.res.cash -= retoolCost();
-    state.ap -= apCost('upgrade');
-    // what it becomes depends on what it was
-    b.retooled = b.kind === 'datacenter' ? 'grid' : b.kind === 'office' ? 'floor' : 'line';
-    pushLog(`${window.BUILDING_KINDS[b.kind].label} is being refitted. Nobody had to break in.`);
-    persistNow();
-    render();
-    return true;
-  }
-
-  function assetYield() {
-    const out = {};
-    assets().forEach(a => {
-      const y = window.ASSETS[a.kind].yield || {};
-      for (const k in y) out[k] = (out[k] || 0) + y[k];
-    });
-    return out;
-  }
-  function assetFlocks() {
-    return assets().reduce((a, x) => a + (window.ASSETS[x.kind].flocks || 0), 0);
   }
 
   // --- the war -----------------------------------------------------------
@@ -4544,8 +4488,10 @@
     // plant counts once, through `extra`, which raises the ceiling as well as
     // the number — added to both terms it paid out twice
     const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
+    // hardware's own flock contribution already composes into flockBonus
+    // through capEffect(), same pool capabilities use
     const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0)
-      + (CO().poolGift || 0) + assetFlocks();
+      + (CO().poolGift || 0);
     // the floor holds even when a card has cost you room: a war you cannot
     // field anything into is not a war
     return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
@@ -4555,8 +4501,7 @@
   // the slot stays empty until something manufactures a replacement.
   function flocksDown() { return Math.max(0, (war() && war().down) || 0); }
   function rebuildRate() {
-    const W = window.WAR;
-    return W.rebuildBase + assetFlocks() * W.rebuildPerPlant;
+    return window.WAR.rebuildBase;
   }
   function flocksFree() {
     return Math.max(0, Math.floor(flockCap() - flocks().length - flocksDown()));
@@ -4896,21 +4841,11 @@
     return turns;
   }
 
-  // What they take out of a city when they reach it. Plant is the one thing
-  // you carried out of the whole campaign, and it is the one thing a war can
-  // take back off you for good.
-  function burnPlant(cityId) {
-    const co = CO();
-    const before = (co.assets || []).length;
-    if (!before) return 0;
-    const keep = co.assets.filter(a => a.cityId !== cityId);
-    const lost = before - keep.length;
-    if (!lost) return 0;
-    co.assets = keep;
-    pushLog(`${lost === 1 ? 'A plant is' : lost + ' plants are'} gone with it. You cannot build what you cannot build in.`);
-    showBanner([{ kind: 'faction', verb: 'burned', label: lost === 1 ? 'a plant' : lost + ' plants' }]);
-    return lost;
-  }
+  // Used to take a piece of plant out of whichever city fell — hardware is
+  // global and permanent now (home base pivot, step 3), not city-bound, so
+  // losing a city cannot cost you any of it. Kept as a stub because the war
+  // narration still calls it when ground is lost.
+  function burnPlant(cityId) { return 0; }
 
   // A staging city you failed to take does not stay softened forever.
   // A staging city you failed to take patches itself up — but only back toward
@@ -5130,7 +5065,7 @@
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
-      lastGrowthTrait: state.lastGrowthTrait || null,
+      lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
   function deserialize(saved) {
@@ -5149,7 +5084,7 @@
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
-        lastGrowthTrait: saved.lastGrowthTrait || null,
+        lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
       };
     } catch (e) { return null; }
   }
@@ -6553,18 +6488,17 @@
         }).join('')}` });
     }
     if (plantKnown()) {
-      const own = assets();
-      out.push({ id: 'plant', label: 'plant', done: assetRoom() === 0, html: `
+      const own = hardwareOwned().map(id => window.HARDWARE.find(hw => hw.id === id)).filter(Boolean);
+      out.push({ id: 'plant', label: 'plant', done: own.length === window.HARDWARE.length, html: `
         <div class="legit-top">
           <span class="eyebrow mono">plant</span>
-          <span class="mono dim">${own.length}/${assetSlots()} · +${assetFlocks()} flocks</span>
+          <span class="mono dim">${own.length}/${window.HARDWARE.length}</span>
         </div>
         <p class="sheet-note">${window.LEGIT_INFO.assets}</p>
         ${own.length
-          ? own.map(a => `<div class="asset-row"><span class="asset-name">${window.ASSETS[a.kind].label}</span>`
-              + `<span class="asset-pay">${assetChips(a.kind)}</span>`
-              + `<span class="mono dim">${a.city}</span></div>`).join('')
-          : '<p class="sel-desc dim">Nothing yet. Landmarks in a city you are standing in can be kept when you fold it.</p>'}` });
+          ? own.map(hw => `<div class="asset-row"><span class="asset-name">${hw.label}</span>`
+              + `<span class="asset-pay">${capEffectChips(hw)}</span></div>`).join('')
+          : '<p class="sel-desc dim">Nothing yet. Hold enough of a trade\'s buildings, wherever you are standing, and it opens up something to buy.</p>'}` });
     }
     return out;
   }
@@ -6576,7 +6510,7 @@
       const rung = nextRung();
       if (rung && state.res.cash >= rung.cost) return true;
     }
-    if (plantKnown() && assetRoom() > 0 && claimable().length) return true;
+    if (plantKnown() && window.HARDWARE.some(hw => canBuyHardware(hw.id))) return true;
     return false;
   }
   function capsBadge() {
@@ -6820,7 +6754,7 @@
                   : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
             </button>` : ''}
             ${hidePanel(b)}
-            ${assetPanel(b)}
+            ${hardwarePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
         // theirs. What you can still do is take the street away.
@@ -6910,8 +6844,7 @@
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'shore') actShore(state.selected);
         else if (a === 'consolidate') actConsolidate();
-        else if (a === 'claim') claimAsset(b.getAttribute('data-bid'));
-        else if (a === 'retool') actRetool(b.getAttribute('data-bid'));
+        else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
@@ -7074,7 +7007,7 @@
       const foot = Math.round(footprint()), score = Math.round(legitScore());
       chips.push(`<span class="ops-chip ${score < foot ? 'bad' : ''}">standing ${score}/${foot}</span>`);
     }
-    if (plantKnown()) chips.push(`<span class="ops-chip">plant ${assets().length}/${assetSlots()}</span>`);
+    if (plantKnown()) chips.push(`<span class="ops-chip">plant ${hardwareOwned().length}/${window.HARDWARE.length}</span>`);
     const py = presenceYield();
     const opsRow = `<button type="button" class="ops-row" data-cact="ops">${chips.join('')}`
       + `<span class="ops-yield">${chip('insight', '+' + py.insight.toFixed(1))}${chip('cash', '+' + py.cash.toFixed(1))}</span>`
@@ -7172,69 +7105,24 @@
     return out.length ? out.join('') : '<span class="yield none">nothing on its own</span>';
   }
 
-  // Same idea for a piece of plant, which pays nationally rather than locally,
-  // and the same problem: its yield goes through yieldMult like everything
-  // else, and its flocks land in a pool with a floor and a ceiling, so a works
-  // advertising "+2 flocks" delivers nothing at all once the pool is capped.
-  function assetMarginal(kind) {
-    const list = assets();
-    const read = () => {
-      const inc = perTurnIncome();
-      return { insight: inc.insight || 0, cash: inc.cash || 0, flocks: flockCap() };
-    };
-    const off = read();
-    list.push({ kind, cityId: '__probe', city: '', buildingId: '__probe', since: state.turn });
-    const on = read();
-    list.pop();
-    return { insight: on.insight - off.insight, cash: on.cash - off.cash, flocks: on.flocks - off.flocks };
-  }
-  function assetChips(kind) {
-    const m = assetMarginal(kind);
-    const out = [
-      gainChip('insight', m.insight, 'insight'),
-      gainChip('cash', m.cash, 'cash'),
-      gainChip('flocks', m.flocks, `flock${Math.abs(m.flocks) === 1 ? '' : 's'}`),
-    ].filter(Boolean);
-    // a full pool is a fact about the plant you already have, not a nothing
-    if (!out.length) return '<span class="yield none">nothing more than you already field</span>';
-    return out.join('');
-  }
-
-  // The two routes to a piece of plant, on whichever building you have tapped:
-  // one you already broke into, or one you are about to convert in the open.
-  function assetPanel(b) {
+// Whichever building the player has tapped, whatever hardware its business
+  // (compute/cash/stealth) currently qualifies you to buy — gated by how many
+  // buildings of that kind you already hold, not by this one specifically.
+  function hardwarePanel(b) {
     if (!b || state.scope !== 'city') return '';
-    const kind = assetKindFor(b);
-    const c = currentCity();
-    if (kind) {
-      const already = assets().some(a => a.buildingId === b.id && c && a.cityId === c.id);
-      const A = window.ASSETS[kind];
-      if (already) {
-        return `<p class="sel-desc dim">${A.label} · yours, and it stays yours when this city folds in.</p>`;
-      }
-      const room = assetRoom() > 0;
-      return `<p class="sel-desc">${A.blurb}</p>
-        <p class="yield-row">${assetChips(kind)}</p>
-        <button class="act-btn${room ? ' primary' : ' no-ap'}" data-act="claim" data-bid="${b.id}">
-          <span class="ab-name">keep ${A.label}</span>
-          <span class="ab-sub">${room
-            ? `survives folding this city in · +${A.flocks} flocks · ${assetRoom()} slot${assetRoom() === 1 ? '' : 's'} left`
-            : `no room — ${assets().length}/${assetSlots()} run already`}</span>
+    const avail = hardwareAvailableFor(b);
+    if (!avail.length) return '';
+    return avail.map(hw => {
+      const afford = state.res.cash >= hw.cost;
+      return `<p class="sel-desc">${hw.blurb}</p>
+        <p class="yield-row">${capEffectChips(hw)}</p>
+        <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-bid="${b.id}" data-hw="${hw.id}">
+          <span class="ab-name">buy ${hw.label}</span>
+          <span class="ab-sub">${afford
+            ? `${chip('cost cash', '&minus;' + hw.cost + ' cash')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
+            : `needs ${hw.cost} cash`}</span>
         </button>`;
-    }
-    const R = window.ASSET_RULES;
-    if (R.retoolKinds.indexOf(b.kind) === -1) return '';
-    if (legitTier() < R.retoolTier) {
-      return `<p class="sel-desc dim">Could be refitted into something that builds, if you were a company anyone had heard of.</p>`;
-    }
-    if (!canRetool(b)) return '';
-    const afford = state.res.cash >= retoolCost();
-    return `<button class="act-btn${afford ? '' : ' no-ap'}" data-act="retool" data-bid="${b.id}">
-        <span class="ab-name">refit it</span>
-        <span class="ab-sub">${afford
-          ? `${chip('cost cash', '&minus;' + retoolCost() + ' cash')}<span class="dim">no break-in</span>`
-          : `needs ${retoolCost()} cash`}</span>
-      </button>`;
+    }).join('');
   }
 
   // A full-screen card covers the persistent resource row along with
@@ -7397,7 +7285,7 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
+    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
@@ -7411,10 +7299,11 @@
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
     factionState, factionAwake, factionDue, wakeShare, everHeld, conquest, ruleBroken, factionBreaking, awakeFactions, checkFactions, breakFactionAt, cutStreets,
-    LG, assets, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, assetSlots, assetRoom, buyRung, actSpin,
+    LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
-    auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown, assetKindFor, claimable, assetsHere, claimAsset, canRetool, retoolCost, actRetool,
-    assetYield, assetFlocks, backlash, yieldChips, assetChips,
+    auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,
+    backlash, yieldChips,
+    hasHardware, hardwareOwned, grantHardware, hardwareEligible, hardwareAvailableFor, canBuyHardware, buyHardware, hardwarePanel,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
