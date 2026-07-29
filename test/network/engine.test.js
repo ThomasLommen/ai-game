@@ -7189,3 +7189,95 @@ test("caps: Total Embed collapses Long Soak's wait to zero", () => {
   d.endTurn({ silent: true });
   assert.equal(h.owned, true, 'Total Embed protects it immediately, with no maturity wait at all');
 });
+
+// --- home base pivot, step 1b: the map grows live -------------------------
+
+test('home base: growHomeBase appends new ground without breaking what is already there', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const beforeBuildings = s.buildings.length;
+  const beforeHosts = s.hosts.length;
+  const beforeLinks = s.links.length;
+  const beforeDims = Object.assign({}, s.dims);
+  const survivorId = s.buildings[0].id;
+
+  const added = d.growHomeBase();
+
+  assert.ok(added.length > 0, 'it actually added something');
+  assert.equal(s.buildings.length, beforeBuildings + added.length);
+  assert.equal(s.hosts.length, beforeHosts + added.length, 'one building, one host, still');
+  assert.ok(s.links.length > beforeLinks, 'the new ground is wired in, not floating');
+  assert.equal(s.dims.cols, beforeDims.cols, 'width does not change');
+  assert.ok(s.dims.rows > beforeDims.rows, 'depth does');
+  assert.equal(s.buildings[0].id, survivorId, 'nothing already there was touched');
+  assert.ok(added.every(b => b.discovered === false), 'new ground starts as fog, same as any other');
+
+  // every id stays unique — new numbering must never collide with the old
+  const bids = s.buildings.map(b => b.id);
+  assert.equal(new Set(bids).size, bids.length, 'no duplicate building ids');
+  const hids = s.hosts.map(h => h.id);
+  assert.equal(new Set(hids).size, hids.length, 'no duplicate host ids');
+
+  // the whole map stays one connected network, old and new alike
+  const origin = s.hosts.find(h => h.origin);
+  const seen = {};
+  const stack = [origin.buildingId];
+  seen[origin.buildingId] = true;
+  while (stack.length) {
+    const cur = stack.pop();
+    (s.adjacency[cur] || []).forEach(n => { if (!seen[n]) { seen[n] = true; stack.push(n); } });
+  }
+  assert.equal(Object.keys(seen).length, s.buildings.length,
+    `${s.buildings.length - Object.keys(seen).length} buildings unreachable from the origin after growth`);
+});
+
+test('home base: repeated growth stays fully connected and collision-free', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  for (let i = 0; i < 5; i++) d.growHomeBase();
+
+  const bids = s.buildings.map(b => b.id);
+  assert.equal(new Set(bids).size, bids.length, 'no duplicate building ids across repeated growth');
+
+  const origin = s.hosts.find(h => h.origin);
+  const seen = {};
+  const stack = [origin.buildingId];
+  seen[origin.buildingId] = true;
+  while (stack.length) {
+    const cur = stack.pop();
+    (s.adjacency[cur] || []).forEach(n => { if (!seen[n]) { seen[n] = true; stack.push(n); } });
+  }
+  assert.equal(Object.keys(seen).length, s.buildings.length,
+    'every growth pass has to reconnect its own stragglers, not just the first one');
+});
+
+test('home base: growth fires automatically once reach crosses its milestone, only at home', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  assert.ok(d.reach() >= 10, 'reach is high enough to cross the first milestone');
+
+  const before = s.buildings.length;
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.ok(s.buildings.length > before, 'the home city grew on its own, no action spent on it');
+  assert.equal(s.homeGrowth, 1);
+
+  const afterFirst = s.buildings.length;
+  d.endTurn({ silent: true });
+  assert.equal(s.buildings.length, afterFirst, 'does not grow again until the next milestone');
+});
+
+test('home base: homeGrowth survives a save/load round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  d.growHomeBase();
+  s.homeGrowth = 3;
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.homeGrowth, 3);
+  assert.equal(round.buildings.length, s.buildings.length);
+});

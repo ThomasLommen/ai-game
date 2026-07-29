@@ -449,6 +449,169 @@
     return { buildings, hosts, links, adjacency, bands, originId: seat.id, dims: { cols, rows } };
   }
 
+  // Home base pivot, step 1b: the map grows live, in place, appended past the
+  // current far edge — not regenerated, and not decided all at once at turn
+  // one the way makeCity's own board is. Triggered by reach crossing a
+  // milestone (see endTurn()); a first-pass increment, not a measured one.
+  // New rows never touch a landmark or a terrain band — those are placed
+  // once, at generation, and growth only ever extends past them.
+  const HOME_GROWTH_ROWS = 2;
+  const HOME_GROWTH_REACH_STEP = 10;
+  function growHomeBase() {
+    const C = window.CITY;
+    const dims = state.dims || { cols: C.cols, rows: C.rows };
+    const cols = dims.cols;
+    const startRow = dims.rows;
+    const rowDistricts = C.rowDistricts;
+    const bands = state.bands || [];
+
+    let nextBidNum = 1 + (state.buildings || []).reduce((m, b) => Math.max(m, parseInt(b.id.slice(1), 10)), -1);
+    let nextHidNum = 1 + (state.hosts || []).reduce((m, h) => Math.max(m, parseInt(h.id.slice(1), 10)), -1);
+
+    const newBuildings = [];
+    for (let row = startRow; row < startRow + HOME_GROWTH_ROWS; row++) {
+      for (let col = 0; col < cols; col++) {
+        const districtKey = rowDistricts[row % rowDistricts.length];
+        const D = window.DISTRICTS[districtKey];
+        const bx = C.street + col * (C.blockW + C.street);
+        const by = C.street + row * (C.blockH + C.street);
+        const cells = [];
+        const cw = C.blockW / 2, ch = C.blockH / 2;
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
+        shuffleArr(cells);
+        const n = rndInt(C.perBlock[0], C.perBlock[1]);
+        for (let i = 0; i < Math.min(n, cells.length); i++) {
+          const cell = cells[i];
+          const kind = pick(D.kinds);
+          const K = window.BUILDING_KINDS[kind];
+          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
+          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
+          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
+          const by2 = Math.round(cell.y + (cell.h - h) / 2);
+          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
+          newBuildings.push({
+            id: 'b' + (nextBidNum++),
+            kind, district: districtKey, tier: D.tier,
+            block: row * cols + col, row, col,
+            x: bx2, y: by2, w, h,
+            hostIds: [],
+            discovered: false,
+          });
+        }
+      }
+    }
+
+    if (newBuildings.length) {
+      const newHosts = [];
+      newBuildings.forEach(b => {
+        const K = window.BUILDING_KINDS[b.kind];
+        const T = window.HOST_TYPES[K.host];
+        const h = {
+          id: 'h' + (nextHidNum++),
+          type: K.host, role: T.role, buildingId: b.id, district: b.district, ring: b.tier,
+          name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
+          defense: Math.max(1, Math.round(rndInt(T.defense[0], T.defense[1]) + b.tier * 2)),
+          threads: Math.round(rndInt(T.threads[0], T.threads[1])),
+          landmark: false,
+          x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2),
+          discovered: false, owned: false, stability: 1,
+        };
+        newHosts.push(h);
+        b.hostIds = [h.id];
+        b.hostId = h.id;
+      });
+
+      // append first, so link indices are stable and final before any get used
+      const hostIndex = {};
+      state.hosts.forEach((h, i) => { hostIndex[h.id] = i; });
+      newHosts.forEach(h => { state.hosts.push(h); hostIndex[h.id] = state.hosts.length - 1; });
+      state.buildings.push(...newBuildings);
+
+      // wire the new blocks to each other and to whatever sat on the old edge
+      // — only the last existing row can ever be adjacent to the new one
+      const boundary = state.buildings.filter(b => b.row === startRow - 1);
+      const pool = boundary.concat(newBuildings);
+      const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+      const MAX_LINK = 165, CROSSING_LINK = 340, NEIGHBOURS = 3;
+      const seenPair = {};
+      const hostOf = {};
+      state.hosts.forEach(h => { hostOf[h.buildingId] = h; });
+
+      newBuildings.forEach(a => {
+        const ca = centre(a);
+        const cands = pool
+          .filter(b => b !== a && blocksAdjacent(a, b))
+          .map(b => ({ b, d: Math.hypot(ca.x - centre(b).x, ca.y - centre(b).y) }))
+          .filter(o => {
+            const cb = centre(o.b);
+            if (segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return false;
+            const limit = segmentSpansBand(bands, ca.x, ca.y, cb.x, cb.y) ? CROSSING_LINK : MAX_LINK;
+            return o.d <= limit;
+          })
+          .sort((p, q) => p.d - q.d)
+          .slice(0, NEIGHBOURS);
+
+        cands.forEach(({ b }) => {
+          const key = a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id;
+          if (seenPair[key]) return;
+          seenPair[key] = true;
+          const ha = hostOf[a.id], hb = hostOf[b.id];
+          if (!ha || !hb) return;
+          state.links.push([hostIndex[ha.id], hostIndex[hb.id]]);
+          (state.adjacency[a.id] = state.adjacency[a.id] || []).push(b.id);
+          (state.adjacency[b.id] = state.adjacency[b.id] || []).push(a.id);
+        });
+      });
+
+      // A corner of the new growth that never wired back to anything old at
+      // all (neighbour search is capped in reach, same as makeCity's own) —
+      // stitch every such pocket to the nearest thing already on the network,
+      // the same way makeCity's own connectStragglers does.
+      (function connectStragglers() {
+        const centre2 = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+        const compOf = {};
+        let comp = 0;
+        state.buildings.forEach(b => {
+          if (compOf[b.id] !== undefined) return;
+          const stack = [b.id];
+          compOf[b.id] = comp;
+          while (stack.length) {
+            const cur = stack.pop();
+            (state.adjacency[cur] || []).forEach(n => {
+              if (compOf[n] === undefined) { compOf[n] = comp; stack.push(n); }
+            });
+          }
+          comp++;
+        });
+        if (comp <= 1) return;
+        const originBid = (state.hosts.find(h => h.origin) || {}).buildingId;
+        const main = originBid !== undefined && compOf[originBid] !== undefined ? compOf[originBid] : 0;
+        for (let c = 0; c < comp; c++) {
+          if (c === main) continue;
+          const group = state.buildings.filter(b => compOf[b.id] === c);
+          const target = state.buildings.filter(b => compOf[b.id] === main);
+          let best = null;
+          group.forEach(g => target.forEach(t => {
+            const cg = centre2(g), ct = centre2(t);
+            if (segmentBlocked(bands, cg.x, cg.y, ct.x, ct.y)) return;
+            const dd = Math.hypot(cg.x - ct.x, cg.y - ct.y);
+            if (!best || dd < best.d) best = { d: dd, g, t };
+          }));
+          if (!best) continue;
+          const hg = hostOf[best.g.id], ht = hostOf[best.t.id];
+          if (hg && ht) {
+            state.links.push([hostIndex[hg.id], hostIndex[ht.id]]);
+            (state.adjacency[best.g.id] = state.adjacency[best.g.id] || []).push(best.t.id);
+            (state.adjacency[best.t.id] = state.adjacency[best.t.id] || []).push(best.g.id);
+          }
+        }
+      })();
+    }
+
+    state.dims = { cols, rows: startRow + HOME_GROWTH_ROWS };
+    return newBuildings;
+  }
+
   function blocksAdjacent(a, b) {
     if (a.block === b.block) return true;
     const dr = Math.abs(a.row - b.row), dc = Math.abs(a.col - b.col);
@@ -1007,6 +1170,12 @@
   // would be a downgrade you took for the map.
   const presence = () => (state.country && state.country.presence) || 0;
 
+  // How big you are as an operation, rather than how much of this particular
+  // street you happen to be holding — `held` alone is zero every time you are
+  // standing on the country map between cities, which quietly made every
+  // capability gated on it unbuyable for most of the campaign.
+  function reach() { return owned().length + Math.round(presence() / 5); }
+
   function power() {
     const threadBonus = capEffect('threadBonus', 0);
     return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
@@ -1347,6 +1516,18 @@
     if (surfaced.length) {
       pushLog(`Settled ground gives up what's past it: ${surfaced.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`);
       startSweepFx(surfaced);
+    }
+    // Home base pivot, step 1b: the map keeps going, on its own, as reach
+    // crosses a milestone — only while actually standing in the home city,
+    // since every other city still generates and behaves the old way until
+    // step 1c removes them.
+    if (state.scope === 'city' && state.cityId === CO().homeId) {
+      const grown = state.homeGrowth || 0;
+      if (reach() >= (grown + 1) * HOME_GROWTH_REACH_STEP) {
+        const added = growHomeBase();
+        state.homeGrowth = grown + 1;
+        if (added.length) pushLog(`The map keeps going: ${added.length} more buildings just past the old edge.`);
+      }
     }
     swarmFrontStep();
 
@@ -2103,11 +2284,7 @@
       },
       seats: cities.filter(c => c.factionId && c.consolidated).length,
       conquest: conquest(),   // share of the country's defended cities you have finished
-      // How big you are as an operation, rather than how much of this
-      // particular street you happen to be holding. `held` is zero every time
-      // you are standing on the country map between cities, which quietly made
-      // every capability gated on it unbuyable for most of the campaign.
-      reach: owned().length + Math.round((co.presence || 0) / 5),
+      reach: reach(),
       ally: allyHere() ? { trust: state.ally.trust, name: state.ally.name, since: state.turn - state.ally.joined } : null,
       gone: (rule) => ruleBroken(rule),
       awake: (id) => factionAwake(id),
@@ -4850,7 +5027,7 @@
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
-      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region,
+      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
     };
   }
   function deserialize(saved) {
@@ -4867,7 +5044,7 @@
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
-        region: saved.region || 'home',
+        region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
       };
     } catch (e) { return null; }
   }
@@ -7101,7 +7278,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects,
+    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
