@@ -8,3 +8,5 @@ Thumbs.db
 .DS_Store
 # editor
 .vscode/
+# deps / tool caches
+node_modules/
