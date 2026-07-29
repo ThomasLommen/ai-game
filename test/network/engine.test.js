@@ -321,11 +321,16 @@ test('deep root: forcing a door loosens everything touching it, permanently', ()
   const s = d.state;
   s.caps = { deep_root: 1 };
   const seat = d.owned()[0];
-  const target = d.neighbours(seat).find(n => !n.owned);
+  // not just the first unowned neighbour: on some maps it has no neighbour
+  // of its own left to loosen, and the test setup itself would be invalid
+  let target = null, nextDoor = null;
+  for (const t of d.neighbours(seat).filter(n => !n.owned)) {
+    const nd = d.neighbours(t).find(n => n.id !== seat.id && !n.owned);
+    if (nd) { target = t; nextDoor = nd; break; }
+  }
+  assert.ok(target && nextDoor, 'a door with a neighbour of its own to loosen');
   target.discovered = true;
   target.defense = 1;
-  const nextDoor = d.neighbours(target).find(n => n.id !== seat.id && !n.owned);
-  assert.ok(nextDoor, 'the door has a neighbour of its own to loosen');
   // forced to a value the ripple can actually move: a low roll (e.g. a
   // router at defense 2) rounds right back to itself and reads as no change
   nextDoor.defense = 10;
@@ -343,11 +348,14 @@ test('deep root: without the capability, the block around a forced door is untou
   const s = d.state;
   s.caps = {};
   const seat = d.owned()[0];
-  const target = d.neighbours(seat).find(n => !n.owned);
+  let target = null, nextDoor = null;
+  for (const t of d.neighbours(seat).filter(n => !n.owned)) {
+    const nd = d.neighbours(t).find(n => n.id !== seat.id && !n.owned);
+    if (nd) { target = t; nextDoor = nd; break; }
+  }
+  assert.ok(target && nextDoor, 'a door with a neighbour of its own');
   target.discovered = true;
   target.defense = 1;
-  const nextDoor = d.neighbours(target).find(n => n.id !== seat.id && !n.owned);
-  assert.ok(nextDoor, 'the door has a neighbour of its own');
   const before = nextDoor.defense;
 
   d.openBreach(target.id);
@@ -2339,7 +2347,7 @@ test('deck: every card is reachable somewhere in a campaign', () => {
   // already happened, so their cond is deliberately false and the deck must
   // never pick them. They are reachable through the other door, which the next
   // test checks.
-  const delivered = new Set(window.__netDebug.CELL_REPORTS);
+  const delivered = new Set(window.__netDebug.AGENT_REPORTS);
   const dead = Object.keys(seen).filter(id => !seen[id] && !delivered.has(id));
   assert.equal(dead.length, 0, `unreachable cards: ${dead.join(', ')}`);
 });
@@ -2347,7 +2355,7 @@ test('deck: every card is reachable somewhere in a campaign', () => {
 test('deck: a delivered card is never drawn, and every one of them is delivered', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const reports = d.CELL_REPORTS;
+  const reports = d.AGENT_REPORTS;
   assert.ok(reports.length, 'there are reports to deliver');
 
   // none of them can come up on their own, whatever the board looks like
@@ -3960,12 +3968,13 @@ test('plant: a generated city has more than one business worth building up', () 
   assert.ok(present.size >= 2, `a city offers only ${present.size} hardware famil(y/ies)`);
 });
 
-// --- handing a city to somebody else -------------------------------------
+// --- sending an agent instead of walking it yourself ---------------------
 
-function readyToDelegate(d, W) {
+function readyForAgent(d, W) {
   const s = d.state, co = s.country;
-  // enough folded in that somebody will take work from you, and the cash for it
-  co.cities.filter(c => W.CITY_KINDS[c.kind].contest).slice(0, W.CELLS.at)
+  // enough folded in that there is compute to spare for this, and the cash
+  // an approach might cost
+  co.cities.filter(c => W.CITY_KINDS[c.kind].contest).slice(0, W.AGENTS.at)
     .forEach(c => { c.known = true; c.taken = true; c.consolidated = true; c.granted = c.worth; co.presence += c.worth; });
   co.cities.forEach(c => { c.known = true; });
   s.res.cash = 100000;
@@ -3974,53 +3983,63 @@ function readyToDelegate(d, W) {
   return co.cities.find(c => W.CITY_KINDS[c.kind].contest && !c.taken
     && d.cityReachable(c) && !d.mirrorHolds(c.id));
 }
+// Mirrors the two-step UI flow: opening the card, then picking an approach.
+function launchAgent(d, cityId, approachId) {
+  d.actLaunchAgent(cityId);
+  return d.resolveAgentCard(approachId || 'force');
+}
 
-test('cells: nobody takes work from you until you are worth working for', () => {
+test('agents: nobody spares the compute until you are worth working for', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   d.state.res.cash = 100000;
   d.state.ap = 99;
-  assert.equal(d.cellsKnown(), false, 'you are nobody yet');
+  assert.equal(d.agentsKnown(), false, 'you are nobody yet');
   const any = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest);
-  assert.equal(d.canDelegate(any.id), false, 'and so there is no one to hand it to');
-  readyToDelegate(d, window);
-  assert.equal(d.cellsKnown(), true, 'a few cities in, there is');
+  assert.equal(d.canLaunchAgent(any.id), false, 'and so there is nothing to send');
+  readyForAgent(d, window);
+  assert.equal(d.agentsKnown(), true, 'a few cities in, there is');
 });
 
-test('cells: they take the city, and they keep what was in it', () => {
+test('agents: picking an approach is what commits it, not opening the card', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
+  const target = readyForAgent(d, window);
+  d.actLaunchAgent(target.id);
+  assert.equal(d.state.card.kind, 'agent');
+  assert.equal(d.state.card.mode, 'launch');
+  assert.equal(target.agent, undefined, 'nothing is running yet — the card is not a resolve');
+});
+
+test('agents: it takes the city, in full, but you never see what was in it', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0.9 });   // above every failChance
+  const d = window.__netDebug;
   const s = d.state;
-  const target = readyToDelegate(d, window);
-  assert.ok(target, 'there is a city to hand over');
-  target.prize = 'plant';                        // something worth having
+  const target = readyForAgent(d, window);
+  target.prize = 'plant';
   const plant = d.hardwareOwned().length;
-  const cash = s.res.cash;
-  const price = d.cellCost();          // read before, because the next one costs more
+  const heat = s.heat;
 
-  assert.equal(d.actDelegate(target.id), true);
-  assert.equal(s.res.cash, cash - price, 'it is paid for');
-  assert.ok(d.cellCost() > price, 'and the next one has seen what this one got');
-  assert.ok(target.cell && !target.cell.done, 'and somebody is on it');
-  assert.equal(d.canDelegate(target.id), false, 'you cannot hand over the same city twice');
-  assert.equal(d.actReach(target.id), false, 'nor walk into a city you gave away');
+  assert.equal(launchAgent(d, target.id, 'force'), true);
+  assert.ok(target.agent && !target.agent.done, 'something is on it');
+  assert.equal(s.heat, heat + window.AGENT_APPROACHES.force.heat, 'the approach costs heat up front');
+  assert.equal(d.canLaunchAgent(target.id), false, 'you cannot send a second one at the same city');
+  assert.equal(d.actReach(target.id), false, 'nor walk into a city one is already inside');
 
-  // it finishes on its own
-  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
-  assert.ok(target.cell.done, 'they finish');
+  for (let i = 0; i < 40 && !target.agent.done; i++) { s.turn += 1; d.agentStep(); }
+  assert.ok(target.agent.done, 'it finishes');
   assert.ok(target.consolidated, 'and it is yours');
 
-  // at a cut, and without the prize
-  assert.ok(target.granted < target.worth, `they took no cut: ${target.granted} of ${target.worth}`);
+  // no cut, and without the prize
+  assert.equal(target.granted, target.worth, 'no cut — it is your own compute, not a contractor');
   assert.equal(d.hardwareOwned().length, plant, 'the prize did not come to you');
   assert.equal(target.prizeTaken, true, 'and it is gone rather than still waiting');
 });
 
-test('cells: walking it yourself is what the prize is for', () => {
+test('agents: walking it yourself is what the prize is for', () => {
   const { window } = loadNetwork();
-  const a = loadNetwork().window.__netDebug;
   const d = window.__netDebug;
-  const target = readyToDelegate(d, window);
+  const target = readyForAgent(d, window);
   target.prize = 'plant';
   const plant = d.hardwareOwned().length;
 
@@ -4028,82 +4047,132 @@ test('cells: walking it yourself is what the prize is for', () => {
   target.taken = true;
   d.awardPrize(target);
   assert.ok(d.hardwareOwned().length > plant, 'going yourself is what hands it over');
-  assert.ok(a, 'and the two routes are genuinely different outcomes');
 });
 
-test('cells: one at a time, so it is a delegation and not a second army', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const first = readyToDelegate(d, window);
-  assert.equal(d.actDelegate(first.id), true);
-  const other = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest
-    && !c.taken && !c.cell && d.cityReachable(c) && !d.mirrorHolds(c.id));
-  if (other) assert.equal(d.canDelegate(other.id), false, 'they are already on something');
-  assert.equal(d.cellsOpen(), 1);
-});
-
-test('cells: there is a ceiling on how much of the country you hand out', () => {
-  const { window } = loadNetwork();
+test('agents: a failed attempt does not lose the city — it costs the clock and opens the door again', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0 });   // below every failChance
   const d = window.__netDebug;
   const s = d.state;
-  readyToDelegate(d, window);
-  let handed = 0;
+  const target = readyForAgent(d, window);
+  const heat = s.heat;
+
+  assert.equal(launchAgent(d, target.id, 'quiet'), true);
+  const doneAtAfterLaunch = target.agent.doneAt;
+  s.turn = doneAtAfterLaunch;
+  d.agentStep();
+
+  assert.ok(!target.taken, 'the city is not lost, or taken — it just failed');
+  assert.ok(target.agent.doneAt > doneAtAfterLaunch, 'the clock moved, and the delay does not undo itself');
+  assert.ok(s.heat > heat + window.AGENT_APPROACHES.quiet.heat, 'a failed attempt was noticed on top of the approach itself');
+  assert.equal(s.card.kind, 'agent');
+  assert.equal(s.card.mode, 'retry', 'and it opens the same choice again');
+});
+
+test('agents: calling it off frees the slot, not the lifetime it already cost', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0 });
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = readyForAgent(d, window);
+  launchAgent(d, target.id, 'quiet');
+  const doneAtAfterLaunch = target.agent.doneAt;
+  s.turn = doneAtAfterLaunch;
+  d.agentStep();
+  assert.equal(s.card.mode, 'retry');
+
+  assert.equal(d.resolveAgentCard('back'), true);
+  assert.equal(target.agent, undefined, 'the operation is gone');
+  assert.equal(d.agentRunning(), false, 'the one-at-a-time slot is free again');
+  assert.equal(d.agentsLaunched(), 1, 'but it still cost one of the lifetime total');
+});
+
+test('agents: a retry can pick a different approach, and pays that approach\'s heat too', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0 });
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = readyForAgent(d, window);
+  launchAgent(d, target.id, 'quiet');
+  s.turn = target.agent.doneAt;
+  d.agentStep();
+  const heat = s.heat;
+  assert.equal(d.resolveAgentCard('force'), true);
+  assert.equal(target.agent.approach, 'force');
+  assert.equal(s.heat, heat + window.AGENT_APPROACHES.force.heat);
+});
+
+test('agents: the lifetime cap grows with the compute you run', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const base = d.agentCapEver();
+  d.grantHardware('rack_space');       // compute, tier 1
+  assert.equal(d.agentCapEver(), base + 1, 'one tier of compute, one more ever');
+  d.grantHardware('distributed_batch'); // compute, tier 2
+  assert.equal(d.agentCapEver(), base + 2);
+  d.grantHardware('dead_drops');        // stealth — does not count
+  assert.equal(d.agentCapEver(), base + 2, 'only compute raises it');
+});
+
+test('agents: there is a ceiling on how many you may ever send', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0.9 });
+  const d = window.__netDebug;
+  const s = d.state;
+  readyForAgent(d, window);
+  let sent = 0;
   for (let i = 0; i < 12; i++) {
-    const next = s.country.cities.find(c => d.canDelegate(c.id));
+    const next = s.country.cities.find(c => d.canLaunchAgent(c.id));
     if (!next) break;
-    d.actDelegate(next.id);
-    handed++;
+    launchAgent(d, next.id, 'force');
+    sent++;
     // run it out so the slot frees up for the next one
-    for (let t = 0; t < 40 && !next.cell.done; t++) { s.turn += 1; d.cellStep(); }
+    for (let t = 0; t < 40 && !next.agent.done; t++) { s.turn += 1; d.agentStep(); }
     s.ap = 99;
   }
-  assert.equal(handed, window.CELLS.maxTotal,
-    `handed over ${handed} cities against a ceiling of ${window.CELLS.maxTotal}`);
+  assert.equal(sent, d.agentCapEver(),
+    `sent ${sent} agents against a ceiling of ${d.agentCapEver()}`);
   assert.ok(s.country.cities.some(c => window.CITY_KINDS[c.kind].contest && !c.taken),
     'and there is still a country left for you to walk');
 });
 
-test('cells: an operation you never visited is still one they can see', () => {
-  const { window } = loadNetwork();
+test('agents: an operation you never visited is still one they can see', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0.9 });
   const d = window.__netDebug;
   const s = d.state;
-  const target = readyToDelegate(d, window);
+  const target = readyForAgent(d, window);
   const before = d.footprint();
-  d.actDelegate(target.id);
-  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
-  assert.ok(d.footprint() > before + window.CELLS.footprint * 0.9,
+  launchAgent(d, target.id, 'force');
+  for (let i = 0; i < 40 && !target.agent.done; i++) { s.turn += 1; d.agentStep(); }
+  assert.ok(d.footprint() > before + window.AGENTS.footprint * 0.9,
     'running a city you have never been to should be harder to miss, not easier');
 });
 
-test('cells: finishing hands you a report, and it is one of the delivered cards', () => {
-  const { window } = loadNetwork();
+test('agents: finishing hands you a report, and it is one of the delivered cards', () => {
+  const { window } = loadNetwork({ pinMathRandom: 0.9 });
   const d = window.__netDebug;
   const s = d.state;
-  const target = readyToDelegate(d, window);
-  d.actDelegate(target.id);
-  for (let i = 0; i < 40 && !target.cell.done; i++) { s.turn += 1; d.cellStep(); }
-  assert.ok((s.forced || []).length, 'they report back');
-  assert.ok(d.CELL_REPORTS.indexOf(s.forced[0]) !== -1,
+  const target = readyForAgent(d, window);
+  launchAgent(d, target.id, 'force');
+  for (let i = 0; i < 40 && !target.agent.done; i++) { s.turn += 1; d.agentStep(); }
+  assert.ok((s.forced || []).length, 'it reports back');
+  assert.ok(d.AGENT_REPORTS.indexOf(s.forced[0]) !== -1,
     `${s.forced[0]} is not a report`);
 });
 
-test('cells: a report survives a save, because it is owed to you', () => {
+test('agents: a report survives a save, because it is owed to you', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  d.state.forced = ['cell_clean'];
+  d.state.forced = ['agent_clean'];
   const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
-  assert.deepEqual(back.forced, ['cell_clean']);
+  assert.deepEqual(back.forced, ['agent_clean']);
 });
 
-test('cells: nobody is taking cities once they have mobilised', () => {
+test('agents: nobody is taking cities once they have mobilised', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const target = readyToDelegate(d, window);
-  assert.equal(d.canDelegate(target.id), true, 'in peacetime, yes');
+  const target = readyForAgent(d, window);
+  assert.equal(d.canLaunchAgent(target.id), true, 'in peacetime, yes');
   conqueredCountry(d, window);
   d.openWar();
   const still = d.state.country.cities.find(c => window.CITY_KINDS[c.kind].contest && !c.taken);
-  if (still) assert.equal(d.canDelegate(still.id), false, 'and not once it is a war');
+  if (still) assert.equal(d.canLaunchAgent(still.id), false, 'and not once it is a war');
 });
 
 // --- the other process ---------------------------------------------------

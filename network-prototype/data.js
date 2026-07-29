@@ -2057,26 +2057,26 @@ window.EVENTS = [
     ],
   },
 
-  // --- what the cell did with the city you gave it -----------------------
-  // These are never drawn. They are delivered, when a cell finishes, which is
-  // why their cond is false — a report is about something that already
+  // --- what the agent found in the city it took ---------------------------
+  // These are never drawn. They are delivered, when an agent finishes, which
+  // is why their cond is false — a report is about something that already
   // happened rather than something the deck felt like saying. The city is
-  // already yours by the time you read one; what is on the table is what your
-  // relationship with them costs from here.
+  // already yours by the time you read one; what is on the table is what
+  // running something you were not there for costs from here.
   {
-    id: 'cell_kept_it', cond: () => false,
-    title: 'They Kept the Best Part',
-    flavor: 'The city is yours and the paperwork is immaculate. The one building in it worth having is not mentioned anywhere in the paperwork.',
+    id: 'agent_kept_it', cond: () => false,
+    title: 'It Flagged Something It Could Not Value',
+    flavor: 'The takeover finished clean, and it logged one building it could not price — not owned, not empty, and outside whatever it was told to look for.',
     choices: [
-      { text: 'Buy it off them', cost: { cash: 200 }, apply: (s) => { s.plantGift = true; } },
-      { text: 'Let them keep it', apply: (s) => { s.res.cash += 90; s.standing = 8; } },
-      { text: 'Take it back', apply: (s) => { s.heat += 8; s.plantGift = 'yard'; s.exposure = 1.2; } },
+      { text: 'Buy it outright', cost: { cash: 200 }, apply: (s) => { s.plantGift = true; } },
+      { text: 'Leave it flagged and move on', apply: (s) => { s.res.cash += 90; s.standing = 8; } },
+      { text: 'Take it the way you took the rest', apply: (s) => { s.heat += 8; s.plantGift = true; s.exposure = 1.2; } },
     ],
   },
   {
-    id: 'cell_burned_it', cond: () => false,
+    id: 'agent_burned_it', cond: () => false,
     title: 'Thorough',
-    flavor: 'They took it in nine days. Four streets are not coming back and somebody has been talking to a reporter about who owns what now.',
+    flavor: 'It took nine days and did not stop to be careful. Four streets are not coming back, and somebody has been talking to a reporter about who owns what now.',
     choices: [
       { text: 'Pay for the damage', cost: { cash: 150 }, apply: (s) => { s.standing = 14; } },
       { text: 'Say nothing and let it settle', apply: (s) => { s.heat += 10; s.exposure = 1.4; } },
@@ -2084,23 +2084,23 @@ window.EVENTS = [
     ],
   },
   {
-    id: 'cell_wants_more', cond: () => false,
-    title: 'They Would Like a Word',
-    flavor: 'It went well. It went well enough that they have started using the word "we", and they have a suggestion about the next one.',
+    id: 'agent_wants_more', cond: () => false,
+    title: 'It Left Something Running',
+    flavor: 'It went well enough that a piece of it is still out there, quietly doing the same job on its own initiative, in a city nobody told it to keep working.',
     choices: [
-      { text: 'Put them on the books', cost: { cash: 180 }, apply: (s) => { s.standing = 20; s.plantGift = true; } },
-      { text: 'Keep it at arm\'s length', apply: (s) => { s.res.insight += 30; s.exposure = 1.1; } },
-      { text: 'End the arrangement', apply: (s) => { s.res.cash += 120; s.standing = -10; } },
+      { text: 'Put it on the books', cost: { cash: 180 }, apply: (s) => { s.standing = 20; s.plantGift = true; } },
+      { text: 'Leave it running, quietly', apply: (s) => { s.res.insight += 30; s.exposure = 1.1; } },
+      { text: 'Shut it down', apply: (s) => { s.res.cash += 120; s.standing = -10; } },
     ],
   },
   {
-    id: 'cell_clean', cond: () => false,
+    id: 'agent_clean', cond: () => false,
     title: 'No Notes',
     flavor: 'A city changed hands and the only record of it is a set of filings so dull that three separate people have now signed them without reading.',
     choices: [
       { text: 'Pay the bonus', cost: { cash: 120 }, apply: (s) => { s.standing = 18; } },
       { text: 'Take the win', apply: (s) => { s.res.cash += 60; } },
-      { text: 'Ask how they did it', cost: { insight: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
+      { text: 'Ask how it did it', cost: { insight: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
     ],
   },
 ];

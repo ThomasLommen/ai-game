@@ -1580,7 +1580,7 @@
     chaseStep();          // whether the one you walked away from has found you
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
-    cellStep();           // whoever you sent, and whether they have finished
+    agentStep();          // whatever you sent, and whether it has finished
     // Heat/hunt rework: crossing the threshold is permanent, not a one-time
     // fine — there is no strike card at all any more. Below HUNT.minHeld
     // buildings the hunt simply cannot exist yet, so a crossing that early
@@ -3425,9 +3425,9 @@
   function actReach(id) {
     const c = cityById(id);
     if (!c || cityLost(c) || !cityReachable(c) || !canAffordCountry('reach')) return false;
-    // you handed this one over; walking into it yourself is not a second
+    // an agent is already inside; walking into it yourself is not a second
     // route in, it is two of you working the same streets
-    if (c.cell && !c.cell.done) return false;
+    if (c.agent && !c.agent.done) return false;
     state.ap -= countryCost('reach');
     const K = window.CITY_KINDS[c.kind];
     if (!K.contest) {
@@ -3562,70 +3562,127 @@
     return true;
   }
 
-  // --- handing a city to somebody else ------------------------------------
-  // The counterweight to the prize. Walking a city is forty turns; a cell
-  // takes six to ten of them without your attention, and keeps what was in it.
-  // So a city carrying something you want is a city you go to yourself, and a
-  // city that is only presence is one you buy your way out of.
-  function cells() { return (CO().cities || []).filter(c => c.cell); }
-  function cellsOpen() { return cells().filter(c => !c.cell.done).length; }
-  function cellsKnown() {
-    return (CO().cities || []).filter(c => c.consolidated).length >= window.CELLS.at;
+  // --- sending an agent instead of walking it yourself ---------------------
+  // The counterweight to the prize. Walking a city is forty turns; an agent
+  // takes six to ten of them without your attention, and you never see what
+  // was in it. So a city carrying something you want is a city you go to
+  // yourself, and a city that is only presence is one you point compute at.
+  function agents() { return (CO().cities || []).filter(c => c.agent); }
+  function agentRunning() { return agents().some(c => !c.agent.done); }
+  function agentsKnown() {
+    return (CO().cities || []).filter(c => c.consolidated).length >= window.AGENTS.at;
   }
-  // Each one costs more than the last: they have seen what the one before got.
-  function cellsDone() { return (CO().cities || []).filter(c => c.cell).length; }
-  function cellCost() {
-    const C = window.CELLS;
-    return Math.round(C.cost * (1 + cellsDone() * C.costGrowth));
+  // Ever launched, win or lose — the lifetime cap is spent the moment one
+  // goes out, not when it succeeds.
+  // Not agents().length: calling one off deletes c.agent, and backing out
+  // does not refund the lifetime cap, only the one-running-at-a-time slot.
+  function agentsLaunched() { return CO().agentsSent || 0; }
+  // The cap grows with compute: every tier of compute hardware you run is
+  // more of your own cycles to spare on something that is not making you money.
+  function agentCapEver() {
+    const A = window.AGENTS;
+    const compute = hardwareOwned().filter(id => {
+      const hw = window.HARDWARE.find(x => x.id === id);
+      return hw && hw.family === 'compute';
+    }).length;
+    return A.maxTotal + compute * A.capPerCompute;
   }
-  function canDelegate(cityId) {
-    const C = window.CELLS;
+  function canLaunchAgent(cityId) {
+    const A = window.AGENTS;
     if (warOn() || state.card || state.over) return false;
-    if (!cellsKnown()) return false;
+    if (!agentsKnown()) return false;
     const c = cityById(cityId);
-    if (!c || c.taken || c.cell) return false;
+    if (!c || c.taken || c.agent) return false;
     if (!window.CITY_KINDS[c.kind].contest) return false;   // towns already fold as a card
     if (mirrorHolds(c.id)) return false;
     if (!cityReachable(c)) return false;
-    if (cellsOpen() >= C.maxOpen) return false;
-    if (cellsDone() >= C.maxTotal) return false;
-    return state.res.cash >= cellCost();
+    if (agentRunning()) return false;
+    if (agentsLaunched() >= agentCapEver()) return false;
+    return true;
   }
-  function actDelegate(cityId) {
-    if (!canDelegate(cityId)) return false;
-    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
-    const C = window.CELLS;
-    const c = cityById(cityId);
-    state.res.cash -= cellCost();
-    state.ap -= countryCost('move');
-    c.cell = { since: state.turn, doneAt: state.turn + rndInt(C.turns[0], C.turns[1]), done: false };
-    c.known = true;
-    pushLog(`${C.name} takes ${c.name}. ${C.blurb}`);
-    showBanner([{ kind: 'stage', verb: 'handed over', label: c.name }]);
+  // Opens the approach card — picking one is what actually commits an agent,
+  // same as breaching a door. Opening it costs nothing.
+  function actLaunchAgent(cityId) {
+    if (!canLaunchAgent(cityId)) return false;
+    state.card = { kind: 'agent', cityId, mode: 'launch' };
+    render();
+    return true;
+  }
+  function agentApproachOptions(mode) {
+    // a retry can back out; the first attempt cannot, there is nothing yet to
+    // back out of
+    const back = mode === 'retry' ? [{ id: 'back', label: 'call it off', blurb: 'Whatever it has learned about the door stays learned. Nothing else does.' }] : [];
+    return Object.values(window.AGENT_APPROACHES).concat(back);
+  }
+  function resolveAgentCard(choiceId) {
+    const card = state.card;
+    if (!card || card.kind !== 'agent') return false;
+    const c = cityById(card.cityId);
+    if (!c) { state.card = null; render(); return false; }
+    if (choiceId === 'back') {
+      delete c.agent;
+      state.card = null;
+      pushLog(`Called it back from ${c.name}. Whatever it learned about the door is lost with it.`);
+      persistNow();
+      render();
+      return true;
+    }
+    const app = window.AGENT_APPROACHES[choiceId];
+    if (!app) return false;
+    // not canAffordCountry(): that also refuses whenever a card is open, and
+    // resolving this very card is exactly that moment
+    if (card.mode === 'launch' && (state.over || state.ap < countryCost('move'))) { refuseForAP(null); return false; }
+    if (app.cost && app.cost.cash && state.res.cash < app.cost.cash) return false;
+    if (app.cost && app.cost.cash) state.res.cash -= app.cost.cash;
+    if (card.mode === 'launch') state.ap -= countryCost('move');
+    state.heat = clampHeat(state.heat + app.heat);
+    if (card.mode === 'launch') {
+      const A = window.AGENTS;
+      c.agent = { since: state.turn, doneAt: state.turn + Math.round(rndInt(A.turns[0], A.turns[1]) * app.turnMult), done: false, approach: app.id };
+      c.known = true;
+      CO().agentsSent = (CO().agentsSent || 0) + 1;
+      pushLog(`${A.name} takes ${c.name}, ${app.label}. ${app.blurb}`);
+      showBanner([{ kind: 'stage', verb: 'sent', label: c.name }]);
+    } else {
+      c.agent.approach = app.id;
+      pushLog(`Tries again at ${c.name}, ${app.label}.`);
+    }
+    state.card = null;
     persistNow();
     render();
     return true;
   }
   // Every turn, whoever has finished reports. The city is already yours by
-  // then — the card is about what it cost you to not have been there.
-  const CELL_REPORTS = ['cell_kept_it', 'cell_burned_it', 'cell_wants_more', 'cell_clean'];
-  function cellStep() {
-    const C = window.CELLS;
+  // then — the card is about what it cost you to not have been there. A
+  // failed roll does not lose the city, it costs the clock and opens the same
+  // approach card again — the delay it adds is permanent, whichever approach
+  // is picked next.
+  const AGENT_REPORTS = ['agent_kept_it', 'agent_burned_it', 'agent_wants_more', 'agent_clean'];
+  function agentStep() {
+    const A = window.AGENTS;
     const out = [];
-    cells().forEach(c => {
-      if (c.cell.done || state.turn < c.cell.doneAt) return;
-      c.cell.done = true;
+    agents().forEach(c => {
+      if (c.agent.done || state.turn < c.agent.doneAt) return;
+      const app = window.AGENT_APPROACHES[c.agent.approach];
+      if (Math.random() < app.failChance) {
+        c.agent.doneAt = state.turn + rndInt(A.failDelay[0], A.failDelay[1]);
+        state.heat = clampHeat(state.heat + A.failHeat);
+        pushLog(`${c.name} did not give, ${app.label}. It is still trying.`);
+        state.card = { kind: 'agent', cityId: c.id, mode: 'retry' };
+        return;
+      }
+      c.agent.done = true;
       c.taken = true;
       c.consolidated = true;
-      // their cut comes off the top, and the prize was never yours
-      const gained = Math.max(1, Math.round(c.worth * C.share));
-      c.granted = gained;
+      // no cut: it is your own compute, not a contractor's — but the prize
+      // still went unattended, same as it always has
+      c.granted = c.worth;
       c.prizeTaken = true;
-      CO().presence += gained;
+      CO().presence += c.worth;
       // an operation running under your name that you have never visited is
       // still an operation running under your name
-      LG().cellFoot = (LG().cellFoot || 0) + C.footprint;
-      pushLog(`${c.name} is yours. ${gained} presence, which is what is left after their share.`);
+      LG().agentFoot = (LG().agentFoot || 0) + A.footprint;
+      pushLog(`${c.name} is yours. ${c.worth} presence, and nobody had to be there for it.`);
       out.push(c);
       breakFactionAt(c.id);
     });
@@ -3633,7 +3690,7 @@
       checkFactions();
       // one report a turn: two cards back to back is a queue, not an event
       state.forced = (state.forced || []).concat(
-        out.map(() => CELL_REPORTS[Math.floor(Math.random() * CELL_REPORTS.length)]));
+        out.map(() => AGENT_REPORTS[Math.floor(Math.random() * AGENT_REPORTS.length)]));
     }
     return out;
   }
@@ -4128,7 +4185,7 @@
   function footprint() {
     const L = window.LEGIT;
     return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
-      + (LG().cellFoot || 0);
+      + (LG().agentFoot || 0);
   }
 
   function buyRung(id) {
@@ -5660,8 +5717,15 @@
     // A city carrying something worth having is marked on the map itself, not
     // only in the panel: which city to walk next is a decision you make while
     // looking at the country, and it should be answerable at a glance.
-    if (c.cell && !c.cell.done) {
-      out += `<circle class="working" cx="${c.x}" cy="${c.y}" r="${r + 5}"/>`;
+    if (c.agent && !c.agent.done) {
+      // a small bar filling, not just a spinner: how close it is to reporting
+      // back is answerable at a glance, same as everything else on this map
+      const cr = r + 5;
+      const circ = 2 * Math.PI * cr;
+      const span = Math.max(1, c.agent.doneAt - c.agent.since);
+      const frac = Math.max(0, Math.min(1, (state.turn - c.agent.since) / span));
+      out += `<circle class="working" cx="${c.x}" cy="${c.y}" r="${cr}"
+        stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${(circ * (1 - frac)).toFixed(1)}"/>`;
     }
     if (c.known && cityPrize(c) && !c.prizeTaken && !theirs && !warOn()) {
       out += `<circle class="prize" cx="${c.x + r * 0.86}" cy="${c.y - r * 0.86}" r="3.6"/>`;
@@ -6875,8 +6939,9 @@
       } else if (warOn() && sel.consolidated) {
         const left = w.integrity[sel.id];
         lines.push(`yours · ${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls`);
-      } else if (sel.cell && !sel.cell.done) {
-        lines.push(`${window.CELLS.name} is on it · ${Math.max(0, sel.cell.doneAt - state.turn)} turns`);
+      } else if (sel.agent && !sel.agent.done) {
+        const app = window.AGENT_APPROACHES[sel.agent.approach];
+        lines.push(`${window.AGENTS.name} is on it, ${app.label} · ${Math.max(0, sel.agent.doneAt - state.turn)} turns`);
       } else if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
       else if (sel.taken) lines.push('you have a foothold here');
       else if (warOn()) lines.push('out of the war — nothing stages from here');
@@ -6885,7 +6950,7 @@
       if (fac && facSt.broken) lines.push(`${fac.name} is finished`);
 
       const acts = [];
-      if (!sel.taken && !(sel.cell && !sel.cell.done) && cityReachable(sel) && !warOn()) {
+      if (!sel.taken && !(sel.agent && !sel.agent.done) && cityReachable(sel) && !warOn()) {
         acts.push(`<button class="act-btn ${countryApShort('reach') ? 'no-ap' : 'primary'}" data-cact="reach" data-ap="reach" data-city="${sel.id}">
           <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
           <span class="ab-sub">${countryApShort('reach') ? 'no actions left' : `${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action`}</span>
@@ -6905,17 +6970,15 @@
       }
       // The counterweight to the prize, offered on the same city, so the two
       // are read against each other rather than in different places.
-      if (!sel.taken && !sel.cell && cellsKnown() && cityReachable(sel)
+      if (!sel.taken && !sel.agent && agentsKnown() && cityReachable(sel)
           && window.CITY_KINDS[sel.kind].contest && !warOn() && !mirrorHolds(sel.id)) {
-        const able = canDelegate(sel.id);
-        const busy = cellsOpen() >= window.CELLS.maxOpen;
+        const able = canLaunchAgent(sel.id);
         const P = cityPrize(sel);
-        acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="delegate" data-city="${sel.id}">
-          <span class="ab-name">hand it to ${window.CELLS.name}</span>
-          <span class="ab-sub">${cellsDone() >= window.CELLS.maxTotal ? 'you have used up what they will do for you'
-            : busy ? 'they are already on something'
-            : state.res.cash < cellCost() ? `needs ${cellCost()} cash`
-            : `${chip('cover', Math.max(1, Math.round(sel.worth * window.CELLS.share)) + ' presence')}${chip('cost cash', '&minus;' + cellCost() + ' cash')}${P && !sel.prizeTaken ? chip('cost none', 'they keep it') : ''}`}</span>
+        acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="launch-agent" data-city="${sel.id}">
+          <span class="ab-name">send ${window.AGENTS.name}</span>
+          <span class="ab-sub">${agentsLaunched() >= agentCapEver() ? 'you have used up what compute can spare for this'
+            : agentRunning() ? 'one is already out there'
+            : `${chip('cover', sel.worth + ' presence')}${P && !sel.prizeTaken ? chip('cost none', 'never see the plant') : ''}`}</span>
         </button>`);
       }
       if (!sel.taken && !cityReachable(sel) && !warOn()) {
@@ -7030,7 +7093,7 @@
         const a = b.getAttribute('data-cact');
         const id = b.getAttribute('data-city');
         if (a === 'reach') actReach(id);
-        else if (a === 'delegate') actDelegate(id);
+        else if (a === 'launch-agent') actLaunchAgent(id);
         else if (a === 'travel') actTravel(id);
         else if (a === 'launch') actLaunch(id);
         else if (a === 'guard') actGuard(id);
@@ -7192,6 +7255,37 @@
       return;
     }
 
+    if (state.card.kind === 'agent') {
+      const city = cityById(state.card.cityId);
+      if (!city) { state.card = null; renderPanel(); return; }
+      const retry = state.card.mode === 'retry';
+      const A = window.AGENTS;
+      $p.innerHTML = `
+        ${cardResourceStrip()}
+        <div class="card">
+          <span class="card-kicker mono">${A.name.toUpperCase()}</span>
+          <h2 class="serif">${retry ? `${city.name} Did Not Give` : `Send ${A.name} at ${city.name}`}</h2>
+          <p class="flavor">${retry ? `The first attempt was noticed and cost the clock. It is still capable of trying again, a different way — or not trying at all.` : A.blurb}</p>
+        </div>
+        <div class="choices">
+          ${agentApproachOptions(state.card.mode).map(a => {
+            const isBack = a.id === 'back';
+            const afford = !a.cost || !a.cost.cash || state.res.cash >= a.cost.cash;
+            const contracts = [];
+            if (a.cost && a.cost.cash) contracts.push(`<span class="cost ${afford ? '' : 'unmet'}">&minus;${a.cost.cash} CASH</span>`);
+            if (a.heat) contracts.push(`<span class="cost heat">+${a.heat} HEAT</span>`);
+            return `<button class="choice-strip" data-app="${a.id}" ${isBack || afford ? '' : 'disabled'}>
+              <span class="ctext">${a.label}</span>
+              <span class="contracts">${isBack ? '<span class="cost free">costs nothing</span>' : contracts.join('')}</span>
+            </button>`;
+          }).join('')}
+        </div>`;
+      $p.querySelectorAll('[data-app]:not([disabled])').forEach(b => {
+        b.addEventListener('click', () => resolveAgentCard(b.getAttribute('data-app')));
+      });
+      return;
+    }
+
     const h = hostById(state.card.hostId);
     const T = window.HOST_TYPES[h.type];
     const list = approachesFor(h);
@@ -7289,7 +7383,7 @@
     swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
-    cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
+    agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
