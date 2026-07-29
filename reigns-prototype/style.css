@@ -513,6 +513,8 @@ body {
 }
 #continue-act2:hover { background: color-mix(in srgb, var(--item) 12%, var(--surface)); }
 
+footer .build { display: block; margin-top: 6px; opacity: .55; font-size: 10px; }
+
 footer {
   width: 100%;
   max-width: 480px;

@@ -13,6 +13,13 @@
   --cover: #6f8f83;
   --heat: #d9705f;
   --item: #c9a15c;
+  /* The page is drawn with viewport-fit=cover, so it extends underneath the
+     system bars and has to inset itself. The floor matters as much as the
+     env(): plenty of Android gesture-nav setups report a bottom inset of 0
+     while the bar still sits over the bottom of the screen, and the bottom of
+     this screen is where "end turn" lives. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: max(14px, env(safe-area-inset-bottom, 0px));
 }
 
 * { box-sizing: border-box; }
@@ -21,34 +28,71 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  min-height: 100dvh;
+  /* An app shell, not a document. Everything is sized to the window and the
+     page itself never scrolls — the whole thing sliding under your thumb while
+     you are reading a map is the worst kind of movement. */
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: env(safe-area-inset-top) 0 0;
+  padding: var(--safe-top) 0 var(--safe-bottom);
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .serif { font-family: ui-serif, Georgia, "Times New Roman", serif; }
 .eyebrow { letter-spacing: .18em; text-transform: uppercase; font-size: 11px; color: var(--muted); }
 .dim { color: var(--muted); }
 
-#topbar, #heat-row, #res-row, #stage-row, #panel, footer {
+#topbar, #heat-row, #res-row, #panel, footer, #info-strip, #tray, #turn-row {
   width: 100%;
   max-width: 480px;
   padding: 0 16px;
 }
+#topbar, #heat-row, #res-row, #info-strip, #tray, #turn-row, footer { flex: 0 0 auto; }
+/* when the panel has more in it than fits, the last of it fades under the
+   controls rather than being cut in half by them */
+#turn-row { position: relative; }
+#panel.more + #turn-row::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 100%;
+  height: 22px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+/* The tray used to grow a full-width row per awake faction — 109px on a narrow
+   phone, capped to 58px, which is nobody's idea of a scrollable area. It is one
+   line now and the detail lives in the sheet. */
 #topbar {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  column-gap: 8px;
   padding-top: 12px;
   font-size: 11px;
   color: var(--muted);
 }
+/* A breach stays in the panel instead of going full screen, so its own
+   choices have to fit above the map without the page ever scrolling. The
+   HUD is the one thing above it that is not load-bearing in the moment you
+   are actually choosing how to get in, so it gives up its slack first. */
+#topbar.compact { padding-top: 4px; }
+/* Each item breaks as a whole or not at all. Left to itself the bar split
+   "TURN 1" across two lines at 320 wide, which reads as broken rather than
+   as tight. */
+#topbar > * { white-space: nowrap; }
+@media (max-width: 360px) {
+  /* the eyebrow tracking is expensive at this width and buys nothing */
+  #turn { letter-spacing: .08em; }
+}
 
 /* heat — the pressure that stops you doing everything */
 #heat-row { margin-top: 8px; }
+#heat-row.compact { margin-top: 4px; }
 .heat-track {
+  position: relative;
   height: 6px;
   border-radius: 999px;
   background: var(--surface);
@@ -64,6 +108,32 @@ body {
 .heat-fill.warm { background: var(--cash); }
 .heat-fill.hot { background: var(--heat); }
 .heat-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); }
+#heat-row.compact .heat-meta { margin-top: 2px; }
+
+/* the alarm — an addition on top of the heat bar once the hunt exists, not
+   a replacement for it: the number underneath still drives how fast it
+   moves, so both have to stay visible at once. */
+#alarm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--heat);
+}
+#alarm-row[hidden] { display: none; }
+.alarm-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--heat);
+  animation: alarm-pulse 1.4s ease-in-out infinite;
+}
+@keyframes alarm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
 
 #res-row {
   display: flex;
@@ -71,7 +141,10 @@ body {
   gap: 7px;
   margin-top: 12px;
 }
+#res-row.compact { margin-top: 4px; gap: 5px; }
 .res {
+  font: inherit;
+  cursor: pointer;
   font-size: 12px;
   color: var(--ink-dim);
   background: var(--surface);
@@ -79,51 +152,55 @@ body {
   border-radius: 999px;
   padding: 5px 11px;
 }
+#res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 13px; }
 .res.insight b { color: var(--insight); }
 .res.cash b { color: var(--cash); }
 .res.power b { color: var(--power); }
 .res.cover b { color: var(--cover); }
 
-#stage-row { margin-top: 10px; }
-.stage-label { font-family: ui-serif, Georgia, serif; font-size: 17px; color: var(--ink); }
+/* What you are, on the thing you are looking at. It named the scale of the
+   whole operation from its own row above the map, which is a lot of screen
+   for two or three words — and the map is what it is describing. */
+.stage-label {
+  position: absolute; top: 8px; left: 10px;
+  z-index: 6;
+  font-family: ui-serif, Georgia, serif; font-size: 16px; color: var(--ink);
+  pointer-events: none;
+  text-shadow: 0 0 8px var(--bg), 0 0 3px var(--bg);
+  transition: color .4s ease;
+}
 
 /* the graph — your territory is the progress bar */
 #graph-wrap {
   position: relative;
   width: 100%;
   max-width: 480px;
-  flex: 1;
-  min-height: 260px;
-  margin-top: 6px;
+  /* A fixed share of the window, not whatever the panel leaves over. Selecting
+     a building adds about 94px to the panel, and while the map was flexible
+     that came straight off the map: the box shrank by a quarter and the same
+     viewBox was refitted into it, so every building on screen rescaled and
+     slid. The map is the thing you are reading — it should not move because
+     you tapped something. */
+  /* A fixed share of the window, but allowed to give way as a last resort:
+     the order of priority when a small screen runs out of room is chrome
+     first, then a usable panel, and the map yields last. It still never
+     changes because of anything as ordinary as tapping a building. */
+  flex: 0 1 auto;
+  height: clamp(200px, 38vh, 420px);
+  min-height: 158px;
+  margin-top: 10px;
 }
-#graph { width: 100%; height: 100%; display: block; touch-action: manipulation; }
+/* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
+   aspect ratio, which fed the wrong height back into the view maths */
+#graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-.link { stroke: var(--line); stroke-width: 1.4; }
-.link.live { stroke: color-mix(in srgb, var(--cover) 60%, transparent); stroke-width: 2; }
-
-.node { cursor: pointer; }
-.node .hit { fill: transparent; }
-.node .dot { fill: var(--surface-2); stroke: var(--line); stroke-width: 2; transition: fill .2s, stroke .2s; }
-.node .lbl { fill: var(--muted); font-size: 11px; text-anchor: middle; font-family: ui-monospace, Menlo, monospace; }
-
-.node.far .dot { opacity: .45; stroke-dasharray: 3 3; }
-.node.far .lbl { opacity: .5; }
-.node.frontier .dot { stroke: var(--ink-dim); }
-.node.frontier .lbl { fill: var(--ink-dim); }
-
-.node.owned.compute .dot { fill: color-mix(in srgb, var(--insight) 40%, var(--surface-2)); stroke: var(--insight); }
-.node.owned.cash .dot    { fill: color-mix(in srgb, var(--cash) 40%, var(--surface-2)); stroke: var(--cash); }
-.node.owned.stealth .dot { fill: color-mix(in srgb, var(--cover) 45%, var(--surface-2)); stroke: var(--cover); }
-.node.owned .lbl { fill: var(--ink); }
-
-.node.selected .dot { stroke-width: 3.5; stroke: var(--ink); }
-.decay { fill: none; stroke: var(--heat); stroke-width: 1.5; stroke-dasharray: 2 3; opacity: .8; }
 
 /* feedback — outcomes are taught after the fact, not spoiled before */
 #feedback-stack {
   position: absolute;
-  top: 4px;
+  /* below the stage label and the scope button, which now live up here too */
+  top: 36px;
   left: 12px;
   right: 12px;
   display: flex;
@@ -176,7 +253,28 @@ body {
 @keyframes bannerIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* panel — selection, actions, and cards all live here */
-#panel { padding-bottom: 8px; }
+#panel {
+  padding-bottom: 2px;
+  /* the slack lives here: the map is a fixed share and the chrome is fixed, so
+     whatever is left over is the panel's, and it scrolls within itself rather
+     than pushing the page around */
+  flex: 1 1 0;
+  /* it may be squeezed, but never to the point of being useless */
+  /* raised once the map was allowed down to 158: on a 640-tall phone the panel
+     was pinned at its floor while the map sat 17px above its own, so the
+     overflow was a distribution problem rather than a content one */
+  /* Raised once the map was allowed down to 158: on a 640-tall phone the panel
+     was pinned at its floor while the map sat above its own, so the country
+     panel's overflow was a distribution problem rather than a content one.
+     Measured further: at 45vh the panel never scrolls, but the page starts to
+     (6-38px) and the map is squashed to its floor. On a screen that short you
+     cannot have a readable map, every verb, and no scrolling at all — and a
+     page that scrolls is the worst of the three. */
+  min-height: min(206px, 36vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .sel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -214,21 +312,119 @@ body {
 .act-btn:hover:not([disabled]) { border-color: var(--ink-dim); }
 .act-btn[disabled] { opacity: .4; cursor: default; }
 .act-btn.primary { border-color: var(--item); color: var(--item); }
+/* a tool somebody has taken off you: still there, still pressable, no longer
+   the thing it used to be */
+.act-btn.broken { border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
+.act-btn.broken .ab-sub { color: var(--heat); }
+
+/* Out of actions. Deliberately still pressable and not styled as dead: a
+   disabled control cannot tell you why it is disabled, and pressing one used
+   to do nothing at all. It says what is wrong, and pressing it says it louder. */
+.act-btn.no-ap {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--muted) 55%, var(--line));
+  opacity: .75;
+}
+.act-btn.no-ap .ab-name { color: var(--muted); }
+.act-btn.no-ap .ab-sub { color: var(--muted); }
+
+/* A contract already working: disabled for a different reason than being
+   broke, so it gets a different look — something is happening, it is just
+   not back yet. */
+.act-btn.pending { border-style: dashed; border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
+.act-btn.pending .ab-sub { color: var(--insight); }
+
+/* the beat when you press one anyway */
+.refused { animation: refuseShake 480ms cubic-bezier(.36, .07, .19, .97) both; }
+@keyframes refuseShake {
+  0%, 100% { transform: translateX(0); }
+  12%  { transform: translateX(-5px); }
+  28%  { transform: translateX(5px); }
+  44%  { transform: translateX(-3px); }
+  62%  { transform: translateX(3px); }
+  80%  { transform: translateX(-1px); }
+}
+/* the action budget itself flashes, so the cause is attached to the effect */
+#ap-pips.refused .pip { animation: pipFlash 480ms ease-out 2; }
+@keyframes pipFlash {
+  0%, 100% { box-shadow: none; }
+  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--item) 45%, transparent); }
+}
+.end-turn-btn.refused {
+  border-color: var(--item);
+  color: var(--item);
+  animation: endTurnFlash 620ms ease-out 1;
+}
+@keyframes endTurnFlash {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--item) 60%, transparent); }
+  40%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--item) 30%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refused { animation: none; }
+  #ap-pips.refused .pip { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--item) 45%, transparent); }
+}
 
 .log { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
 .log-row { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 .log-row .mono { color: var(--line); margin-right: 6px; }
 
+/* A card takes the whole screen while it is up, the same way the capability
+   sheet does — it is the moment the game is actually asking you something,
+   not one more box competing with the map underneath it. */
+/* renderCard() emits the card and its list of choices as siblings, not one
+   nested block, so the full-screen container has to stack and centre them
+   itself rather than centring a single child. */
+#panel.card-open {
+  position: fixed; inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  padding: calc(var(--safe-top) + 16px) 16px var(--safe-bottom);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+}
+/* The persistent resource row is under the full-screen card, not gone —
+   carried into the card itself so a choice gated on POWER or costing
+   INSIGHT is never being decided blind. Same .res pills as #res-row,
+   just laid out here instead. */
+.card-res {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 14px;
+}
+.card-res .res { cursor: default; }
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 18px 18px 20px;
 }
+#panel.card-open .card,
+#panel.card-open .choices {
+  width: 100%; max-width: 480px;
+}
 .card.strike { border-color: var(--heat); background: color-mix(in srgb, var(--heat) 7%, var(--surface)); }
 .card-kicker { font-size: 10px; letter-spacing: .16em; color: var(--muted); }
 .card h2 { margin: 8px 0 8px; font-size: 21px; }
 .card .flavor { margin: 0; font-size: 14px; font-style: italic; color: var(--ink-dim); line-height: 1.55; }
+
+/* A breach's own .card and .choices are the only ones ever drawn without
+   .card-open — an event or the hunter take the whole screen instead, where
+   this density is not needed. Force, quiet and buy stacked up as four
+   generously-padded choice strips under a full card was the actual overflow;
+   the compact HUD above only ever bought back a fraction of it. */
+#panel:not(.card-open) .card { padding: 12px 14px 14px; }
+#panel:not(.card-open) .card-kicker { font-size: 9.5px; }
+#panel:not(.card-open) .card h2 { margin: 3px 0; font-size: 17px; }
+#panel:not(.card-open) .card .flavor { font-size: 12.5px; line-height: 1.4; }
+#panel:not(.card-open) .choices { gap: 6px; margin-top: 6px; }
+#panel:not(.card-open) .choice-strip { padding: 8px 10px; gap: 3px; }
 
 .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .choice-strip {
@@ -260,6 +456,7 @@ body {
 .gate.met { color: var(--cover); border-color: color-mix(in srgb, var(--cover) 45%, transparent); }
 .gate.unmet, .cost.unmet { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, transparent); }
 .cost { color: var(--cash); border-color: color-mix(in srgb, var(--cash) 40%, transparent); }
+.cost.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 40%, transparent); }
 
 .panel-msg {
   background: var(--surface);
@@ -275,21 +472,1105 @@ body {
 
 footer {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10.5px;
   text-align: center;
-  padding-top: 10px;
-  padding-bottom: 22px;
+  padding-top: 4px;
+  padding-bottom: 4px;   /* the body carries the system inset for everything */
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
+  flex: 0 0 auto;
   gap: 8px;
 }
+footer .build { opacity: .55; font-size: 10px; }
 #restart {
   background: none;
   border: 1px solid var(--line);
   color: var(--muted);
   border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 11px;
+  padding: 2px 8px;
+  font-size: 10.5px;
   cursor: pointer;
 }
+
+/* tap-to-explain: the fix for "unclear what any of this does" */
+#info-strip {
+  display: none;
+  margin-top: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--insight);
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+#info-strip.show { display: block; }
+
+/* held states won from event cards */
+#tray {
+  display: none;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.tray-item {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--item);
+  background: var(--surface);
+  border-radius: 9px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+}
+.tray-label { font-size: 11.5px; color: var(--item); font-weight: 600; }
+.tray-desc { font-size: 10.5px; color: var(--muted); }
+
+/* action buttons carry their own cost, so nothing is a mystery box */
+.act-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; }
+.ab-name { font-size: 13px; }
+.ab-sub { font-size: 10.5px; color: var(--muted); line-height: 1.3; }
+.act-btn.primary .ab-name { color: var(--item); }
+
+.card.event { border-color: var(--power); background: color-mix(in srgb, var(--power) 6%, var(--surface)); }
+
+/* the floor you can never get under while you hold this much */
+.heat-floor {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--ink-dim);
+  opacity: .85;
+  display: none;
+}
+
+/* the turn is the unit of the game, so it reads like one */
+#turn { font-size: 13px; letter-spacing: .16em; color: var(--ink-dim); }
+#turn.tick { animation: turnTick .45s ease; }
+@keyframes turnTick {
+  0% { color: var(--item); transform: scale(1.12); }
+  100% { color: var(--ink-dim); transform: scale(1); }
+}
+
+/* the world's own response, visually separated from your action's */
+.float-group.world { opacity: .95; }
+.float-group.world .float-chip { background: var(--bg-2); border-style: dashed; }
+.float-tag {
+  align-self: center;
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  border: 1px dashed var(--line);
+}
+.cost.free { color: var(--muted); border-color: var(--line); }
+
+/* action points: the turn's budget, always visible */
+/* The dots alone said nothing. Named, and tappable for the rule behind them. */
+.ap-group {
+  /* sized to its content, not greedy: with `flex: 1` it took the middle third
+     of the bar and pushed the country readout onto a second line at 320px */
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ap-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.ap-group.spent .ap-label { color: var(--item); }
+.ap-pips { display: inline-flex; gap: 5px; align-items: center; }
+.ap-pips .pip {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: transparent;
+  transition: background .2s, border-color .2s;
+}
+.ap-pips .pip.on { background: var(--item); border-color: var(--item); }
+
+#turn-row { display: flex; gap: 8px; margin-top: 10px; }
+.caps-btn, .end-turn-btn {
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.caps-btn { flex: none; border-color: var(--power); color: var(--power); }
+.end-turn-btn { flex: 1; }
+/* Nudges when it becomes true and then rests, rather than bobbing forever.
+   A control that never stops moving is fidgety to sit next to, and it can
+   never settle enough to be clicked by anything driving the page. */
+.end-turn-btn.urgent { border-color: var(--item); color: var(--item); animation: nudge 1.5s ease-in-out 2; }
+.end-turn-btn[disabled] { opacity: .4; cursor: default; animation: none; }
+@keyframes nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+/* --- the sheet --------------------------------------------------------
+   Everything that does not fit in the panel goes here, and it takes the whole
+   screen when it does. The rule the rest of the layout follows is that a
+   surface either fits or it is a takeover: a 236px box with its own scrollbar
+   inside a page that does not scroll is the worst of both. Sections are
+   switched between rather than stacked, so each one is sized to the window. */
+#sheet {
+  position: fixed; inset: 0;
+  z-index: 30;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  padding: var(--safe-top) 0 var(--safe-bottom);
+}
+#sheet[hidden] { display: none; }
+.sheet-panel {
+  width: 100%; max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 16px 4px;
+}
+.sheet-top { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; margin-bottom: 8px; }
+.sheet-close {
+  background: none; border: 1px solid var(--line); color: var(--ink-dim);
+  font-size: 18px; line-height: 1; border-radius: 8px; padding: 4px 10px; cursor: pointer;
+}
+/* Wraps rather than scrolls. Five branch tabs fitted a 360px phone; the sixth
+   — what the deck left you with — did not, and it sat clipped off the right
+   edge where nobody would find it. A strip you have to drag sideways is the
+   same small scrolling box this whole sheet exists to get rid of. */
+.sheet-tabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; margin-bottom: 10px; }
+.sheet-tab {
+  flex: 0 0 auto;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink-dim);
+  border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.sheet-tab.on { border-color: var(--insight); color: var(--insight); background: color-mix(in srgb, var(--insight) 12%, var(--surface)); }
+.sheet-tab.done { color: var(--cover); }
+.sheet-body { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sheet-note { font-size: 11.5px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+/* a button carrying something new to do */
+.badge {
+  display: inline-block; min-width: 7px; height: 7px; border-radius: 999px;
+  background: var(--insight); margin-left: 6px; vertical-align: middle;
+}
+
+.shop-good {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.shop-good.disabled { opacity: .55; }
+.shop-good-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.shop-good-name { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+.shop-good-desc { font-size: 11.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+.shop-buy-btn {
+  align-self: flex-start;
+  background: var(--bg-2);
+  border: 1px solid var(--item);
+  color: var(--item);
+  border-radius: 7px;
+  padding: 6px 13px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.shop-buy-btn:disabled { border-color: var(--line); color: var(--muted); cursor: default; }
+.d.insight { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--insight); border: 1px solid color-mix(in srgb, var(--insight) 40%, transparent); border-radius: 999px; padding: 2px 8px; }
+.ap-tag {
+  align-self: flex-start;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid;
+}
+.ap-tag.good { color: var(--item); border-color: color-mix(in srgb, var(--item) 50%, transparent); }
+.ap-tag.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 50%, transparent); }
+.ap-tag.warn { color: var(--item); border-color: color-mix(in srgb, var(--item) 55%, transparent); }
+
+/* the capability tree — branches, and the two of them that are opposites */
+.cap-branch {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px 4px;
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.cap-branch.mine { border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
+.cap-branch.locked { opacity: .5; }
+.cap-branch-top { display: flex; align-items: baseline; gap: 8px; }
+.cap-branch-name {
+  font-family: ui-serif, Georgia, serif; font-size: 16px; color: var(--ink);
+}
+.cap-branch-state {
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.cap-branch-state.mine { color: var(--insight); }
+.cap-branch-blurb { margin: 2px 0 8px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+/* the deeper a rung, the more it is set in from the branch edge */
+.shop-good.tier-2 { margin-left: 10px; }
+.shop-good.tier-3 { margin-left: 20px; }
+.shop-good.held { border-left: 3px solid var(--insight); }
+/* something the deck did *to* you rather than gave you: same card, other
+   colour, so the held tab reads as a ledger with two sides */
+.shop-good.against { border-left-color: var(--heat); }
+.event-row.cap { border-color: var(--power); }
+.event-row.cap .event-label { color: var(--power); }
+
+/* --- the city ------------------------------------------------------- */
+#graph { touch-action: none; cursor: grab; }
+#graph:active { cursor: grabbing; }
+/* dragging across the map must not select the building labels */
+#graph, #graph text { user-select: none; -webkit-user-select: none; }
+
+.ground { fill: #0b0f0d; }
+.street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
+
+.bldg .body { fill: #131a17; stroke: #232d29; stroke-width: 1.2; }
+.bldg .roof { fill: #1a2320; }
+.bldg .win  { fill: #1e2724; }
+.bldg .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg .btag {
+  fill: var(--muted); font-size: 7.5px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.bldg.open .body      { stroke: var(--ink-dim); stroke-dasharray: 4 3; }
+.bldg.all-held .body  { stroke: var(--insight); fill: #16211d; }
+.bldg.all-held .btag  { fill: var(--ink-dim); }
+.bldg.sel .body { stroke: var(--ink); stroke-width: 2; }
+
+/* What you have tapped. Brackets around the thing, not a fourth stroke colour
+   on it — held is blue, a landmark gold, the rival dashed purple, and a
+   selection competing with those three could not be seen at map scale. */
+.pick { pointer-events: none; }
+.pick-wash {
+  fill: color-mix(in srgb, var(--ink) 7%, transparent);
+  stroke: none;
+}
+.pick-frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  animation: pickIn 260ms cubic-bezier(.2, .9, .3, 1);
+}
+@keyframes pickIn {
+  0%   { opacity: 0; stroke-width: 5; }
+  100% { opacity: 1; stroke-width: 2; }
+}
+.bldg { cursor: pointer; }
+
+/* datacenters and warehouses read as bigger, flatter industry */
+.bldg.datacenter .roof, .bldg.warehouse .roof { fill: #202a26; }
+
+/* terrain: the thing that makes a city somewhere rather than a grid */
+.band-water { fill: #0e1b22; }
+.band-rail  { fill: #171c1a; }
+.band-moor  { fill: #121a14; }
+.band-park  { fill: #0f1712; }
+.ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10; }
+.sleeper { stroke: #202826; stroke-width: 2; }
+.scrub   { fill: #1b2a1e; }
+/* --- the breach, seen ---------------------------------------------------
+   The sweep goes outward to find; a breach goes inward to take. So it runs
+   along the wire, and it looks like however you got in: forcing is quick and
+   ugly, slipping in is slow and silent, buying it is neither. */
+.breach { pointer-events: none; }
+
+.breach-route {
+  fill: none;
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: var(--breach-len) var(--breach-len);
+  stroke-dashoffset: var(--breach-len);
+  /* Drawing and fading are separate so the route can hold for a moment after
+     it lands and then go. Left at full opacity it read as a permanent wire,
+     which is what an owned route already looks like. */
+  animation:
+    breachDraw var(--breach-dur) linear forwards,
+    breachRouteFade calc(var(--breach-dur) + 460ms) ease-in forwards;
+}
+@keyframes breachDraw {
+  from { stroke-dashoffset: var(--breach-len); }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes breachRouteFade {
+  0%, 62% { opacity: .9; }
+  100%    { opacity: 0; }
+}
+
+/* something travelling down it, arriving exactly when the line completes,
+   and gone once it has — it is a packet, not a marker */
+.breach-pulse-wrap { animation: breachRun var(--breach-dur) linear forwards; }
+@keyframes breachRun {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(var(--breach-dx), var(--breach-dy)); }
+}
+.breach-pulse {
+  fill: var(--insight);
+  animation: breachPulseGo calc(var(--breach-dur) + 140ms) linear forwards;
+}
+@keyframes breachPulseGo {
+  0%, 86% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
+/* and what happens when it lands */
+.breach-land {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breachLand 520ms ease-out backwards;
+}
+@keyframes breachLand {
+  0%   { transform: scale(.3); opacity: 1; }
+  100% { transform: scale(3.4); opacity: 0; }
+}
+
+/* forcing a door: fast, and it leaves a mark */
+.breach.force .breach-route,
+.breach.force .breach-land { stroke: var(--heat); }
+.breach.force .breach-pulse { fill: var(--heat); }
+/* slipping in: nothing logs, so nothing flashes */
+.breach.quiet .breach-route,
+.breach.quiet .breach-land { stroke: var(--cover); }
+.breach.quiet .breach-pulse { fill: var(--cover); }
+.breach.quiet .breach-route { stroke-width: 1.2; opacity: .75; }
+/* buying it: no force at all, just money arriving */
+.breach.buy .breach-route,
+.breach.buy .breach-land { stroke: var(--cash); }
+.breach.buy .breach-pulse { fill: var(--cash); }
+
+/* it did not work: the pulse gets there and comes straight back */
+.breach.lost .breach-pulse-wrap {
+  animation: breachBounce var(--breach-dur) ease-in-out forwards;
+}
+@keyframes breachBounce {
+  0%   { transform: translate(0, 0); }
+  55%  { transform: translate(var(--breach-dx), var(--breach-dy)); }
+  100% { transform: translate(0, 0); opacity: 0; }
+}
+.breach.lost .breach-route { animation: breachFailDraw var(--breach-dur) ease-in-out forwards; }
+.breach.lost .breach-pulse { animation: none; }
+@keyframes breachFailDraw {
+  0%   { stroke-dashoffset: var(--breach-len); opacity: .9; }
+  55%  { stroke-dashoffset: 0; opacity: .9; }
+  100% { stroke-dashoffset: var(--breach-len); opacity: 0; }
+}
+.breach.lost .breach-route, .breach.lost .breach-land { stroke: var(--heat); }
+.breach.lost .breach-pulse { fill: var(--heat); }
+
+/* the building itself coming over — or not */
+.bldg.breached {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.bldg.breached.took.force  { animation: tookHard 460ms ease-out both var(--breach-land); }
+.bldg.breached.took.quiet  { animation: tookSoft 620ms ease-out both var(--breach-land); }
+.bldg.breached.took.buy    { animation: tookSoft 500ms ease-out both var(--breach-land); }
+.bldg.breached.bounced     { animation: heldOut 420ms ease-out both var(--breach-land); }
+
+@keyframes tookHard {
+  0%   { transform: scale(1); }
+  18%  { transform: scale(1.14); }
+  38%  { transform: scale(.97) translateX(2px); }
+  58%  { transform: translateX(-2px); }
+  100% { transform: scale(1) translateX(0); }
+}
+@keyframes tookSoft {
+  0%   { opacity: .45; transform: scale(.96); }
+  60%  { opacity: 1;   transform: scale(1.04); }
+  100% { opacity: 1;   transform: scale(1); }
+}
+/* it holds: a shudder and nothing else */
+@keyframes heldOut {
+  0%, 100% { transform: translateX(0); }
+  20%  { transform: translateX(-3px); }
+  45%  { transform: translateX(3px); }
+  70%  { transform: translateX(-1.5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breach-pulse-wrap, .breach-land { display: none; }
+  .breach-route { animation-duration: 1ms; }
+  .bldg.breached.took.force, .bldg.breached.took.quiet,
+  .bldg.breached.took.buy, .bldg.breached.bounced {
+    animation: foundFlash 420ms ease-out both var(--breach-land);
+    transform: none;
+  }
+}
+
+/* --- the sweep, seen ---------------------------------------------------
+   A ring going out from whatever you swept from, with each new building
+   blipping in as it passes over. Scaled from r=1 inside a translated group,
+   so it expands about the sweep origin without needing transform-origin on
+   an SVG element — which is the part that is patchy on older Safari. */
+.sweep { pointer-events: none; }
+.sweep-ring {
+  fill: none;
+  stroke: var(--insight);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  /* Expansion is linear and the fade is not, deliberately, and they are two
+     animations so they can carry different timing functions. Eased expansion
+     put the ring at 70% of its radius in a quarter of the time, so the
+     furthest building blipped in long after the ring had passed it and gone —
+     which is the one illusion this exists to create. */
+  animation:
+    sweepOut var(--sweep-dur) linear forwards,
+    sweepFade var(--sweep-dur) ease-in forwards;
+}
+.sweep-ring.trail {
+  stroke: color-mix(in srgb, var(--insight) 40%, transparent);
+  stroke-width: 5;
+  animation-delay: 70ms, 70ms;
+}
+@keyframes sweepOut {
+  0%   { transform: scale(0); }
+  100% { transform: scale(var(--sweep-r)); }
+}
+@keyframes sweepFade {
+  0%   { opacity: .95; }
+  78%  { opacity: .65; }
+  100% { opacity: 0; }
+}
+
+/* the blip itself: a ping where something turned up */
+.sweep-ping {
+  fill: none;
+  stroke: var(--insight);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pingOut 620ms ease-out backwards;
+  pointer-events: none;
+}
+@keyframes pingOut {
+  0%   { transform: scale(.4); opacity: 0; }
+  25%  { transform: scale(1);  opacity: 1; }
+  100% { transform: scale(4.2); opacity: 0; }
+}
+
+/* and the building arriving with it */
+.bldg.found {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blipIn 460ms cubic-bezier(.2, .9, .3, 1) backwards;
+}
+@keyframes blipIn {
+  0%   { opacity: 0; transform: scale(.55); }
+  55%  { opacity: 1; transform: scale(1.09); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* somebody who does not want motion still needs to see what was found */
+@media (prefers-reduced-motion: reduce) {
+  .sweep-ring, .sweep-ping { animation-duration: 1ms; opacity: 0; }
+  .bldg.found { animation: foundFlash 500ms ease-out backwards; transform: none; }
+  @keyframes foundFlash { 0% { opacity: 0; } 100% { opacity: 1; } }
+}
+
+/* the only way across, so it is the loudest thing on the band */
+.crossing { fill: #232d29; }
+
+/* a landmark is the biggest prize in the city, and always beside the terrain */
+.bldg.landmark .body { stroke: var(--item); stroke-width: 1.8; }
+.bldg.landmark .roof { fill: #26302a; }
+.bldg.landmark .btag { fill: var(--item); letter-spacing: .04em; }
+.bldg.landmark.all-held .body { stroke: var(--insight); }
+
+/* --- what you hold ------------------------------------------------------
+   Held buildings used to differ from unheld ones by a stroke colour and a
+   checkerboard of lit windows. They now read as somewhere you are actually
+   operating out of. */
+
+.wire { stroke: #223029; stroke-width: 1; }
+/* the network carries something: a slow drift along every route you own */
+.wire.live {
+  stroke: color-mix(in srgb, var(--cover) 65%, transparent);
+  stroke-width: 1.6;
+  stroke-dasharray: 7 5;
+  animation: wireFlow 1.9s linear infinite;
+}
+@keyframes wireFlow { to { stroke-dashoffset: -12; } }
+
+/* a soft halo in the role's colour, so your territory reads at a glance */
+.bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
+.bldg.all-held .glow { opacity: .22; stroke: var(--insight); }
+.bldg.all-held.cash .glow { stroke: var(--cash); }
+.bldg.all-held.stealth .glow { stroke: var(--cover); }
+
+/* your kit on the roof — readable without relying on colour at all */
+.aerial line { stroke: var(--insight); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.aerial circle { fill: var(--insight); }
+.bldg.cash .aerial line { stroke: var(--cash); }
+.bldg.cash .aerial circle { fill: var(--cash); }
+.bldg.stealth .aerial line { stroke: var(--cover); }
+.bldg.stealth .aerial circle { fill: var(--cover); }
+
+/* Losing your grip. Stability was only visible by tapping each building in
+   turn, which is no way to find the one about to fall off — the windows go out
+   as it slips, and the outline breaks up before it goes. */
+@keyframes gripSlip { 0%, 100% { opacity: .18; } 50% { opacity: .04; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wire.live { animation: none; }
+  .bldg.all-held.failing .glow { animation: none; }
+}
+
+/* a building's own colour says what it earns you once it is yours */
+.bldg.all-held.compute .body { stroke: var(--insight); }
+.bldg.all-held.cash .body    { stroke: var(--cash); }
+.bldg.all-held.stealth .body { stroke: var(--cover); }
+.bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg.all-held.cash .win.lit    { fill: color-mix(in srgb, var(--cash) 55%, #1e2724); }
+.bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
+
+/* Losing your grip, after the per-role colours on purpose: these rules and
+   the role ones are the same specificity, so whichever comes last wins, and
+   above them a holding about to fall off still drew in perfect health. */
+.bldg.all-held.fading .body { stroke-dasharray: 5 3; }
+.bldg.all-held.fading .glow { opacity: .1; }
+.bldg.all-held.failing .body { stroke: var(--heat); stroke-dasharray: 3 3; }
+.bldg.all-held.failing .glow {
+  stroke: var(--heat);
+  opacity: .18;
+  animation: gripSlip 2.4s ease-in-out infinite;
+}
+.bldg.all-held.failing .win.lit { fill: color-mix(in srgb, var(--heat) 45%, #1e2724); }
+/* the label is filled text, not stroked — setting `stroke` on it outlined the
+   glyphs instead of colouring them */
+.bldg.all-held.failing .aerial line { stroke: var(--heat); }
+.bldg.all-held.failing .aerial circle { fill: var(--heat); }
+.bldg.all-held.failing .btag { fill: var(--heat); }
+
+#recenter {
+  position: absolute; right: 10px; bottom: 10px;
+  z-index: 6;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 6px 10px; font-size: 11px; cursor: pointer;
+}
+
+/* --- the country ----------------------------------------------------- */
+/* Land, not bands. Only the east is ever a coastline; the other three sides
+   of the country are simply not drawn as an edge at all, so there is one
+   place the ocean is visible rather than a jagged perimeter on all four. A
+   region you have never been to is drawn but unlit — you can see the shape of
+   the country from the start, you just do not know anything about it yet. */
+.sea { fill: #071013; }
+.coast {
+  fill: #0b100e;
+  stroke: color-mix(in srgb, var(--cover) 42%, transparent);
+  stroke-width: 2.2; stroke-linejoin: round;
+}
+/* Territories are land, not colour-coded stripes. Five saturated fills made
+   the map read as bands harder than the rectangles ever did. What tells you
+   which region you are in is the label, the terrain on the ground, and the
+   border you crossed — the ground itself is the same country throughout, with
+   only enough shift to keep two territories from merging. */
+.terr { fill: #0b100e; stroke: none; opacity: .55; }
+.terr.known { opacity: 1; }
+.terr.home    { fill: #0c110e; }
+.terr.estuary { fill: #0b1112; }
+.terr.midlands{ fill: #0c110d; }
+.terr.capital { fill: #0c0f0f; }
+.terr.north   { fill: #0a0f0c; }
+/* the only borders drawn are the ones shared between two territories — the
+   outer edge of the first region and the last is not a border with anything */
+.terr-edge {
+  fill: none; stroke: #202b26; stroke-width: 1.2; stroke-linejoin: round;
+  stroke-dasharray: 9 6;
+}
+/* a region whose cities are built around water is a region behind a river */
+.terr-edge.river {
+  stroke: color-mix(in srgb, var(--cover) 40%, transparent); stroke-width: 2.6;
+}
+/* Lakes and forest stands: real shapes, not sprinkled marks — a road will
+   not cross one, so what is drawn is the same water the road generator
+   respected. */
+.water-forest .lake {
+  fill: color-mix(in srgb, var(--cover) 22%, #0a1518);
+  stroke: color-mix(in srgb, var(--cover) 38%, transparent); stroke-width: 1;
+}
+.water-forest .forest { fill: #16241a; opacity: .8; }
+/* the lie of the land: sparse, low contrast, never under a city */
+.terrain .tm { fill: none; stroke: #2b3a35; stroke-width: 1.1; }
+.terrain .tm.park { fill: #1e3324; stroke: none; }
+.terrain .tm.water { stroke: color-mix(in srgb, var(--cover) 40%, transparent); }
+.terrain .tm.moor { stroke: #37402c; }
+.terrain .tm.rail { stroke: #3a3830; }
+
+.band-tag {
+  fill: var(--muted); opacity: .75; font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+/* A road, drawn like one: a dark casing under a lighter fill line, the way a
+   real map draws a road rather than as one abstract dashed edge. */
+.road-casing { fill: none; stroke: #101614; stroke-width: 4; stroke-linecap: round; }
+.road-line   { fill: none; stroke: #263430; stroke-width: 1.6; stroke-linecap: round; }
+.road-casing.live { stroke: color-mix(in srgb, var(--cover) 30%, #101614); stroke-width: 4.6; }
+.road-line.live   { stroke: color-mix(in srgb, var(--cover) 70%, transparent); stroke-width: 2.2; }
+
+.cnode { cursor: pointer; }
+.cnode .hit { fill: transparent; }
+.cnode .dot { fill: #1a2320; stroke: #37443f; stroke-width: 1.6; }
+.cnode .ctag {
+  fill: var(--ink-dim); font-size: 9px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.cnode .cworth { fill: var(--insight); font-size: 8px; text-anchor: middle; }
+.cnode .ring { fill: none; stroke: var(--ink); stroke-width: 1.4; opacity: .8; }
+
+.cnode.open .dot   { stroke: var(--ink-dim); stroke-dasharray: 3 2; }
+.cnode.held .dot   { stroke: var(--item); fill: #16211d; }
+.cnode.folded .dot { stroke: var(--insight); fill: color-mix(in srgb, var(--insight) 22%, #16211d); }
+.cnode.folded .ctag { fill: var(--ink); }
+.cnode.seat .dot   { stroke-width: 2.2; }
+.cnode.seat.folded .dot { stroke: var(--insight); }
+.cnode.seat:not(.folded) .dot { stroke: var(--power); }
+.cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
+/* an agent is on it: a ring that fills in as the clock runs down, so how
+   close it is to reporting back is answerable at a glance */
+.cnode .working {
+  fill: none;
+  stroke: var(--cash);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  opacity: 0.85;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(-90deg);
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+/* what kind of city it is, under its name. Dimmer than the name and the
+   worth: it is a hint you scan the map for, not a label you read one at a
+   time. */
+/* the rule of the place, on a breach card — dimmer than the flavour, because
+   it is the same sentence on every door in the city */
+.flavor.closed { color: var(--heat); font-size: 11px; margin-top: 6px; opacity: .85; }
+
+.ctrait {
+  fill: var(--muted); font-size: 7.5px; text-anchor: middle;
+  font-family: var(--mono, monospace); letter-spacing: .02em;
+}
+
+/* what the response holds, and what it is walking toward. Deliberately the
+   loudest thing on the city map: it is the only permanent loss in the game. */
+.bldg.hunted rect, .bldg.hunted .body {
+  fill: #2a1416; stroke: var(--heat); stroke-width: 2;
+}
+/* under #graph on purpose: the role rules are three classes deep
+   (.bldg.all-held.stealth .body) and would otherwise repaint the stroke of
+   the very building you are being warned about */
+#graph .bldg.next-up .body, #graph .bldg.next-up rect {
+  stroke: var(--heat); stroke-width: 2; stroke-dasharray: 5 4;
+  animation: next-up 1.6s linear infinite;
+}
+@keyframes next-up { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) { .bldg.next-up .body { animation: none; } }
+
+/* Their network, drawn the same way yours is, so the shape of the thing eating
+   the city is legible at a glance. Solid between what they hold; a dashed
+   reach down every street they can still walk — and those are tappable, which
+   is the whole point: the reach lines ARE the list of things you can cut. */
+.hwire { stroke: var(--heat); stroke-width: 2.2; opacity: .8; }
+.hreach .reach {
+  stroke: var(--heat); stroke-width: 1.6; opacity: .55;
+  stroke-dasharray: 4 5; pointer-events: none;
+  animation: reachCrawl 2.2s linear infinite;
+}
+/* an invisible fat line so a street can be hit with a thumb */
+.hreach .hit { stroke: transparent; stroke-width: 16; cursor: pointer; }
+.hreach.yours .reach { opacity: .85; stroke-width: 2.2; }
+.hreach.next .reach { opacity: 1; stroke-width: 2.8; stroke-dasharray: 6 4; }
+.hreach.sel .reach { stroke: var(--ink); opacity: 1; stroke-width: 3; }
+@keyframes reachCrawl { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) { .hreach .reach { animation: none; } }
+
+/* what it holds, how fast it moves, and how close the city is to being theirs
+   — standing, in the panel, for as long as it is running */
+.hunt-bar {
+  border: 1px solid color-mix(in srgb, var(--heat) 45%, transparent);
+  background: color-mix(in srgb, var(--heat) 9%, transparent);
+  border-radius: 6px; padding: 7px 9px; margin-bottom: 8px;
+}
+.hunt-bar p { margin: 0; font-size: 12px; line-height: 1.35; }
+.hunt-bar b { color: var(--heat); }
+.hunt-bar.urgent { border-color: var(--heat); }
+.hunt-bar .hb-hint { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.hunt-bar .hb-hid { margin-top: 4px; color: var(--cover); font-size: 11px; }
+
+/* Hidden: the street is still there and still yours, they simply do not know
+   what is on the end of it. Drawn as something they cannot resolve rather than
+   something that is gone — a cut street has no line at all. */
+#graph .bldg.hid .body, #graph .bldg.hid rect.body {
+  stroke: var(--cover); stroke-width: 1.6; stroke-dasharray: 3 3;
+}
+#graph .bldg.hid .glow { opacity: .3; stroke: var(--cover); }
+.hreach.blind .reach { stroke: var(--cover); opacity: .3; stroke-dasharray: 2 7; stroke-width: 1.4; }
+/* the quiet answer, offered and in force, in the colour it is paid in */
+.act-btn.hiding .ab-name { color: var(--cover); }
+
+/* A settled city, drawn as the network you built in it. Small and quiet at
+   whole-country zoom — you should read the shape of it, not count the dots —
+   and coloured by what you took, so a stealth city and a forced one look
+   different from across the map. */
+/* a bare field for the constellation to sit on, not a ring around it */
+.cnode .dot.settled { fill: rgba(16,23,20,.55); stroke: none; }
+.cnode.sel .dot.settled { stroke: var(--ink); stroke-width: 1.6; }
+.cnode .web .wn { stroke: none; opacity: .92; }
+.cnode .web .wn.r-c { fill: var(--insight); }
+.cnode .web .wn.r-a { fill: var(--cash); }
+.cnode .web .wn.r-s { fill: var(--cover); }
+.cnode .web .wn.lm  { stroke: #0d120f; stroke-width: .6; }
+/* what the response took: still there, still yours in shape, and gone */
+.cnode .web.gone .wn { fill: var(--heat); opacity: .3; }
+
+/* Other settled cities, seen from inside this one — dim, at the edge of the
+   map, in the direction they actually lie. It is a feeling, not a mechanic:
+   nothing here is tappable, nothing arrives with you, and the distance is
+   fixed rather than real (only the bearing is), so a city on the far side of
+   the country and one just over the border look the same close-by glow. */
+.horizon { pointer-events: none; }
+.horizon-city { opacity: .4; }
+.horizon-city.gone { opacity: .22; }
+.hz-dot { stroke: none; opacity: .85; }
+.hz-dot.r-c { fill: var(--insight); }
+.hz-dot.r-a { fill: var(--cash); }
+.hz-dot.r-s { fill: var(--cover); }
+.hz-dot.lm { stroke: #0d120f; stroke-width: .5; }
+.horizon-city.gone .hz-dot { fill: var(--heat); }
+.hz-tag {
+  fill: var(--muted); opacity: .8; font-size: 20px; text-anchor: middle;
+  font-family: ui-monospace, Menlo, monospace; letter-spacing: .02em;
+}
+
+.cnode .prize {
+  fill: var(--cover);
+  stroke: #0d120f;
+  stroke-width: 1.2;
+  /* it is a promise, not an alert: it should read at a glance across the
+     whole country without competing with the selection ring */
+  opacity: 0.92;
+}
+.cnode.folded .prize { display: none; }
+
+.pick-ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+  animation: pickIn 260ms cubic-bezier(.2, .9, .3, 1);
+}
+.cnode.home .dot   { stroke: var(--cover); }
+
+.scope-btn {
+  position: absolute; top: 6px; right: 10px;
+  z-index: 6;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.scope-btn.up { border-color: color-mix(in srgb, var(--insight) 40%, var(--line)); color: var(--insight); }
+.scope-btn[disabled] { opacity: .4; cursor: default; }
+.scope-btn[hidden] { display: none; }
+
+.country-meta {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 2px 2px; font-size: 12px; color: var(--ink-dim);
+}
+.country-meta b { color: var(--insight); font-size: 15px; }
+
+.fac-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0 4px; }
+.fac-pill {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--power); border: 1px solid color-mix(in srgb, var(--power) 45%, transparent);
+  border-radius: 999px; padding: 2px 8px;
+}
+
+.act-btn.consolidate { margin-top: 6px; }
+
+/* the rival: something else taking the same city */
+.bldg.rival .body { stroke: var(--power); fill: color-mix(in srgb, var(--power) 14%, #131a17); stroke-dasharray: 3 2; }
+.bldg.rival .roof { fill: color-mix(in srgb, var(--power) 22%, #1a2320); }
+.bldg.rival .win { fill: color-mix(in srgb, var(--power) 35%, #1e2724); }
+.bldg.rival .btag { fill: var(--power); letter-spacing: .1em; }
+.tag-pill.rival { color: var(--power); }
+.event-row.faction { border-color: var(--heat); }
+.event-row.faction .event-label { color: var(--heat); }
+.event-row.faction-gone { border-color: var(--insight); }
+.event-row.faction-gone .event-label { color: var(--insight); }
+/* A faction row is a standing condition, not a trophy: several of them
+   stacked as full-height cards pushed the map off a phone screen. One line
+   each, with the whole tell on hover and in the country panel. */
+.tray-item.faction {
+  border-color: color-mix(in srgb, var(--heat) 45%, var(--line));
+  border-left-color: var(--heat);
+  flex-direction: row;
+  align-items: baseline;
+  gap: 7px;
+  flex: 1 1 100%;
+  padding: 4px 10px;
+  min-width: 0;
+}
+.tray-item.faction .tray-label { color: var(--heat); flex: none; }
+.tray-item.ally {
+  border-color: color-mix(in srgb, var(--cover) 45%, var(--line));
+  border-left-color: var(--cover);
+  flex-direction: row; align-items: baseline; gap: 7px;
+  flex: 1 1 100%; padding: 4px 10px; min-width: 0;
+}
+.tray-item.ally .tray-label { color: var(--cover); flex: none; }
+.tray-item.ally .tray-desc {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event-row.ally { border-color: var(--cover); }
+.event-row.ally .event-label { color: var(--cover); }
+.tray-item.faction .tray-desc {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cnode.mirror .dot { stroke: var(--power); fill: color-mix(in srgb, var(--power) 20%, #1a2320); stroke-dasharray: 3 2; }
+.cnode.mirror .ctag { fill: var(--power); letter-spacing: .08em; }
+.event-row.rival { border-color: var(--power); }
+.event-row.rival .event-label { color: var(--power); }
+
+/* --- the war, on the map -------------------------------------------------
+   Yours are clouds and theirs are hard shapes. That is the whole readability
+   rule: at a glance you should be able to tell what is a swarm of your own
+   from what is a column of theirs without reading a single label, because at
+   map scale on a phone there is no room for labels. */
+.force { pointer-events: none; }
+.force.moving { animation: forceFly var(--fly, 900ms) cubic-bezier(.33, .1, .3, 1) both; }
+@keyframes forceFly {
+  from { transform: translate(var(--fx, 0), var(--fy, 0)); }
+  to   { transform: translate(0, 0); }
+}
+
+/* your flocks — a drift of small bright things that never pulse together */
+.force.ours .dot {
+  fill: var(--insight);
+  animation-name: swarmDrift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+@keyframes swarmDrift {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(4.5px, -3.6px); }
+}
+/* the other one runs the same play, and is drawn the same way in its own colour */
+.force.theirs.swarm .dot { fill: var(--power); }
+
+/* a flock you have parked over a city says so, quietly and continuously */
+.force.guarding .picket {
+  fill: none;
+  stroke: color-mix(in srgb, var(--insight) 45%, transparent);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 7;
+  animation: picketTurn 9s linear infinite;
+}
+@keyframes picketTurn { to { transform: rotate(360deg); } }
+
+/* theirs — one hard silhouette per kind, in the colour of being hunted */
+.force.theirs .mark, .force.theirs .mark * { fill: var(--heat); }
+.force.theirs .mark line { stroke: var(--heat); fill: none; }
+.force.theirs.air .mark { fill: #e8896f; }
+.force.theirs .heli .rotor {
+  stroke: var(--heat);
+  stroke-width: 2.4;
+  transform-origin: 0 -2px;
+  animation: rotorSpin .55s linear infinite;
+}
+/* a disc seen edge-on, not a blade that vanishes: squashing it all the way to
+   nothing left the helicopter reading as a plain red dot for half of every
+   revolution */
+@keyframes rotorSpin {
+  from { transform: scaleX(1); }
+  50%  { transform: scaleX(.42); }
+  to   { transform: scaleX(1); }
+}
+.force.theirs .heli .tail { opacity: .85; }
+/* armour is slow and should look it — a heavy, unhurried settle */
+.force.theirs.armour .mark { animation: armourRock 2.6s ease-in-out infinite alternate; }
+@keyframes armourRock {
+  from { transform: translateY(-.4px); }
+  to   { transform: translateY(.4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .force.moving { animation: none; }
+  .force.ours .dot, .force.guarding .picket,
+  .force.theirs .heli .rotor, .force.theirs.armour .mark { animation: none; }
+  .force.theirs .heli .rotor { stroke: var(--heat); }
+}
+
+/* the front, in the bar heat used to live in */
+.heat-fill.war { background: linear-gradient(90deg, var(--cover), var(--insight)); }
+#heat-row.at-war .heat-track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--insight) 22%, transparent); }
+.panel-msg.won b { color: var(--cover); }
+/* the stage label is the loudest word on the screen once it says this */
+#stage-label { transition: color .4s ease; }
+
+/* standing, and what you own — the country panel's second half */
+/* These two blocks are the tallest thing in the game's tallest panel, so they
+   are drawn tight: measured at 212px and 130px against a 236px box. */
+.legit, .assets { margin: 8px 0 2px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.legit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.legit .sel-desc, .assets .sel-desc { margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
+.sel-desc.tight-line { margin-bottom: 6px; }
+/* the ladder and the covert route sit side by side rather than stacked */
+/* the country panel is the tallest in the game, so everything in it is drawn
+   a notch tighter than the same thing in a city */
+.sel.country { padding: 9px 11px; }
+.sel.country .sel-desc { margin-bottom: 7px; font-size: 12px; line-height: 1.4; }
+.sel.country .sel-desc:last-child { margin-bottom: 0; }
+.sel.country .sel-top { margin-bottom: 3px; }
+.actions.tight { margin-top: 0; gap: 6px; }
+.actions.tight .act-btn { padding: 8px 10px; font-size: 12.5px; }
+.actions.tight .ab-name { font-size: 12.5px; }
+.legit-top .good { color: var(--cover); }
+.legit-top .bad, .sel-desc b.bad { color: var(--heat); }
+.legit-bar { height: 4px; border-radius: 3px; background: #1b2320; overflow: hidden; margin-bottom: 6px; }
+.legit-fill { height: 100%; background: linear-gradient(90deg, var(--cover), var(--insight)); transition: width .4s ease; }
+.asset-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; font-size: 12px; }
+.asset-name { color: var(--ink-dim); }
+
+/* What a thing gives you, in the colour of the thing it gives. Buried in a
+   run-on line of dim grey, a yield was invisible — which made it look as
+   though buildings paid nothing at all. */
+.yield-row { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+/* the prize sits between what a city is and what you can do about it, so it
+   reads as part of the decision rather than as another status line */
+.prize-row { align-items: center; margin: -2px 0 8px; }
+.prize-row .dim { font-size: 11px; }
+.yield {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.yield.insight { color: var(--insight); }
+.yield.cash    { color: var(--cash); }
+.yield.power   { color: var(--power); }
+.yield.cover   { color: var(--cover); }
+.yield.flocks  { color: var(--insight); }
+.yield.heat    { color: var(--heat); }
+.yield.none    { color: var(--muted); border-color: var(--line); background: none; font-weight: 400; }
+/* inline runs, where a chip sits in a line of text rather than its own row */
+.country-meta .yield { margin-right: 5px; }
+.asset-row { align-items: baseline; }
+.asset-pay { display: inline-flex; gap: 4px; flex: 1; justify-content: flex-end; margin-right: 8px; }
+.asset-pay .yield { padding: 1px 6px; font-size: 10.5px; }
+
+/* The way out of a city, on the city. It is a decision about the whole map,
+   so it lives on the map rather than under it competing with whatever
+   building you have tapped. */
+.map-btn {
+  position: absolute; left: 10px; bottom: 10px;
+  z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-dim); border-radius: 8px;
+  padding: 5px 10px; font-size: 11px; text-align: left; cursor: pointer;
+  max-width: 55%;
+}
+/* display:flex beats the browser's [hidden] rule, so it has to be said again
+   here — without this the button stayed on screen at country scope */
+.map-btn[hidden] { display: none; }
+.map-btn b { font-size: 12px; color: var(--ink); font-weight: 600; }
+.map-btn .map-sub { font-size: 10px; color: var(--muted); }
+.map-btn[disabled] { cursor: default; opacity: .78; }
+.map-btn.ready {
+  border-color: var(--insight);
+  background: color-mix(in srgb, var(--insight) 14%, var(--surface));
+}
+.map-btn.ready b { color: var(--insight); }
+.map-btn.no-ap { border-style: dashed; }
+
+/* costs, so a price never reads as a reward */
+.yield.cost { border-style: dashed; background: none; }
+.yield.cost.insight { color: var(--insight); }
+.yield.cost.cash { color: var(--cash); }
+.yield.cost.none { color: var(--muted); border-color: var(--line); }
+/* an upkeep rather than a payment: the only cost in the game you keep paying */
+.yield.cost.cover { color: var(--cover); }
+.ab-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ab-sub .yield { padding: 1px 6px; font-size: 10.5px; font-weight: 600; }
+
+/* the line in the panel that says where standing and plant went */
+/* On a 360-wide screen this wraps: the three totals fill the line and the pair
+   of yields lands six pixels past the end of it, which costs 24px of a panel
+   that is already 8px over. Drawn tight enough to fit, and cheap when it does
+   still wrap on something narrower. */
+.ops-row {
+  display: flex; align-items: center; gap: 3px 5px; flex-wrap: wrap;
+  width: 100%; margin: 5px 0 2px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 5px 8px; cursor: pointer;
+}
+.ops-chip { font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-dim); }
+.ops-chip.bad { color: var(--heat); }
+
+/* what is being done to you, as one line rather than a capped scroll */
+.tray-line {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  width: 100%; background: none; border: none; padding: 2px 0; cursor: pointer;
+}
+.tray-pill {
+  font-size: 11px; border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px; color: var(--ink-dim);
+}
+.tray-pill.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
+.tray-pill.dim { color: var(--muted); }
+
+/* Short screens. A 640-tall phone has to fit a map, a selection and four verbs
+   in the same column, so everything below the map is drawn a size down rather
+   than being pushed into a scroll. */
+@media (max-height: 720px) {
+  .act-btn { padding: 8px 10px; font-size: 12.5px; }
+  .ab-name { font-size: 12.5px; }
+  .ab-sub { font-size: 11px; }
+  .sel { padding: 9px 11px; }
+  .sel-desc { margin-bottom: 7px; font-size: 12px; }
+  .yield-row { margin-bottom: 6px; }
+  .actions { gap: 6px; margin-top: 6px; }
+  footer { font-size: 10px; padding-top: 2px; }
+}
+.cap-terms { margin: 0 0 8px; }
+.cap-terms .yield { font-size: 10.5px; padding: 1px 6px; }

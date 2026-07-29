@@ -4,35 +4,54 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>The Network</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="theme-color" content="#0d1210" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Network" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="topbar">
     <span id="turn" class="eyebrow mono">TURN 1</span>
+    <button id="ap-group" class="ap-group" type="button" title="your actions this turn">
+      <span id="ap-pips" class="ap-pips"></span>
+      <span id="ap-label" class="ap-label">actions</span>
+    </button>
     <span id="held-count" class="mono">1 held</span>
   </div>
 
   <div id="heat-row">
-    <div class="heat-track"><div id="heat-fill" class="heat-fill"></div></div>
+    <div class="heat-track"><div id="heat-fill" class="heat-fill"></div><div id="heat-floor" class="heat-floor"></div></div>
     <div class="heat-meta">
       <span id="heat-text" class="mono">HEAT 0 / 40</span>
       <span id="heat-drift" class="mono dim">+0/turn</span>
     </div>
   </div>
+  <div id="alarm-row" hidden>
+    <span class="alarm-dot"></span>
+    <span id="alarm-text" class="mono">YOU ARE BEING HUNTED</span>
+  </div>
 
   <div id="res-row">
-    <span class="res insight"><b id="res-insight">0</b> insight</span>
-    <span class="res cash"><b id="res-cash">0</b> cash</span>
-    <span class="res power"><b id="res-power">0</b> power</span>
-    <span class="res cover"><b id="res-cover">0</b> cover</span>
+    <button type="button" class="res insight" data-stat="insight"><b id="res-insight">0</b> insight</button>
+    <button type="button" class="res cash" data-stat="cash"><b id="res-cash">0</b> cash</button>
+    <button type="button" class="res power" data-stat="power"><b id="res-power">0</b> power</button>
+    <button type="button" class="res cover" data-stat="cover"><b id="res-cover">0</b> cover</button>
   </div>
 
-  <div id="stage-row">
-    <span id="stage-label" class="stage-label">a single foothold</span>
-  </div>
+  <div id="info-strip"></div>
+
+  <div id="tray"></div>
 
   <div id="graph-wrap">
     <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
+    <span id="stage-label" class="stage-label">a single foothold</span>
+    <button id="scope-btn" type="button" class="scope-btn" hidden>the country</button>
+    <button id="consolidate" type="button" hidden></button>
+    <button id="recenter" type="button">recenter</button>
     <div id="feedback-stack">
       <div id="event-banner"></div>
       <div id="feedback-layer"></div>
@@ -41,12 +60,53 @@
 
   <div id="panel"></div>
 
+  <div id="turn-row">
+    <button id="caps-btn" type="button" class="caps-btn">capabilities</button>
+    <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
+  </div>
+
+  <!-- One full-screen surface for everything that does not fit in the panel.
+       Sections are switched between rather than scrolled past, so nothing ever
+       lives in a small box with its own scrollbar. -->
+  <div id="sheet" hidden>
+    <div class="sheet-panel">
+      <div class="sheet-top">
+        <span id="sheet-title" class="eyebrow mono"></span>
+        <button id="sheet-close" type="button" class="sheet-close">&times;</button>
+      </div>
+      <div id="sheet-tabs" class="sheet-tabs"></div>
+      <div id="sheet-body" class="sheet-body"></div>
+    </div>
+  </div>
+
   <footer>
-    tap a node · every action costs a turn · heat is what finds you
+    <span id="footer-hint">drag to look around · pinch to zoom · tap a building to size it up</span>
+    <span class="build mono">build __BUILD__</span>
     <button id="restart" type="button">restart</button>
   </footer>
 
   <script src="data.js"></script>
+  <script src="country.js"></script>
   <script src="app.js"></script>
+  <script>
+    // Register the worker with the HTTP cache bypassed for the worker script
+    // itself — otherwise `sw.js` can be served from cache and a new build is
+    // never noticed. On a *replacement* worker taking over (not a first
+    // install) reload once, so the page and the worker agree on the build.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        const hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then((reg) => { reg.update(); })
+          .catch(() => {});
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloading) return; // first install needs no reload
+          reloading = true;
+          window.location.reload();
+        });
+      });
+    }
+  </script>
 </body>
 </html>
