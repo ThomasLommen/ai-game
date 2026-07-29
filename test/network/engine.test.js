@@ -2146,7 +2146,7 @@ function sampleContexts(window) {
       gone: (r) => rules.has(r), awake: (id) => awake.has(id),
       wokeAgo: () => -1, broken: (id) => done.has(id),
       war: null,
-      standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0 },
+      standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0, trust: 0, gone: false },
       plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
     }, o.over || {});
   };
@@ -2265,10 +2265,15 @@ function sampleContexts(window) {
               // and believed twenty-two turns later, so a campaign spends real
               // time with standing outstanding and cards may be about that
               [0, 14, tier * 26].forEach(settling => {
-                standings.push({ tier, spin, caught, short, exposure, audits, settling,
-                  score: tier * 26 + spin, bought: tier * 26,
-                  filed: tier * 26 + settling,
-                  footprint: tier * 26 + spin + short });
+                // the Accountant's own opinion, independent of everything
+                // above it — a card can be about the relationship itself
+                // rather than about any one number it moved
+                [-3, -1, 0, 4].forEach(trust => {
+                  standings.push({ tier, spin, caught, short, exposure, audits, settling, trust,
+                    score: tier * 26 + spin, bought: tier * 26,
+                    filed: tier * 26 + settling,
+                    footprint: tier * 26 + spin + short });
+                });
               });
             });
           });
@@ -5720,6 +5725,119 @@ test('standing: exposure fades if you stop pushing', () => {
   d.LG().nextAudit = d.state.turn + 500;      // no audit to interrupt
   for (let i = 0; i < 5; i++) { d.state.turn += 1; d.legitStep(); }
   assert.ok(d.LG().exposure < e, 'the shape of it softens');
+});
+
+// --- the Accountant: one relationship, two opposed levers -----------------
+
+test('accountant: buying a rung earns trust, pushing a story spends it', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.res.cash = 100000; d.state.res.insight = 100000; d.state.ap = 99;
+  assert.equal(d.accountantTrust(), 0, 'nobody has an opinion of you yet');
+  d.buyRung(window.LEGIT.ladder[0].id);
+  assert.equal(d.accountantTrust(), window.ACCOUNTANT.rungNudge, 'filing honestly earns it');
+  d.state.ap = 99;
+  d.actSpin();
+  assert.equal(d.accountantTrust(), window.ACCOUNTANT.rungNudge + window.ACCOUNTANT.spinNudge,
+    'pushing a story spends it right back');
+});
+
+test('accountant: trusted enough, and a fine lands lighter', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  d.state.country.presence = 300;   // a real deficit to be fined for
+  d.state.res.cash = 100000;        // enough that the fine is never clamped by what you can pay
+  d.LG().trust = window.ACCOUNTANT.trustedAt;
+  const before = d.state.res.cash;
+  d.runAudit();
+  const trustedFine = before - d.state.res.cash;
+
+  const { window: w2 } = loadNetwork();
+  const d2 = withCountry(w2.__netDebug);
+  d2.state.country.presence = 300;
+  d2.state.res.cash = 100000;
+  const before2 = d2.state.res.cash;
+  d2.runAudit();
+  const plainFine = before2 - d2.state.res.cash;
+
+  assert.ok(trustedFine < plainFine, `trusted fine ${trustedFine} was not lighter than ${plainFine}`);
+});
+
+test('accountant: distrust them long enough and they wash their hands, for good', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const exposure = d.LG().exposure || 0;
+  d.accountantNudge(window.ACCOUNTANT.leavesAt);
+  assert.equal(d.accountantGone(), true);
+  assert.ok(d.LG().exposure > exposure, 'the last thing they do is stop being quiet about the gap');
+  assert.equal(d.accountantTrusted(), false, 'gone is never also trusted');
+
+  // no further nudge does anything — the relationship is over
+  const trust = d.accountantTrust();
+  d.accountantNudge(5);
+  assert.equal(d.accountantTrust(), trust, 'nothing moves the dial once they have left');
+});
+
+test('accountant: audits do not start until you have actually been introduced', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const home = d.cityById(s.country.homeId);
+  home.consolidated = true; home.taken = true;   // countryUnlocked(), no presence yet
+  assert.equal(d.noticed(), false, 'footprint has not crossed noticeAt');
+  for (let i = 0; i < 20; i++) { s.turn += 1; d.legitStep(); }
+  assert.equal(d.LG().nextAudit, -1, 'nothing was ever scheduled');
+  assert.equal((d.LG().audits || 0), 0, 'and nothing was ever run');
+});
+
+test('accountant: the introduction happens once, the first time you are noticed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = false; });
+  d.state.country.presence = 100;   // footprint well past noticeAt
+  const before = s.log.length;
+  s.card = null;
+  d.endTurn({ silent: true });
+  const introduced = s.log.slice(before).some(l => l.text.indexOf(window.ACCOUNTANT.name) !== -1);
+  assert.ok(introduced, 'the Accountant is introduced by name, not a silent flag flip');
+
+  const afterFirst = s.log.length;
+  d.endTurn({ silent: true });
+  const again = s.log.slice(afterFirst).some(l => l.text.indexOf(window.ACCOUNTANT.name) !== -1
+    && l.text.indexOf('kind of company') !== -1);
+  assert.equal(again, false, 'and only once');
+});
+
+test('accountant: warns before the audit lands, and only while there is a real gap', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  d.state.country.presence = 300;   // noticed, and genuinely short
+  d.noticed();
+  d.LG().nextAudit = s.turn + window.ACCOUNTANT.warnTurns;
+  const before = s.log.length;
+  d.accountantWarn();
+  assert.ok(d.LG().warned, 'flags it');
+  assert.ok(s.log.slice(before).some(l => l.text.indexOf(window.ACCOUNTANT.name) !== -1), 'and says so');
+
+  // does not warn twice for the same scheduled audit
+  const afterFirstWarn = s.log.length;
+  d.accountantWarn();
+  assert.equal(s.log.length, afterFirstWarn, 'nothing new to say — already flagged this one');
+});
+
+test('accountant: once they have walked, there is no more warning', () => {
+  const { window } = loadNetwork();
+  const d = withCountry(window.__netDebug);
+  const s = d.state;
+  d.state.country.presence = 300;
+  d.noticed();
+  d.LG().accountantGone = true;
+  d.LG().nextAudit = s.turn + 1;
+  const before = s.log.length;
+  d.accountantWarn();
+  assert.equal(s.log.length, before, 'nobody is calling ahead any more');
 });
 
 test('plant: buying needs enough of that trade built up, and the cash for it', () => {

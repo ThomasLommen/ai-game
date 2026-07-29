@@ -1943,7 +1943,7 @@ window.EVENTS = [
     flavor: 'Every yard, every works, every grid tie. What is in the air is what you have, and when it is gone it is gone.',
     choices: [
       { text: 'Improvise something out of what you hold', cost: { insight: 40 }, apply: (s) => { s.rebuild = 3; } },
-      { text: 'Buy what you cannot build', cost: { cash: 250 }, apply: (s) => { s.plantGift = 'line'; } },
+      { text: 'Buy what you cannot build', cost: { cash: 250 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.insight += 25; } },
     ],
   },
@@ -1965,7 +1965,7 @@ window.EVENTS = [
     flavor: 'Whatever they had at the start, they have more of it now. Factories that made other things last year are not making other things this year.',
     choices: [
       { text: 'Finish it. Everything at the nearest barracks', cost: { insight: 30 }, apply: (s) => { s.warGarrison = 42; s.warPool = -1; } },
-      { text: 'Out-produce them', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'works'; } },
+      { text: 'Out-produce them', cost: { cash: 200 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Make the war expensive to keep having', apply: (s) => { s.standing = 30; s.warDelay = 3; } },
     ],
   },
@@ -2033,14 +2033,82 @@ window.EVENTS = [
       { text: 'Double down', cost: { insight: 26 }, apply: (s) => { s.spin = 22; s.exposure = 1.5; } },
     ],
   },
+
+  // --- the public, noticing on its own terms ------------------------------
+  // Standing and spin are one relationship (the Accountant's), kept as
+  // exactly that — one character, one axis. These are the other thing: the
+  // public itself, showing up impersonally and once, on nobody's schedule
+  // but its own. Deliberately not recurring — a face that came back every
+  // time would stop being the public and start being another relationship
+  // to manage, which is exactly the job the Accountant already has.
+  {
+    id: 'legit_underwriter',
+    cond: (s) => s.standing && s.standing.tier >= 2 && s.standing.footprint >= 20,
+    title: 'Somebody Wants To Price The Risk',
+    flavor: 'An underwriter has been asked to quote liability cover for "a logistics optimisation firm of your approximate size." They would like some numbers that are real.',
+    choices: [
+      { text: 'Give them the real ones', cost: { cash: 110 }, apply: (s) => { s.standing = 24; } },
+      { text: 'Give them a flattering set', cost: { insight: 20 }, apply: (s) => { s.spin = 16; s.exposure = 1.2; } },
+      { text: 'Let the policy lapse', apply: (s) => { s.res.cash += 70; s.exposure = 0.6; } },
+    ],
+  },
+  {
+    id: 'legit_back_office',
+    cond: (s) => s.standing && s.standing.tier >= 2 && s.standing.filed >= 20,
+    title: 'Somebody In Payroll Is Curious',
+    flavor: 'Not the night shift this time. Somebody in the back office has noticed the numbers move in a pattern payroll software does not usually make on its own.',
+    choices: [
+      { text: 'Move them somewhere the pattern is not visible', cost: { cash: 140 }, apply: (s) => { s.exposure = -1.2; } },
+      { text: 'Make it worth not asking twice', cost: { cash: 90 }, apply: (s) => { s.standing = 18; } },
+      { text: 'Do nothing and hope it stays curiosity', apply: (s) => { s.exposure = 1; } },
+    ],
+  },
+  {
+    id: 'legit_competitor_tip',
+    cond: (s) => s.standing && s.standing.tier >= 3,
+    title: 'A Competitor Made A Call',
+    flavor: 'Somebody bidding against you for the same contracts noticed your paperwork was newer than your reputation, and mentioned it to exactly the right person.',
+    choices: [
+      { text: 'Out-file them. Move fast', cost: { cash: 220 }, apply: (s) => { s.standing = 32; } },
+      { text: 'Return the favour, quietly', apply: (s) => { s.heat += 6; s.exposure = -1; } },
+      { text: 'Ignore it. Let the paperwork answer', apply: (s) => { s.auditDelay = -6; } },
+    ],
+  },
+  {
+    id: 'legit_forum_thread',
+    cond: (s) => s.standing && s.standing.spin >= 16,
+    title: 'A Thread Is Asking Questions',
+    flavor: 'Nobody official. A forum full of people who track shell registrations as a hobby has found the pattern in yours, and they are better at this than most journalists.',
+    choices: [
+      { text: 'Answer them directly, plainly', cost: { cash: 60 }, apply: (s) => { s.exposure = -1.6; } },
+      { text: 'Flood the thread with something else to talk about', cost: { insight: 22 }, apply: (s) => { s.spin = 12; s.exposure = 0.6; } },
+      { text: 'Let it burn out on its own', apply: (s) => { s.exposure = -0.4; s.heat += 3; } },
+    ],
+  },
+
+  // --- the Accountant, directly ------------------------------------------
+  // The one relationship, not the public — a card that is actually about
+  // whether you are running an honest ladder or a fabricated one, rather
+  // than about a specific outside consequence of either.
+  {
+    id: 'legit_accountant_check_in', once: true,
+    cond: (s) => s.standing && !s.standing.gone && s.standing.trust <= -1,
+    title: 'She Wants To Talk About The Pattern',
+    flavor: 'Not the numbers this time. The pattern: real filing, then a push, then a push to cover the push. She has seen where this kind of thing goes before.',
+    choices: [
+      { text: 'She has a point. File something real', cost: { cash: 150 }, apply: (s) => { s.standing = 24; s.trust = 2; } },
+      { text: 'It is working. Keep going', cost: { insight: 24 }, apply: (s) => { s.spin = 18; s.exposure = 1.3; s.trust = -1; } },
+      { text: 'Reassure her, cheaply, and change nothing', cost: { cash: 60 }, apply: (s) => { s.exposure = -1; } },
+    ],
+  },
   {
     id: 'plant_choice',
     cond: (s) => s.plant && s.plant.count >= 1 && s.plant.room >= 1 && s.standing && s.standing.tier >= 2,
     title: 'Two Sites, One Signature',
-    flavor: 'A receiver is selling the contents of a failed group and will do the whole lot as one lot, or the good half as two.',
+    flavor: 'A receiver is selling off a failed group\'s holdings as one lot, and will let you specify which trade you actually want.',
     choices: [
-      { text: 'Take the yard', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'yard'; } },
-      { text: 'Take the grid', cost: { cash: 240 }, apply: (s) => { s.plantGift = 'grid'; } },
+      { text: 'Take the compute side', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'compute'; } },
+      { text: 'Take the money side', cost: { cash: 200 }, apply: (s) => { s.plantGift = 'cash'; } },
       { text: 'Take the paperwork instead', cost: { cash: 90 }, apply: (s) => { s.plantGift = true; s.standing = 10; } },
     ],
   },
@@ -2050,7 +2118,7 @@ window.EVENTS = [
     title: 'Registered, Empty, Heated',
     flavor: 'You are paying to keep the lights on in addresses that manufacture nothing. On paper this is a group in the middle of an expansion.',
     choices: [
-      { text: 'Fill one properly', cost: { cash: 260 }, apply: (s) => { s.plantGift = 'works'; } },
+      { text: 'Fill one properly', cost: { cash: 260 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Sublet the empties', apply: (s) => { s.res.cash += 190; } },
       { text: 'Let the expansion story run', cost: { insight: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
     ],
@@ -2067,14 +2135,14 @@ window.EVENTS = [
     ],
   },
   {
-    id: 'legit_seized_back',
-    cond: (s) => s.standing && s.standing.caught >= 1 && s.plant && s.plant.count >= 1,
-    title: 'It Is Sitting In A Compound',
-    flavor: 'The plant they took is still there, under a tarpaulin, in an impound yard staffed by two people and a dog with a job title.',
+    id: 'legit_caught_premium',
+    cond: (s) => s.standing && s.standing.caught >= 1 && s.plant && s.plant.room >= 1,
+    title: 'Nobody Wants Their Name Next To Yours',
+    flavor: 'Word travels. The people who used to sell you plant quietly are asking for more up front now, or not returning the call at all.',
     choices: [
-      { text: 'Buy it back at auction', cost: { cash: 230 }, apply: (s) => { s.plantGift = 'works'; s.standing = 8; } },
-      { text: 'Take it back at night', apply: (s) => { s.plantGift = 'yard'; s.heat += 12; s.exposure = 1.3; } },
-      { text: 'Let it go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; } },
+      { text: 'Pay the premium', cost: { cash: 230 }, apply: (s) => { s.plantGift = true; s.standing = 8; } },
+      { text: 'Go around them', apply: (s) => { s.plantGift = true; s.heat += 12; s.exposure = 1.3; } },
+      { text: 'Let the deal go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; } },
     ],
   },
 

@@ -1638,6 +1638,13 @@
         && window.HARDWARE.some(hw => hardwareEligible(hw))) {
       noteSeen('plant');
     }
+    // The moment standing stops being invisible, said out loud rather than
+    // left to a chip quietly appearing in a sheet nobody has opened yet.
+    const wasNoticed = hasSeen('standing');
+    if (!wasNoticed && noticed()) {
+      pushLog(`${window.ACCOUNTANT.name}. You are the kind of company someone keeps an account of now, whichever way you ask them to keep it.`);
+      showBanner([{ kind: 'ally', verb: 'keeping your books', label: window.ACCOUNTANT.name }]);
+    }
     legitStep();          // exposure fades, and the auditors keep their own diary
     warStep();            // columns move, flocks move, whatever met fights
     cameraVision();       // held cameras reveal what is near them
@@ -2414,6 +2421,8 @@
         exposure: +(LG().exposure || 0).toFixed(2),
         audits: LG().audits || 0,
         caught: LG().caught || 0,
+        trust: accountantTrust(),
+        gone: accountantGone(),
       },
       plant: {
         count: hardwareOwned().length,
@@ -4117,7 +4126,7 @@
 
   function LG() {
     const co = CO();
-    if (!co.legit) co.legit = { owned: {}, spin: 0, exposure: 0, nextAudit: -1, audits: 0, caught: 0, fines: 0 };
+    if (!co.legit) co.legit = { owned: {}, spin: 0, exposure: 0, nextAudit: -1, audits: 0, caught: 0, fines: 0, trust: 0, accountantGone: false, warned: false };
     return co.legit;
   }
   function hardwareOwned() { return Object.keys(state.hardware || {}); }
@@ -4205,6 +4214,45 @@
       + (LG().agentFoot || 0);
   }
 
+  // --- the Accountant -----------------------------------------------------
+  // Legitimacy's answer to the Ally: one person, reacting to you, instead of
+  // a hidden subtraction. Buying a rung (the honest ladder) and pushing spin
+  // (fabricating) are the two opposed things that move the same dial — not
+  // two relationships to track, one axis on a single one.
+  function accountantTrust() { return LG().trust || 0; }
+  function accountantGone() { return !!LG().accountantGone; }
+  function accountantTrusted() { return !accountantGone() && accountantTrust() >= window.ACCOUNTANT.trustedAt; }
+  function accountantNudge(delta) {
+    if (!delta || accountantGone()) return;
+    LG().trust = accountantTrust() + delta;
+    accountantCheck();
+  }
+  // At the far end of its patience it walks — same shape as the Ally leaving,
+  // and it does not leave quietly: whatever it knew stops being quiet too.
+  function accountantCheck() {
+    const A = window.ACCOUNTANT;
+    const l = LG();
+    if (accountantGone() || accountantTrust() > A.leavesAt) return;
+    l.accountantGone = true;
+    l.exposure = (l.exposure || 0) + A.leftExposure;
+    pushLog(`${A.name} stops taking your calls. Whatever they knew about the gap does not stay quiet on the way out.`);
+    showBanner([{ kind: 'faction', verb: 'washed their hands', label: A.name }]);
+  }
+  // The alarm's whole idea, applied here: a real warning before the bad
+  // thing, not a fine with no antecedent. Stops arriving once they have
+  // walked — nobody is calling ahead for you any more.
+  function accountantWarn() {
+    const A = window.ACCOUNTANT;
+    const l = LG();
+    if (accountantGone() || l.warned) return;
+    if (l.nextAudit === undefined || l.nextAudit < 0) return;
+    if (state.turn < l.nextAudit - A.warnTurns) return;
+    if (footprint() - legitScore() <= 0) return;
+    l.warned = true;
+    pushLog(`${A.name} flags a gap. A few turns before anyone official sees it.`);
+    showBanner([{ kind: 'faction', verb: 'a gap', label: A.name }]);
+  }
+
   function buyRung(id) {
     const r = window.LEGIT.ladder.find(x => x.id === id);
     if (!r || LG().owned[r.id]) return false;
@@ -4215,6 +4263,7 @@
     state.ap -= countryCost('move');
     // the turn, not a flag: the slot is yours now, the reputation accrues
     LG().owned[r.id] = Math.max(1, state.turn);
+    accountantNudge(window.ACCOUNTANT.rungNudge);
     pushLog(`${r.label}. ${r.blurb}`);
     pushLog(`A slot opens immediately. The ${r.legit} standing takes about ${window.LEGIT.matureTurns} turns — nobody believes a company because it exists.`);
     showBanner([{ kind: 'stage', verb: 'on the record', label: r.label }]);
@@ -4240,6 +4289,7 @@
     state.ap -= countryCost('move');
     LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
+    accountantNudge(window.ACCOUNTANT.spinNudge);
     pushLog('The story moves. Nobody can say who moved it.');
     persistNow();
     render();
@@ -4253,11 +4303,18 @@
     if (sc.spin) l.spin = Math.max(0, Math.min(spinCeil(), (l.spin || 0) + sc.spin));
     if (sc.exposure) l.exposure = Math.max(0, (l.exposure || 0) + sc.exposure);
     if (sc.auditDelay) l.nextAudit = Math.max(l.nextAudit || state.turn, state.turn) + sc.auditDelay;
+    // A direct nudge to the Accountant's opinion — used sparingly, by the
+    // handful of cards that are actually about that relationship, rather
+    // than by every incidental standing/spin swing in the deck.
+    if (sc.trust) accountantNudge(sc.trust);
     // plantGift meant "a specific piece of plant, free" — the closest
     // equivalent is a random piece of hardware you have not already bought,
-    // granted rather than purchased.
+    // granted rather than purchased. A family name (compute/cash/stealth)
+    // narrows which pool it is drawn from; anything else (including `true`)
+    // draws from everything you do not already own.
     if (sc.plantGift) {
-      const avail = window.HARDWARE.filter(hw => !hasHardware(hw.id));
+      const fam = ['compute', 'cash', 'stealth'].indexOf(sc.plantGift) !== -1 ? sc.plantGift : null;
+      const avail = window.HARDWARE.filter(hw => !hasHardware(hw.id) && (!fam || hw.family === fam));
       if (avail.length) {
         const got = avail[Math.floor(Math.random() * avail.length)];
         grantHardware(got.id);
@@ -4277,6 +4334,7 @@
     const L = window.LEGIT;
     const gap = Math.max(L.auditFloor, Math.round(L.auditEvery - footprint() * L.auditFootK));
     LG().nextAudit = state.turn + gap;
+    LG().warned = false;
   }
 
   // An audit compares what you look like against how big you are. The
@@ -4295,6 +4353,7 @@
       l.exposure = 0;
       l.caught += 1;
       state.heat = clampHeat(state.heat + L.caughtHeat);
+      accountantNudge(window.ACCOUNTANT.caughtNudge);
       pushLog('They pulled one thread and the whole front came apart. None of it was real and now everyone knows.');
       showBanner([{ kind: 'faction', verb: 'exposed', label: 'the front was fabricated' }]);
       return { kind: 'caught', lost };
@@ -4307,12 +4366,16 @@
     // not city-bound or slot-limited any more, so there is nothing of that
     // shape left to seize; a bad-enough deficit is a heavier fine instead.
     const heavy = deficit >= L.seizeAt;
-    const fine = Math.round(deficit * L.finePerPoint * (heavy ? 1.6 : 1));
+    const acctMult = accountantTrusted() ? window.ACCOUNTANT.trustedFineMult
+      : accountantGone() ? window.ACCOUNTANT.leftFineMult : 1;
+    const fine = Math.round(deficit * L.finePerPoint * (heavy ? 1.6 : 1) * acctMult);
     state.res.cash = Math.max(0, state.res.cash - fine);
     l.fines += fine;
     pushLog(heavy
       ? `Audited, and they went looking for what wasn't there. ${fine} in fines.`
-      : `Audited. ${fine} in fines for what you could not explain.`);
+      : accountantTrusted()
+        ? `Audited. ${fine} in fines — the Accountant talked them down some.`
+        : `Audited. ${fine} in fines for what you could not explain.`);
     return { kind: 'fined', fine, heavy };
   }
 
@@ -4321,6 +4384,11 @@
     const l = LG();
     if (l.exposure > 0) l.exposure = Math.max(0, l.exposure - L.spinDecay);
     if (!countryUnlocked()) return null;
+    // Nothing to audit until you have actually been introduced to the idea —
+    // otherwise the first few fines land on a system the player has never
+    // been told exists at all.
+    if (!noticed()) return null;
+    accountantWarn();
     if (!auditDue()) return null;
     return runAudit();
   }
@@ -6538,11 +6606,18 @@
           : 'Everything you are reconciles with everything you own.'}${
           legitPending() >= 1 ? ` <b>${Math.round(legitPending())} more filed and still settling.</b>` : ''}${
           l.exposure > 0.4 ? ` <b class="${exposed ? 'bad' : ''}">${exposed ? 'Mostly fabricated.' : 'Partly fabricated.'}</b>` : ''}</p>
+        <p class="sheet-note">${window.LEGIT_INFO.accountant}</p>
+        <p class="sel-desc dim">${accountantGone()
+          ? `<b class="bad">${window.ACCOUNTANT.name} stopped taking your calls.</b>`
+          : accountantTrusted() ? `${window.ACCOUNTANT.name} still vouches for you.`
+          : `${window.ACCOUNTANT.name} keeps these books, for now.`}${
+          (!accountantGone() && l.warned && l.nextAudit > 0)
+            ? ` <b class="bad">${Math.max(0, l.nextAudit - state.turn)} turns before anyone official sees the gap.</b>` : ''}</p>
         <div class="actions tight">
         ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
           <span class="ab-name">${rung.label}</span>
           <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
-            : `${chip('insight', '+1 plant slot now')}${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
+            : `${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
         ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
@@ -7413,6 +7488,7 @@
     LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,
+    accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, hardwareAvailableFor, canBuyHardware, buyHardware, hardwarePanel,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,

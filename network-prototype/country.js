@@ -861,7 +861,7 @@ window.LEGIT = {
   auditFloor: 6,          // never more often than this
   auditFootK: 0.09,       // every point of footprint brings the next one forward
   finePerPoint: 4,        // cash, per point you are short
-  seizeAt: 22,            // short by this much and they take something off you
+  seizeAt: 22,            // short by this much and the fine gets noticeably heavier
   // The other route. Measured before these numbers moved: 720 pushes over 120
   // turns, caught nine times, and it finished with a standing of 1086 against
   // a footprint that cannot exceed about 150. It was not that being caught did
@@ -882,10 +882,6 @@ window.LEGIT = {
   // contradicted.
   caughtLoss: 1,
   caughtHeat: 14,
-  // and they cannot discover the company is a fiction and leave the factory in
-  // your name. Plant is slot-capped and it is what the war is built out of, so
-  // it is the one loss you cannot spend your way back out of in three turns.
-  caughtSeizes: 1,
   // Nobody believes a story with nothing behind it. Spin above this does not
   // count, which makes the ladder the thing the covert route hangs off rather
   // than an alternative to it: buying real standing raises how much you can
@@ -898,6 +894,28 @@ window.LEGIT_INFO = {
   score: 'What the world believes you are. Buy it honestly and it is slow and expensive; buy the appearance of it and it is fast, cheap, and can be taken away all at once.',
   footprint: 'How impossible you are to miss. It rises with everything you hold and every piece of plant you run. Legitimacy has to stay ahead of it.',
   assets: 'Hardware bought through whatever trade you run. It is permanent and follows you anywhere — but every tier needs more of that business already standing before anyone will sell it to you.',
-  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you — it takes the front and a piece of your plant with it.',
+  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you — it strips the front back to whatever you actually bought, all at once.',
   ceiling: 'A story needs something to hang off: every rung you buy honestly raises how much you can invent on top of it.',
+  accountant: 'One person keeps these books, whichever way you ask them to. File honestly and they vouch for you when the numbers are checked. Push a story instead and they are the one holding it when it breaks.',
+};
+
+// The one person who keeps your books, whichever way you ask them to —
+// legitimacy's answer to the Ally: a relationship that reacts to you rather
+// than a hidden subtraction. Filing honestly (buying a rung) and fabricating
+// (spinning) are the two opposed things that move the same dial, on purpose:
+// one character, one axis, not two separate people to track.
+window.ACCOUNTANT = {
+  name: 'the Accountant',
+  trustedAt: 3,           // at or above: vouches for you — fines land lighter
+  leavesAt: -3,           // at or below: washes their hands of you, for good
+  rungNudge: 1,           // buying any rung, the honest way, earns their trust
+  spinNudge: -1,          // pushing a fabricated story spends it
+  caughtNudge: -2,        // getting caught outright costs more than an ordinary push
+  // How long before a scheduled audit the tell appears — same idea as the
+  // hunt's alarm: a real warning instead of a fine with no antecedent, and
+  // it stops arriving at all once they have washed their hands of you.
+  warnTurns: 4,
+  trustedFineMult: 0.5,   // vouching for you softens what an audit actually costs
+  leftFineMult: 1.5,      // and it is worse once nobody is smoothing it over
+  leftExposure: 1.8,      // one last thing on the way out: what they knew stops being quiet
 };
