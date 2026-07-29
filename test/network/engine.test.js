@@ -3116,7 +3116,9 @@ test('hunt: a city it takes enough of is gone for good', () => {
   const city = d.currentCity();
   hunted(d, window);
   let lost = null;
-  for (let t = 0; t < 300 && !lost; t++) { s.turn += 1; d.huntStep(); lost = d.huntTakesCity(); }
+  // loop bound scales with the board: the home base is now bigger than a
+  // fixed 300-turn creep assumed, and the hunt only takes a share of it per turn
+  for (let t = 0; t < s.buildings.length * 20 && !lost; t++) { s.turn += 1; d.huntStep(); lost = d.huntTakesCity(); }
   assert.ok(lost, 'it can finish a city');
   assert.equal(d.cityLost(city), true, 'and the city is marked lost');
   assert.equal(city.taken, false, 'you do not hold it');

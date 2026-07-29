@@ -501,8 +501,16 @@ window.LANDMARK = { defense: 1.35, threads: 1.5, yieldMult: 2 };
 // One building is one host, so a block of four buildings is four things to take
 // rather than a dozen. The home city was widened when it *was* the game; with a
 // country above it, chapter one is a chapter again.
+//
+// Home base pivot (in progress): the country's other cities are going away —
+// this is the only place the player ever personally walks, permanently, so it
+// has to start able to hold a real campaign's worth of ground on its own. This
+// is a first-pass size, not a measured one; it also grows live over the
+// campaign (reach-milestone district growth, not yet built) on top of this.
+// Only cols/rows changed here — blockW/blockH/street/perBlock are shared with
+// every other city's generation and stay as they were.
 window.CITY = {
-  cols: 4, rows: 4,
+  cols: 6, rows: 6,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
