@@ -110,6 +110,31 @@ body {
 .heat-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); }
 #heat-row.compact .heat-meta { margin-top: 2px; }
 
+/* the alarm — an addition on top of the heat bar once the hunt exists, not
+   a replacement for it: the number underneath still drives how fast it
+   moves, so both have to stay visible at once. */
+#alarm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--heat);
+}
+#alarm-row[hidden] { display: none; }
+.alarm-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--heat);
+  animation: alarm-pulse 1.4s ease-in-out infinite;
+}
+@keyframes alarm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
 #res-row {
   display: flex;
   flex-wrap: wrap;

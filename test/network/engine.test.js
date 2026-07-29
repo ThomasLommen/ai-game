@@ -979,12 +979,27 @@ test('lying low cannot drive heat below the floor', () => {
   assert.ok(s.heat >= d.heatFloor() - 0.001, `heat ${s.heat} fell below the floor ${d.heatFloor()}`);
 });
 
-test('the hunter fires once heat crosses the threshold', () => {
+test('crossing the threshold is permanent, and costs nothing until the hunt can exist', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  d.state.heat = window.HEAT.STRIKE + 1;
+  const s = d.state;
+  assert.ok(!s.everCrossed, 'nothing crossed yet');
+  s.heat = window.HEAT.STRIKE + 1;
   d.endTurn();
-  assert.ok(d.state.card && d.state.card.kind === 'strike', 'the strike card is raised');
+  assert.equal(s.everCrossed, true, 'crossing is remembered');
+  assert.equal(s.card, null, 'there is no strike card any more');
+  assert.equal(d.huntOn(), false, 'not enough held yet for the hunt to exist');
+
+  // heat drops back under the threshold entirely
+  s.heat = 0;
+  d.endTurn();
+  assert.equal(s.everCrossed, true, 'still remembered, even back under the line');
+  assert.equal(d.huntOn(), false, 'still nothing to seed it on');
+
+  // now it is owed the moment there is enough held, whatever heat has done
+  s.hosts.slice(0, window.HUNT.minHeld).forEach(h => { h.owned = true; h.discovered = true; });
+  d.endTurn();
+  assert.equal(d.huntOn(), true, 'the hunt arrives late, on the debt already owed');
 });
 
 test('strike branches differ: ride burns a share, shed drops the loud ones, cover pays', () => {
@@ -3060,6 +3075,7 @@ function hunted(d, window, held) {
   s.hosts.slice(0, held === undefined ? 20 : held).forEach(h => { h.owned = true; });
   s.res.insight = 900;
   s.heat = d.strikeThreshold() + 1;
+  s.everCrossed = true; // heat/hunt rework: crossing is what huntStart() now requires
   return d.huntStart();
 }
 
@@ -3071,6 +3087,7 @@ test('hunt: crossing the threshold starts something instead of fining you', () =
 
   // it will not arrive before you have anything worth taking
   s.heat = d.strikeThreshold() + 1;
+  s.everCrossed = true;
   assert.equal(d.huntStart(), null, 'not against a network this small');
 
   hunted(d, window);
@@ -3183,6 +3200,7 @@ test('hunt: what it holds and what it can reach is on the map, swept or not', ()
   s.buildings.forEach(b => { b.discovered = d.hostsIn(b).some(x => x.owned); });
   s.res.insight = 900;
   s.heat = d.strikeThreshold() + 1;
+  s.everCrossed = true;
   d.huntStart();
 
   const dark = () => d.huntFrontier().filter(id => !d.buildingById(id).discovered).length;
@@ -7495,4 +7513,138 @@ test('home base: growth trait survives a save/load round trip', () => {
   const back = round.buildings.find(b => b.id === traited.id);
   assert.equal(back.trait, traited.trait);
   assert.equal(round.lastGrowthTrait, s.lastGrowthTrait);
+});
+
+// --- heat/hunt rework: the alarm, and ending the hunt for good -------------
+
+test('alarm: shows only once the hunt exists, on top of the heat bar, not instead of it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const $alarm = window.document.getElementById('alarm-row');
+  const $fill = window.document.getElementById('heat-fill');
+  d.render();
+  assert.equal($alarm.hidden, true, 'nothing to alarm about yet');
+  assert.notEqual($fill.style.width, undefined, 'the heat bar itself is still there');
+
+  hunted(d, window);
+  d.render();
+  assert.equal($alarm.hidden, false, 'it shows once the hunt is real');
+  assert.ok($fill.style.width, 'and the bar underneath is still rendered alongside it');
+});
+
+test('everCrossed survives a save/load round trip', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.everCrossed = true;
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.everCrossed, true);
+});
+
+test('hunt confront: the gate scales with the core\'s own defense and how much it has taken', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  const core = d.huntCoreHost();
+  assert.ok(core, 'the core is a real host, still');
+  const base = d.huntConfrontDefense();
+  assert.ok(base > core.defense, 'dug in harder than it started, day one');
+
+  // several nodes at once, not one — a single extra node can round-trip to
+  // the same integer against a low base defense, which isn't the same thing
+  // as the formula not scaling
+  for (let i = 0; i < 10; i++) d.hunt().nodes.push('extra-node-' + i);
+  const grown = d.huntConfrontDefense();
+  assert.ok(grown > base, `expected harder still the more it has taken since: ${base} -> ${grown}`);
+});
+
+test('hunt confront: only reachable while the hunt exists and you are standing in the city', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(d.canConfrontHunt(), false, 'nothing to confront yet');
+  hunted(d, window);
+  assert.equal(d.canConfrontHunt(), true);
+
+  d.state.scope = 'country';
+  assert.equal(d.canConfrontHunt(), false, 'not from the country map');
+  d.state.scope = 'city';
+  assert.equal(d.canConfrontHunt(), true);
+});
+
+test('hunt confront: opens the same three-way choice as any door, on the core specifically', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  const core = d.huntCoreHost();
+  assert.equal(d.openHuntConfront(), true);
+  assert.equal(s.card.kind, 'breach');
+  assert.equal(s.card.hostId, core.id);
+  assert.equal(s.card.confront, true);
+  const opts = d.approachesFor(core).map(a => a.def.id);
+  ['force', 'quiet', 'walk'].forEach(id => assert.ok(opts.includes(id), `${id} missing`));
+  // buy is a real approach, same as any door — just not on every host type
+  // (a camera or a datacenter has nobody to bribe), same rule as elsewhere
+  const buyable = core.type !== 'datacenter' && core.type !== 'iot';
+  assert.equal(opts.includes('buy'), buyable, `buy availability disagrees with the host's own type (${core.type})`);
+});
+
+test('hunt confront: winning ends the hunt and reclaims only the core, nothing else it took', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  const nodesBefore = d.hunt().nodes.slice();
+  assert.ok(nodesBefore.length >= 2, 'it took at least one more building beyond the seed, to test with');
+  const elsewhereHosts = nodesBefore.slice(1).map(bid => d.hostsIn(d.buildingById(bid))[0]);
+
+  const core = d.huntCoreHost();
+  core.defense = 1; // trivially winnable
+  s.res.insight = 999; s.res.cash = 999; s.ap = 5;
+  d.openHuntConfront();
+  d.resolveBreach('force');
+
+  assert.equal(d.huntOn(), false, 'it is finished');
+  assert.equal(core.owned, true, 'the core itself comes back');
+  assert.ok(elsewhereHosts.every(h => !h.owned),
+    'ending it does not undo it — everything else it took stays gone');
+});
+
+test('hunt confront: failing costs heat and pulls its next move closer, but does not end it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.turn = 30;
+  s.hunt.lastActed = 30;
+  const core = d.huntCoreHost();
+  core.defense = 999; // unwinnable by force
+  s.res.insight = 0; s.res.cash = 0; s.ap = 5;
+  const heatBefore = s.heat;
+  d.openHuntConfront();
+  d.resolveBreach('force');
+
+  assert.equal(d.huntOn(), true, 'still on — a failed attempt does not end it');
+  assert.ok(s.heat > heatBefore, 'it costs heat to have tried');
+  assert.ok(s.hunt.lastActed < 30, 'and its next move is pulled closer');
+  assert.equal(s.card, null, 'the card closes either way');
+});
+
+test('hunt confront: backing out costs nothing, same as any other door', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  const apBefore = s.ap;
+  const heatBefore = s.heat;
+  d.openHuntConfront();
+  d.resolveBreach('walk');
+  assert.equal(s.card, null);
+  assert.equal(s.ap, apBefore, 'no action spent on backing out');
+  assert.equal(s.heat, heatBefore);
+  assert.equal(d.huntOn(), true, 'and it is still there, unresolved');
 });

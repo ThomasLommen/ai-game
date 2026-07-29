@@ -669,6 +669,15 @@ window.HUNT = {
   followBase: 7,
   followPerCover: 0.5,
   followMax: 16,
+  // Heat/hunt rework: ending it for good, not walking away from it. Its
+  // core — the very first building it took, the address it operates out of
+  // — is dug in harder the longer it has run and the more it has since
+  // taken, same three-way choice as any door. Failing tips it off: it costs
+  // heat and pulls its next move closer, rather than costing nothing to try.
+  confrontDefenseBase: 1.4,     // multiplier over the core's own defense, day one
+  confrontDefensePerNode: 0.15, // and more again for every building it has added since
+  confrontFailHeat: 6,
+  confrontFailAdvance: 4,       // turns pulled off its next move's countdown
 };
 
 // --- what makes a city a different city ----------------------------------

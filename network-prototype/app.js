@@ -1582,25 +1582,18 @@
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
     cellStep();           // whoever you sent, and whether they have finished
-    const cooled = state.turn - (state.lastStrikeTurn || -99) >= window.HEAT.STRIKE_COOLDOWN;
-    // Clearing a stale arrest is not a substitute for drawing a card. As an
-    // `else if` this swallowed the event draw for the entire war: measured,
-    // zero cards of any kind came up across 1713 draws once the war was on,
-    // so the whole deck — not just the wartime half — went silent for the
-    // last act.
-    if (warOn() && state.card && state.card.kind === 'strike') state.card = null;
-    if (!warOn() && state.heat >= strikeThreshold() && cooled && !state.card) {
-      // The first time you cross, it starts the hunt instead of fining you. A
-      // fine was payable in the currency you have most of; this is not payable
-      // at all. Once it is running, crossing again only makes it move faster —
-      // one consequence for one meter, rather than two that ignore each other.
-      const started = huntStart();
-      if (started) {
-        state.lastStrikeTurn = state.turn;
-      } else if (!huntOn()) {
-        state.card = { kind: 'strike' };
-      }
-    } else if (!state.card && (state.forced || []).length) {
+    // Heat/hunt rework: crossing the threshold is permanent, not a one-time
+    // fine — there is no strike card at all any more. Below HUNT.minHeld
+    // buildings the hunt simply cannot exist yet, so a crossing that early
+    // costs nothing in the moment; it is owed instead, and arrives the
+    // instant there is enough held to seed it on, whatever heat has done
+    // since. Once it exists it never restarts on its own — see huntStart().
+    // A strike card cannot be created any more, but a stale one (an old save,
+    // a leftover test) must not sit there blocking every other card forever.
+    if (state.card && state.card.kind === 'strike') state.card = null;
+    if (!warOn() && state.heat >= strikeThreshold()) state.everCrossed = true;
+    if (!warOn() && state.everCrossed && !huntOn()) huntStart();
+    if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
       // deck's own timer and does not consult its own cond
@@ -1712,11 +1705,68 @@
   }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
+    if (!state.everCrossed) return null;
     if (owned().length < window.HUNT.minHeld) return null;
     // it starts on something of yours: the point is that it takes, not that it
     // races you for open ground the way the rival does
     return huntSeed((what) =>
       `${window.HUNT.name} has an address. They are inside ${what}, and they are not leaving.`);
+  }
+
+  // --- ending it ------------------------------------------------------------
+  // You either learn to play without it, or you go and end them. The core is
+  // the very first building it took — the address it operates out of — dug
+  // in harder the longer it has run and the more it has since taken.
+  function huntCoreHost() {
+    const h = hunt();
+    if (!h || !h.nodes.length) return null;
+    const b = buildingById(h.nodes[0]);
+    return b ? hostsIn(b)[0] : null;
+  }
+  function huntConfrontDefense() {
+    const core = huntCoreHost();
+    if (!core) return 0;
+    const H = window.HUNT;
+    const h = hunt();
+    return Math.round(core.defense * (H.confrontDefenseBase + (h.nodes.length - 1) * H.confrontDefensePerNode));
+  }
+  function canConfrontHunt() {
+    return huntOn() && state.scope === 'city' && !!huntCoreHost() && !state.card && !state.over;
+  }
+  function openHuntConfront() {
+    if (!canConfrontHunt()) return false;
+    const core = huntCoreHost();
+    core.defense = huntConfrontDefense();
+    state.card = { kind: 'breach', hostId: core.id, confront: true };
+    render();
+    return true;
+  }
+  // Ending it does not undo it: everything else it has taken over the
+  // campaign stays gone. Winning reclaims only the core and closes the whole
+  // thing off. Losing tips it off — it costs heat and pulls its next move
+  // closer, instead of costing nothing to have tried.
+  function resolveHuntConfront(win, a, h, before) {
+    const H = window.HUNT;
+    state.card = null;
+    state.selected = null;
+    if (win) {
+      h.owned = true;
+      h.stability = 1;
+      h.heldSince = state.turn;
+      revealBuilding(buildingById(h.buildingId));
+      state.hunt = null;
+      pushLog(`${H.name} is finished. You have the address back — everything else it took stays gone.`);
+      showBanner([{ kind: 'faction-gone', verb: 'finished', label: H.name }]);
+    } else {
+      state.heat = clampHeat(state.heat + H.confrontFailHeat);
+      const ht = hunt();
+      if (ht) ht.lastActed = Math.max(ht.since, ht.lastActed - H.confrontFailAdvance);
+      pushLog(`${H.name} knew you were coming. ${a.flavorFail || 'It goes nowhere, and they are closer for it.'}`);
+    }
+    startBreachFx(h, a.id, !!win);
+    afterSnap(before);
+    persistNow();
+    render();
   }
 
   // --- and it follows -----------------------------------------------------
@@ -2978,6 +3028,13 @@
     if (payable) for (const k in payable) state.res[k] -= payable[k];
 
     const win = entry.usable;
+    // Confronting the hunt's core is not an ordinary breach: winning ends
+    // the hunt instead of just holding a building, and losing tips it off
+    // instead of the usual onFail heat. Handled entirely separately.
+    if (card.confront) {
+      resolveHuntConfront(win, a, h, before);
+      return;
+    }
     const out = win ? a.onWin : (a.onFail || {});
     let opened = [];
     // The Adjusters read this, not how much you hold overall — cumulative
@@ -5071,6 +5128,7 @@
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
+      everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
       lastGrowthTrait: state.lastGrowthTrait || null,
     };
@@ -5086,6 +5144,7 @@
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
+        everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
@@ -6237,6 +6296,11 @@
       heatEl.addEventListener('click', () =>
         showInfo(warOn() ? window.WAR_INFO.staging : window.STAT_INFO.heat));
     }
+    const alarmEl = document.getElementById('alarm-row');
+    if (alarmEl && !alarmEl.dataset.wired) {
+      alarmEl.dataset.wired = '1';
+      alarmEl.addEventListener('click', () => openHuntConfront());
+    }
 
     const fill = document.getElementById('heat-fill');
     const $floor = document.getElementById('heat-floor');
@@ -6257,9 +6321,17 @@
         ? `WAR · ${staging} still staging` : 'WAR · nothing left staging';
       document.getElementById('heat-drift').textContent =
         `${flocks().length}/${flockCap()} flocks`;
+      const $alarmW = document.getElementById('alarm-row');
+      if ($alarmW) $alarmW.hidden = true;
       return;
     }
     if (heatEl) heatEl.classList.remove('at-war');
+
+    // Heat/hunt rework: an addition on top of the bar, not a replacement —
+    // the number underneath still drives huntCadence()'s fast-vs-slow tick,
+    // so it has to stay legible even once the hunt exists.
+    const $alarm = document.getElementById('alarm-row');
+    if ($alarm) $alarm.hidden = !huntOn();
 
     const pct = Math.max(0, Math.min(100, (state.heat / strikeThreshold()) * 100));
     fill.style.width = pct + '%';
@@ -7327,6 +7399,7 @@
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, assetMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, churnMult, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchLocked, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
     swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
+    huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     cells, cellsOpen, cellsKnown, cellsDone, cellCost, canDelegate, actDelegate, cellStep, CELL_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
