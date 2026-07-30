@@ -249,16 +249,29 @@ longer a defensive stat that happens to have been renamed — it is the thing th
 makes slow hacks work at all, so the allocation screen has to exist and feel good
 before hacking is playable.
 
-## Deferred until all six phases are done
+## The deck, after the rework
 
-Sixteen event-card conditions in `data.js` gate on `hasCap(...)`. Emptying the
-capability tree in phase 1 makes every one of them permanently false, so those
-cards stop appearing — they do not break, they just never come up again.
+There were no dormant cards. An earlier note here claimed sixteen event cards
+gated on capabilities and would fall silent when the tree went — that was wrong.
+All sixteen `hasCap` occurrences were comments *inside the capability
+definitions*, annotating where each one was consumed, and they went with the
+block. No card ever gated on a capability.
 
-Some of them should be regated onto allocation levels instead of capability
-ownership, but that is a content decision per card and it is being taken after
-the six phases land, not during them. Until then, treat those cards as dormant
-rather than as a bug.
+What the audit did find is that the deck had nothing to say about anything the
+rework added. Public standing is now wired: fifteen choices move it in both
+directions, and three cards exist only at particular standings.
+
+Still open, in priority order:
+
+1. **Cards about the grid.** Electricity and allocation are the core loop and the
+   deck is silent on them. A substation offered cheap with strings; a heatwave
+   capping the ceiling; an offer to run somebody else's workload on your spare
+   TFLOPS. None of these need new machinery.
+2. **Cards about the rig and the race.** Being caught mid-hack is frequent and
+   never remarked on.
+
+`doors`, `forced`, `region`, `conquest`, `reach` and `regionHeat` are on the
+event context and used by no card. That is fine — not every key needs one.
 
 ## Not changing
 
