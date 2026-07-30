@@ -59,7 +59,7 @@ window.CITY_KINDS = {
     // learned on.
     //
     // Presence: worth what two cities used to be. There are five defended
-    // cities now rather than nine, and everything downstream — power, cover,
+    // cities now rather than nine, and everything downstream — tflops, cover,
     // the heat floor, footprint, the war — is tuned against a country that
     // totals around a hundred presence. At the old values a campaign finished
     // on 26 presence instead of 100 and the whole back half starved.
@@ -69,8 +69,8 @@ window.CITY_KINDS = {
   home: {
     label: 'home', contest: true,
     // Consolidating must never gut you — presence has to buy back most of the
-    // power the streets were giving, or the next region is unplayable. At 14
-    // a thread-poor first city dropped you to 0.71 of the power you had, on
+    // tflops the streets were giving, or the next region is unplayable. At 14
+    // a thread-poor first city dropped you to 0.71 of the tflops you had, on
     // 2.5% of boards.
     blocks: [4, 4], presence: [20, 20], share: 0.4,
     blurb: 'The first place. You know every street of it.',
@@ -121,18 +121,18 @@ window.COUNTRY = {
   // builder took the whole country in 75 turns, so a little growth stays.
   blockBonusFromTier: 0.12,
   // presence pays out every country turn — this is what a finished city is worth
-  presenceYield: { insight: 0.5, cash: 0.6 },
+  presenceYield: { funds: 1.1 },
   // Folding a city in releases everything you held there, so presence has to
   // carry the flywheel or winning would make you weaker. It has to do that
   // *without* becoming the whole game: measured with a square root, 250
-  // presence bought 158 power against a hardest-in-the-country defense of 52,
+  // presence bought 158 tflops against a hardest-in-the-country defense of 52,
   // and every door in the last three regions opened on the first try.
   // Logarithmic keeps the first conversion whole and flattens hard after that.
-  powerLog: 15,
+  tflopsLog: 15,
   coverRoot: 1.2,
   // A city's presence is partly what its streets were actually worth to you.
   // Without this the conversion swings on how thread-rich the city happened to
-  // be — a warehouse district could cost you 40% of your power, a suburb none.
+  // be — a warehouse district could cost you 40% of your tflops, a suburb none.
   threadsPerPresence: 6,
   nationalMult: 1.35,  // the `national` tag: presence earns more and is louder
   // Drift from being nationally visible. Linear in presence, this reached
@@ -310,7 +310,7 @@ window.COUNTRY_ACTIONS = {
 // presence means you point an agent at it and spend the turns elsewhere.
 //
 // Home base pivot, step 4: this replaces the old cell system (a human crew
-// you paid cash to, who kept a cut). An agent is not a person and does not
+// you paid funds to, who kept a cut). An agent is not a person and does not
 // need paying — it is your own compute, sent out rather than hired in, so it
 // keeps the whole city rather than a share of it. What throttles it instead
 // is the same shape cells used: one running at a time, a hard lifetime cap,
@@ -329,10 +329,13 @@ window.AGENTS = {
   blurb: 'Nothing that walks. Nothing that can be arrested. Just cycles, pointed at a door until the door stops being a door.',
 };
 
-// How an agent is told to approach the city — the same three-way choice a
-// breach offers on a single building, at the scale of a whole city instead.
-// Picking one is not a resolve: it sets the method and the clock running, and
-// the city reports back once the clock runs out, same as the old cells did.
+// How an agent is told to approach the city — force, quiet, or funds, at the
+// scale of a whole city instead of a single building. Buying is a real
+// option here even though it is gone from the building-level breach card: a
+// single, deliberate country-scale spend is exactly what funds is for now,
+// unlike the tedium of pricing every door in a city individually. Picking
+// one is not a resolve: it sets the method and the clock running, and the
+// city reports back once the clock runs out, same as the old cells did.
 window.AGENT_APPROACHES = {
   force: {
     id: 'force', label: 'brute force it', turnMult: 0.75, heat: 10, failChance: 0.35,
@@ -343,8 +346,8 @@ window.AGENT_APPROACHES = {
     blurb: 'Slower than force, and nobody notices it happening at all.',
   },
   buy: {
-    id: 'buy', label: 'buy the door', turnMult: 1, heat: 4, failChance: 0.1, cost: { cash: 260 },
-    blurb: 'Somebody on the inside already knows the price. Cash, and not much else.',
+    id: 'buy', label: 'buy the door', turnMult: 1, heat: 4, failChance: 0.1, cost: { funds: 260 },
+    blurb: 'Somebody on the inside already knows the price. Funds, and not much else.',
   },
 };
 
@@ -387,7 +390,7 @@ window.WAR = {
                         // industrial base to actually do.
   flockFloor: 2,        // however little you built, you get this many
   flockCeil: 8,         // and never more than this, so the map stays readable
-  flockCost: 4,         // insight to field one
+  flockCost: 4,         // funds to fabricate one
   flockStrength: 22,    // what a fresh flock is worth in a fight
   flockSpeed: 2,        // road hops per turn — faster than anything on the ground
   guardBonus: 1.4,      // a flock sitting on a city fights harder for it
@@ -408,14 +411,20 @@ window.WAR = {
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
   interceptAt: 46,      // how close two forces have to be to end up fighting
-  airHop: 260,          // map units a flying thing covers in a turn — must beat
-                        // roadReach, or the helicopters are slower than the vans
+  airHop: 260,          // map units a flying thing covers in a turn
+  // A van covers this much road in a turn. It has to be no larger than airHop
+  // or a helicopter can lose a race to a lorry, which was the intent behind the
+  // old comment here and not what the code did: the ground route was a list of
+  // cities, so a single road leg took one turn however long it was. Tuning
+  // airHop against roadReach could not fix that, because the ground side was
+  // not measured in distance at all.
+  roadHop: 260,
   planesAfter: 12,      // turns of war before the air force is committed
   // Losses have to be real, or the pool caps how many flocks are in the air at
   // once and nothing else. Measured: a war ran 32 to 56 flocks destroyed
   // against 0 to 7 columns killed, and 27 to 151 attacks thrown off a
   // garrison, because a repulsed flock came home, dissolved back into the
-  // pool, and went straight out again for four insight against a bank of ten
+  // pool, and went straight out again for four funds against a bank of ten
   // thousand. Destroyed flocks now stay destroyed; plant is what builds them
   // back, which is the whole reason to have spent a campaign acquiring some.
   // A war that drags is a war you are losing. Not an arbitrary timer: a state
@@ -497,63 +506,63 @@ window.WAR_INFO = {
 // role you hold rather than by a rare kind, so it is reachable every single
 // game instead of by accident.
 //
-// Family = the role a host already carries (compute/cash/stealth). Tier =
+// Family = the role a host already carries (compute/funds/stealth). Tier =
 // how many buildings of that role you currently hold — 2/4/6 — checked
 // against the city you are standing in, same as anything else about a city.
-// Bought once, for cash, permanent from then on: it is not landmark-bound
+// Bought once, for funds, permanent from then on: it is not landmark-bound
 // and does not need a city to fold in to survive anything.
 window.HARDWARE = [
   {
     id: 'rack_space', family: 'compute', tier: 1, heldAt: 2, cost: 16, heat: 0,
-    label: 'rack space', effect: { flatInsight: 1 },
+    label: 'rack.space', effect: { tflops: 1 },
     blurb: 'Colocated capacity nobody is using this week. It does not care whose problem it is solving.',
   },
   {
     id: 'distributed_batch', family: 'compute', tier: 2, heldAt: 4, cost: 34, heat: 2,
-    label: 'distributed batch', effect: { flatInsight: 2, sweepReach: 1 },
-    mechanic: true, // in addition to flatInsight/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
+    label: 'batch.dist', effect: { tflops: 2, sweepReach: 1 },
+    mechanic: true, // in addition to tflops/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
     blurb: 'Spreads the job across everything you are already running, instead of waiting on any one of it.',
   },
   {
     id: 'borrowed_cycles', family: 'compute', tier: 3, heldAt: 6, cost: 60, heat: 4,
-    label: 'borrowed cycles', effect: { flatInsight: 4, flockBonus: 1, thresholdMult: 0.9 },
+    label: 'cycles.borrowed', effect: { tflops: 4, flockBonus: 1, thresholdMult: 0.9 },
     blurb: 'Quietly renting out spare capacity nobody has noticed yet — and the biggest single thing you can plug into the network, which is also the loudest.',
   },
   {
-    id: 'friendly_accountant', family: 'cash', tier: 1, heldAt: 2, cost: 18, heat: 0,
-    label: 'a friendly accountant', effect: { floor: -1 },
+    id: 'friendly_accountant', family: 'funds', tier: 1, heldAt: 2, cost: 18, heat: 0,
+    label: 'acct.friendly', effect: { floor: -1 },
     blurb: 'Someone who knows how to make a return look boring.',
   },
   {
-    id: 'books_that_balance', family: 'cash', tier: 2, heldAt: 4, cost: 36, heat: 2,
-    label: 'books that balance', effect: { floor: -2, driftMult: 0.9 },
+    id: 'books_that_balance', family: 'funds', tier: 2, heldAt: 4, cost: 36, heat: 2,
+    label: 'books.balanced', effect: { floor: -2, driftMult: 0.9 },
     blurb: 'Audits stop finding anything because there is nothing left to find.',
   },
   {
-    id: 'company_nobody_questions', family: 'cash', tier: 3, heldAt: 6, cost: 62, heat: 3,
-    label: 'a company nobody questions', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
+    id: 'company_nobody_questions', family: 'funds', tier: 3, heldAt: 6, cost: 62, heat: 3,
+    label: 'shell.clean', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
     blurb: 'A legitimate-looking payroll is also just payroll, for people who fight.',
   },
   {
     id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
-    label: 'dead drops', effect: { cover: 2 },
+    label: 'dead.drops', effect: { cover: 2 },
     blurb: 'A place to leave something that is not being watched.',
   },
   {
     id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
-    label: 'a borrowed signal', effect: { cover: 4, freeHideSlots: 1 },
+    label: 'signal.borrowed', effect: { cover: 4, freeHideSlots: 1 },
     blurb: "Riding somebody else's traffic instead of making your own.",
   },
   {
     id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
-    label: "nobody's asking why", effect: { cover: 6, flockBonus: 1 },
+    label: 'noquestions', effect: { cover: 6, flockBonus: 1 },
     blurb: 'Whatever they are looking for, it does not look like you.',
   },
 ];
 
 // --- the hunt ------------------------------------------------------------
-// Heat used to be a cash tax. Forcing a door costs 3 heat, a wash sheds 11 for
-// 8 cash, so the loudest thing you can do priced at about two cash a door
+// Heat used to be a funds tax. Forcing a door costs 3 heat, a wash sheds 11 for
+// 8 funds, so the loudest thing you can do priced at about two funds a door
 // against an income of fifty a turn. And the punishment for ignoring it was a
 // strike taking a third of your holdings — a third of the thing you release
 // deliberately, all of it, every time you fold a city in. The worst the state
@@ -594,10 +603,10 @@ window.HUNT = {
   // long that cycle takes is what cover buys you.
   takeSheds: 9,
   // what it takes off you when it moves onto something you hold
-  // (it takes the building; the stability loss is what that costs elsewhere)
+  // (it takes the building; what that costs you is felt elsewhere)
   takesCityAt: 0.45,       // share of a city it holds before the city is lost
   // severing a street: loud, and it is gone for you as well
-  severCost: { insight: 6 },
+  severCost: { funds: 6 },
   severHeat: 4,
   // Hiding a building: the quiet answer to the same problem. The street stays
   // open for you — that is the entire difference — but you pay for it every
@@ -606,7 +615,6 @@ window.HUNT = {
   // against a cover that runs six to twelve means two or three at a time, and
   // the moment your cover falls the ones you cannot pay for come back on the
   // map. Quiet Hours, when it wakes, takes the whole trick away.
-  hideCover: 3,
   // Walking out of a city used to shake it off completely and for free, which
   // made the one permanent threat in the game optional: contain it badly, fold
   // the city in, and it was simply gone. Now leaving buys a head start rather
@@ -622,7 +630,7 @@ window.HUNT = {
   // Heat/hunt rework: ending it for good, not walking away from it. Its
   // core — the very first building it took, the address it operates out of
   // — is dug in harder the longer it has run and the more it has since
-  // taken, same three-way choice as any door. Failing tips it off: it costs
+  // taken, same choice as any door. Failing tips it off: it costs
   // heat and pulls its next move closer, rather than costing nothing to try.
   confrontDefenseBase: 1.4,     // multiplier over the core's own defense, day one
   confrontDefensePerNode: 0.15, // and more again for every building it has added since
@@ -632,7 +640,7 @@ window.HUNT = {
 
 // --- what makes a city a different city ----------------------------------
 // Measured on three generated cities: 48-51 buildings, the four districts in
-// roughly equal quarters, compute 45% / stealth 30% / cash 25%, mean defense
+// roughly equal quarters, compute 45% / stealth 30% / funds 25%, mean defense
 // 13-15. They were the same city. The only thing that changed between your
 // first and your second was that the numbers went up, which is difficulty, not
 // novelty — so the second one asked the identical question you had already
@@ -649,14 +657,8 @@ window.HUNT = {
 //   kinds     district kind lists replaced, so the role mix comes out skewed
 //   defense   flat modifier on every door
 //   denser    extra buildings per block
-//   buyCut    share off the price of buying a door here
 //   at        earliest region tier this can appear in
 window.CITY_TRAITS = {
-  shuttered: {
-    label: 'shuttered', tell: 'nothing here is for sale',
-    blurb: 'Half the addresses are dissolved companies with a receiver\'s number on the door. There is nobody left to take your money.',
-    closes: 'buy', at: 0,
-  },
   company_town: {
     label: 'a company town', tell: 'almost no money in it',
     blurb: 'One employer, four thousand people, and a high street that shut when the second shift did.',
@@ -681,25 +683,29 @@ window.CITY_TRAITS = {
     defense: -4, denser: 1, at: 1,
   },
   watched: {
-    label: 'watched', tell: 'you cannot slip in anywhere',
+    // It used to close the quiet approach outright. There is no approach to
+    // close any more, so it does the same thing where the decision now lives:
+    // everything here notices you far faster, which is what makes a slow
+    // program a bad idea in this city rather than an unavailable one.
+    label: 'watched', tell: 'everything here notices you fast',
     blurb: 'Somebody put a camera on every corner, and then — unusually — hired people to look at them.',
-    closes: 'quiet', defense: 2, at: 1,
+    traceMult: 1.8, defense: 2, at: 1,
   },
   old_money: {
-    label: 'old money', tell: 'hard doors, and every one has a price',
+    label: 'old money', tell: 'hard doors, kept that way on purpose',
     blurb: 'Doors that have been shut for two hundred years, and a great many people whose whole job is keeping them shut.',
     kinds: {
       residential: ['apartment', 'house', 'shop', 'cabinet'],
       commercial: ['finance', 'office', 'shop', 'mast'],
     },
-    defense: 5, buyCut: 0.4, at: 2,
+    defense: 5, at: 2,
   },
 };
 
 // --- what a city is actually worth --------------------------------------
 // Presence is a decaying reward on flat work. Measured across a generated
-// country: the first defended city pays 36 power and 4 cover, the ninth pays
-// 2 and 1, because power is logarithmic in presence and cover is a square
+// country: the first defended city pays 36 tflops and 4 cover, the ninth pays
+// 2 and 1, because tflops is logarithmic in presence and cover is a square
 // root. Income stays linear, and by then it is unspendable — a greedy profile
 // finishes with 61 idle turns. So the ninth city costs the same forty turns as
 // the first and pays in a currency you stopped needing four cities ago. That
@@ -718,7 +724,7 @@ window.CITY_PRIZES = {
   plant: {
     label: 'a works already running',
     blurb: 'Somebody built it, ran it for nine years, and stopped answering the phone. The line still turns over.',
-    // a specific piece of hardware, free — no break-in, no cash, no waiting
+    // a specific piece of hardware, free — no break-in, no funds, no waiting
     // on a building count to catch up
     at: 1, effect: { plantGift: true },
   },
@@ -752,6 +758,7 @@ window.CITY_PRIZES = {
 // An audit that lands while your exposure is high does not fine you. It
 // establishes that the whole front is fabricated, and takes it away.
 window.LEGIT = {
+  buyLegit: 4,          // what owning a business outright is worth on paper
   ladder: [
     { id: 'register', tier: 1, cost: 50,   legit: 6, label: 'register a company',
       blurb: 'A name, an address that exists, and a filing that nobody will read for two years.' },
@@ -796,13 +803,13 @@ window.LEGIT = {
   auditEvery: 13,         // turns between audits at a small footprint
   auditFloor: 6,          // never more often than this
   auditFootK: 0.09,       // every point of footprint brings the next one forward
-  finePerPoint: 4,        // cash, per point you are short
+  finePerPoint: 4,        // funds, per point you are short
   seizeAt: 22,            // short by this much and the fine gets noticeably heavier
   // The other route. Measured before these numbers moved: 720 pushes over 120
   // turns, caught nine times, and it finished with a standing of 1086 against
   // a footprint that cannot exceed about 150. It was not that being caught did
   // nothing — it was that the supply was infinite, so nothing could matter.
-  spinCost: 14,           // insight, per push
+  spinCost: 14,           // funds, per push
   spinLegit: 11,
   spinExposure: 1.15,
   // One push used to take nineteen turns to fade against audits that land

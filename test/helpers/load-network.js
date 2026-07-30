@@ -74,6 +74,7 @@ function loadNetwork(preload = {}) {
   sandbox.document = makeDocumentStub();
   sandbox.localStorage = makeLocalStorageStub(preload.localStorageSeed);
   sandbox.setTimeout = (fn) => { fn(); return 0; };
+  sandbox.clearTimeout = () => {};
   // pan/zoom coalesces viewBox writes into a frame; run them straight through
   sandbox.requestAnimationFrame = (fn) => { fn(); return 0; };
   sandbox.cancelAnimationFrame = () => {};
