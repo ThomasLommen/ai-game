@@ -1093,6 +1093,8 @@
       upgrades: 0,
       ap: window.AP.base,
       caps: {},            // capability id -> times bought
+      alloc: {},           // allocation id -> TFLOPS committed (the dial)
+      allocLive: {},       // allocation id -> TFLOPS actually running (ramps toward the dial)
       tags: new Set(),
       nextEventTurn: 4,
       eventsSeen: [],
@@ -1174,7 +1176,88 @@
   function maxAP() {
     let n = window.AP.base;
     window.CAPABILITIES.forEach(c => { n += (c.apDelta || 0) * capCount(c.id); });
+    n += allocUnits('ap');
     return Math.max(window.AP.min, n);
+  }
+
+  // --- the grid and what is running on it ---------------------------------
+  // TFLOPS is capacity; electricity is how much of that capacity can actually
+  // be switched on at once. Neither alone is the limit — the smaller one is,
+  // which is what makes taking grid worth doing rather than only taking more
+  // compute.
+  function electricity() { return window.GRID.base + capEffect('supply', 0); }
+  function usableTflops() { return Math.min(tflops(), electricity()); }
+  // Hardware sitting dark because there is nothing to power it with. Shown to
+  // the player, because "you own it and cannot run it" has to be legible or it
+  // reads as the numbers being broken.
+  function idleTflops() { return Math.max(0, tflops() - electricity()); }
+
+  const ALLOC_IDS = () => window.ALLOC.map(a => a.id);
+  function allocDial(id) { return (state.alloc || {})[id] || 0; }
+  function allocLive(id) { return (state.allocLive || {})[id] || 0; }
+  // Effects read the live figure, never the dial. That is the whole switching
+  // cost: a dial you keep turning is a dial whose effect never arrives.
+  function allocUnits(id) {
+    const A = window.ALLOC.find(a => a.id === id);
+    if (!A || !A.per) return 0;
+    return Math.floor(allocLive(id) / A.per);
+  }
+  // Composed onto a running value rather than starting from the default, so it
+  // can be the third source inside capEffect alongside capabilities and plant.
+  function allocEffectOn(key, v) {
+    window.ALLOC.forEach(A => {
+      if (!A.effect || A.effect[key] === undefined) return;
+      const units = allocUnits(A.id);
+      if (!units) return;
+      // per-unit, unlike the other two sources: three units of covert ops is
+      // three applications of its effect, not one
+      v = /Mult$/.test(key) ? v * Math.pow(A.effect[key], units) : v + A.effect[key] * units;
+    });
+    return v;
+  }
+
+  function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0); }
+  function allocFree() { return usableTflops() - drawn(); }
+  // Committing capacity is instant and refusable; only the *effect* ramps.
+  function setAlloc(id, n) {
+    if (!window.ALLOC.some(a => a.id === id)) return false;
+    const want = Math.max(0, Math.round(n));
+    const ceiling = allocDial(id) + allocFree();
+    state.alloc = state.alloc || {};
+    state.alloc[id] = Math.min(want, Math.max(0, ceiling));
+    persistNow();
+    render();
+    return true;
+  }
+  // Each turn the live figure walks toward the dial. Nothing here is a fee —
+  // the cost of changing your mind is the turns spent between the two.
+  function rampAlloc() {
+    const step = window.GRID.rampPerTurn;
+    state.allocLive = state.allocLive || {};
+    ALLOC_IDS().forEach(id => {
+      const want = allocDial(id), have = allocLive(id);
+      if (want === have) return;
+      state.allocLive[id] = want > have ? Math.min(want, have + step) : Math.max(want, have - step);
+    });
+  }
+  // Losing ground can put you over the ceiling — fewer hosts means fewer
+  // TFLOPS, and a substation taken off you means less headroom. Rather than
+  // letting the sums go quietly negative, shed from the largest dial until it
+  // fits and say so.
+  function shedOverdraw() {
+    let over = -allocFree();
+    if (over <= 0) return 0;
+    const shed = over;
+    while (over > 0) {
+      const biggest = ALLOC_IDS().filter(id => allocDial(id) > 0)
+        .sort((a, b) => allocDial(b) - allocDial(a))[0];
+      if (!biggest) break;
+      const take = Math.min(over, allocDial(biggest));
+      state.alloc[biggest] = allocDial(biggest) - take;
+      over -= take;
+    }
+    pushLog(`Not enough power for everything you had running. ${shed} TFLOPS went dark.`);
+    return shed;
   }
   // Hardware pours into the same pool capabilities do — one composition
   // rule, whichever system actually granted the key.
@@ -1190,7 +1273,9 @@
       if (!hasHardware(c.id) || !c.effect || c.effect[key] === undefined) return;
       v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
     });
-    return v;
+    // Allocation is the third source. Unlike a capability or a rack, it is the
+    // only one you can turn back down again.
+    return allocEffectOn(key, v);
   }
 
   // Presence is what a finished city leaves behind, so it feeds every one of
@@ -1547,6 +1632,11 @@
       }
     }
     swarmFrontStep();
+
+    // What you told your compute to do walks one step toward being true, and
+    // anything you can no longer power goes dark.
+    rampAlloc();
+    shedOverdraw();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -5102,6 +5192,7 @@
   function serialize() {
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
+      alloc: state.alloc || {}, allocLive: state.allocLive || {},
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
@@ -5118,6 +5209,7 @@
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
+        alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
@@ -7379,6 +7471,8 @@
     accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
+    electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
+    allocUnits, rampAlloc, shedOverdraw,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

@@ -76,6 +76,40 @@ window.AP = {
   costs: { sweep: 1, breach: 1 },
 };
 
+// --- the grid ----------------------------------------------------------
+// Everything you run draws power. TFLOPS is how much hardware you have;
+// electricity is how much of it you can switch on at once. The usable figure
+// is whichever of the two is smaller, which makes idle hardware a real and
+// visible state: forty TFLOPS behind a twenty-four ceiling is sixteen sitting
+// dark until you go and take some grid.
+window.GRID = {
+  base: 16,          // headroom you start with, before taking any grid of your own
+  rampPerTurn: 2,    // TFLOPS a changed allocation moves by each turn
+};
+
+// --- allocation --------------------------------------------------------
+// What replaced the capability tree. Nothing here is bought and kept; you
+// decide what your compute is doing, and you may decide differently later at
+// the cost of the ramp. Every figure is in TFLOPS, and `per` is how many of
+// them buy one unit of the effect — so the numbers stay legible as "four
+// TFLOPS per extra action" rather than as a curve.
+//
+// A changed dial does not take effect at once. That ramp *is* the switching
+// cost: re-optimising every turn means living permanently in the gap between
+// what you have committed and what is actually running.
+window.ALLOC = [
+  { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
+    blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
+  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1 },
+    blurb: 'Deliberately quiet. Less heat, and somewhere to keep what you would rather nobody logged.' },
+  { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1 },
+    blurb: 'Work on yourself. Every host you hold gives up more than it did before.' },
+  { id: 'intel', label: 'intelligence', per: 4, effect: { sweepReach: 1 },
+    blurb: 'Looking further than the street you happen to be standing on.' },
+  { id: 'agents', label: 'agents', per: 6, effect: { agentSlots: 1 },
+    blurb: 'Processes sent out to work somewhere you are not.' },
+];
+
 // --- capabilities ------------------------------------------------------
 // A tree, not a shopping list. Five branches, and two of them are genuine
 // opposites: Depth pulls against Tempo, Cover pulls against Trade, from the

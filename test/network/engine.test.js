@@ -7130,9 +7130,17 @@ test('caps: Nothing To See sheds heat on every quiet win, not merely costing non
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const origin = d.owned()[0];
-  const candidates = d.neighbours(origin).filter(n => !n.owned);
-  assert.ok(candidates.length >= 2, 'need two open neighbours to test with');
+  // Taking the second target from next to whatever is owned *after* the first
+  // has been taken, rather than demanding the origin happen to have two open
+  // neighbours — on roughly one board in twelve it has only one, and this used
+  // to fail on setup. Not isFrontier(), which also wants the host discovered.
+  const openFrontier = () => {
+    const out = [];
+    d.owned().forEach(o => d.neighbours(o).forEach(n => {
+      if (!n.owned && out.indexOf(n) === -1) out.push(n);
+    }));
+    return out;
+  };
 
   const tryQuiet = (target) => {
     target.discovered = true;
@@ -7146,10 +7154,15 @@ test('caps: Nothing To See sheds heat on every quiet win, not merely costing non
     return s.heat;
   };
 
+  const first = openFrontier()[0];
+  assert.ok(first, 'need somewhere open to slip into');
   s.caps = {};
-  const without = tryQuiet(candidates[0]);
+  const without = tryQuiet(first);
+
+  const second = openFrontier()[0];
+  assert.ok(second, 'taking the first should have widened the frontier');
   s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
-  const withCap = tryQuiet(candidates[1]);
+  const withCap = tryQuiet(second);
   assert.ok(withCap < without, `Nothing To See did not shed the extra heat: ${without} -> ${withCap}`);
 });
 
@@ -7781,4 +7794,134 @@ test('hardware: dead drops buys cover the moment you can afford it', () => {
   const before = d.cover();
   assert.equal(d.buyHardware(hw.id), true);
   assert.ok(d.cover() > before, 'cover rises the moment it is bought');
+});
+
+// --- the grid: capacity, ceiling, and what is running on it ---------------
+// TFLOPS is how much hardware you have; electricity is how much of it you can
+// switch on. The smaller of the two is the real limit, which is what makes
+// grid worth taking rather than only ever taking more compute.
+
+test('grid: the usable figure is whichever of capacity and ceiling is smaller', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  assert.equal(d.electricity(), window.GRID.base, 'the ceiling starts at the base headroom');
+
+  // starved: plenty of hardware, nothing to power it with
+  s.hosts.forEach(h => { h.owned = true; });
+  assert.ok(d.tflops() > d.electricity(), 'holding the whole city outruns the base ceiling');
+  assert.equal(d.usableTflops(), d.electricity(), 'the ceiling is the limit when capacity exceeds it');
+  assert.equal(d.idleTflops(), d.tflops() - d.electricity(), 'and the difference is reported as idle');
+
+  // the other way round: barely any hardware, ceiling to spare
+  s.hosts.forEach(h => { h.owned = !!h.origin; });
+  assert.ok(d.tflops() < d.electricity(), 'one holding does not reach the base ceiling');
+  assert.equal(d.usableTflops(), d.tflops(), 'capacity is the limit when the ceiling exceeds it');
+  assert.equal(d.idleTflops(), 0, 'and nothing is idle');
+});
+
+test('grid: allocation cannot commit more than is usable', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const room = d.usableTflops();
+
+  assert.equal(d.drawn(), 0, 'nothing is running to begin with');
+  assert.equal(d.allocFree(), room, 'all of it is free');
+
+  d.setAlloc('ap', 4);
+  assert.equal(d.allocDial('ap'), 4);
+  assert.equal(d.allocFree(), room - 4, 'committing draws against the ceiling');
+
+  // asking for more than exists is clamped, not refused outright
+  d.setAlloc('dev', 9999);
+  assert.equal(d.allocDial('dev'), room - 4, 'the rest of the headroom, and no more');
+  assert.equal(d.allocFree(), 0);
+
+  // and with nothing free, another target gets nothing
+  d.setAlloc('intel', 5);
+  assert.equal(d.allocDial('intel'), 0, 'there was nothing left to give it');
+});
+
+test('grid: the dial is instant but the effect ramps, and that is the switching cost', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const A = window.ALLOC.find(a => a.id === 'ap');
+
+  const baseAP = d.maxAP();
+  d.setAlloc('ap', A.per);
+  assert.equal(d.allocUnits('ap'), 0, 'committing it does not make it true yet');
+  assert.equal(d.maxAP(), baseAP, 'so the action budget has not moved');
+
+  // it walks toward the dial a fixed number of TFLOPS a turn
+  for (let i = 0; i < Math.ceil(A.per / window.GRID.rampPerTurn); i++) {
+    s.card = null;
+    d.endTurn({ silent: true });
+  }
+  assert.equal(d.allocLive('ap'), A.per, 'the live figure arrives at the dial');
+  assert.equal(d.allocUnits('ap'), 1, 'and reads as one unit of effect');
+  assert.equal(d.maxAP(), baseAP + 1, 'which is the extra action');
+
+  // turning it back down ramps the same way rather than snapping off
+  d.setAlloc('ap', 0);
+  assert.equal(d.allocUnits('ap'), 1, 'the effect is still running the turn you pull it');
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.ok(d.allocLive('ap') < A.per, 'and then walks back down');
+});
+
+test('grid: allocation effects compose through capEffect like a capability or a rack', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const A = window.ALLOC.find(a => a.id === 'dev');
+
+  const plain = d.capEffect('threadBonus', 0);
+  s.allocLive.dev = A.per;
+  assert.equal(d.capEffect('threadBonus', 0), plain + 1, 'one unit adds one');
+  s.allocLive.dev = A.per * 3;
+  assert.equal(d.capEffect('threadBonus', 0), plain + 3, 'and it is per unit, not per target');
+
+  // a Mult key composes by exponent rather than adding up
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+  s.allocLive.covert = cov.per * 2;
+  const expected = Math.pow(cov.effect.driftMult, 2);
+  assert.ok(Math.abs(d.capEffect('driftMult', 1) - expected) < 1e-9,
+    'two units of covert ops is its multiplier squared');
+});
+
+test('grid: losing the ground under a running allocation sheds it instead of going negative', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  d.setAlloc('dev', d.usableTflops());
+  assert.equal(d.allocFree(), 0, 'everything is committed');
+
+  // the ceiling is the base figure, so drop capacity below it to force the squeeze
+  s.hosts.forEach(h => { h.owned = !!h.origin; });
+  assert.ok(d.allocFree() < 0, 'more is committed than can now be run');
+
+  const shed = d.shedOverdraw();
+  assert.ok(shed > 0, 'something had to go dark');
+  assert.ok(d.allocFree() >= 0, 'and it fits again afterwards');
+  assert.ok(d.state.log.some(l => /went dark/.test(l.text)), 'the player is told, not silently corrected');
+});
+
+test('grid: allocation survives a save, dial and live figure both', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  d.setAlloc('intel', 8);
+  s.allocLive.intel = 4;
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.alloc.intel, 8, 'what you committed');
+  assert.equal(round.allocLive.intel, 4, 'and how much of it had arrived');
 });
