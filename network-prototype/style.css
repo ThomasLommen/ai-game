@@ -1608,3 +1608,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .alloc-btn[disabled] { opacity: .35; cursor: default; }
 .alloc-fig { font-size: 14px; color: var(--tflops); min-width: 5.5em; text-align: center; }
 .alloc-fig i { font-style: normal; font-size: 12px; }
+/* what a dial grants, and at what depth. Dim until it is running, so the row
+   doubles as the reason to turn the dial up one more notch. */
+.alloc-unlock {
+  font-size: 12px; line-height: 1.45; margin: 0;
+  color: var(--muted);
+  display: flex; gap: 7px; align-items: baseline;
+}
+.alloc-unlock .mono { color: var(--line); flex: none; min-width: 1.6em; }
+.alloc-unlock.on { color: var(--ink-dim); }
+.alloc-unlock.on .mono { color: var(--tflops); }

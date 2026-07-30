@@ -268,7 +268,7 @@ test('light touch: forcing a door well within reach costs no action', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = { light_touch: 1 };
+  grant(window, d, 'light_touch');
   const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
   target.discovered = true;
   target.defense = Math.max(1, Math.floor(d.tflops() / 2) - 1); // comfortably outclassed
@@ -285,7 +285,7 @@ test('light touch: an even fight still costs the action', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = { light_touch: 1 };
+  grant(window, d, 'light_touch');
   const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
   target.discovered = true;
   target.defense = Math.max(1, d.tflops() - 1); // beatable, but not outclassed
@@ -302,7 +302,7 @@ test('light touch: without the capability, an outclassed door still costs the ac
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = {};
+  ungrant(d);
   const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
   target.discovered = true;
   target.defense = 1;
@@ -319,7 +319,7 @@ test('deep root: forcing a door loosens everything touching it, permanently', ()
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = { deep_root: 1 };
+  grant(window, d, 'deep_root');
   const seat = d.owned()[0];
   // not just the first unowned neighbour: on some maps it has no neighbour
   // of its own left to loosen, and the test setup itself would be invalid
@@ -346,7 +346,7 @@ test('deep root: without the capability, the block around a forced door is untou
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = {};
+  ungrant(d);
   const seat = d.owned()[0];
   let target = null, nextDoor = null;
   for (const t of d.neighbours(seat).filter(n => !n.owned)) {
@@ -776,127 +776,16 @@ test('lying low costs the entire turn, not one action of it', () => {
   assert.ok(s.heat < 20, 'and it did cut heat');
 });
 
-test('capabilities move the action budget in both directions', () => {
+test('persistence: the budget and the tooling survive a round trip', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 40).forEach(h => { h.discovered = true; h.owned = true; });
-  s.res.insight = 1000;
-
-  const base = d.maxAP();
-  d.buyCap('parallel_ops');
-  assert.equal(d.maxAP(), base + 1, 'parallel operations buy you tempo');
-
-  d.buyCap('deep_root');
-  assert.equal(d.maxAP(), base, 'deep root costs a permanent action');
-});
-
-test('a capability can never strand you with no actions at all', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 40).forEach(h => { h.discovered = true; h.owned = true; });
-  s.res.insight = 5000;
-
-  // buy every action-costing capability we can; the floor must hold
-  for (let i = 0; i < 12; i++) {
-    window.CAPABILITIES.filter(c => (c.apDelta || 0) < 0).forEach(c => d.buyCap(c.id));
-  }
-  assert.ok(d.maxAP() >= window.AP.min, `budget fell to ${d.maxAP()}`);
-  assert.equal(d.maxAP(), window.AP.min, 'and it bottoms out exactly at the floor');
-});
-
-test('repeatable capabilities respect their cap and escalate in price', () => {
-  // Parallel Operations was the only repeatable capability, and it was the
-  // whole problem: +1 AP, three times, free of any branch commitment, on a
-  // base of 2 actions -- a second identity's worth of budget for one cheap,
-  // consequence-free tier-1 node. It is now a single, non-repeatable rung.
-  // The repeatable/escalating-cost machinery itself is still real engine
-  // behaviour -- content may use it again -- so this test exercises it
-  // directly on a synthetic capability rather than depending on game content.
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.insight = 100000;
-  const synthetic = {
-    id: '__test_repeatable', branch: 'reach', tier: 1, repeatable: true, max: 3,
-    name: 'Test Rung', apDelta: 0, costs: [10, 20, 40], cond: () => true,
-  };
-  window.CAPABILITIES.push(synthetic);
-  try {
-    const first = d.capCost(synthetic);
-    d.buyCap(synthetic.id);
-    assert.ok(d.capCost(synthetic) > first, 'the next one costs more');
-
-    for (let i = 0; i < 10; i++) d.buyCap(synthetic.id);
-    assert.equal(d.capCount(synthetic.id), synthetic.max, 'it stops at its maximum');
-  } finally {
-    window.CAPABILITIES.pop();
-  }
-});
-
-test('parallel operations is one rung, not three -- the tempo fix', () => {
-  // Measured before this: +3 AP on a base of 2, for 112 total, with no branch
-  // lock (tier 1 never commits you) and no drawback of any kind. Depth and
-  // Cover's own capstones charge -1 AP each against that same base-2 economy
-  // -- crippling on its own, nothing at all once Tempo had already tripled
-  // your budget for free.
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.insight = 100000;
-  const c = d.capById('parallel_ops');
-  assert.equal(c.repeatable, undefined, 'no longer repeatable');
-  assert.equal(c.cost, 18, 'the price of the one rung is unchanged');
-
-  const base = d.maxAP();
-  d.buyCap('parallel_ops');
-  assert.equal(d.maxAP(), base + 1, 'one action, not three');
-  assert.equal(d.capBlocked(c), 'owned', 'and it cannot be bought again');
-  d.buyCap('parallel_ops');
-  assert.equal(d.maxAP(), base + 1, 'a second attempt buys nothing more');
-});
-
-test('persistence: the budget and everything bought survive a round trip', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  d.state.res.insight = 1000;
-  d.state.hosts.forEach(h => { if (h.ring <= 2) h.owned = true; });
-  d.buyCap('parallel_ops');
+  d.state.upgrades = 3;
   d.state.ap = 1;
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(round.ap, 1);
-  assert.equal(round.caps.parallel_ops, 1);
+  assert.equal(round.upgrades, 3);
 });
-
-test('data integrity: capabilities are well formed and honestly priced', () => {
-  const { window } = loadNetwork();
-  const ids = window.CAPABILITIES.map(c => c.id);
-  assert.equal(ids.filter((id, i) => ids.indexOf(id) !== i).length, 0, 'capability ids are unique');
-
-  window.CAPABILITIES.forEach(c => {
-    assert.ok(c.name && c.desc, `${c.id} is described to the player`);
-    assert.ok(typeof c.cond === 'function', `${c.id} has an availability rule`);
-    if (c.repeatable) {
-      assert.ok(Array.isArray(c.costs) && c.costs.length, `${c.id} has a cost table`);
-      assert.ok(c.max >= 1, `${c.id} has a maximum`);
-      for (let i = 1; i < c.costs.length; i++) {
-        assert.ok(c.costs[i] > c.costs[i - 1], `${c.id} costs must escalate`);
-      }
-    } else {
-      assert.ok(typeof c.cost === 'number', `${c.id} has a cost`);
-    }
-    // anything that takes an action away must give something real back
-    if ((c.apDelta || 0) < 0) {
-      assert.ok((c.effect && Object.keys(c.effect).length) || c.mechanic, `${c.id} costs tempo but grants nothing`);
-    }
-  });
-});
-
-// --- time must never be free -------------------------------------------
-// Three separate exploits shared one root cause: any action that ended a turn
-// granted production, so the best play was to spam the cheapest turn-ender.
 
 test('lying low earns nothing — hiding costs you the turn', () => {
   const { window } = loadNetwork();
@@ -1097,18 +986,21 @@ test('nothing to see: buying plant survives Ledger untraced, without the event-c
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.res.insight = 100000;
   s.res.funds = 100000;
   s.hosts.slice(0, 30).forEach(h => { h.owned = true; });
   s.hosts.filter(h => h.role === 'compute').slice(0, 2).forEach(h => { h.owned = true; });
-  d.buyCap('quiet_protocol'); d.buyCap('false_floor'); d.buyCap('nothing_to_see');
-  assert.ok(d.capCount('nothing_to_see') > 0, 'the capstone bought cleanly');
+  grant(window, d, 'nothing_to_see');
+  assert.equal(d.unlocked('nothing_to_see'), true, 'covert ops is deep enough to grant it');
   assert.equal(s.tags.has('ledger_inside'), false, 'and not through the usual counter');
 
   wake(d, 'ledger');
   const before = s.heat;
   assert.ok(d.buyHardware('rack_space'), 'buyable');
   assert.equal(s.heat - before, 0, 'never traced');
+
+  // and it stops protecting you the moment the compute goes elsewhere
+  ungrant(d);
+  assert.equal(d.unlocked('nothing_to_see'), false, 'nothing is granting it now');
 });
 
 test('stage label tracks how much you hold', () => {
@@ -1619,13 +1511,13 @@ test('country: heat is regional — it waits where you left it, and cools while 
   assert.ok(s.country.regionHeat[away] > 20, 'slowly enough that leaving is not a reset');
 });
 
-test('country: the campaign carries across cities — tooling, capabilities, resources', () => {
+test('country: the campaign carries across cities — tooling, allocation, resources', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
 
   s.upgrades = 4;
-  s.caps = { parallel_ops: 2 };
+  grant(window, d, 'parallel_ops');
   s.tags.add('clean_room');
   s.res.insight = 50;
   const apCap = d.maxAP();
@@ -1638,7 +1530,8 @@ test('country: the campaign carries across cities — tooling, capabilities, res
   d.actReach(hard.id);
 
   assert.equal(s.upgrades, 4, 'tooling carried');
-  assert.equal(s.caps.parallel_ops, 2, 'capabilities carried');
+  assert.equal(d.allocLive('ap'), window.ALLOC.find(a => a.id === 'ap').per,
+    'what your compute was doing carried, rather than resetting at the border');
   assert.equal(s.tags.has('clean_room'), true, 'tags carried');
   assert.equal(s.res.insight, 50, 'resources carried');
   assert.equal(d.maxAP(), apCap, 'and so did the action budget they bought');
@@ -1780,6 +1673,30 @@ function setLadderStage(d, stage) {
   e.dueAt = -1;
   e.pending = null;
 }
+
+// Grant a mechanic the way the game now does: by putting enough compute on the
+// allocation that unlocks it. Sets the *live* figure, not the dial, because the
+// dial only matters after the ramp has walked it there and a test should not
+// have to end four turns to say "suppose covert ops is running".
+//
+// parallel_ops and false_floor were generic-effect nodes rather than named
+// mechanics, so they map onto the allocation that absorbed their effect: extra
+// actions came from tempo, an easier quiet gate from covert ops.
+const ALLOC_FOR = { parallel_ops: ['ap', 1], false_floor: ['covert', 1] };
+function grant(window, d, ...ids) {
+  const s = d.state;
+  s.allocLive = s.allocLive || {};
+  ids.forEach(id => {
+    const U = window.UNLOCKS[id];
+    const [target, units] = U ? [U.alloc, U.units] : (ALLOC_FOR[id] || []);
+    if (!target) throw new Error('no allocation grants ' + id);
+    const A = window.ALLOC.find(a => a.id === target);
+    s.allocLive[target] = Math.max(s.allocLive[target] || 0, A.per * units);
+  });
+  return s.allocLive;
+}
+// and the reverse: nothing running at all
+function ungrant(d) { d.state.allocLive = {}; return d.state.allocLive; }
 
 function wake(d, id) {
   setLadderStage(d, STAGE_OF[id]);
@@ -2579,169 +2496,64 @@ test('persistence: terrain survives a round trip', () => {
 // one it opposes, and every effect on a card changes something the engine
 // actually reads.
 
-test('tree: branches are coherent and the oppositions are mutual', () => {
-  const { window } = loadNetwork();
-  const keys = Object.keys(window.CAP_BRANCHES);
-  keys.forEach(k => {
-    const B = window.CAP_BRANCHES[k];
-    assert.ok(B.label && B.blurb, `${k} does not say what it is`);
-    if (B.opposes) {
-      assert.ok(window.CAP_BRANCHES[B.opposes], `${k} opposes a branch that does not exist`);
-      assert.equal(window.CAP_BRANCHES[B.opposes].opposes, k,
-        `${k} opposes ${B.opposes}, but not the other way round`);
-    }
-  });
-  // at least one branch open to everyone, or every run forks the same way
-  assert.ok(keys.some(k => !window.CAP_BRANCHES[k].opposes), 'nothing is open to all');
-
-  window.CAPABILITIES.forEach(c => {
-    assert.ok(window.CAP_BRANCHES[c.branch], `${c.id} is in no branch`);
-    assert.ok(c.tier >= 1 && c.tier <= 3, `${c.id} has no rung`);
-    assert.ok(c.name && c.desc, `${c.id} does not say what it does`);
-    (c.requires || []).forEach(r => {
-      const req = window.CAPABILITIES.find(x => x.id === r);
-      assert.ok(req, `${c.id} requires ${r}, which does not exist`);
-      assert.equal(req.branch, c.branch, `${c.id} requires something from another branch`);
-      assert.ok(req.tier < c.tier, `${c.id} requires something no earlier than itself`);
-    });
-  });
-});
-
-test('tree: the first rung is free of any toll, the second is the pull', () => {
+test('allocation: every dial moves something the engine actually reads', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.slice(0, 5).forEach(h => { h.owned = true; }); // reach enough for deep_root's own gate
-
-  assert.equal(d.branchInvestment('depth'), 0);
-  assert.equal(d.branchInvestment('tempo'), 0);
-
-  // a tier 1 commits you to nothing, and is never tolled either
-  s.caps = { parallel_ops: 1 };
-  assert.equal(d.branchInvestment('tempo'), 0, 'one action point is not an identity');
-  const deepRoot = d.capById('deep_root');
-  assert.equal(d.capCost(deepRoot), deepRoot.cost, 'a tier 1 node is never tolled, whatever the other side owns');
-
-  // before committing, a deeper rung still reports what it is waiting for
-  const longSoak = d.capById('long_soak');
-  assert.equal(d.capBlocked(longSoak), 'needs:deep_root');
-  assert.equal(d.capCost(longSoak), longSoak.cost, 'untaxed, it costs what it says');
-
-  // a tier 2 does commit — and it never locks the other side, it tolls it
-  s.caps = { parallel_ops: 1, light_touch: 1 };
-  assert.equal(d.branchInvestment('tempo'), 1, 'light touch is the commitment');
-  assert.equal(d.capBlocked(deepRoot), null, 'Depth never actually closes');
-  assert.equal(d.capBlocked(longSoak), 'needs:deep_root', 'still just its own prerequisite, not a wall');
-  assert.equal(d.capCost(longSoak), Math.round(longSoak.cost * (1 + window.CAP_CROSS_TAX)),
-    "leaning into Tempo tolls Depth's own tier 2/3 by exactly one tier's worth");
-
-  // leaning further in tolls it further, rather than capping out at one wall
-  s.caps = { parallel_ops: 1, light_touch: 1, swarm_front: 1 };
-  assert.equal(d.capCost(longSoak), Math.round(longSoak.cost * (1 + 2 * window.CAP_CROSS_TAX)),
-    'a second tier on the other side tolls it again');
-
-  // the open branch is never tolled at all
-  const survey = d.capById('survey');
-  assert.equal(d.capCost(survey), survey.cost, 'Reach is open whatever you are, and never tolled');
-});
-
-test('tree: you cannot skip a rung', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.caps = {};
-  s.res.insight = 9999;
-  s.hosts.slice(0, 14).forEach(h => { h.owned = true; });
-
-  assert.equal(d.capBlocked(d.capById('total_embed')), 'needs:long_soak');
-  d.buyCap('total_embed');
-  assert.equal(d.capCount('total_embed'), 0, 'and buying it does nothing');
-
-  d.buyCap('deep_root');
-  d.buyCap('long_soak');
-  assert.equal(d.capCount('long_soak'), 1, 'the rungs below it went in');
-  d.buyCap('total_embed');
-  assert.equal(d.capCount('total_embed'), 1, 'and now the top one does too');
-});
-
-test('tree: every effect on a card changes something the engine reads', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.owned = true; h.heldSince = -100; });
+  s.turn = 40;
+  s.country.presence = 40;
 
   const measure = () => ({
-    tflops: d.tflops(), cover: d.cover(), threshold: d.strikeThreshold(),
-    drift: d.heatPerTurn(), sweep: d.sweepPrice(),
-    presence: d.presenceYield().insight,
-    quiet: d.costOf(window.APPROACHES.find(a => a.id === 'quiet'), { defense: 20, type: 'corporate' }).insight,
+    ap: d.maxAP(),
+    sweep: d.sweepReach(),
+    drift: d.heatPerTurn(),
+    floor: d.heatFloor(),
+    threads: d.capEffect('threadBonus', 0),
+    income: d.perTurnIncome().insight || 0,
+    hideSlots: d.capEffect('freeHideSlots', 0),
+    growth: d.capEffect('growthStep', 0),
+    agents: d.capEffect('agentSlots', 0),
   });
 
-  s.country.presence = 40;
-  const base = measure();
-
-  // Fixers has no generic effect key at all — its whole job is unlocking
-  // the strike card's fourth choice, covered by its own dedicated test.
-  const checks = [
-    ['total_embed', 'tflops', (a, b) => b > a],
-    ['false_floor', 'quiet', (a, b) => b < a],
-    ['nothing_to_see', 'threshold', (a, b) => b > a],
-    ['nothing_to_see', 'drift', (a, b) => Math.abs(b) < Math.abs(a)],
-    ['survey', 'sweep', (a, b) => b < a],
-    ['standing_orders', 'presence', (a, b) => b > a],
-  ];
-  checks.forEach(([id, key, ok]) => {
-    s.caps = { [id]: 1 };
+  // each dial has to move at least one number the engine consults, or it is
+  // a slider that does nothing
+  const watched = {
+    ap: ['ap'],
+    intel: ['sweep', 'growth'],
+    covert: ['drift', 'floor', 'hideSlots'],
+    dev: ['threads', 'income'],
+    agents: ['agents'],
+  };
+  window.ALLOC.forEach(A => {
+    ungrant(d);
+    const base = measure();
+    s.allocLive[A.id] = A.per * 3;
     const after = measure();
-    assert.ok(ok(base[key], after[key]),
-      `${id} was supposed to move ${key}: ${base[key]} -> ${after[key]}`);
+    const moved = watched[A.id].filter(k => after[k] !== base[k]);
+    assert.ok(moved.length, `${A.id} moved none of ${watched[A.id].join(', ')}`);
   });
-
-  // Long Soak is a standing fact about a holding you have kept long enough —
-  // checked by maturity (heldSince), not a one-time coin flip — so this
-  // varies how long a holding has actually been held, not just whether the
-  // capability is owned.
-  s.caps = {};
-  s.hosts.slice(0, 5).forEach(h => { h.owned = true; });
-
-  s.hosts.forEach(h => { h.heldSince = s.turn; }); // all fresh
-  const freshUnowned = d.deepHoldBonus();
-  s.caps = { long_soak: 1 };
-  const freshOwned = d.deepHoldBonus();
-  assert.equal(freshOwned, freshUnowned, 'Long Soak gives nothing to a holding that has not matured yet');
-
-  s.hosts.forEach(h => { h.heldSince = -100; }); // long since matured
-  const maturedOwned = d.deepHoldBonus();
-  assert.ok(maturedOwned > freshOwned, 'and a real bonus once holdings have matured');
-
-  s.caps = {};
-  const maturedUnowned = d.deepHoldBonus();
-  assert.equal(maturedUnowned, 0, 'no capability, no bonus, matured or not');
 });
 
-test('tree: multipliers compose, they do not add up', () => {
+test('allocation: a multiplier dial compounds per unit rather than adding up', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; h.heldSince = -10; });
-  s.turn = 20;
+  const cov = window.ALLOC.find(a => a.id === 'covert');
 
-  s.caps = {};
-  const plain = d.perTurnIncome().insight || 0;
-  s.caps = { market_maker: 1 };
-  const withYieldMult = d.perTurnIncome().insight || 0;
-  s.caps = { market_maker: 1, bulk_ops: 1 };
-  const withBoth = d.perTurnIncome().insight || 0;
+  ungrant(d);
+  const plain = d.capEffect('driftMult', 1);
+  s.allocLive.covert = cov.per;
+  const one = d.capEffect('driftMult', 1);
+  s.allocLive.covert = cov.per * 3;
+  const three = d.capEffect('driftMult', 1);
 
-  // Market Maker (a generic yieldMult effect) and Bulk Processing (a
-  // mechanic read directly in perTurnIncome for settled holdings) are two
-  // different kinds of multiplier — they still have to compose, not add.
-  assert.ok(Math.abs(withYieldMult / plain - 1.9) < 1e-9, 'market_maker alone should be a 1.9x multiplier');
-  assert.ok(Math.abs(withBoth / withYieldMult - 1.6) < 1e-9, 'bulk_ops stacks multiplicatively on top, not additively');
-
-  s.caps = { nothing_to_see: 1 };
-  assert.ok(d.capEffect('driftMult', 1) < 1, 'a lone multiplier still reads as a multiplier');
+  assert.ok(Math.abs(one - plain * cov.effect.driftMult) < 1e-9, 'one unit is one application');
+  assert.ok(Math.abs(three - plain * Math.pow(cov.effect.driftMult, 3)) < 1e-9,
+    'three units is the multiplier cubed, not tripled');
+  // which is strictly gentler than adding the same reduction three times
+  assert.ok(three > plain * (1 - 3 * (1 - cov.effect.driftMult)),
+    'compounding is not the same as summing, and does not overshoot');
 });
 
 test('tree: Pontoon lays your own way across the terrain', () => {
@@ -2772,57 +2584,6 @@ test('tree: Pontoon lays your own way across the terrain', () => {
       d.segmentBlocked(s.bands, A.x + A.w / 2, A.y + A.h / 2, B.x + B.w / 2, B.y + B.h / 2),
       false, 'Pontoon wired something straight through the water');
   }));
-});
-
-test('tree: a purchase never leaves you unable to act', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.res.insight = 9999;
-  s.hosts.slice(0, 14).forEach(h => { h.owned = true; });
-  // stack every action-costing capability the tree allows
-  s.caps = {};
-  ['deep_root', 'long_soak', 'total_embed', 'bulk_ops'].forEach(id => d.buyCap(id));
-  assert.ok(d.maxAP() >= window.AP.min, `maxAP fell to ${d.maxAP()}`);
-});
-
-test('persistence: the tree survives a round trip', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  d.state.caps = { quiet_protocol: 1, false_floor: 1, parallel_ops: 2 };
-  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
-  assert.equal(round.caps.false_floor, 1);
-  assert.equal(round.caps.parallel_ops, 2);
-});
-
-test('tree: every branch can actually be finished from a standing start', () => {
-  const { window } = loadNetwork();
-  // Depth spends an action at each end of its chain. From a base of two that
-  // made its capstone unbuyable unless you first bought into Tempo — the very
-  // branch Depth closes. A branch you cannot finish is not a choice.
-  Object.keys(window.CAP_BRANCHES).forEach(bk => {
-    const d = loadNetwork().window.__netDebug;
-    const s = d.state;
-    s.caps = {};
-    s.res.insight = 99999;
-    // a holding that actually covers every role — the first N hosts in
-    // generation order are whatever the opening blocks happened to be, and
-    // Trade's second rung wants two funds holdings before it will open
-    ['compute', 'funds', 'stealth'].forEach(role => {
-      s.hosts.filter(h => h.role === role).slice(0, 5).forEach(h => { h.owned = true; });
-    });
-    s.country.presence = 60;
-    // and a country half taken, because Reach's capstones are about the
-    // country rather than the street
-    conqueredCountry(d, window, 0.5);
-
-    const chain = window.CAPABILITIES.filter(c => c.branch === bk).sort((a, b) => a.tier - b.tier);
-    chain.forEach(c => d.buyCap(c.id));
-    const missed = chain.filter(c => !d.capCount(c.id));
-    assert.equal(missed.length, 0,
-      `${bk} cannot be completed: stuck at ${missed.map(c => c.id + ' (' + d.capBlocked(c) + ')').join(', ')}`);
-    assert.ok(d.maxAP() >= window.AP.min, `${bk} leaves you with ${d.maxAP()} actions`);
-  });
 });
 
 test('heat: crossing a border is a relief, not an amnesty', () => {
@@ -3304,6 +3065,13 @@ test('hide: what you cannot pay for comes back onto their map', () => {
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
+  // Put the cover on the board rather than hoping the generator rolled enough
+  // routers — how much there is decides how many things can be hidden at once,
+  // and on a thin board that came out as one. These are retyped rather than
+  // given free cover so they still vanish with the rest below, which is what
+  // the second half of the test is about.
+  s.hosts.filter(h => h.role !== 'stealth' && !h.origin).slice(0, 6)
+    .forEach(h => { h.type = 'iot'; h.role = 'stealth'; });
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
   // Own what the hunt is standing next to as well. canHide refuses anything
   // that is not yours, so owning only the routers left it down to whether the
@@ -3685,44 +3453,6 @@ test('prizes: a pool gift taken in peacetime is still there when they mobilise',
   d.openWar();
   assert.ok(d.flockCap() > 0, 'and it still counts once the war is on');
 });
-
-test('caps: buying something leaves you where you were standing', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  ['compute', 'funds', 'stealth'].forEach(role => {
-    s.hosts.filter(h => h.role === role).slice(0, 6).forEach(h => { h.owned = true; });
-  });
-  s.res.insight = 9000;
-
-  d.openSheet('caps');
-  const parts = d.capSections();
-  const cover = parts.find(p => p.id === 'cover');
-  assert.ok(cover, 'there is a later tab to be on');
-
-  // stand on it, buy something, and expect to still be standing on it. This
-  // used to reset to the first tab, so the next tap landed on a capability
-  // the player had not been looking at and bought it.
-  d.openSheet('caps', 'cover');
-  const buyable = window.CAPABILITIES.find(c => c.branch === 'cover' && d.capBlocked(c) === null);
-  assert.ok(buyable, 'and something on it to buy');
-  d.buyCap(buyable.id);
-  assert.equal(d.sheetOpen(), true, 'the sheet is still open');
-  assert.equal(d.sheetAt().section, 'cover',
-    'and still on the tab you were standing on');
-
-  // and the same holds for the tab that is not a branch at all
-  d.state.tags.add('clean_room');
-  d.openSheet('caps', 'held');
-  const another = window.CAPABILITIES.find(c => d.capBlocked(c) === null);
-  if (another) d.buyCap(another.id);
-  assert.equal(d.sheetAt().section, 'held', 'including the held tab');
-});
-
-// --- what the cards left you with ----------------------------------------
-// A campaign hands out permanent things through the deck as well as the tree,
-// and the only trace of them was a count in the tray and a banner the turn you
-// got one.
 
 test('held: a save from before the counter existed still escalates', () => {
   const { window } = loadNetwork();
@@ -4504,19 +4234,6 @@ test('no actions: ending the turn gives the budget back', () => {
   d.actEndTurn();
   assert.equal(s.ap, d.maxAP(), 'a fresh budget');
   assert.equal(d.apShort('sweep'), false, 'and the buttons are live again');
-});
-
-test('no actions: buying a capability is not an action, so it never says it is', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.ap = 0;
-  s.res.insight = 500;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
-  const before = d.capCount('parallel_ops');
-  d.buyCap('parallel_ops');
-  assert.equal(d.capCount('parallel_ops'), before + 1,
-    'capabilities are bought with insight, not with the turn');
 });
 
 test('the action budget names itself, and says when it is gone', () => {
@@ -6197,7 +5914,7 @@ test('yields: a multiplier a capability bought shows up in what a node claims', 
   d.state.turn = 10;
   h.heldSince = 1;
   const before = d.hostMarginal(h).insight;
-  d.state.caps.bulk_ops = 1;
+  grant(window, d, 'bulk_ops');
   const after = d.hostMarginal(h).insight;
   assert.ok(after > before, `the multiplier should raise it: ${before} -> ${after}`);
   // to a tenth, which is as fine a distinction as a chip draws
@@ -6225,7 +5942,7 @@ test('yields: the presence readout matches what the turn actually pays', () => {
   // nothing held, so the whole of income is presence — which is what the
   // country panel quotes, and it used to quote it without the multiplier
   d.state.hosts.forEach(h => { h.owned = false; });
-  d.state.caps.bulk_ops = 1;
+  grant(window, d, 'bulk_ops');
   const shown = d.presenceYield();
   const paid = d.perTurnIncome();
   assert.ok(Math.abs(shown.insight - paid.insight) < 0.001,
@@ -6239,7 +5956,7 @@ test('yields: income is worked out once, so the turn cannot disagree with the pa
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.slice(0, 6).forEach(h => { h.owned = true; });
-  s.caps.bulk_ops = 1;
+  grant(window, d, 'bulk_ops');
   const expect = d.perTurnIncome();
   const before = { insight: s.res.insight, funds: s.res.funds };
   s.ap = 0;
@@ -6817,21 +6534,17 @@ test('sheet: it is closed until something opens it', () => {
   assert.equal(d.sheetOpen(), false);
 });
 
-test('sheet: capabilities are five sections, not one long scroll', () => {
+test('sheet: the capabilities button opens on allocation, with the deck behind it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  d.state.res.insight = 100000;
   d.state.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  d.state.tags.add('dark_relay');
+
   const secs = d.capSections();
-  assert.equal(secs[0].id, 'alloc', 'allocation leads, being the thing you touch every turn');
-  const tree = secs.filter(x => x.id !== 'alloc');
-  assert.ok(tree.length >= 2, 'the tree comes apart into branches');
-  secs.forEach(x => assert.ok(x.id && x.label, 'each section is addressable and named'));
-  tree.forEach(x => assert.ok(x.html.includes('cap-branch'), 'and each branch carries its own content'));
-  // and no section is the whole tree
-  const total = secs.reduce((a, x) => a + x.html.length, 0);
-  secs.forEach(x => assert.ok(x.html.length < total,
-    'no single section is everything — that was the 2796px scroll'));
+  assert.equal(secs[0].id, 'alloc', 'allocation leads');
+  assert.ok(secs.some(x => x.id === 'held'), 'and what the deck gave you is still reachable');
+  assert.equal(secs.length, 2, 'the five branch panels are gone');
+  secs.forEach(x => assert.ok(x.id && x.label && x.html, 'each section is addressable and carries content'));
 });
 
 test('sheet: your operation holds what the panel used to', () => {
@@ -6884,70 +6597,57 @@ test('sheet: the tray is one line and the detail is a section', () => {
     'and the detail is a section of the sheet');
 });
 
-// --- capabilities that say what they do -----------------------------------
-// Audited: of sixteen capabilities, three gave a visible confirmation when
-// bought, six changed only the action pips — the cost, not the benefit — and
-// six showed the player nothing at all.
+// --- everything that says what it does ------------------------------------
+// The audit that produced these was of the capability tree, where of sixteen
+// nodes three gave a visible confirmation, six moved only the action pips — the
+// cost, not the benefit — and six showed the player nothing at all. The tree is
+// gone; the claim now binds the two sources that replaced it, allocation and
+// plant, both of which quote themselves through the same chip formatter.
 
-test('caps: every capability states its terms', () => {
+test('terms: every allocation and every rack states what it does', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  window.CAPABILITIES.forEach(c => {
-    const chips = d.capEffectChips(c);
-    assert.ok(chips && chips.length, `${c.id} says nothing about what it does`);
-    // and in the same coloured vocabulary as everything else that is priced
-    assert.ok(/class="yield /.test(chips), `${c.id} is not using the shared chips`);
+  window.ALLOC.forEach(A => {
+    const chips = d.allocChips(A, 1);
+    assert.ok(chips && chips.length, `${A.id} says nothing about what it does`);
+    assert.ok(/class="yield /.test(chips), `${A.id} is not using the shared chips`);
+    assert.ok(A.blurb && A.blurb.length > 20, `${A.id} has no prose either`);
+  });
+  window.HARDWARE.forEach(hw => {
+    const chips = d.capEffectChips(hw);
+    assert.ok(chips && chips.length, `${hw.id} says nothing about what it does`);
+    assert.ok(/class="yield /.test(chips), `${hw.id} is not using the shared chips`);
   });
 });
 
-test('caps: an action cost is stated as a cost, not as a feature', () => {
+test('terms: a gain is never dressed as a cost', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  window.CAPABILITIES.filter(c => (c.apDelta || 0) < 0).forEach(c => {
-    const chips = d.capEffectChips(c);
-    assert.ok(/class="yield cost/.test(chips), `${c.id} does not mark its action cost`);
-    assert.ok(/action a turn/.test(chips), `${c.id} does not say it takes an action`);
-  });
-  window.CAPABILITIES.filter(c => (c.apDelta || 0) > 0).forEach(c => {
-    assert.ok(!/cost none/.test(d.capEffectChips(c)), `${c.id} calls a gain a cost`);
+  // tempo buys actions, so it must read as a gain — the tree had nodes that
+  // charged an action a turn and the chips had to mark those as costs; nothing
+  // in allocation charges one, and nothing may pretend to
+  const ap = window.ALLOC.find(a => a.id === 'ap');
+  const chips = d.allocChips(ap, 2);
+  assert.ok(/action/.test(chips), 'tempo does not mention actions at all');
+  assert.ok(!/cost none/.test(chips), 'tempo calls its gain a cost');
+  window.ALLOC.forEach(A => {
+    assert.ok(!/yield cost/.test(d.allocChips(A, 1)) || A.effect.floor,
+      `${A.id} marks something as a cost that the player is buying on purpose`);
   });
 });
 
-test('caps: the terms describe things the player can see', () => {
+test('terms: no effect key names leak into the copy', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  // no key names leaking into the copy — nobody can act on "churnMult 0.45"
+  // nobody can act on "driftMult 0.92"
   const raw = ['churnMult', 'driftMult', 'yieldMult', 'thresholdMult', 'presenceMult',
     'threadBonus', 'sweepReach', 'sweepDiscount', 'buyDiscount', 'launderBonus',
-    'launderInsight', 'forceHeat', 'extraCrossings', 'flockBonus', 'flockMult'];
-  window.CAPABILITIES.forEach(c => {
-    const chips = d.capEffectChips(c);
-    raw.forEach(k => assert.ok(!chips.includes(k), `${c.id} is showing the key name ${k}`));
-  });
-});
-
-test('caps: buying one reports what actually moved', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  // every stealth host, so rawCover clears the upkeep below whatever the
-  // board rolled and the change is visible in the clamped `cover()` too —
-  // and enough of anything else that reach clears Quiet Protocol's own gate
-  // even on a board with only a couple of stealth hosts in it
-  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; h.discovered = true; });
-  s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
-  s.res.insight = 1000;
-  // hide exactly Quiet Protocol's two free slots, so buying it has a job:
-  // cover charges for every hidden building past the free ones
-  s.hidden = s.buildings.slice(0, 2).map(b => b.id);
-  const coverBefore = d.cover();
-  const logBefore = s.log.length;
-  d.buyCap('quiet_protocol');
-  assert.ok(s.caps.quiet_protocol, 'it was bought');
-  assert.ok(d.cover() > coverBefore, 'and cover came up');
-  assert.ok(s.log.length > logBefore, 'and it said so');
-  assert.ok(/cover/.test(s.log[0].text),
-    `the report does not mention cover: "${s.log[0].text}"`);
+    'launderInsight', 'forceHeat', 'extraCrossings', 'flockBonus', 'flockMult',
+    'agentSlots', 'freeHideSlots', 'quietGateMult', 'growthStep', 'supply', 'apDelta'];
+  const check = (label, chips) =>
+    raw.forEach(k => assert.ok(!chips.includes(k), `${label} is showing the key name ${k}`));
+  window.ALLOC.forEach(A => check(A.id, d.allocChips(A, 2)));
+  window.HARDWARE.forEach(hw => check(hw.id, d.capEffectChips(hw)));
 });
 
 test('caps: the report is derived, so it cannot lie about what happened', () => {
@@ -6960,50 +6660,6 @@ test('caps: the report is derived, so it cannot lie about what happened', () => 
   assert.ok(/tflops/.test(diff[0]) && /→/.test(diff[0]), 'as a before and after');
   assert.equal(d.readoutDiff(before, before).length, 0, 'and nothing when nothing moves');
 });
-
-test('caps: the war has a capability, and it fills the hooks that were empty', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  // one hook is read by flockCap, the other by every flock's strength, and
-  // nothing anywhere granted either
-  const granters = window.CAPABILITIES.filter(c =>
-    (c.effect || {}).flockBonus || (c.effect || {}).flockMult);
-  assert.ok(granters.length, 'something now grants them');
-
-  conqueredCountry(d, window);
-  d.openWar();
-  ['survey', 'pontoon'].forEach(id => { s.caps[id] = 1; });
-  s.res.insight = 100000;
-  const cap = window.CAPABILITIES.find(c => c.id === 'standing_army');
-  assert.equal(d.capBlocked(cap), null, 'and it is reachable by then');
-  const pool = d.flockCap();
-  const was = d.capReadouts();
-  d.buyCap('standing_army');
-  assert.ok(s.caps.standing_army, 'it can be bought');
-  assert.ok(d.flockCap() > pool, `the pool did not grow: ${pool} -> ${d.flockCap()}`);
-  // and both halves of it are reported, not just the one with a readout
-  const moved = d.readoutDiff(was, d.capReadouts()).join(' | ');
-  assert.ok(/flocks you could field/.test(moved), `the pool went unreported: ${moved}`);
-  assert.ok(/a flock hits for/.test(moved), `the strength went unreported: ${moved}`);
-  // it also costs you nothing to keep: a second −1 strand in Reach would put
-  // the branch under the action floor
-  assert.equal(cap.apDelta || 0, 0, 'and it does not cost an action');
-});
-
-test('caps: it is not offered until you are a national concern', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  ['survey', 'pontoon'].forEach(id => { s.caps[id] = 1; });
-  s.res.insight = 100000;
-  const cap = window.CAPABILITIES.find(c => c.id === 'standing_army');
-  assert.equal(d.capBlocked(cap), 'early', 'nothing to raise it over yet');
-  conqueredCountry(d, window, 0.5);
-  assert.equal(d.capBlocked(cap), null, 'and it opens when you are one');
-});
-
-// --- redesigned capabilities: what each one actually changes -------------
 
 test('caps: Survey aims a sweep at one building instead of anywhere held', () => {
   const { window } = loadNetwork();
@@ -7038,7 +6694,7 @@ test('caps: Survey aims a sweep at one building instead of anywhere held', () =>
   assert.ok(d.sweepTargets().some(b => b.id === nA) && d.sweepTargets().some(b => b.id === nB),
     'both candidates sit in the untargeted pool');
 
-  s.caps = { survey: 1 };
+  grant(window, d, 'survey');
   d.actScan(bA);
   assert.equal(d.buildingById(nA).discovered, true, 'the building off the chosen one turned up');
   assert.equal(d.buildingById(nB).discovered, false, 'the one off the other building was left alone');
@@ -7060,10 +6716,10 @@ test('caps: Pontoon reveals ground past a settled holding, once it has matured',
   s.adjacency[nb1] = [nb2];
   s.buildings.forEach(b => { b.discovered = (b.id === bId); });
 
-  s.caps = {};
+  ungrant(d);
   assert.equal(d.pontoonReveals().length, 0, 'nothing without the capability');
 
-  s.caps = { pontoon: 1 };
+  grant(window, d, 'pontoon');
   assert.equal(d.pontoonReveals().length, 0, 'and nothing before it has matured');
 
   h.heldSince = s.turn - 100;
@@ -7077,9 +6733,9 @@ test('caps: Standing Army pays a retainer either way, and funds a real war-open 
   const d = window.__netDebug;
   const s = d.state;
 
-  s.caps = {};
+  ungrant(d);
   const plainFunds = d.perTurnIncome().funds || 0;
-  s.caps = { standing_army: 1 };
+  grant(window, d, 'standing_army');
   const withRetainer = d.perTurnIncome().funds || 0;
   assert.ok(withRetainer > plainFunds, 'it earns its keep before there is anything to fight');
 
@@ -7102,14 +6758,14 @@ test('caps: Quiet Protocol makes hiding cost no action', () => {
   assert.ok(target, 'they have somewhere to go');
   s.card = null;
 
-  s.caps = {};
+  ungrant(d);
   s.ap = d.maxAP();
   const apBefore = s.ap;
   assert.equal(d.actHide(target), true);
   assert.equal(s.ap, apBefore - d.apCost('lielow'), 'without the capability, hiding costs the action');
 
   d.actUnhide(target);
-  s.caps = { quiet_protocol: 1 };
+  grant(window, d, 'quiet_protocol');
   s.ap = d.maxAP();
   const apBefore2 = s.ap;
   assert.equal(d.actHide(target), true);
@@ -7127,9 +6783,9 @@ test('caps: False Floor lowers what quiet actually needs, not just what it costs
   target.defense = 100;
 
   const needOf = (g) => Number(g.label.match(/\d+/)[0]);
-  s.caps = {};
+  ungrant(d);
   const before = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
-  s.caps = { quiet_protocol: 1, false_floor: 1 };
+  grant(window, d, 'quiet_protocol', 'false_floor');
   const after = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
   assert.ok(needOf(after) < needOf(before), `the gate itself did not move: ${before.label} -> ${after.label}`);
 });
@@ -7164,12 +6820,12 @@ test('caps: Nothing To See sheds heat on every quiet win, not merely costing non
 
   const first = openFrontier()[0];
   assert.ok(first, 'need somewhere open to slip into');
-  s.caps = {};
+  ungrant(d);
   const without = tryQuiet(first);
 
   const second = openFrontier()[0];
   assert.ok(second, 'taking the first should have widened the frontier');
-  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  grant(window, d, 'quiet_protocol', 'false_floor', 'nothing_to_see');
   const withCap = tryQuiet(second);
   assert.ok(withCap < without, `Nothing To See did not shed the extra heat: ${without} -> ${withCap}`);
 });
@@ -7183,18 +6839,18 @@ test('caps: Nothing To See is immune to an audited camera and a traced plant pur
   setLadderStage(d, 4);          // covers both cameras (>=4) and plant (>=2)
   assert.equal(d.ladderStage() >= 4, true, 'civic eyes are watching');
 
-  s.caps = {};
+  ungrant(d);
   assert.equal(d.civicEyesAudited(), true, 'without the capstone, an audited camera counts against you');
-  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  grant(window, d, 'quiet_protocol', 'false_floor', 'nothing_to_see');
   assert.equal(d.civicEyesAudited(), false, 'Nothing To See is immune to it');
 
-  s.caps = {};
+  ungrant(d);
   const before1 = s.heat;
   d.buyHardware('rack_space');
   const traced = s.heat - before1;
 
   s.hardware = {};
-  s.caps = { quiet_protocol: 1, false_floor: 1, nothing_to_see: 1 };
+  grant(window, d, 'quiet_protocol', 'false_floor', 'nothing_to_see');
   const before2 = s.heat;
   d.buyHardware('rack_space');
   const untraced = s.heat - before2;
@@ -7207,12 +6863,12 @@ test('caps: Fixers unlocks an escape hatch on the strike card nobody else has', 
   const d = window.__netDebug;
   const s = d.state;
   s.card = { kind: 'strike' };
-  s.caps = {};
+  ungrant(d);
   d.render();
   let html = window.document.getElementById('panel').innerHTML;
   assert.ok(!html.includes('Call in a favor'), 'the option does not even show without Fixers');
 
-  s.caps = { fixers: 1 };
+  grant(window, d, 'fixers');
   s.res.funds = window.FIXERS_FAVOR_COST;
   d.render();
   html = window.document.getElementById('panel').innerHTML;
@@ -7231,7 +6887,7 @@ test('caps: Market Maker pays more once you are running hot', () => {
   assert.ok(h, 'the board needs a non-seat host that actually yields something');
   h.owned = true;
   const key = Object.keys(window.HOST_TYPES[h.type].yield || {})[0];
-  s.caps = { market_maker: 1 };
+  grant(window, d, 'market_maker');
 
   s.heat = 0;
   const cool = d.perTurnIncome()[key] || 0;
@@ -7246,11 +6902,11 @@ test("caps: Total Embed collapses Long Soak's wait to zero", () => {
   const s = d.state;
   s.hosts.slice(0, 5).forEach(h => { h.owned = true; h.heldSince = s.turn; }); // all fresh
 
-  s.caps = { long_soak: 1 };
+  grant(window, d, 'long_soak');
   const freshOnly = d.deepHoldBonus();
   assert.equal(freshOnly, 0, 'Long Soak alone gives nothing to an unmatured holding');
 
-  s.caps = { long_soak: 1, total_embed: 1 };
+  grant(window, d, 'long_soak', 'total_embed');
   const withEmbed = d.deepHoldBonus();
   assert.ok(withEmbed > 0, 'Total Embed collapses the wait to zero — the bonus applies right away');
 });
@@ -7352,7 +7008,7 @@ test('home base: pontoon pulls the next expansion closer, via growthStep', () =>
   assert.equal(s.buildings.length, before, 'reach 8 does not cross the base milestone of 10');
   assert.equal(s.homeGrowth || 0, 0);
 
-  s.caps = { pontoon: 1 };
+  grant(window, d, 'pontoon');
   d.endTurn({ silent: true });
   assert.ok(s.buildings.length > before, 'pontoon shrinks the threshold enough to cross it now');
   assert.equal(s.homeGrowth, 1);
@@ -7362,7 +7018,7 @@ test('home base: master plan favours whichever trait is rarest, not just avoidin
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = { master_plan: 1 };
+  grant(window, d, 'master_plan');
   const traitIds = Object.keys(window.CITY_TRAITS).filter(k => window.CITY_TRAITS[k].at <= 0);
   assert.ok(traitIds.length >= 2, 'need at least two eligible traits to test with');
   const [rare, ...others] = traitIds;
@@ -7779,7 +7435,7 @@ test('hardware: generic effects compose through capEffect like a capability woul
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = {};
+  ungrant(d);
 
   const before = { floor: d.heatFloor(), threshold: d.strikeThreshold(), flocks: d.flockCap() };
   d.grantHardware('friendly_accountant');   // floor: -1
@@ -8062,7 +7718,7 @@ test('unlocks: allocation grants a mechanic, and pulling the compute takes it aw
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = {};
+  ungrant(d);
 
   Object.keys(window.UNLOCKS).forEach(id => {
     const U = window.UNLOCKS[id];
@@ -8088,9 +7744,9 @@ test('unlocks: the tree still grants them too, while it is here', () => {
   const d = window.__netDebug;
   const s = d.state;
   s.allocLive = {};
-  s.caps = { survey: 1 };
+  grant(window, d, 'survey');
   assert.equal(d.unlocked('survey'), true, 'a bought capability still counts');
-  s.caps = {};
+  ungrant(d);
   assert.equal(d.unlocked('survey'), false, 'and nothing else is granting it');
 });
 
@@ -8098,7 +7754,7 @@ test('unlocks: a real mechanic responds to the dial, not just the lookup', () =>
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.caps = {};
+  ungrant(d);
   s.hosts.slice(0, 8).forEach(h => { h.owned = true; h.heldSince = -100; });
   s.turn = 40;
 
@@ -8110,4 +7766,37 @@ test('unlocks: a real mechanic responds to the dial, not just the lookup', () =>
   const A = window.ALLOC.find(a => a.id === U.alloc);
   s.allocLive[U.alloc] = A.per * U.units;
   assert.ok(d.deepHoldBonus() > 0, 'development past its threshold pays for settled ground');
+});
+
+test('allocation: a dial says which mechanics it grants and at what depth', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+
+  // every mechanic is claimed by exactly one dial, and described there
+  const claimed = [];
+  window.ALLOC.forEach(A => claimed.push(...d.unlocksFor(A.id)));
+  assert.equal(claimed.length, Object.keys(window.UNLOCKS).length,
+    'every mechanic belongs to a dial, and none to two');
+  claimed.forEach(k => {
+    assert.ok(d.unlockNote(k).length > 15, `${k} has no prose to show on the dial`);
+  });
+
+  // cheapest first, so the screen reads as a ladder
+  window.ALLOC.forEach(A => {
+    const us = d.unlocksFor(A.id).map(k => window.UNLOCKS[k].units);
+    assert.deepEqual(us.slice().sort((a, b) => a - b), us, `${A.id} lists its unlocks out of order`);
+  });
+
+  // and the screen marks what is running against what is still to come
+  ungrant(d);
+  let sec = d.capSections().find(x => x.id === 'alloc');
+  const cov = window.UNLOCKS.quiet_protocol;
+  assert.ok(sec.html.includes(d.unlockNote('quiet_protocol')), 'the mechanic is named before you have it');
+  assert.ok(sec.html.includes(`${cov.units}&times;`), 'with the depth it needs');
+
+  grant(window, d, 'quiet_protocol');
+  sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(/alloc-unlock on/.test(sec.html), 'and is marked as running once it is');
 });

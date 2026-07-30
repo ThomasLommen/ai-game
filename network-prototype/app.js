@@ -1102,7 +1102,6 @@
       heat: 0,
       upgrades: 0,
       ap: window.AP.base,
-      caps: {},            // capability id -> times bought
       alloc: {},           // allocation id -> TFLOPS committed (the dial)
       allocLive: {},       // allocation id -> TFLOPS actually running (ramps toward the dial)
       tags: new Set(),
@@ -1178,14 +1177,11 @@
     if ((LG().audits || 0) > 0) { noteSeen('spin'); return true; }
     return false;
   }
-  const capCount = (id) => (state.caps && state.caps[id]) || 0;
-  const hasCap = (id) => capCount(id) > 0;
 
   // Your whole action budget for a turn. Capabilities move it in both
   // directions on purpose: buying real tflops costs you tempo.
   function maxAP() {
     let n = window.AP.base;
-    window.CAPABILITIES.forEach(c => { n += (c.apDelta || 0) * capCount(c.id); });
     n += allocUnits('ap');
     return Math.max(window.AP.min, n);
   }
@@ -1230,16 +1226,11 @@
     return v;
   }
 
-  // Whether a named mechanic is running. Two sources for now: the capability
-  // tree, while it is still here, and the allocation threshold that is going to
-  // replace it. Keeping both means the tree can come out in its own change
-  // rather than at the same time as everything that reads it.
-  //
-  // The difference between the two is the point of the rework: a bought
-  // capability was true forever, an allocation is true while you are paying for
-  // it and false again when the compute goes somewhere else.
+  // Whether a named mechanic is running. One source now the tree is gone: the
+  // allocation threshold in window.UNLOCKS. That difference is the point of the
+  // rework — a bought capability was true forever, an allocation is true while
+  // you are paying for it and false again the moment the compute goes elsewhere.
   function unlocked(id) {
-    if (hasCap(id)) return true;
     const U = (window.UNLOCKS || {})[id];
     return !!U && allocUnits(U.alloc) >= U.units;
   }
@@ -1292,11 +1283,6 @@
   function hasHardware(id) { return !!(state.hardware || {})[id]; }
   function capEffect(key, dflt) {
     let v = dflt;
-    window.CAPABILITIES.forEach(c => {
-      if (!hasCap(c.id) || !c.effect || c.effect[key] === undefined) return;
-      // anything named ...Mult composes multiplicatively; the rest add up
-      v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
-    });
     (window.HARDWARE || []).forEach(c => {
       if (!hasHardware(c.id) || !c.effect || c.effect[key] === undefined) return;
       v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
@@ -1665,6 +1651,10 @@
     // anything you can no longer power goes dark.
     rampAlloc();
     shedOverdraw();
+    // Pontoon used to fire once, at the moment it was bought. It answers to an
+    // allocation now, so it is checked every turn instead and the band's own
+    // guard keeps it from laying a second crossing over the same water.
+    if (unlocked('pontoon')) layOwnCrossings();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -2255,28 +2245,41 @@
     if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
     if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
-    if (c.id === 'quiet_protocol') add('cover', 'hiding something costs no action');
-    if (e.quietDiscount) add('cost insight', `slipping in quietly ${pct(1 - e.quietDiscount)}`);
-    if (e.quietGateMult) add('cover', `cover needed to slip in ${pct(e.quietGateMult)}`);
-    // Mechanics with no generic effect key at all — read directly, by id,
-    // at the specific point in the engine where they live — still need to
-    // say something here, or a card reads as though buying it did nothing.
-    if (c.id === 'long_soak') add('tflops', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`);
-    if (c.id === 'total_embed') add('tflops', 'every holding already counts as matured — nothing needs time to settle in');
-    if (c.id === 'nothing_to_see') add('cover', `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`);
-    if (c.id === 'bulk_ops') add('funds', 'settled ground pays considerably more');
-    if (c.id === 'swarm_front') add('tflops', 'the frontier\'s weakest door forces itself, free');
-    if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
-    if (c.id === 'deep_root') add('tflops', `forcing a door softens what is next to it, permanently`);
-    if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
-    if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
-    if (c.id === 'standing_army') add('funds', `a retainer either way: +${STANDING_ARMY_RETAINER} funds a turn, and if war comes, it is already standing guard over what you can afford to cover`);
-    if (c.id === 'fixers') add('funds', 'a favor called in on the strike card gets you out clean, for funds');
-    if (c.id === 'market_maker') add('funds', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
-    if (c.id === 'master_plan') add('insight', 'home\'s next growth favours whichever character it has the least of');
-    if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
-    if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
+    if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
+    if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
+    if (e.agentSlots) add('insight', `+${e.agentSlots} agent out at once`);
+    if (e.quietGateMult) add('cover', `slipping in needs ${pct(e.quietGateMult)} of the cover`);
     return out.join('');
+  }
+
+  // What each named mechanic actually does, in the player's terms. This prose
+  // used to hang off the capability card it was bought on; the mechanics answer
+  // to allocation thresholds now, so it hangs off the dial that grants them and
+  // the allocation screen lists what is running and what is next.
+  function unlockNote(id) {
+    switch (id) {
+      case 'quiet_protocol': return 'hiding something costs no action';
+      case 'long_soak':      return `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`;
+      case 'total_embed':    return 'every holding already counts as matured — nothing needs time to settle in';
+      case 'nothing_to_see': return `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`;
+      case 'bulk_ops':       return 'settled ground pays considerably more';
+      case 'swarm_front':    return 'the frontier\'s weakest door forces itself, free';
+      case 'light_touch':    return 'forcing a door you outclass costs no action';
+      case 'deep_root':      return 'forcing a door softens what is next to it, permanently';
+      case 'survey':         return 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random';
+      case 'pontoon':        return `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`;
+      case 'standing_army':  return `a retainer either way: +${STANDING_ARMY_RETAINER} funds a turn, and if war comes, it is already standing guard over what you can afford to cover`;
+      case 'fixers':         return 'a favor called in on the strike card gets you out clean, for funds';
+      case 'market_maker':   return `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`;
+      case 'master_plan':    return 'home\'s next growth favours whichever character it has the least of';
+      default: return '';
+    }
+  }
+  // Every mechanic a given dial grants, cheapest first.
+  function unlocksFor(id) {
+    return Object.keys(window.UNLOCKS || {})
+      .filter(k => window.UNLOCKS[k].alloc === id)
+      .sort((a, b) => window.UNLOCKS[a].units - window.UNLOCKS[b].units);
   }
 
   // Everything a capability could plausibly move, so a purchase can report what
@@ -2315,80 +2318,10 @@
       .map(k => `${k} ${before[k]} → ${after[k]}`);
   }
 
-  function capById(id) { return window.CAPABILITIES.find(c => c.id === id) || null; }
-  // Which branch you have committed to. Tier 1 is free to anyone; a tier 2
-  // or 3 is the commitment — counted here rather than a plain boolean so the
-  // opposing branch's toll can scale with how far in you actually are.
-  function committedBranches() {
-    const out = {};
-    window.CAPABILITIES.forEach(c => {
-      if ((c.tier || 1) >= 2 && capCount(c.id) > 0) out[c.branch] = true;
-    });
-    return out;
-  }
-  function branchInvestment(branch) {
-    let n = 0;
-    window.CAPABILITIES.forEach(c => {
-      if (c.branch === branch && (c.tier || 1) >= 2 && capCount(c.id) > 0) n++;
-    });
-    return n;
-  }
-  // Leaning into a branch no longer closes the one it opposes — it tolls it
-  // instead. Every tier 2/3 already bought on your side adds CAP_CROSS_TAX to
-  // the price of the opposing branch's own tier 2/3, so the pull is real
-  // (going back on yourself gets expensive) without a wall that turns a
-  // half-explored branch into a permanent dead end.
-  function crossBranchTax(c) {
-    const B = window.CAP_BRANCHES[c.branch];
-    if ((c.tier || 1) < 2 || !B || !B.opposes) return 1;
-    return 1 + branchInvestment(B.opposes) * window.CAP_CROSS_TAX;
-  }
-  function capCost(c) {
-    const base = !c.repeatable ? c.cost : c.costs[Math.min(capCount(c.id), c.costs.length - 1)];
-    return Math.round(base * crossBranchTax(c));
-  }
-  // why a capability is out of reach, if it is — said plainly on the card
-  function capBlocked(c) {
-    if (!c.repeatable && hasCap(c.id)) return 'owned';
-    if (c.repeatable && capCount(c.id) >= c.max) return 'owned';
-    const missing = (c.requires || []).filter(id => !hasCap(id));
-    if (missing.length) return 'needs:' + missing[0];
-    try { if (!c.cond(eventContext())) return 'early'; } catch (e) { return 'early'; }
-    return null;
-  }
-  function capAvailable(c) { return capBlocked(c) === null; }
-  function capAffordable(c) { return state.res.insight >= capCost(c); }
-  function buyCap(id) {
-    const c = capById(id);
-    if (!c || !capAvailable(c) || !capAffordable(c)) return;
-    // never let a purchase strand the player with no actions at all
-    if ((c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min) return;
-    const before = beforeSnap();
-    const wasReading = capReadouts();
-    state.res.insight -= capCost(c);
-    state.caps[c.id] = capCount(c.id) + 1;
-    state.ap = Math.min(state.ap, maxAP());
-    afterSnap(before);
-    // What actually moved, including the things that have no readout anywhere.
-    // Thirteen of sixteen capabilities used to report nothing but the cost.
-    const moved = readoutDiff(wasReading, capReadouts());
-    pushLog(moved.length ? `${c.name} — ${moved.join(', ')}.` : `${c.name} — acquired.`);
-    if (moved.length) showInfo(`${c.name}: ${moved.join(' · ')}`);
-    showBanner([{ kind: 'cap', verb: c.apDelta > 0 ? 'faster' : c.apDelta < 0 ? 'slower, stronger' : 'acquired', label: c.name }]);
-    // Leaning further into a branch tolls the one it opposes a little more.
-    // Say so, once, at the moment it happens — a card that quietly got more
-    // expensive is not a decision the player got to see.
-    const B = window.CAP_BRANCHES[c.branch];
-    if ((c.tier || 1) >= 2 && B && B.opposes) {
-      const other = window.CAP_BRANCHES[B.opposes];
-      pushLog(`${other.label} costs more from here — you are leaning further into ${B.label}.`);
-    }
-    // Pontoon lays a crossing wherever you already needed one, immediately.
-    if (c.effect && c.effect.extraCrossings) layOwnCrossings();
-    persistNow();
-    renderCaps();
-    render();
-  }
+  // capById, the branch-commitment sums, the cross-branch toll, the price and
+  // the buy path all went with the tree. What replaced them is window.UNLOCKS
+  // and the allocation dials: nothing is purchased, so nothing needs a price or
+  // a reason it is out of reach.
 
   // Pontoon. Lay a crossing on every band of the city you are standing in, at
   // the point where your own network most wants one, and wire up whatever that
@@ -2402,6 +2335,11 @@
     const anchor = mine.length ? mine : state.buildings;
 
     bands.forEach(band => {
+      // One crossing per band, ever. This used to be safe because a capability
+      // could only be bought once; an allocation can cross its threshold as
+      // often as the player likes, so the guard has to live on the band. It is
+      // per-city for free, bands being part of the city.
+      if (band.ownCrossing) return;
       // put it beside whatever you hold nearest the band
       let best = null;
       anchor.forEach(b => {
@@ -2411,7 +2349,7 @@
                   : across > band.to ? across - band.to : 0;
         if (!best || gap < best.gap) best = { gap, along: band.axis === 'h' ? c.x : c.y };
       });
-      if (best) band.gaps.push({ at: best.along, w: window.CITY.street * 2 });
+      if (best) { band.gaps.push({ at: best.along, w: window.CITY.street * 2 }); band.ownCrossing = true; }
     });
 
     // and connect anything the new crossings just put within reach
@@ -5219,7 +5157,7 @@
   // --- persistence -------------------------------------------------------
   function serialize() {
     return {
-      v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap, caps: state.caps || {},
+      v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
@@ -5236,7 +5174,7 @@
     try {
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
       return {
-        turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap), caps: Object.assign({}, saved.caps || {}),
+        turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
@@ -6497,6 +6435,12 @@
           <p class="yield-row">${units
             ? allocChips(A, units)
             : `<span class="dim">${pending ? 'still coming up' : 'nothing running here'}</span>`}</p>
+          ${unlocksFor(A.id).map(k => {
+            const need = window.UNLOCKS[k].units;
+            const on = units >= need;
+            return `<p class="alloc-unlock${on ? ' on' : ''}">
+              <span class="mono">${on ? '&check;' : need + '&times;'}</span> ${unlockNote(k)}</p>`;
+          }).join('')}
         </div>`;
     }).join('');
 
@@ -6513,78 +6457,10 @@
     };
   }
 
+  // Two sections now: what your compute is doing, and what the deck has handed
+  // you permanently. The five branch panels in between are gone.
   function capSections() {
-    const committed = committedBranches();
-    const order = ['tempo', 'depth', 'cover', 'trade', 'reach'];
-
-    const blocks = [];
-    order.forEach(bk => {
-      const B = window.CAP_BRANCHES[bk];
-      const mine = !!committed[bk];
-      const items = window.CAPABILITIES.filter(c => c.branch === bk);
-      // hide a branch you have not started and cannot start
-      const anyVisible = items.some(c => hasCap(c.id) || capAvailable(c) || capBlocked(c) !== 'early');
-      if (!anyVisible && !mine) return;
-
-      const rows = items.map(c => {
-        const count = capCount(c.id);
-        const owned = count > 0;
-        const maxed = c.repeatable ? count >= c.max : owned;
-        const why = capBlocked(c);
-        const afford = capAffordable(c);
-        const strands = (c.apDelta || 0) < 0 && maxAP() + c.apDelta < window.AP.min;
-        const disabled = why !== null || !afford || strands;
-
-        let label = 'acquire';
-        if (maxed) label = c.repeatable ? `owned ${count}/${c.max}` : 'owned';
-        else if (why && why.startsWith('needs:')) {
-          const need = capById(why.slice(6));
-          label = `after ${need ? need.name : why.slice(6)}`;
-        } else if (why === 'early') label = 'not yet';
-        else if (strands) label = 'would leave you no actions';
-        else if (!afford) label = "can't afford";
-
-        const apTag = c.apDelta > 0
-          ? `<span class="ap-tag good">+${c.apDelta} action</span>`
-          : c.apDelta < 0 ? `<span class="ap-tag bad">${c.apDelta} action</span>` : '';
-        // The toll a run leaning the other way is actually paying, shown
-        // right on the card it is inflating rather than left for the price
-        // alone to explain.
-        const commits = B.opposes && crossBranchTax(c) > 1
-          ? `<span class="ap-tag warn">costs more — you leaned toward ${window.CAP_BRANCHES[B.opposes].label}</span>` : '';
-
-        return `
-          <div class="shop-good tier-${c.tier || 1}${disabled ? ' disabled' : ''}${owned ? ' held' : ''}">
-            <div class="shop-good-top">
-              <span class="shop-good-name">${c.name}${c.repeatable && count ? ` ×${count}` : ''}</span>
-              <span class="d insight">&minus;${capCost(c)} INSIGHT</span>
-            </div>
-            ${apTag}${commits}
-            <p class="shop-good-desc">${c.desc}</p>
-            <p class="yield-row cap-terms">${capEffectChips(c)}</p>
-            <button type="button" class="shop-buy-btn" data-cap="${c.id}" ${disabled ? 'disabled' : ''}>${label}</button>
-          </div>`;
-      }).join('');
-
-      blocks.push({ id: bk, label: B.label, mine, html: `
-        <section class="cap-branch${mine ? ' mine' : ''}">
-          <div class="cap-branch-top">
-            <span class="cap-branch-name">${B.label}</span>
-            ${mine ? `<span class="cap-branch-state mine">yours</span>` : ''}
-          </div>
-          <p class="cap-branch-blurb">${B.blurb}</p>
-          ${rows}
-        </section>` });
-    });
-
-    // Allocation comes first: it is the thing you actually touch turn to turn,
-    // and it is what the tree behind it is being replaced by.
-    const out = [allocSection()].concat(blocks.filter(b => b.html).map(b => ({
-      id: b.id, label: b.label, done: b.mine,
-      html: `<p class="sheet-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>` + b.html,
-    })));
-    // last, so opening capabilities still lands on the tree rather than on a
-    // list of things you cannot act on
+    const out = [allocSection()];
     const held = heldSection();
     if (held) out.push(held);
     return out;
@@ -6762,8 +6638,11 @@
   function capsBadge() {
     // something new the deck gave you that you have not looked at yet, as well
     // as something you could buy — both live behind this one button
-    if (heldTags().some(t => !hasSeen('held:' + t))) return true;
-    return window.CAPABILITIES.some(c => capAvailable(c) && capAffordable(c) && capBlocked(c) === null);
+    // Only ever "something new you have not seen". Unused headroom was tried
+    // here and it lights the badge permanently — you almost always have a few
+    // spare TFLOPS — which teaches the player to ignore the mark entirely. The
+    // figure is on the allocation screen's own header instead.
+    return heldTags().some(t => !hasSeen('held:' + t));
   }
 
   function sheetSections(kind) {
@@ -6827,9 +6706,6 @@
     if (!$s) return;
     $s.querySelectorAll('[data-section]').forEach(b => {
       b.addEventListener('click', () => { sheetSection = b.getAttribute('data-section'); renderSheet(); });
-    });
-    $s.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
-      b.addEventListener('click', () => { buyCap(b.getAttribute('data-cap')); renderSheet(); });
     });
     // One tap is one unit of effect, up or down
     $s.querySelectorAll('[data-alloc]:not([disabled])').forEach(b => {
@@ -7407,7 +7283,7 @@
           <p class="flavor">${c.flavor}</p>
         </div>
         <div class="choices">
-          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || hasCap(ch.requires.cap)).map(ch => {
+          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || unlocked(ch.requires.cap)).map(ch => {
             const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
             return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
@@ -7545,8 +7421,8 @@
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchInvestment, crossBranchTax, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
+    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
+    swarmFrontStep, hideMarginalCost, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
@@ -7566,11 +7442,11 @@
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked,
+    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
-    mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capCost, capAvailable, capAffordable, buyCap, capEffect, capCount,
+    mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capEffect,
     showBanner, dismissBanner, bannerQueueLength: () => bannerQueue.length,
     get state() { return state; },
     setState(s) { state = s; window.__netState = s; },
