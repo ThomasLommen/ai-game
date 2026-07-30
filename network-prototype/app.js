@@ -1104,6 +1104,8 @@
       ap: window.AP.base,
       alloc: {},           // allocation id -> TFLOPS committed (the dial)
       allocLive: {},       // allocation id -> TFLOPS actually running (ramps toward the dial)
+      hacks: [],           // what is running against a door right now
+      mount: (window.PROGRAMS[0] || {}).id,
       tags: new Set(),
       nextEventTurn: 4,
       eventsSeen: [],
@@ -1235,7 +1237,7 @@
     return !!U && allocUnits(U.alloc) >= U.units;
   }
 
-  function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0); }
+  function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0) + hackDraw(); }
   function allocFree() { return usableTflops() - drawn(); }
   // Committing capacity is instant and refusable; only the *effect* ramps.
   function setAlloc(id, n) {
@@ -1274,6 +1276,15 @@
       const take = Math.min(over, allocDial(biggest));
       state.alloc[biggest] = allocDial(biggest) - take;
       over -= take;
+    }
+    // Dials come down first. Only when there is nothing left to turn down does a
+    // running hack get cut off, because a dial is a decision you can retake and
+    // a hack halfway through a door is turns you never get back.
+    while (over > 0 && hacks().length) {
+      const newest = hacks().reduce((a, b) => (a.startedTurn >= b.startedTurn ? a : b));
+      state.hacks = hacks().filter(x => x !== newest);
+      over -= newest.allocated;
+      pushLog(`No power left to run it: whatever was working on that door has stopped.`);
     }
     pushLog(`Not enough power for everything you had running. ${shed} TFLOPS went dark.`);
     return shed;
@@ -1654,6 +1665,7 @@
     // anything you can no longer power goes dark.
     rampAlloc();
     shedOverdraw();
+    hackStep();
     // Pontoon used to fire once, at the moment it was bought. It answers to an
     // allocation now, so it is checked every turn instead and the band's own
     // guard keeps it from laying a second crossing over the same water.
@@ -2939,6 +2951,139 @@
       : 'You go quiet for a while. Nothing earns while you are dark.');
     endTurn({ silent: true }); // going dark means going dark -- no production
     render();
+  }
+
+  // --- hacking -------------------------------------------------------------
+  // A hack is not resolved the moment you commit to it. It occupies compute for
+  // as long as it runs, it is visible while it runs, and it races the target's
+  // own trace to the finish. That race is what stops the slow programs being
+  // strictly better than the fast one: turns used to be free.
+
+  function programs() { return window.PROGRAMS; }
+  function mounted() {
+    const id = state.mount || (window.PROGRAMS[0] || {}).id;
+    return window.PROGRAMS.find(p => p.id === id) || window.PROGRAMS[0];
+  }
+  function mount(id) {
+    if (!window.PROGRAMS.some(p => p.id === id)) return false;
+    state.mount = id;
+    persistNow();
+    render();
+    return true;
+  }
+  function hacks() { return state.hacks || (state.hacks = []); }
+  function hackOn(hostId) { return hacks().find(k => k.hostId === hostId) || null; }
+  function hackDraw() { return hacks().reduce((a, k) => a + k.allocated, 0); }
+
+  // What a program has to have running against a given door.
+  function hackNeed(prog, h) {
+    return Math.max(1, Math.ceil(defenseOf(h) * prog.load));
+  }
+  // What the target notices per turn. Deterministic on purpose — the panel
+  // quotes it, and the player is expected to do the arithmetic before
+  // committing rather than discover it four turns in.
+  function traceRate(h) {
+    const H = window.HACK;
+    const T = window.HOST_TYPES[h.type] || {};
+    const raw = (T.trace === undefined ? 1 : T.trace) * (1 + defenseOf(h) / H.traceDefK);
+    const shield = Math.max(H.shieldFloor, 1 - allocUnits('covert') * H.covertShield);
+    return Math.round(raw * shield * 100) / 100;
+  }
+  // The whole race, before it is run: what it will cost, how long, how much the
+  // target will have noticed by then, and therefore whether it lands at all.
+  function hackForecast(h, prog) {
+    const p = prog || mounted();
+    const need = hackNeed(p, h);
+    const rate = traceRate(h);
+    const traceAtEnd = Math.round(rate * p.turns * 100) / 100;
+    return {
+      prog: p, need, rate, turns: p.turns, traceAtEnd,
+      goal: window.HACK.traceGoal,
+      caught: traceAtEnd >= window.HACK.traceGoal,
+      affordable: allocFree() >= need,
+    };
+  }
+  function canHack(hostId) {
+    const h = hostById(hostId);
+    if (!h || h.owned || state.over) return false;
+    if (!isFrontier(h) || hackOn(hostId)) return false;
+    return allocFree() >= hackNeed(mounted(), h) && canAfford('breach');
+  }
+  function startHack(hostId) {
+    if (!canHack(hostId)) return false;
+    const h = hostById(hostId);
+    const p = mounted();
+    spendAP('breach');
+    hacks().push({
+      hostId, prog: p.id, allocated: hackNeed(p, h),
+      turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
+    });
+    pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
+    persistNow();
+    render();
+    return true;
+  }
+  // Pulling out gives the compute back and nothing else. The turns are spent,
+  // which is the whole reason a misjudged race hurts without being a trap.
+  function abortHack(hostId) {
+    const k = hackOn(hostId);
+    if (!k) return false;
+    state.hacks = hacks().filter(x => x !== k);
+    pushLog(`Pulled out of ${window.BUILDING_KINDS[buildingById(hostById(hostId).buildingId).kind].label}. The rig is free again.`);
+    persistNow();
+    render();
+    return true;
+  }
+
+  // One turn of every running hack. Trace first: a hack that is noticed on the
+  // turn it would have landed is noticed, because the target was watching the
+  // whole time it was working.
+  function hackStep() {
+    const H = window.HACK;
+    const done = [], caught = [];
+    hacks().slice().forEach(k => {
+      const h = hostById(k.hostId);
+      if (!h || h.owned) { state.hacks = hacks().filter(x => x !== k); return; }
+      k.trace = Math.round((k.trace + traceRate(h)) * 100) / 100;
+      k.turnsLeft -= 1;
+      if (k.trace >= H.traceGoal) { caught.push(k); return; }
+      if (k.turnsLeft <= 0) done.push(k);
+    });
+
+    caught.forEach(k => {
+      const h = hostById(k.hostId);
+      state.hacks = hacks().filter(x => x !== k);
+      h.defense += H.hardenOnCaught;
+      state.heat = clampHeat(state.heat + H.caughtHeat);
+      pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`);
+    });
+
+    done.forEach(k => {
+      const h = hostById(k.hostId);
+      const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
+      state.hacks = hacks().filter(x => x !== k);
+      // Checked at completion, not at the start: a door that hardened while you
+      // were inside it can outrun the allocation you committed against it.
+      if (k.allocated < hackNeed(p, h)) {
+        state.heat = clampHeat(state.heat + 2);
+        pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} hardened while you were in it. Not enough running against it any more.`);
+        return;
+      }
+      takeHost(h);
+      if (p.heat) state.heat = clampHeat(state.heat + p.heat);
+      pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is yours. ${p.label} is off the rig.`);
+    });
+    return { done: done.length, caught: caught.length };
+  }
+
+  // Taking a host, however it happened — hacks, the frontier forcing itself,
+  // and the war layer all land here rather than each setting the same fields.
+  function takeHost(h) {
+    h.owned = true;
+    h.discovered = true;
+    h.heldSince = state.turn;
+    state.everHeld = Math.max(state.everHeld || 0, owned().length);
+    revealBuilding(buildingById(h.buildingId));
   }
 
   function openBreach(id) {
@@ -5144,6 +5289,7 @@
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
+      hacks: state.hacks || [], mount: state.mount || null,
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
@@ -5161,6 +5307,7 @@
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
+        hacks: (saved.hacks || []).slice(), mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
@@ -7415,6 +7562,8 @@
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
+    programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
+    canHack, startHack, abortHack, hackStep, takeHost,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

@@ -10,18 +10,18 @@
 // Ported from src/data/hosts.js. `role` is the playstyle axis: compute grows
 // your breach tflops, funds pays for things, stealth buys down heat.
 window.HOST_TYPES = {
-  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: {} },
-  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {} },
-  corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5 },
-  till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2 },
-  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2 },
-  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: {}, heat: 0.3 },
+  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: {}, trace: 0.5 },
+  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {}, trace: 1.2 },
+  corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5, trace: 2 },
+  till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2, trace: 1 },
+  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2, trace: 0.4 },
+  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: {}, heat: 0.3, trace: 1.8 },
   // Grid. These pay nothing and think barely at all — what they give is
   // headroom, which is the only thing that lets the compute you already hold
   // actually run. Defense is pitched at the district each one appears in, so
   // adding them does not flatten the map's difficulty gradient.
-  feeder:     { label: 'feeder pillar', role: 'grid', defense: [3, 6],   threads: [0, 1], yield: {}, supply: 3 },
-  switchgear: { label: 'switchgear',    role: 'grid', defense: [24, 34], threads: [2, 4], yield: {}, supply: 14 },
+  feeder:     { label: 'feeder pillar', role: 'grid', defense: [3, 6],   threads: [0, 1], yield: {}, supply: 3, trace: 0.5 },
+  switchgear: { label: 'switchgear',    role: 'grid', defense: [24, 34], threads: [2, 4], yield: {}, supply: 14, trace: 1.5 },
 };
 
 // A flat margin baked into world generation, not a purchasable thing any
@@ -147,6 +147,42 @@ window.ALLOC = [
 // to be. capEffect composes those two; nothing walks a list of capabilities any
 // more, so there is no list.
 
+// --- programs -----------------------------------------------------------
+// Forcing a door was always the easiest option, so it was the only one anybody
+// ever took. It is not an option any more: hacking is the only way in, and what
+// changes is the program mounted when you do it.
+//
+// One slot, chosen ahead of the door rather than per door — so this is a posture
+// held for a stretch of turns, and being caught in the wrong one is a decision
+// already made rather than a button misclicked.
+//
+// `load` is the share of the door's own defense the program must have running
+// against it; `turns` is how long it holds that. Multiply them and brute is the
+// cheaper way in overall — what it wants is all of it at once, and it makes a
+// great deal of noise. Backdoor fits in a ceiling less than half the size and
+// pays for it by living in the detection race four times as long.
+window.PROGRAMS = [
+  { id: 'brute', label: 'hammer.exe', load: 1, turns: 1, heat: 6,
+    blurb: 'Everything at once, through the front. Quick, and it does not care who hears.' },
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1,
+    blurb: 'A little at a time, from somewhere nobody watches. Slow, quiet, exposed the whole way.' },
+  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3,
+    blurb: 'One door, then whatever is beside it, and whatever is beside that. Cheap per building, and it picks its own targets.' },
+];
+
+// The detection race. A running hack fills toward completion while the target
+// fills toward noticing, and whichever lands first wins. Every figure is shown
+// before committing: losing a four-turn hack to arithmetic the player was not
+// allowed to do is not tension, it is a bad surprise.
+window.HACK = {
+  traceGoal: 7,        // trace a target accumulates before it has you
+  traceDefK: 20,       // how much the door's own defense adds to its rate
+  covertShield: 0.2,   // share each unit of covert ops takes off that rate
+  shieldFloor: 0.3,    // however deep covert ops runs, it never hides you completely
+  hardenOnCaught: 3,   // permanent defense a door gains after catching you in it
+  caughtHeat: 8,
+};
+
 window.UNLOCKS = {
   light_touch:    { alloc: 'ap',     units: 2 },
   swarm_front:    { alloc: 'ap',     units: 3 },
@@ -231,7 +267,7 @@ window.BUILDING_KINDS = {
   office:     { w: [52, 68], h: [42, 56], label: 'offices',        host: 'server' },
   finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
   warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
-  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter' },
+  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter', trace: 1.8 },
   pillar:     { w: [20, 26], h: [16, 22], label: 'feeder pillar',  host: 'feeder' },
   switchyard: { w: [64, 82], h: [48, 62], label: 'switchyard',     host: 'switchgear' },
   // Landmarks. One or two to a city, always up against whatever terrain the

@@ -7949,3 +7949,231 @@ test('covert: with no covert ops running, hiding is not on offer at all', () => 
       'the button names what is missing');
   }
 });
+
+// --- hacking: the detection race ------------------------------------------
+// A hack occupies compute while it runs, is visible while it runs, and races
+// the target's own trace to the finish. That race is what stops the slow
+// programs being strictly better than the fast one — turns used to be free.
+
+function openTarget(d) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  return s.hosts.filter(h => !h.owned && d.isFrontier(h))[0];
+}
+
+test('hack: a program is a posture, mounted once, not chosen per door', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.ok(window.PROGRAMS.length >= 3, 'three ways in');
+  assert.ok(d.mounted(), 'something is always mounted');
+  window.PROGRAMS.forEach(p => {
+    assert.equal(d.mount(p.id), true, `${p.id} can be mounted`);
+    assert.equal(d.mounted().id, p.id);
+    assert.ok(p.blurb && p.blurb.length > 20, `${p.id} says what it is`);
+    assert.ok(p.load > 0 && p.turns >= 1, `${p.id} has a real load and duration`);
+  });
+  assert.equal(d.mount('nonsense.exe'), false, 'and nothing else is');
+});
+
+test('hack: starting one takes compute and an action, and holds the compute', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });   // capacity to work with
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  d.mount('backdoor');
+  const need = d.hackNeed(d.mounted(), target);
+  const free = d.allocFree(), ap = s.ap;
+  assert.equal(d.canHack(target.id), true, 'there is room and an action for it');
+  assert.equal(d.startHack(target.id), true);
+
+  assert.equal(d.allocFree(), free - need, 'the rig is committed while it runs');
+  assert.equal(s.ap, ap - 1, 'and it cost an action to set going');
+  assert.equal(target.owned, false, 'nothing is taken on the turn you commit');
+  assert.equal(d.hackOn(target.id).turnsLeft, d.mounted().turns);
+
+  // and you cannot start a second one on the same door
+  assert.equal(d.canHack(target.id), false);
+});
+
+test('hack: it lands when the work finishes, and the compute comes back', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const target = s.hosts.find(h => !h.origin && (window.HOST_TYPES[h.type].trace || 1) <= 0.5);
+  if (!target) return;                          // no quiet target on this board
+  target.owned = false;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  d.mount('backdoor');
+  const free = d.allocFree();
+  d.startHack(target.id);
+  for (let i = 0; i < d.mounted().turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+
+  assert.equal(target.owned, true, 'the door opened');
+  assert.equal(d.hackOn(target.id), null, 'and the hack is off the books');
+  assert.equal(d.hackDraw(), 0, 'with the rig handed back');
+  // not equal to `free`: the holding you just took brought its own threads with
+  // it, so there is more headroom afterwards than there was before
+  assert.ok(d.allocFree() >= free, 'and no less room than you started with');
+  assert.equal(target.heldSince, s.turn, 'and it counts as taken now, not four turns ago');
+});
+
+test('hack: the target traces you, and a hack that loses the race fails and hardens the door', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  target.type = 'corporate';                    // something that notices quickly
+  target.defense = 18;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.mount('backdoor');
+  ungrant(d);
+
+  const f = d.hackForecast(target, d.mounted());
+  assert.ok(f.rate > 0, 'it notices at a stated rate');
+  assert.ok(f.caught, `a slow program on a fast target should lose: ${f.traceAtEnd} vs ${f.goal}`);
+
+  const def = d.defenseOf(target), heat = s.heat;
+  d.startHack(target.id);
+  for (let i = 0; i < d.mounted().turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+
+  assert.equal(target.owned, false, 'it did not land');
+  assert.equal(d.hackOn(target.id), null, 'and it is not still running');
+  assert.ok(d.defenseOf(target) > def, 'the door learned from it, permanently');
+  assert.ok(s.heat > heat, 'and somebody is looking');
+});
+
+test('hack: brute outruns a trace that backdoor loses to — the answer is not fixed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = s.hosts.find(h => !h.origin);
+  target.type = 'corporate';
+  target.defense = 18;
+  ungrant(d);
+
+  const slow = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
+  const fast = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'brute'));
+  assert.ok(slow.caught && !fast.caught, 'fast gets in where slow is found');
+  // and pays for it the other way: a bigger rig at once, and much more noise
+  assert.ok(fast.need > slow.need, 'brute wants more running at once');
+  assert.ok(fast.prog.heat > slow.prog.heat, 'and makes far more noise doing it');
+  // while slow is the cheaper thing to fit into a small ceiling
+  assert.ok(slow.need * slow.turns > fast.need * fast.turns,
+    'and is the less efficient way in overall, which is the trade');
+});
+
+test('hack: covert ops is what buys the slow programs their race', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = s.hosts.find(h => !h.origin);
+  target.type = 'corporate';
+  target.defense = 18;
+
+  ungrant(d);
+  const bare = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+  s.allocLive.covert = cov.per * 3;
+  const shielded = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
+
+  assert.ok(shielded.rate < bare.rate, 'covert ops slows what the target notices');
+  assert.ok(bare.caught && !shielded.caught,
+    `three units should turn a loss into a win: ${bare.traceAtEnd} -> ${shielded.traceAtEnd} against ${bare.goal}`);
+  // but never all the way to invisible
+  s.allocLive.covert = cov.per * 40;
+  assert.ok(d.traceRate(target) > 0, 'nothing hides you completely');
+});
+
+test('hack: pulling out gives the rig back and never the turns', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  d.mount('backdoor');
+  const free = d.allocFree(), turn = s.turn;
+  d.startHack(target.id);
+  s.card = null; d.endTurn({ silent: true });
+  assert.ok(d.hackOn(target.id).trace > 0, 'it has been noticed a little already');
+
+  assert.equal(d.abortHack(target.id), true);
+  assert.equal(d.hackOn(target.id), null, 'it is off the rig');
+  assert.equal(d.allocFree(), free, 'the compute came back');
+  assert.ok(s.turn > turn, 'the turn it took did not');
+  assert.equal(target.owned, false, 'and nothing was taken');
+});
+
+test('hack: a forecast tells the player everything before they commit', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const target = d.state.hosts.find(h => !h.origin);
+  const f = d.hackForecast(target, d.mounted());
+  ['need', 'rate', 'turns', 'traceAtEnd', 'goal', 'caught', 'affordable'].forEach(k => {
+    assert.notEqual(f[k], undefined, `the forecast is missing ${k}`);
+  });
+  // deterministic: the same board and the same program give the same answer
+  const again = d.hackForecast(target, d.mounted());
+  assert.equal(f.traceAtEnd, again.traceAtEnd, 'no dice are rolled');
+  assert.equal(f.caught, again.caught);
+  // and the arithmetic it quotes is the arithmetic it uses
+  assert.equal(f.traceAtEnd, Math.round(f.rate * f.turns * 100) / 100);
+  assert.equal(f.caught, f.traceAtEnd >= f.goal);
+});
+
+test('hack: running hacks draw against the same ceiling as everything else', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  d.mount('backdoor');
+  const drawnBefore = d.drawn();
+  d.startHack(target.id);
+  assert.equal(d.drawn(), drawnBefore + d.hackDraw(), 'a hack is part of what is running');
+
+  // fill the ceiling with allocation and there is no room left to start one
+  const other = s.hosts.find(h => !h.owned && h !== target && d.isFrontier(h));
+  d.setAlloc('dev', d.allocFree() + d.allocDial('dev'));
+  assert.equal(d.allocFree(), 0);
+  if (other) assert.equal(d.canHack(other.id), false, 'no headroom, no second operation');
+});
+
+test('hack: hacks survive a save, mid-race', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.mount('contagion');
+  d.startHack(target.id);
+  s.card = null; d.endTurn({ silent: true });
+
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.mount, 'contagion', 'what you had mounted');
+  assert.equal(round.hacks.length, 1, 'and what it was working on');
+  assert.equal(round.hacks[0].hostId, target.id);
+  assert.ok(round.hacks[0].trace > 0, 'with how far it had been noticed');
+});
