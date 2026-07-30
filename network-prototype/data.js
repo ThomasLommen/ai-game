@@ -108,15 +108,46 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 window.ALLOC = [
   { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
     blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1 },
-    blurb: 'Deliberately quiet. Less heat, and somewhere to keep what you would rather nobody logged.' },
-  { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1 },
-    blurb: 'Work on yourself. Every host you hold gives up more than it did before.' },
+  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, quietGateMult: 0.94 },
+    blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
+  { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
+    blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
   { id: 'intel', label: 'intelligence', per: 4, effect: { sweepReach: 1 },
     blurb: 'Looking further than the street you happen to be standing on.' },
   { id: 'agents', label: 'agents', per: 6, effect: { agentSlots: 1 },
     blurb: 'Processes sent out to work somewhere you are not.' },
 ];
+
+// The mechanics that used to be capability nodes — the ones read directly by
+// name rather than through a generic effect key. Each is now a threshold on an
+// allocation instead of a thing bought once and kept forever, so it runs while
+// you are paying for it and stops when you spend the compute elsewhere.
+//
+// The branch each one came from decides where it lands: tempo became tempo,
+// depth and trade became development, cover became covert ops, and reach split
+// between intelligence (seeing and crossing further) and agents (things that
+// work unattended). Tier became the number of units, so a former tier-3
+// capstone wants three units of its allocation.
+//
+// market_maker, fixers and standing_army are the shakiest of these: all three
+// are really about funds, and funds get their own treatment in phase 4. Expect
+// them to move.
+window.UNLOCKS = {
+  light_touch:    { alloc: 'ap',     units: 2 },
+  swarm_front:    { alloc: 'ap',     units: 3 },
+  deep_root:      { alloc: 'dev',    units: 1 },
+  bulk_ops:       { alloc: 'dev',    units: 1 },
+  long_soak:      { alloc: 'dev',    units: 2 },
+  market_maker:   { alloc: 'dev',    units: 2 },
+  total_embed:    { alloc: 'dev',    units: 3 },
+  quiet_protocol: { alloc: 'covert', units: 1 },
+  nothing_to_see: { alloc: 'covert', units: 3 },
+  survey:         { alloc: 'intel',  units: 1 },
+  pontoon:        { alloc: 'intel',  units: 2 },
+  master_plan:    { alloc: 'intel',  units: 3 },
+  fixers:         { alloc: 'agents', units: 1 },
+  standing_army:  { alloc: 'agents', units: 3 },
+};
 
 // --- capabilities ------------------------------------------------------
 // A tree, not a shopping list. Five branches, and two of them are genuine
@@ -514,7 +545,12 @@ window.DISTRICTS = {
   // Feeder pillars are suburban street furniture, and cheap enough to belong
   // at this tier — the grid has to start somewhere you can actually reach on
   // turn one, or the ceiling never moves.
-  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'pillar'] },
+  //
+  // The second mast is holding a ratio, not decoration: adding a sixth kind cut
+  // the router share from two in five to two in six, and routers are the only
+  // real source of cover. That quietly took away the player's ability to keep
+  // more than one building hidden at a time.
+  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'mast', 'pillar'] },
   commercial:  { tier: 1, label: 'high street',    kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
   business:    { tier: 2, label: 'business park',  kinds: ['office', 'office', 'finance', 'cabinet'] },
   // no street furniture out here: a row of cheap masts could drag the hardest

@@ -482,7 +482,7 @@
     // Reach branch reshape, step 5: Master Plan trades pure chance for
     // deliberate variety — whichever trait is rarest across what already
     // stands, not just whatever didn't happen last time.
-    if (hasCap('master_plan')) {
+    if (unlocked('master_plan')) {
       const counts = {};
       pool.forEach(k => { counts[k] = 0; });
       (state.buildings || []).forEach(b => { if (b.trait && counts[b.trait] !== undefined) counts[b.trait]++; });
@@ -1230,6 +1230,20 @@
     return v;
   }
 
+  // Whether a named mechanic is running. Two sources for now: the capability
+  // tree, while it is still here, and the allocation threshold that is going to
+  // replace it. Keeping both means the tree can come out in its own change
+  // rather than at the same time as everything that reads it.
+  //
+  // The difference between the two is the point of the rework: a bought
+  // capability was true forever, an allocation is true while you are paying for
+  // it and false again when the compute goes somewhere else.
+  function unlocked(id) {
+    if (hasCap(id)) return true;
+    const U = (window.UNLOCKS || {})[id];
+    return !!U && allocUnits(U.alloc) >= U.units;
+  }
+
   function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0); }
   function allocFree() { return usableTflops() - drawn(); }
   // Committing capacity is instant and refusable; only the *effect* ramps.
@@ -1331,7 +1345,7 @@
   // question moot (Cover's own capstone, immune to the one thing built to
   // attack the branch's own resource).
   function civicEyesAudited() {
-    return ladderStage() >= 4 && !has('blind_spot') && !hasCap('nothing_to_see');
+    return ladderStage() >= 4 && !has('blind_spot') && !unlocked('nothing_to_see');
   }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
@@ -1469,11 +1483,11 @@
   const STANDING_ARMY_RETAINER = 6;
   function perTurnIncome() {
     const mult = capEffect('yieldMult', 1)
-      * ((hasCap('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
+      * ((unlocked('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
     // Bulk Processing does not make everything worth more on the spot — it
     // rewards ground you have actually settled into, not ground you took last
     // turn. A holding under three turns old pays exactly as it always did.
-    const matures = hasCap('bulk_ops');
+    const matures = unlocked('bulk_ops');
     // The Cut's whole bite now: a holding it has stranded still stands, it
     // simply pays nothing while there is no way to get anything to or from
     // it — not a slow rot, a real and immediate stop.
@@ -1497,7 +1511,7 @@
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
     if (flat) add('insight', flat * mult);
-    if (hasCap('standing_army')) add('funds', STANDING_ARMY_RETAINER);
+    if (unlocked('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -1531,7 +1545,7 @@
   // kicked it in yourself. Tempo's capstone acts on its own rather than
   // making you faster; this is the first thing in the game that does.
   function swarmFrontStep() {
-    if (state.scope !== 'city' || state.card || !hasCap('swarm_front')) return null;
+    if (state.scope !== 'city' || state.card || !unlocked('swarm_front')) return null;
     let best = null, bestDef = Infinity;
     (state.buildings || []).forEach(b => {
       const h = hostsIn(b)[0];
@@ -1562,8 +1576,8 @@
   // settle in any more, it already has.
   const LONG_SOAK_MATURE_TURNS = 5, LONG_SOAK_THREAD_BONUS = 1;
   function deepHoldBonus() {
-    if (!hasCap('long_soak')) return 0;
-    const instant = hasCap('total_embed');
+    if (!unlocked('long_soak')) return 0;
+    const instant = unlocked('total_embed');
     return owned().filter(h => instant || (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS).length
       * LONG_SOAK_THREAD_BONUS;
   }
@@ -1575,7 +1589,7 @@
   // up rather than buried in a generation-time number nobody sees change.
   const PONTOON_MATURE_TURNS = 4;
   function pontoonReveals() {
-    if (!hasCap('pontoon')) return [];
+    if (!unlocked('pontoon')) return [];
     const seen = {};
     const out = [];
     owned().forEach(h => {
@@ -1994,7 +2008,7 @@
     // Quiet Protocol: hiding something costs no action at all, on top of the
     // first two costing no ongoing upkeep either — the branch's own core
     // verb, made completely free rather than just cheaper.
-    if (hasCap('quiet_protocol')) state.ap += apCost('lielow');
+    if (unlocked('quiet_protocol')) state.ap += apCost('lielow');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -2749,7 +2763,7 @@
   }
 
   function actScan(fromId) {
-    const pool = (fromId != null && hasCap('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
+    const pool = (fromId != null && unlocked('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
     if (sweepBlocked() === 'poor') return;
@@ -3106,13 +3120,13 @@
     if (win && a.id === 'force') state.timesForced = (state.timesForced || 0) + 1;
     // Light Touch: a door your tflops comfortably clears costs no action to
     // force — the heat still applies as normal, only the action is free.
-    if (win && a.id === 'force' && hasCap('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
+    if (win && a.id === 'force' && unlocked('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
       state.ap += apCost('breach'); // undoing this same turn's spendAP() above, never over the cap
     }
     // Deep Root: forcing a door loosens the block around it too, permanently
     // — every neighbour's own defense, discovered or not, so a door taken
     // now leaves fewer moves needed for the rest of the cluster.
-    if (win && a.id === 'force' && hasCap('deep_root')) {
+    if (win && a.id === 'force' && unlocked('deep_root')) {
       buildingNeighbours(h.buildingId).forEach(bid => {
         hostsIn(buildingById(bid)).forEach(n => {
           if (n.owned) return;
@@ -3138,7 +3152,7 @@
     // Nothing To See: a completed quiet entry actively sheds heat, instead
     // of merely costing none — felt every time the branch's own verb is
     // used, not contingent on whichever faction happens to be awake.
-    if (win && a.id === 'quiet' && hasCap('nothing_to_see')) {
+    if (win && a.id === 'quiet' && unlocked('nothing_to_see')) {
       state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
     }
 
@@ -3167,7 +3181,7 @@
       if (state.res.insight < 8) return;
       state.res.insight -= 8;
     } else if (effect === 'buy_out') {
-      if (!hasCap('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
+      if (!unlocked('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
       state.res.funds -= window.FIXERS_FAVOR_COST;
     }
     burned.forEach(h => { h.owned = false; });
@@ -4145,7 +4159,7 @@
     // Regulatory matches payment patterns against outage reports — plant
     // it is watching gets traced back to you instead of going clean, unless
     // you have a way to be untraceable or have already gotten off its list.
-    if (ladderStage() >= 2 && !has('ledger_inside') && !hasCap('nothing_to_see')) heat += window.HEAT.BUY_TRACE;
+    if (ladderStage() >= 2 && !has('ledger_inside') && !unlocked('nothing_to_see')) heat += window.HEAT.BUY_TRACE;
     if (heat) state.heat = clampHeat(state.heat + heat);
     pushLog(`${hw.label}. ${hw.blurb}`);
     afterSnap(before);
@@ -4530,7 +4544,7 @@
     // from zero — but it costs exactly what fielding a flock always costs,
     // for each city, so it only covers as much as you can actually afford
     // the instant the war opens rather than arriving free.
-    if (hasCap('standing_army')) {
+    if (unlocked('standing_army')) {
       const guarded = [];
       const cost = window.WAR.flockCost;
       const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
@@ -6983,7 +6997,7 @@
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${hasCap('survey') && sweepTargetsFrom(b.id).length ? `
+            ${unlocked('survey') && sweepTargetsFrom(b.id).length ? `
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep" ${sweepBlocked() === 'poor' && !apShort('sweep') ? 'disabled' : ''}>
               <span class="ab-name">sweep from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
@@ -7552,7 +7566,7 @@
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection,
+    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

@@ -3305,6 +3305,14 @@ test('hide: what you cannot pay for comes back onto their map', () => {
   const s = d.state;
   hunted(d, window);
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  // Own what the hunt is standing next to as well. canHide refuses anything
+  // that is not yours, so owning only the routers left it down to whether the
+  // generator happened to put two of them in reach of the hunt — and the claim
+  // here is about upkeep dropping what you cannot pay for, not about that.
+  d.huntFrontier().forEach(id => {
+    const b = d.buildingById(id);
+    if (b) d.hostsIn(b).forEach(h => { h.owned = true; });
+  });
   s.ap = 99;
   const put = [];
   for (let i = 0; i < 6; i++) {
@@ -8026,4 +8034,80 @@ test('grid: a grid building says what it supplies instead of claiming to pay not
   const chips = d.yieldChips(g);
   assert.ok(chips.includes(`+${g.supply} electricity`), 'the headroom is on the card');
   assert.ok(!chips.includes('nothing on its own'), 'and it does not read as worthless');
+});
+
+// --- mechanics move from the tree onto allocation -------------------------
+// Every mechanic that used to be a capability node now also answers to an
+// allocation threshold. Both sources are live while the tree is still here.
+
+test('unlocks: every mechanic the engine reads by name has an allocation that grants it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const allocIds = new Set(window.ALLOC.map(a => a.id));
+
+  const named = new Set();
+  // the engine's own source is the authority on which mechanics exist
+  const src = d.unlocked.toString();
+  assert.ok(src.length, 'unlocked is a real function');
+  Object.keys(window.UNLOCKS).forEach(id => {
+    const U = window.UNLOCKS[id];
+    assert.ok(allocIds.has(U.alloc), `${id} points at an allocation that does not exist: ${U.alloc}`);
+    assert.ok(U.units >= 1, `${id} unlocks at a real number of units`);
+    named.add(id);
+  });
+  assert.ok(named.size >= 14, `only ${named.size} mechanics mapped`);
+});
+
+test('unlocks: allocation grants a mechanic, and pulling the compute takes it away again', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = {};
+
+  Object.keys(window.UNLOCKS).forEach(id => {
+    const U = window.UNLOCKS[id];
+    const A = window.ALLOC.find(a => a.id === U.alloc);
+    s.allocLive = {};
+    assert.equal(d.unlocked(id), false, `${id} is not running with nothing allocated`);
+
+    // one unit short is still short — a threshold, not a gesture
+    s.allocLive[U.alloc] = A.per * U.units - 1;
+    assert.equal(d.unlocked(id), false, `${id} came on below its threshold`);
+
+    s.allocLive[U.alloc] = A.per * U.units;
+    assert.equal(d.unlocked(id), true, `${id} did not come on at its threshold`);
+
+    // and unlike a bought capability, it goes away again
+    s.allocLive[U.alloc] = 0;
+    assert.equal(d.unlocked(id), false, `${id} stayed on after the compute went elsewhere`);
+  });
+});
+
+test('unlocks: the tree still grants them too, while it is here', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.allocLive = {};
+  s.caps = { survey: 1 };
+  assert.equal(d.unlocked('survey'), true, 'a bought capability still counts');
+  s.caps = {};
+  assert.equal(d.unlocked('survey'), false, 'and nothing else is granting it');
+});
+
+test('unlocks: a real mechanic responds to the dial, not just the lookup', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.caps = {};
+  s.hosts.slice(0, 8).forEach(h => { h.owned = true; h.heldSince = -100; });
+  s.turn = 40;
+
+  // long_soak is read through deepHoldBonus, so the bonus is the observable
+  s.allocLive = {};
+  assert.equal(d.deepHoldBonus(), 0, 'nothing settled pays extra without it');
+
+  const U = window.UNLOCKS.long_soak;
+  const A = window.ALLOC.find(a => a.id === U.alloc);
+  s.allocLive[U.alloc] = A.per * U.units;
+  assert.ok(d.deepHoldBonus() > 0, 'development past its threshold pays for settled ground');
 });
