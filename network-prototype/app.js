@@ -2716,7 +2716,7 @@ scratch.later = null;
     // nothing about what it does or where to find it again.
     gained.forEach(t => {
       const T = window.TAG_INFO[t];
-      pushLog(`${T.label} — ${T.desc}. It is in capabilities, under held.`);
+      pushLog(`${T.label} — ${T.desc}. It is in allocation, under held.`);
     });
     if (gained.length === 1) {
       const T = window.TAG_INFO[gained[0]];
@@ -6441,7 +6441,7 @@ scratch.later = null;
   function renderCapsBtn() {
     const $b = document.getElementById('caps-btn');
     if (!$b) return;
-    $b.innerHTML = 'capabilities' + (capsBadge() ? '<span class="badge"></span>' : '');
+    $b.innerHTML = 'allocation' + (capsBadge() ? '<span class="badge"></span>' : '');
   }
 
   function markPanelOverflow() {
@@ -7012,7 +7012,7 @@ scratch.later = null;
     const parts = sheetSections(sheetKind);
     if (!parts.length) {
       $s.hidden = false;
-      document.getElementById('sheet-title').textContent = sheetKind === 'caps' ? 'capabilities' : 'your operation';
+      document.getElementById('sheet-title').textContent = sheetKind === 'caps' ? 'allocation' : 'your operation';
       document.getElementById('sheet-tabs').innerHTML = '';
       document.getElementById('sheet-body').innerHTML =
         '<p class="sel-desc dim">Nothing here yet. Hold more of the network.</p>';
@@ -7025,7 +7025,7 @@ scratch.later = null;
 
     $s.hidden = false;
     document.getElementById('sheet-title').textContent =
-      sheetKind === 'caps' ? 'capabilities' : 'your operation';
+      sheetKind === 'caps' ? 'allocation' : 'your operation';
     document.getElementById('sheet-tabs').innerHTML = parts.length > 1
       ? parts.map(p => `<button type="button" class="sheet-tab${p.id === sheetSection ? ' on' : ''}${p.done ? ' done' : ''}" data-section="${p.id}">${p.label}</button>`).join('')
       : '';

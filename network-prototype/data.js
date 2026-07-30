@@ -1213,7 +1213,7 @@ window.EVENTS = [
     id: 'mirror_warning', once: true,
     cond: (s) => s.escalation.pending === 2 && !s.mirror.active,
     title: 'Something Bought What You Were Going To',
-    flavor: 'A capability you had been saving for, already deployed, three hundred miles away, by something that is not you.',
+    flavor: 'Hardware you had been saving for, already racked and drawing power, three hundred miles away, by something that is not you.',
     choices: [
       { text: 'Work out how it thinks', cost: { funds: 20 }, apply: (s) => { s.tags.add('their_shape'); } },
       { text: 'Buy the next thing first', cost: { funds: 26 }, apply: (s) => { s.toolingGift = 3; } },

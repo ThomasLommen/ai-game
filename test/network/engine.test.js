@@ -3383,7 +3383,7 @@ test('held: gaining one says what it does and where it went', () => {
   // a banner with a name on it tells you nothing about what you just got
   assert.ok(s.log.some(l => l.text.indexOf(T.desc) !== -1),
     `the log never says what it does: ${s.log[0] && s.log[0].text}`);
-  assert.ok(s.log.some(l => /capabilities/i.test(l.text)),
+  assert.ok(s.log.some(l => /allocation/i.test(l.text)),
     'nor where to find it again');
   assert.equal(d.capsBadge(), true, 'and the button carries a mark until you look');
 });
