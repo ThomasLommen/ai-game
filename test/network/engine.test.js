@@ -640,39 +640,18 @@ test('tags feed back into the simulation rather than sitting in a tray', () => {
   assert.ok(d.defenseOf(host) > baseDef, 'being known hardens every host against you');
 });
 
-test('overextended makes what The Cut stranded rot faster', () => {
-  // Nothing decays at all any more unless it is cut off, so this needs a
-  // genuinely stranded host rather than a plain owned one.
+test('overextended makes heat build faster', () => {
+  // Nothing decays any more, cut off or not — overextended's bite moved to
+  // heat drift instead.
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.buildings.forEach(b => { b.discovered = true; });
-  s.hosts.forEach(h => { h.discovered = true; });
-  s.hosts.slice(0, 16).forEach(h => { h.owned = true; });
 
-  wake(d, 'the_cut');
-  let stranded = [];
-  for (let i = 0; i < 40 && !stranded.length; i++) {
-    s.lastCutTurn = -99;
-    s.turn += 1;
-    d.cutStreets();
-    stranded = d.strandedHosts();
-  }
-  if (!stranded.length) return; // a board where the network never split; fine
-  const victim = stranded[0];
-
-  victim.stability = 1;
-  s.card = null;
-  d.endTurn({ silent: true });
-  const normal = 1 - victim.stability;
-
-  victim.stability = 1;
+  const normal = d.heatPerTurn();
   s.tags.add('overextended');
-  s.card = null;
-  d.endTurn({ silent: true });
-  const stretched = 1 - victim.stability;
+  const stretched = d.heatPerTurn();
 
-  assert.ok(stretched > normal, `sprawl costs more upkeep once cut off (${stretched} vs ${normal})`);
+  assert.ok(stretched > normal, `sprawl costs more heat drift (${stretched} vs ${normal})`);
 });
 
 test('persistence: tags and seen events survive a round trip', () => {
@@ -717,7 +696,7 @@ test('every stat and action shown to the player has an explanation', () => {
   ['insight', 'cash', 'power', 'cover', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
-  ['sweep', 'lielow', 'shore'].forEach(k => {
+  ['sweep', 'lielow'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
 });
@@ -953,25 +932,6 @@ test('backing out of a breach costs no turn and yields nothing', () => {
   assert.equal(s.card, null, 'the card is closed');
 });
 
-test('a healthy holding cannot be shored for a free turn', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const h = s.hosts.find(x => !x.origin);
-  h.owned = true;
-  h.stability = 1;
-  s.res.insight = 100;
-  const before = { insight: s.res.insight, turn: s.turn };
-
-  assert.equal(d.shoreNeeded(h), false, 'nothing to shore on a healthy host');
-  for (let i = 0; i < 10; i++) d.actShore(h.id);
-  assert.equal(s.turn, before.turn, 'no turn was spent');
-  assert.equal(s.res.insight, before.insight, 'and no insight cycled into production');
-
-  h.stability = 0.4;
-  assert.equal(d.shoreNeeded(h), true, 'a decayed host can be shored');
-});
-
 test('heat has a floor that scales with holdings, so a sprawl cannot hide', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -1064,7 +1024,7 @@ test('strike branches differ: ride burns a share, shed drops the loud ones, cove
   }
 });
 
-test('only what The Cut has stranded is ever reclaimed, and never the origin', () => {
+test('nothing is ever reclaimed by The Cut, stranded or not', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -1085,31 +1045,13 @@ test('only what The Cut has stranded is ever reclaimed, and never the origin', (
 
   const victim = stranded[0];
   const reachable = d.owned().find(h => !stranded.includes(h) && !h.origin);
-  victim.stability = 0.001;
-  if (reachable) reachable.stability = 0.001;
-  if (seat) seat.stability = 0.001; // the origin should survive regardless
 
   s.card = null;
   d.endTurn({ silent: true });
 
-  assert.equal(victim.owned, false, 'what is cut off and critical is reclaimed');
-  if (reachable) assert.equal(reachable.owned, true, 'reachable ground never decays, however low it starts');
+  assert.equal(victim.owned, true, 'cut off ground stands untouched, it just stops paying');
+  if (reachable) assert.equal(reachable.owned, true, 'reachable ground is unaffected');
   if (seat) assert.equal(seat.owned, true, 'the seat you started from is never lost, whatever The Cut does');
-});
-
-test('shoring up spends insight and restores stability', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const h = s.hosts.find(x => !x.origin);
-  h.owned = true;
-  h.discovered = true;
-  h.stability = 0.2;
-  s.res.insight = 10;
-
-  d.actShore(h.id);
-  assert.equal(s.res.insight, 8, 'it costs 2, and acting alone does not pay out');
-  assert.ok(h.stability > 0.5, 'stability restored');
 });
 
 // Laundering, then the contract, then a discount on buying your way through
@@ -1998,7 +1940,7 @@ test('the cut: never cuts a city shut', () => {
   }
 });
 
-test('the cut: stranded holdings rot, connected ones do not', () => {
+test('the cut: stranded holdings stop paying, connected ones do not', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -2018,24 +1960,39 @@ test('the cut: stranded holdings rot, connected ones do not', () => {
     stranded = d.strandedHosts();
   }
   if (!stranded.length) return; // a board where the network never split; fine
-  // compare like with like: host types churn at different base rates, so the
-  // claim is about the multiplier, not about which building happened to rot
+
   const victim = stranded[0];
-  const twin = d.owned().find(h => !stranded.includes(h) && !h.origin && h.type === victim.type);
-  const v0 = victim.stability;
-  const t0 = twin ? twin.stability : null;
+  const before = victim.owned;
+
+  // the stranded host should already be paying nothing — dropping it from
+  // the books changes nothing about income
+  const withVictim = d.perTurnIncome();
+  victim.owned = false;
+  const withoutVictim = d.perTurnIncome();
+  victim.owned = before;
+  for (const k in withVictim) {
+    assert.ok(Math.abs((withoutVictim[k] || 0) - withVictim[k]) < 1e-9,
+      `${k} income is unchanged by a stranded host either way`);
+  }
+
+  // a reachable holding of the same type is not exempt the same way
+  const reachable = d.owned().find(h => !stranded.includes(h) && !h.origin && h.type === victim.type);
+  if (reachable) {
+    const y = window.HOST_TYPES[reachable.type].yield || {};
+    const withReachable = d.perTurnIncome();
+    reachable.owned = false;
+    const withoutReachable = d.perTurnIncome();
+    reachable.owned = true;
+    const key = Object.keys(y)[0];
+    if (key) {
+      assert.ok((withReachable[key] || 0) - (withoutReachable[key] || 0) > 1e-9,
+        'a reachable holding of the same type does still contribute income');
+    }
+  }
+
   s.card = null;
   d.endTurn({ silent: true });
-
-  const churn = window.HOST_TYPES[victim.type].churn;
-  const dropped = v0 - victim.stability;
-  assert.ok(dropped > 0, 'what you cannot reach decays');
-  assert.ok(Math.abs(dropped - churn * window.HEAT.STRANDED_DECAY) < 1e-9,
-    `stranded decay was ${dropped}, expected ${churn * window.HEAT.STRANDED_DECAY}`);
-  if (twin) {
-    assert.ok(dropped > (t0 - twin.stability) * 1.5,
-      'and far faster than the same kind of holding you can still reach');
-  }
+  assert.equal(victim.owned, before, 'stranded ground is untouched, not lost');
 });
 
 test('ladder: trust with the Accountant buys the next stage more time', () => {
@@ -2742,43 +2699,25 @@ test('tree: every effect on a card changes something the engine reads', () => {
   });
 
   // Long Soak is a standing fact about a holding you have kept long enough —
-  // checked by maturity (heldSince), not a one-time coin flip — so this has
-  // to put a genuinely stranded holding right on the edge of loss and vary
-  // how long it has actually been held, not just whether the capability is
-  // owned. Nothing decays at all any more unless The Cut has cut it off.
+  // checked by maturity (heldSince), not a one-time coin flip — so this
+  // varies how long a holding has actually been held, not just whether the
+  // capability is owned.
   s.caps = {};
-  wake(d, 'the_cut');
-  let stranded = [];
-  for (let i = 0; i < 40 && !stranded.length; i++) {
-    s.lastCutTurn = -99;
-    s.turn += 1;
-    d.cutStreets();
-    stranded = d.strandedHosts();
-  }
-  if (!stranded.length) return; // a board where the network never split; fine
-  const victim = stranded[0];
+  s.hosts.slice(0, 5).forEach(h => { h.owned = true; });
 
-  victim.heldSince = s.turn; // just cut off — nowhere near matured
-  victim.stability = 0.001;
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(victim.owned, false, 'without Long Soak, the edge is where it is actually lost');
-
-  victim.owned = true;
-  victim.heldSince = s.turn; // still fresh
-  victim.stability = 0.001;
+  s.hosts.forEach(h => { h.heldSince = s.turn; }); // all fresh
+  const freshUnowned = d.deepHoldBonus();
   s.caps = { long_soak: 1 };
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(victim.owned, false, 'Long Soak does not protect a holding that has not matured yet');
+  const freshOwned = d.deepHoldBonus();
+  assert.equal(freshOwned, freshUnowned, 'Long Soak gives nothing to a holding that has not matured yet');
 
-  victim.owned = true;
-  victim.heldSince = -100; // long since matured
-  victim.stability = 0.001;
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(victim.owned, true, 'Long Soak protects a holding matured past the threshold');
-  assert.ok(victim.stability > 0, 'and leaves it standing, not merely un-lost');
+  s.hosts.forEach(h => { h.heldSince = -100; }); // long since matured
+  const maturedOwned = d.deepHoldBonus();
+  assert.ok(maturedOwned > freshOwned, 'and a real bonus once holdings have matured');
+
+  s.caps = {};
+  const maturedUnowned = d.deepHoldBonus();
+  assert.equal(maturedUnowned, 0, 'no capability, no bonus, matured or not');
 });
 
 test('tree: multipliers compose, they do not add up', () => {
@@ -3890,8 +3829,8 @@ test('held: what one did to you is measured, not transcribed', () => {
     'it should report the cover it actually adds');
   assert.ok(d.tagTerms('known_capable').some(t => /a door defends at/.test(t)),
     'the world hardening against you is a number, and it went unreported');
-  assert.equal(d.tagTerms('overextended').length, 0,
-    'a conditional effect (only what The Cut strands) has no clean live number to show');
+  assert.ok(d.tagTerms('overextended').some(t => /heat a turn/.test(t)),
+    'overextended is a flat heat-drift multiplier now, and it has a clean live number to show');
   // rule changes have no readout, and prose is the honest answer for those
   assert.equal(d.tagTerms('accord').length, 0);
   assert.ok(window.TAG_INFO.accord.desc, 'but it still says what it does');
@@ -4179,7 +4118,7 @@ test('agents: nobody is taking cities once they have mobilised', () => {
 // real while it is with you, it keeps its own opinion of how you have behaved,
 // and at the end of its patience it does something about it.
 
-test('ally: it arrives, it is worth something, and it holds things together', () => {
+test('ally: it arrives, and it is worth something once it trusts you', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -4196,12 +4135,6 @@ test('ally: it arrives, it is worth something, and it holds things together', ()
   d.allyNudge(window.ALLY.trustedAt);
   assert.equal(d.allyTrusted(), true);
   assert.equal(d.power(), alone + window.ALLY.power, 'once it trusts you it is real power');
-
-  // it quietly shores something every turn, without being asked
-  const sick = d.owned().find(h => !h.origin);
-  sick.stability = 0.3;
-  assert.equal(d.allyShore(), window.ALLY.shoresPerTurn);
-  assert.equal(sick.stability, 1, 'it held that one together');
 });
 
 test('ally: your choices move its opinion, and it leaves at the end of it', () => {
@@ -4502,8 +4435,6 @@ test('no actions: every action that costs one refuses without spending anything'
   s.res.insight = 200;
   s.res.cash = 200;
   s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
-  const sick = d.owned().find(h => !h.origin);
-  sick.stability = 0.3;
 
   const snapshot = () => JSON.stringify({
     insight: s.res.insight, cash: s.res.cash, turn: s.turn,
@@ -4513,7 +4444,6 @@ test('no actions: every action that costs one refuses without spending anything'
   s.ap = 0;
   const before = snapshot();
   d.actScan();
-  d.actShore(sick.id);
   assert.equal(snapshot(), before, 'nothing was spent and nothing happened');
   assert.equal(s.ap, 0, 'and the budget is untouched');
 });
@@ -4715,27 +4645,6 @@ test('held: the halo is drawn outside the building, not over it', () => {
   assert.ok(x + w > b.x + b.w && y + h > b.y + b.h, 'and finishes past the far corners');
 });
 
-test('held: the lights go out as your grip slips', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const b = widestBuilding(d);
-  const h = holdOne(d, b);
-  const lit = () => (d.svgBuilding(b).match(/class="win lit"/g) || []).length;
-
-  h.stability = 1;
-  const full = lit();
-  assert.ok(full >= 4, 'a building this size has a window grid worth reading');
-
-  h.stability = 0.5;
-  const half = lit();
-  h.stability = 0.05;
-  const nearly = lit();
-
-  assert.ok(half < full, 'half a grip is half a building lit');
-  assert.ok(nearly < half, 'and a grip about to go is nearly dark');
-  assert.ok(nearly >= 1, 'but never fully dark while it is still yours');
-});
-
 test('held: an unheld building is dark whatever its hosts think', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -4743,38 +4652,45 @@ test('held: an unheld building is dark whatever its hosts think', () => {
   b.discovered = true;
   const h = d.hostsIn(b)[0];
   h.owned = false;
-  h.stability = 1;
   assert.ok(!d.svgBuilding(b).includes('win lit'), 'lights are what your presence looks like');
 });
 
-test('held: slipping and failing show up before you lose the building', () => {
+test('held: a holding The Cut has stranded looks cut off, with fewer lights', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const b = widestBuilding(d);
-  const h = holdOne(d, b);
-  const cls = () => d.svgBuilding(b).match(/<g class="([^"]+)"/)[1].split(' ');
+  const s = d.state;
+  s.buildings.forEach(bl => { bl.discovered = true; });
+  s.hosts.forEach(hh => { hh.discovered = true; });
+  s.hosts.slice(0, 16).forEach(hh => { hh.owned = true; });
 
-  h.stability = 1;
-  assert.ok(!cls().includes('fading') && !cls().includes('failing'), 'a solid holding looks solid');
-  h.stability = 0.8;
-  assert.ok(!cls().includes('fading'), 'and so does one merely off its best');
-  h.stability = 0.45;
-  assert.ok(cls().includes('fading'), 'past halfway it starts to show');
-  assert.ok(!cls().includes('failing'), 'but it is not lost yet');
-  h.stability = 0.2;
-  assert.ok(cls().includes('failing'), 'and low enough, it is plainly going');
-  assert.ok(!cls().includes('fading'), 'the two states do not stack');
-});
+  wake(d, 'the_cut');
+  let stranded = [];
+  for (let i = 0; i < 40 && !stranded.length; i++) {
+    s.lastCutTurn = -99;
+    s.turn += 1;
+    d.cutStreets();
+    stranded = d.strandedHosts();
+  }
+  if (!stranded.length) return; // a board where the network never split; fine
 
-test('held: a building with no stability recorded is treated as solid', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const b = widestBuilding(d);
-  const h = holdOne(d, b);
-  delete h.stability;
-  const svg = d.svgBuilding(b);
-  assert.ok(!svg.includes('fading') && !svg.includes('failing'),
-    'a missing number is not a failing holding');
+  const victim = stranded[0];
+  const vb = d.buildingById(victim.buildingId);
+  const cls = d.svgBuilding(vb).match(/<g class="([^"]+)"/)[1].split(' ');
+  assert.ok(cls.includes('stranded'), 'a cut-off holding is marked as such');
+  const litIn = (svg) => (svg.match(/class="win lit"/g) || []).length;
+  const litStranded = litIn(d.svgBuilding(vb));
+
+  // reconnect it directly to the seat, whatever street The Cut actually took,
+  // and take the same reading on the very same building
+  const seat = d.owned().find(hh => hh.origin) || d.owned()[0];
+  s.adjacency[victim.buildingId] = (s.adjacency[victim.buildingId] || []).concat([seat.buildingId]);
+  s.adjacency[seat.buildingId] = (s.adjacency[seat.buildingId] || []).concat([victim.buildingId]);
+  assert.ok(!d.strandedHosts().includes(victim), 'reconnecting it directly clears the stranding');
+  const clsAfter = d.svgBuilding(vb).match(/<g class="([^"]+)"/)[1].split(' ');
+  assert.ok(!clsAfter.includes('stranded'), 'and the mark comes off');
+  const litReconnected = litIn(d.svgBuilding(vb));
+
+  assert.ok(litReconnected >= litStranded, 'reconnecting it never leaves it darker than it was cut off');
 });
 
 test('held: the rival keeps its own look, no halo and no lights', () => {
@@ -7148,28 +7064,6 @@ test('caps: Pontoon reveals ground past a settled holding, once it has matured',
   assert.equal(d.buildingById(nb2).discovered, true, 'and it is actually revealed, not just listed');
 });
 
-test('caps: Standing Orders shores up decaying holdings automatically', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const h = s.hosts.find(hh => !hh.origin);
-
-  h.owned = true; h.stability = 0.5;
-  s.res.insight = 100;
-  s.caps = {};
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.ok(h.stability < 0.9, 'without Standing Orders nothing tops it back up');
-
-  h.owned = true; h.stability = 0.5;
-  s.res.insight = 100;
-  s.caps = { standing_orders: 1 };
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(h.stability, 1, 'Standing Orders shored it up on its own');
-  assert.ok(s.res.insight < 100, 'and it cost the usual insight, not nothing');
-});
-
 test('caps: Standing Army pays a retainer either way, and funds a real war-open defense', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -7329,32 +7223,15 @@ test("caps: Total Embed collapses Long Soak's wait to zero", () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.buildings.forEach(b => { b.discovered = true; });
-  s.hosts.forEach(h => { h.discovered = true; });
-  s.hosts.slice(0, 16).forEach(h => { h.owned = true; });
+  s.hosts.slice(0, 5).forEach(h => { h.owned = true; h.heldSince = s.turn; }); // all fresh
 
-  wake(d, 'the_cut');
-  let stranded = [];
-  for (let i = 0; i < 40 && !stranded.length; i++) {
-    s.lastCutTurn = -99;
-    s.turn += 1;
-    d.cutStreets();
-    stranded = d.strandedHosts();
-  }
-  if (!stranded.length) return; // a board where the network never split; fine
-  const h = stranded[0];
-
-  h.heldSince = s.turn; h.stability = 0.001; // just taken, on the edge
   s.caps = { long_soak: 1 };
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(h.owned, false, 'Long Soak alone does not protect an unmatured holding');
+  const freshOnly = d.deepHoldBonus();
+  assert.equal(freshOnly, 0, 'Long Soak alone gives nothing to an unmatured holding');
 
-  h.owned = true; h.heldSince = s.turn; h.stability = 0.001;
   s.caps = { long_soak: 1, total_embed: 1 };
-  s.card = null;
-  d.endTurn({ silent: true });
-  assert.equal(h.owned, true, 'Total Embed protects it immediately, with no maturity wait at all');
+  const withEmbed = d.deepHoldBonus();
+  assert.ok(withEmbed > 0, 'Total Embed collapses the wait to zero — the bonus applies right away');
 });
 
 // --- home base pivot, step 1b: the map grows live -------------------------

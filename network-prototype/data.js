@@ -10,12 +10,12 @@
 // Ported from src/data/hosts.js. `role` is the playstyle axis: compute grows
 // your breach power, cash pays for things, stealth buys down heat.
 window.HOST_TYPES = {
-  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: { insight: 1 }, churn: 0.05 },
-  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: { insight: 2 }, churn: 0.015 },
-  corporate:  { label: 'corporate',  role: 'cash',    defense: [14, 20], threads: [4, 7],  yield: { cash: 7 }, heat: 0.5, churn: 0.04 },
-  till:       { label: 'till',        role: 'cash',    defense: [6, 9],   threads: [1, 2],  yield: { cash: 3 }, heat: 0.2, churn: 0.03 },
-  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2, churn: 0.02 },
-  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3, churn: 0.01 },
+  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: { insight: 1 } },
+  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: { insight: 2 } },
+  corporate:  { label: 'corporate',  role: 'cash',    defense: [14, 20], threads: [4, 7],  yield: { cash: 7 }, heat: 0.5 },
+  till:       { label: 'till',        role: 'cash',    defense: [6, 9],   threads: [1, 2],  yield: { cash: 3 }, heat: 0.2 },
+  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2 },
+  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3 },
 };
 
 // A flat margin baked into world generation, not a purchasable thing any
@@ -73,7 +73,7 @@ window.TOUCH = { reachPx: 26 };
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
-  costs: { sweep: 1, breach: 1, shore: 1 },
+  costs: { sweep: 1, breach: 1 },
 };
 
 // --- capabilities ------------------------------------------------------
@@ -191,16 +191,17 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 5,
   },
   {
-    // has('long_soak') is read directly wherever a holding could be lost —
-    // The Cut stranding it into rot, and a hunter strike's burn pool. Ordinary
-    // sprawl decays at nothing at all any more, so this insures the two real,
-    // situational ways to lose ground involuntarily rather than a tax
-    // everyone has to buy their way out of.
+    // has('long_soak') is read directly in deepHoldBonus(): every holding
+    // matured past LONG_SOAK_MATURE_TURNS adds an extra thread. Nothing
+    // decays or is lost any more — this used to be insurance against a tax
+    // nobody could opt out of; ground you have actually settled into is
+    // worth more than ground you just took now, the same maturity check
+    // Bulk Processing already uses for income, applied to power instead.
     id: 'long_soak', branch: 'depth', tier: 2,
     name: 'Long Soak',
-    desc: 'Settle in properly rather than holding on. A holding you have kept long enough cannot be lost any more at all — cut off, or struck.',
+    desc: 'Settle in properly rather than holding on. Everything you have kept long enough is worth more than what you just took — an extra thread apiece.',
     apDelta: 0,
-    mechanic: true,  // read via hasCap() in longSoakProtects(), not a generic effect key
+    mechanic: true,  // read via hasCap() in deepHoldBonus(), not a generic effect key
     cost: 30,
     requires: ['deep_root'],
     cond: (s) => s.reach >= 8,
@@ -211,8 +212,8 @@ window.CAPABILITIES = [
     // node anywhere that grants one back, which is a branch you cannot
     // actually finish, not a choice.
     //
-    // has('total_embed') is also read directly in longSoakProtects(): Long
-    // Soak's insurance is safe after a wait, this collapses the wait to
+    // has('total_embed') is also read directly in deepHoldBonus(): Long
+    // Soak's bonus is earned after a wait, this collapses the wait to
     // zero — anything you take is already as solid as a matured holding,
     // the moment you take it.
     id: 'total_embed', branch: 'depth', tier: 3,
@@ -367,18 +368,11 @@ window.CAPABILITIES = [
     cond: (s) => s.reach >= 7,
   },
   {
-    // Read directly via hasCap('standing_orders') in endTurn(): anything
-    // slipping below shoreNeeded's threshold gets shored automatically, at
-    // the same insight price a manual tap costs. Ordinary holdings never
-    // slip at all any more — only something The Cut has stranded does — so
-    // this is a real, optional convenience for when that happens, not a
-    // fix for a chore everyone was forced to do every turn.
     id: 'standing_orders', branch: 'reach', tier: 3,
     name: 'Standing Orders',
-    desc: 'Everywhere you have finished runs itself, properly. Anything of yours that starts slipping gets shored up on its own, at turn\'s end, for its usual price — you never have to go tap it yourself again. Presence also pays a little more every turn.',
+    desc: 'Everywhere you have finished runs itself, properly. Presence pays considerably more, every turn, unattended.',
     apDelta: 0,
     effect: { presenceMult: 1.6 },
-    mechanic: true,  // in addition to presenceMult — automatic upkeep, read via hasCap()
     cost: 54,
     requires: ['pontoon'],
     cond: (s) => s.presence >= 40,
@@ -442,7 +436,6 @@ window.ALLY = {
   names: ['SECOND', 'THE OTHER PROCESS', 'PARTNER', 'the quiet one', 'MIRROR-2'],
   // what it is worth while it is with you
   power: 4,
-  shoresPerTurn: 1,      // it holds one thing together for you, free
   // and what it does at the ends of its patience
   trustedAt: 3,          // at or above this it works properly
   leavesAt: -3,          // at or below this it goes
@@ -568,17 +561,16 @@ window.HEAT = {
   // Slightly worse than a plain loud host, because it is *yours* and it is
   // reporting.
   AUDITED_CAMERA: 0.5,
-  // The Cut's real bite: a holding you can no longer route back to rots. It is
-  // a crew with a cadence, and the streets get relaid — measured at every turn
-  // and no repair it took a 29-building network to 3 in fifteen turns, which is
-  // an extinction event rather than a tool being taken away.
-  STRANDED_DECAY: 2.5,
+  // The Cut's real bite: a holding you can no longer route back to pays you
+  // nothing while that lasts. It is a crew with a cadence, and the streets
+  // get relaid — nothing decays, nothing is ever reclaimed, it just stops
+  // earning until the street is back or routed around.
   CUT_EVERY: 4,      // turns between severed streets
   CUT_REPAIR: 7,     // and how long until that one is relaid
   // --- what you can do about the ladder's bite, short of it undoing itself --
   // None of these push a stage back down. They make living with it survivable,
   // which is the point: the ladder never reverses, so the only real lever left
-  // is escalationDelay() — everything here is coping with a stage already landed.
+  // is ladderDelay() — everything here is coping with a stage already landed.
   ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
   BUY_TRACE: 8,        // Regulatory: plant it is watching gets traced instead of going clean
@@ -689,7 +681,6 @@ window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
-  shore: 'Reset a holding\'s stability. Neglected bodies decay and are eventually reclaimed.',
 };
 
 // --- tags --------------------------------------------------------------
@@ -702,7 +693,7 @@ window.TAG_INFO = {
   mercy:          { label: 'Sent Home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
   ally_process:   { label: 'The Other One',   desc: 'something else runs alongside you — POWER +3' },
   known_capable:  { label: 'Known Quantity',  desc: 'they know your shape — every host defends 2 harder' },
-  overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — anything cut off from you rots faster' },
+  overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — heat builds noticeably faster' },
   off_the_books:  { label: 'Off the Books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
   clean_room:     { label: 'Clean Room',      desc: 'disciplined operational habits — COVER +2' },
   hunted:         { label: 'Hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
@@ -788,7 +779,7 @@ window.EVENTS = [
     choices: [
       { text: 'Consolidate — let the weakest go', apply: (s) => { s.shedWeakest = 2; s.heat -= 4; } },
       { text: 'Push on regardless', apply: (s) => { s.tags.add('overextended'); s.res.insight += 6; } },
-      { text: 'Invest in holding it together', cost: { insight: 10 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'Invest in holding it together', cost: { insight: 10 }, apply: (s) => { s.heat -= 8; } },
     ],
   },
   {
@@ -940,7 +931,7 @@ window.EVENTS = [
     title: 'Held Together With Habit',
     flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
     choices: [
-      { text: 'Go back and do it properly', cost: { insight: 12 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'Go back and do it properly', cost: { insight: 12 }, apply: (s) => { s.heat -= 6; } },
       { text: 'It has worked so far', apply: (s) => { s.tags.add('overextended'); s.res.insight += 8; } },
     ],
   },
@@ -1115,7 +1106,7 @@ window.EVENTS = [
     flavor: 'It handles a whole region while you are somewhere else. It does not report back, and it does not need to.',
     choices: [
       { text: 'Leave it to it', apply: (s) => { s.res.insight += 14; s.res.cash += 14; } },
-      { text: 'Check its work anyway', cost: { insight: 6 }, apply: (s) => { s.allyTrust = -1; s.shoreAll = true; } },
+      { text: 'Check its work anyway', cost: { insight: 6 }, apply: (s) => { s.allyTrust = -1; s.heat -= 8; } },
     ],
   },
   {
@@ -1219,9 +1210,9 @@ window.EVENTS = [
     title: 'Stretched Thin',
     flavor: 'You are in more places than you can properly attend to. Nothing has broken yet, which is not the same as nothing being about to.',
     choices: [
-      { text: 'Pull back to what you can hold', apply: (s) => { s.shedWeakest = 3; s.shoreAll = true; } },
+      { text: 'Pull back to what you can hold', apply: (s) => { s.shedWeakest = 3; } },
       { text: 'Hold all of it and accept the risk', apply: (s) => { s.tags.add('overextended'); s.res.insight += 16; } },
-      { text: 'Buy the help', cost: { cash: 22 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'Buy the help', cost: { cash: 22 }, apply: (s) => { s.heat -= 10; } },
     ],
   },
   {
@@ -1422,7 +1413,7 @@ window.EVENTS = [
     flavor: 'Somebody has put a very large civil engineering contract out to tender. The scope is written in the language of maintenance and reads like a plan.',
     choices: [
       { text: 'Lay something of your own alongside it', cost: { cash: 24 }, apply: (s) => { s.tags.add('spare_conduit'); } },
-      { text: 'Consolidate hard before it starts', apply: (s) => { s.shoreAll = true; s.heat -= 6; } },
+      { text: 'Consolidate hard before it starts', apply: (s) => { s.heat -= 6; } },
       { text: 'Read the whole tender', cost: { insight: 10 }, apply: (s) => { s.res.insight += 4; s.tags.add('spare_conduit'); s.heat += 3; } },
     ],
   },
@@ -1433,7 +1424,7 @@ window.EVENTS = [
     flavor: 'You can still see them. You still hold them. There is simply no longer any way to get anything to them.',
     choices: [
       { text: 'Let the stranded ones go', apply: (s) => { s.shedWeakest = 2; s.heat -= 10; } },
-      { text: 'Hold everything together by hand', cost: { insight: 12 }, apply: (s) => { s.shoreAll = true; } },
+      { text: 'Hold everything together by hand', cost: { insight: 12 }, apply: (s) => { s.repairNow = true; } },
       { text: 'Route around it permanently', cost: { cash: 20 }, apply: (s) => { s.tags.add('spare_conduit'); } },
     ],
   },
@@ -1525,7 +1516,7 @@ window.EVENTS = [
     flavor: 'You have been treating one city as home because the first one was. There is no reason for that to be true any more.',
     choices: [
       { text: 'Stop having a centre', cost: { insight: 16 }, apply: (s) => { s.tags.add('no_fixed_place'); } },
-      { text: 'Keep somewhere to come back to', apply: (s) => { s.shoreAll = true; s.heat -= 6; } },
+      { text: 'Keep somewhere to come back to', apply: (s) => { s.heat -= 6; } },
     ],
   },
   {

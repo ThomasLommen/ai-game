@@ -233,7 +233,6 @@
         y: Math.round(b.y + b.h / 2),
         discovered: false,
         owned: false,
-        stability: 1,
       };
       hosts.push(h);
       b.hostIds = [h.id];
@@ -545,7 +544,7 @@
           threads: Math.round(rndInt(T.threads[0], T.threads[1])),
           landmark: false,
           x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2),
-          discovered: false, owned: false, stability: 1,
+          discovered: false, owned: false,
         };
         newHosts.push(h);
         b.hostIds = [h.id];
@@ -1208,6 +1207,7 @@
   function power() {
     const threadBonus = capEffect('threadBonus', 0);
     return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
+      + deepHoldBonus()
       + (state.upgrades || 0) * window.UPGRADE.basePower
       + Math.round(window.COUNTRY.powerLog * Math.log(1 + presence()))
       + (allyTrusted() ? window.ALLY.power : 0)
@@ -1375,9 +1375,15 @@
     // rewards ground you have actually settled into, not ground you took last
     // turn. A holding under three turns old pays exactly as it always did.
     const matures = hasCap('bulk_ops');
+    // The Cut's whole bite now: a holding it has stranded still stands, it
+    // simply pays nothing while there is no way to get anything to or from
+    // it — not a slow rot, a real and immediate stop.
+    const cutOff = {};
+    strandedHosts().forEach(h => { cutOff[h.id] = true; });
     const out = {};
     const add = (k, v) => { out[k] = (out[k] || 0) + v; };
     owned().forEach(h => {
+      if (cutOff[h.id]) return;
       const y = window.HOST_TYPES[h.type].yield || {};
       const maturedBonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
       for (const k in y) add(k, y[k] * mult * maturedBonus);
@@ -1396,6 +1402,10 @@
     return out;
   }
 
+  // Overextended: spread thinner than you can actually maintain — nothing
+  // decays for it any more, but running that much at once is louder than
+  // running it carefully would be.
+  const OVEREXTENDED_DRIFT_MULT = 1.35;
   function heatPerTurn() {
     // Heat retires when the war opens. Not softened, not rescaled — the whole
     // question it measured ("do they know") is answered, so the meter stops.
@@ -1413,7 +1423,7 @@
     h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
       * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
-    return h * capEffect('driftMult', 1);
+    return h * capEffect('driftMult', 1) * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
   }
 
   // Broad Front: once a turn, the weakest thing on the frontier forces its
@@ -1437,7 +1447,6 @@
     h.heldSince = state.turn;
     state.everHeld = (state.everHeld || 0) + 1;
     state.timesForced = (state.timesForced || 0) + 1;
-    h.stability = 1;
     revealBuilding(best);
     cameraVision();
     const force = window.APPROACHES.find(a => a.id === 'force');
@@ -1446,13 +1455,18 @@
     return h;
   }
 
-  // Long Soak: how many turns a holding needs before it stops being losable
-  // at all — to churn, or to a hunter strike's own burn pool. Total Embed
-  // collapses that wait to zero: everything is safe the moment you take it.
-  const LONG_SOAK_MATURE_TURNS = 5;
-  function longSoakProtects(h) {
-    if (hasCap('total_embed')) return true;
-    return hasCap('long_soak') && (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS;
+  // Long Soak: ground you have actually settled into is worth more than
+  // ground you just took — ties into the exact maturity check Bulk
+  // Processing already uses for income, but on power instead: every holding
+  // matured past this many turns adds extra threads. Total Embed collapses
+  // the wait to zero, same shape as it always had: nothing needs time to
+  // settle in any more, it already has.
+  const LONG_SOAK_MATURE_TURNS = 5, LONG_SOAK_THREAD_BONUS = 1;
+  function deepHoldBonus() {
+    if (!hasCap('long_soak')) return 0;
+    const instant = hasCap('total_embed');
+    return owned().filter(h => instant || (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS).length
+      * LONG_SOAK_THREAD_BONUS;
   }
 
   // Pontoon: ground you have actually settled into gives up what's past it,
@@ -1494,51 +1508,14 @@
       for (const k in inc) state.res[k] = (state.res[k] || 0) + inc[k];
     }
 
-    // Decay used to run on every holding, all the time — sprawl's upkeep,
-    // and the reason Depth's Long Soak/Total Embed felt mandatory rather
-    // than optional: nothing else made the constant tax survivable. Now
-    // nothing decays at all except what The Cut has actually stranded —
-    // ordinary sprawl has real cost elsewhere (heat, the hunt, the rival),
-    // it does not also need a second, universal one here.
-    const cutOff = {};
-    strandedHosts().forEach(h => { cutOff[h.id] = true; });
-    const lost = [];
-    const soaked = [];
-    owned().forEach(h => {
-      if (h.origin || !cutOff[h.id]) return;
-      const rate = window.HOST_TYPES[h.type].churn * window.HEAT.STRANDED_DECAY
-        * (has('overextended') ? 1.5 : 1);
-      h.stability -= rate;
-      if (h.stability <= 0) {
-        // Long Soak: a holding you have kept long enough cannot be lost to
-        // being cut off at all any more — a standing fact about it, not a
-        // coin flip that might fire once and go unnoticed.
-        if (longSoakProtects(h)) {
-          h.stability = 0.1;
-          soaked.push(h);
-        } else {
-          h.owned = false; h.stability = 1; lost.push(h);
-        }
-      }
-    });
-    if (Object.keys(cutOff).length) {
-      pushLog(`${Object.keys(cutOff).length} holdings are cut off from the rest of you.`);
-    }
-    if (soaked.length) pushLog(`${soaked.map(h => h.name).join(', ')} nearly went, and held anyway.`);
-    // Standing Orders: whatever needs shoring up gets shored, unattended, at
-    // the same insight price a manual tap would have cost — the recurring
-    // "go tap shore up on the thing that's slipping" chore just stops
-    // existing, for the rest of the game, rather than getting cheaper.
-    if (hasCap('standing_orders')) {
-      const shored = [];
-      owned().forEach(h => {
-        if (!shoreNeeded(h)) return;
-        if (state.res.insight < SHORE_INSIGHT_COST) return;
-        state.res.insight -= SHORE_INSIGHT_COST;
-        h.stability = 1;
-        shored.push(h);
-      });
-      if (shored.length) pushLog(`Standing orders keep ${shored.map(h => h.name).join(', ')} steady, unattended.`);
+    // Nothing decays and nothing is ever reclaimed any more, anywhere —
+    // The Cut's bite lives entirely in perTurnIncome() now: stranded ground
+    // stands untouched, it just pays nothing while there is no way to reach
+    // it. Losing something to neglect was the mandatory tax; not being paid
+    // by something you cannot currently touch needs no capability to survive.
+    const cutOff = strandedHosts();
+    if (cutOff.length) {
+      pushLog(`${cutOff.length} holding${cutOff.length === 1 ? ' is' : 's are'} cut off from the rest of you, and paying nothing while it lasts.`);
     }
     const surfaced = pontoonReveals();
     if (surfaced.length) {
@@ -1575,7 +1552,6 @@
     coolRegionsAway();
     ladderStep();
     afterSnap(before, { world: true });
-    if (lost.length) pushLog(`Lost ${lost.map(h => h.name).join(', ')} to churn.`);
 
     // The turn the war opens is the turn the hunter stops coming: a strike is
     // an arrest, and nobody is arresting you any more.
@@ -1611,8 +1587,6 @@
     }
     const rivalMove = rivalStep();
     if (rivalMove) announceRival(rivalMove);
-    const helped = allyShore();
-    if (helped) pushLog(`${state.ally.name} held ${helped === 1 ? 'something' : helped + ' things'} together while you were busy.`);
     const relaid = repairStreets();
     if (relaid.length) pushLog(`${relaid.length === 1 ? 'A street is' : relaid.length + ' streets are'} relaid.`);
     const cut = cutStreets();
@@ -1761,7 +1735,6 @@
     state.selected = null;
     if (win) {
       h.owned = true;
-      h.stability = 1;
       h.heldSince = state.turn;
       revealBuilding(buildingById(h.buildingId));
       state.hunt = null;
@@ -2170,8 +2143,8 @@
     // Mechanics with no generic effect key at all — read directly, by id,
     // at the specific point in the engine where they live — still need to
     // say something here, or a card reads as though buying it did nothing.
-    if (c.id === 'long_soak') add('cover', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding cannot be lost at all`);
-    if (c.id === 'total_embed') add('cover', 'nothing you hold needs time to settle in — it is safe immediately');
+    if (c.id === 'long_soak') add('power', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`);
+    if (c.id === 'total_embed') add('power', 'every holding already counts as matured — nothing needs time to settle in');
     if (c.id === 'nothing_to_see') add('cover', `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`);
     if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
     if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
@@ -2179,7 +2152,6 @@
     if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
     if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
     if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
-    if (c.id === 'standing_orders') add('cash', `anything slipping shores itself up at turn's end, for ${SHORE_INSIGHT_COST} insight, no action spent`);
     if (c.id === 'standing_army') add('cash', `a retainer either way: +${STANDING_ARMY_RETAINER} cash a turn, and if war comes, it is already standing guard over what you can afford to cover`);
     if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
     if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
@@ -2524,7 +2496,7 @@
     // outcomes the card can ask for without knowing how the graph works
     const scratch = state;
     scratch.shedWeakest = 0;
-    scratch.shoreAll = false;
+    scratch.repairNow = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
@@ -2549,10 +2521,15 @@
 
     if (scratch.shedWeakest > 0) {
       const weakest = owned().filter(h => !h.origin).sort((a, b) => a.threads - b.threads).slice(0, scratch.shedWeakest);
-      weakest.forEach(h => { h.owned = false; h.stability = 1; });
+      weakest.forEach(h => { h.owned = false; });
       if (weakest.length) pushLog(`Let go of ${weakest.map(h => h.name).join(', ')}.`);
     }
-    if (scratch.shoreAll) owned().forEach(h => { h.stability = 1; });
+    // Repairing on demand rather than waiting out The Cut's own timer —
+    // whatever is currently cut comes back at the end of this turn instead
+    // of whenever the council would otherwise have gotten to it.
+    if (scratch.repairNow) {
+      (state.cuts || []).forEach(c => { if (typeof c.until === 'number' && isFinite(c.until)) c.until = state.turn; });
+    }
     applyStandingEffects(scratch);
     if (warOn()) applyWarEffects(scratch);
     if (scratch.toolingGift > 0) state.upgrades = (state.upgrades || 0) + scratch.toolingGift;
@@ -2563,7 +2540,7 @@
       }
     }
     scratch.shedWeakest = 0;
-    scratch.shoreAll = false;
+    scratch.repairNow = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
@@ -2921,20 +2898,6 @@
     render();
   }
 
-  const SHORE_INSIGHT_COST = 2;
-  function shoreNeeded(h) { return !!h && h.owned && h.stability < 0.9; }
-  function actShore(id) {
-    if (!canAfford('shore')) return;
-    const h = hostById(id);
-    if (!shoreNeeded(h) || state.res.insight < SHORE_INSIGHT_COST) return; // no free actions off a healthy host
-    spendAP('shore');
-    state.res.insight -= SHORE_INSIGHT_COST;
-    h.stability = 1;
-    pushLog(`Shored up ${h.name}.`);
-    persistNow();
-    render();
-  }
-
   function openBreach(id) {
     const h = hostById(id);
     if (!h || h.owned || !isFrontier(h) || state.card || state.over) return;
@@ -3060,7 +3023,6 @@
       // city in, so anything keyed to it can only ever measure the city you
       // are standing in
       state.everHeld = (state.everHeld || 0) + 1;
-      h.stability = 1;
       revealBuilding(buildingById(h.buildingId)); // you are inside now
       opened = cameraVision();
     }
@@ -3087,9 +3049,7 @@
 
   function resolveStrike(effect) {
     const before = beforeSnap();
-    // Long Soak: a matured holding is not in the pool the hunter can even
-    // pick from, the same way it cannot be lost to neglect either.
-    const fleet = owned().filter(h => !h.origin && !longSoakProtects(h));
+    const fleet = owned().filter(h => !h.origin);
     let burned = [];
     if (effect === 'shed_loud') {
       burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);
@@ -3106,7 +3066,7 @@
       if (!hasCap('fixers') || state.res.cash < window.FIXERS_FAVOR_COST) return;
       state.res.cash -= window.FIXERS_FAVOR_COST;
     }
-    burned.forEach(h => { h.owned = false; h.stability = 1; });
+    burned.forEach(h => { h.owned = false; });
     // At national scale the streets are not where you live. A strike that only
     // ever burned held hosts left a 400-presence operation standing at country
     // scope completely untouchable, and managing heat stopped paying for
@@ -3811,18 +3771,6 @@
       showBanner([{ kind: 'locked', verb: 'gone', label: name }]);
     }
   }
-  // what it does for you, every turn, without being asked
-  function allyShore() {
-    if (!allyTrusted()) return 0;
-    const sick = owned().filter(h => shoreNeeded(h)).sort((a, b) => a.stability - b.stability);
-    let n = 0;
-    for (let i = 0; i < window.ALLY.shoresPerTurn && i < sick.length; i++) {
-      sick[i].stability = 1;
-      n++;
-    }
-    return n;
-  }
-
   // --- the ladder ----------------------------------------------------------
   // Replaces the old faction system entirely: one dial (footprint), staged.
   // Nothing here is undone by anything the player does — the only lever is
@@ -4074,11 +4022,6 @@
   // (permanent) and any other city (still walked the old way) alike.
   function hardwareEligible(hw) {
     return owned().filter(h => h.role === hw.family).length >= hw.heldAt;
-  }
-  function hardwareAvailableFor(b) {
-    const h = b && hostsIn(b)[0];
-    if (!h) return [];
-    return window.HARDWARE.filter(hw => hw.family === h.role && !hasHardware(hw.id) && hardwareEligible(hw));
   }
   function canBuyHardware(id) {
     const hw = window.HARDWARE.find(x => x.id === id);
@@ -5491,11 +5434,11 @@
     // got you in
     const bf = breachFx && breachFx.targetId === b.id ? breachFx : null;
     if (bf) cls.push('breached', bf.approach, bf.win ? 'took' : 'bounced');
-    // A holding that is slipping should look like it. Stability was only ever
-    // visible by tapping each building in turn, which is no way to find the one
-    // that is about to fall off.
-    const grip = mine ? (h.stability === undefined ? 1 : h.stability) : 1;
-    if (mine && grip < 0.6) cls.push(grip < 0.35 ? 'failing' : 'fading');
+    // A holding cut off from the rest of you should look like it — it was
+    // only ever visible by tapping each building in turn, which is no way to
+    // spot the one that has stopped paying.
+    const stranded = mine && strandedHosts().includes(h);
+    if (stranded) cls.push('stranded');
 
     const roof = Math.min(10, b.h * 0.28);
     const styles = [];
@@ -5510,14 +5453,15 @@
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
 
-    // windows hint at how much is inside, and go out as your grip on it does
+    // windows hint at how much is inside, and go dark together the moment
+    // it is cut off — there is no partial fade any more, just held or not
     const cols = Math.max(2, Math.round(b.w / 14));
     const rows = Math.max(1, Math.round((b.h - roof) / 13));
     const litCells = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) if ((r + c) % 2 === 0) litCells.push(r * cols + c);
     }
-    const litCount = mine ? Math.ceil(litCells.length * Math.max(0, Math.min(1, grip))) : 0;
+    const litCount = mine ? Math.ceil(litCells.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
     litCells.slice(0, litCount).forEach(i => { lightUp[i] = true; });
 
@@ -6599,6 +6543,11 @@
     }
     if (plantKnown()) {
       const own = hardwareOwned().map(id => window.HARDWARE.find(hw => hw.id === id)).filter(Boolean);
+      // Buying used to live on whichever building you happened to tap, which
+      // meant noticing you had just qualified for something meant revisiting
+      // every building in turn to check. One shelf, always in the same place,
+      // fixes that: it lists everything eligible right now, wherever it is.
+      const shelf = window.HARDWARE.filter(hw => !hasHardware(hw.id) && hardwareEligible(hw));
       out.push({ id: 'plant', label: 'plant', done: own.length === window.HARDWARE.length, html: `
         <div class="legit-top">
           <span class="eyebrow mono">plant</span>
@@ -6608,7 +6557,19 @@
         ${own.length
           ? own.map(hw => `<div class="asset-row"><span class="asset-name">${hw.label}</span>`
               + `<span class="asset-pay">${capEffectChips(hw)}</span></div>`).join('')
-          : '<p class="sel-desc dim">Nothing yet. Hold enough of a trade\'s buildings, wherever you are standing, and it opens up something to buy.</p>'}` });
+          : '<p class="sel-desc dim">Nothing yet. Hold enough of a trade\'s buildings, wherever you are standing, and it opens up something to buy.</p>'}
+        ${shelf.length ? `<div class="legit-top"><span class="eyebrow mono">buyable now</span></div>
+          ${shelf.map(hw => {
+            const afford = state.res.cash >= hw.cost;
+            return `<p class="sel-desc">${hw.blurb}</p>
+              <p class="yield-row">${capEffectChips(hw)}</p>
+              <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-hw="${hw.id}">
+                <span class="ab-name">buy ${hw.label}</span>
+                <span class="ab-sub">${afford
+                  ? `${chip('cost cash', '&minus;' + hw.cost + ' cash')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
+                  : `needs ${hw.cost} cash`}</span>
+              </button>`;
+          }).join('')}` : ''}` });
     }
     return out;
   }
@@ -6844,16 +6805,12 @@
       const yieldTxt = yieldChips(h);
       const where = b ? window.DISTRICTS[b.district].label : '';
       if (h.owned) {
+        const cutOffHere = strandedHosts().includes(h);
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
-            <p class="sel-desc">${where} · ${h.threads} threads · stability ${Math.round(h.stability * 100)}%</p>
-            <button class="act-btn${apShort('shore') ? ' no-ap' : ''}" data-act="shore" data-ap="shore" data-info="shore" ${(!shoreNeeded(h) || state.res.insight < 2) && !apShort('shore') ? 'disabled' : ''}>
-              <span class="ab-name">shore up</span>
-              <span class="ab-sub">${apShort('shore') ? 'no actions left' : !shoreNeeded(h) ? 'holding steady'
-                : `restore stability ${chip('cost insight', '&minus;2 insight')}`}</span>
-            </button>
+            <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
             ${hasCap('survey') && sweepTargetsFrom(b.id).length ? `
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep" ${sweepBlocked() === 'poor' && !apShort('sweep') ? 'disabled' : ''}>
               <span class="ab-name">sweep from here</span>
@@ -6864,7 +6821,6 @@
                   : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
             </button>` : ''}
             ${hidePanel(b)}
-            ${hardwarePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
         // theirs. What you can still do is take the street away.
@@ -6952,7 +6908,6 @@
         else if (a === 'scanfrom') actScan(b.getAttribute('data-bid'));
         else if (a === 'lielow') actLieLow();
         else if (a === 'breach') openBreach(state.selected);
-        else if (a === 'shore') actShore(state.selected);
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
@@ -7210,26 +7165,6 @@
     return out.length ? out.join('') : '<span class="yield none">nothing on its own</span>';
   }
 
-// Whichever building the player has tapped, whatever hardware its business
-  // (compute/cash/stealth) currently qualifies you to buy — gated by how many
-  // buildings of that kind you already hold, not by this one specifically.
-  function hardwarePanel(b) {
-    if (!b || state.scope !== 'city') return '';
-    const avail = hardwareAvailableFor(b);
-    if (!avail.length) return '';
-    return avail.map(hw => {
-      const afford = state.res.cash >= hw.cost;
-      return `<p class="sel-desc">${hw.blurb}</p>
-        <p class="yield-row">${capEffectChips(hw)}</p>
-        <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-bid="${b.id}" data-hw="${hw.id}">
-          <span class="ab-name">buy ${hw.label}</span>
-          <span class="ab-sub">${afford
-            ? `${chip('cost cash', '&minus;' + hw.cost + ' cash')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
-            : `needs ${hw.cost} cash`}</span>
-        </button>`;
-    }).join('');
-  }
-
   // A full-screen card covers the persistent resource row along with
   // everything else on the page — which meant a choice gated on POWER or
   // costing INSIGHT you might not have was being decided blind, with no way
@@ -7415,14 +7350,14 @@
   window.__netState = state;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
-    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, actShore, sweepTargets,
+    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, allyShore, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, shoreNeeded, ensureFrontierIsOpen,
+    resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, capBlocked, renderCaps, capEffectChips, capReadouts, readoutDiff, branchInvestment, crossBranchTax, committedBranches, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets, capById,
-    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, longSoakProtects, growHomeBase, reach, hostTraitOf, pickBatchTrait,
+    swarmFrontStep, hideMarginalCost, hasCap, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
@@ -7440,7 +7375,7 @@
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,
     accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
     backlash, yieldChips,
-    hasHardware, hardwareOwned, grantHardware, hardwareEligible, hardwareAvailableFor, canBuyHardware, buyHardware, hardwarePanel,
+    hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

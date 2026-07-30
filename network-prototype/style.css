@@ -1031,14 +1031,14 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.stealth .aerial line { stroke: var(--cover); }
 .bldg.stealth .aerial circle { fill: var(--cover); }
 
-/* Losing your grip. Stability was only visible by tapping each building in
-   turn, which is no way to find the one about to fall off — the windows go out
-   as it slips, and the outline breaks up before it goes. */
+/* Cut off from the rest of you. This was only ever visible by tapping each
+   building in turn, which is no way to find the one that has stopped paying —
+   the windows dim and the outline breaks up while it lasts. */
 @keyframes gripSlip { 0%, 100% { opacity: .18; } 50% { opacity: .04; } }
 
 @media (prefers-reduced-motion: reduce) {
   .wire.live { animation: none; }
-  .bldg.all-held.failing .glow { animation: none; }
+  .bldg.all-held.stranded .glow { animation: none; }
 }
 
 /* a building's own colour says what it earns you once it is yours */
@@ -1049,23 +1049,21 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.all-held.cash .win.lit    { fill: color-mix(in srgb, var(--cash) 55%, #1e2724); }
 .bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
 
-/* Losing your grip, after the per-role colours on purpose: these rules and
-   the role ones are the same specificity, so whichever comes last wins, and
-   above them a holding about to fall off still drew in perfect health. */
-.bldg.all-held.fading .body { stroke-dasharray: 5 3; }
-.bldg.all-held.fading .glow { opacity: .1; }
-.bldg.all-held.failing .body { stroke: var(--heat); stroke-dasharray: 3 3; }
-.bldg.all-held.failing .glow {
+/* Stranded, after the per-role colours on purpose: these rules and the role
+   ones are the same specificity, so whichever comes last wins, and above
+   them a holding cut off from you still drew as though everything were fine. */
+.bldg.all-held.stranded .body { stroke: var(--heat); stroke-dasharray: 3 3; }
+.bldg.all-held.stranded .glow {
   stroke: var(--heat);
   opacity: .18;
   animation: gripSlip 2.4s ease-in-out infinite;
 }
-.bldg.all-held.failing .win.lit { fill: color-mix(in srgb, var(--heat) 45%, #1e2724); }
+.bldg.all-held.stranded .win.lit { fill: color-mix(in srgb, var(--heat) 45%, #1e2724); }
 /* the label is filled text, not stroked — setting `stroke` on it outlined the
    glyphs instead of colouring them */
-.bldg.all-held.failing .aerial line { stroke: var(--heat); }
-.bldg.all-held.failing .aerial circle { fill: var(--heat); }
-.bldg.all-held.failing .btag { fill: var(--heat); }
+.bldg.all-held.stranded .aerial line { stroke: var(--heat); }
+.bldg.all-held.stranded .aerial circle { fill: var(--heat); }
+.bldg.all-held.stranded .btag { fill: var(--heat); }
 
 #recenter {
   position: absolute; right: 10px; bottom: 10px;
