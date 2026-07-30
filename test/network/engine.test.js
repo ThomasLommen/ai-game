@@ -8466,3 +8466,30 @@ test('standing: it survives a save', () => {
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(round.country.pub, v, 'what people thought of you came back with it');
 });
+
+test('standing: both axes are on screen, and legitimacy waits until it means something', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const doc = window.document;
+  const legitBtn = () => doc.getElementById('res-legit-btn');
+
+  d.render();
+  assert.equal(d.noticed(), false, 'nobody has asked you to prove anything yet');
+  assert.equal(legitBtn().hidden, true, 'so the figure is not on screen being meaningless');
+  assert.equal(doc.getElementById('res-standing').textContent, d.pubTier().label,
+    'what the public thinks is a word, and it is shown');
+
+  // once you have been noticed it appears, and reports the gap that matters
+  d.LG().audits = 1;
+  assert.equal(d.noticed(), true);
+  d.render();
+  assert.equal(legitBtn().hidden, false, 'now it is worth knowing');
+  // numeric compare: the codebase assigns numbers to textContent throughout and
+  // a real DOM stringifies them, which the stub does not
+  assert.equal(Number(doc.getElementById('res-legit').textContent), Math.round(d.legitScore()));
+
+  // both axes have something to say when tapped
+  ['standing', 'legit'].forEach(k => {
+    assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 40, `${k} is not explained`);
+  });
+});

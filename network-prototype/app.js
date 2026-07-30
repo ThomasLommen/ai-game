@@ -6497,6 +6497,28 @@
     document.getElementById('res-tflops').textContent = tflops();
     document.getElementById('res-cover').textContent = cover();
 
+    // What the public thinks is a word, not a number: "distrusted" is the thing
+    // the player acts on and the figure behind it never is.
+    const $st = document.getElementById('res-standing');
+    if ($st) {
+      const T = pubTier();
+      $st.textContent = T.label;
+      const btn = document.getElementById('res-standing-btn');
+      if (btn) btn.className = 'res standing ' + T.key;
+    }
+    // Legitimacy waits until somebody has asked you to prove one — the same
+    // progressive disclosure the plant and spin surfaces use. A figure that
+    // means nothing yet is clutter, and this row is four wide on a 320 phone.
+    const $lb = document.getElementById('res-legit-btn');
+    if ($lb) {
+      $lb.hidden = !noticed();
+      if (noticed()) {
+        const short = footprint() - legitScore() > 0;
+        document.getElementById('res-legit').textContent = Math.round(legitScore());
+        $lb.className = 'res legit' + (short ? ' short' : '');
+      }
+    }
+
     document.querySelectorAll('#res-row .res').forEach(el => {
       if (el.dataset.wired) return;
       el.dataset.wired = '1';

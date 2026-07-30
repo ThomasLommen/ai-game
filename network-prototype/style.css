@@ -1641,3 +1641,6 @@ footer .build { opacity: .55; font-size: 10px; }
 .res.standing.welcome b    { color: var(--cover); }
 .res.standing.distrusted b { color: color-mix(in srgb, var(--heat) 60%, var(--muted)); }
 .res.standing.hated b      { color: var(--heat); }
+/* legitimacy runs short of your footprint more often than not, and that gap is
+   the thing worth glancing at — so the figure goes warm when you are behind. */
+.res.legit.short b { color: var(--heat); }
