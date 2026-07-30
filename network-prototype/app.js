@@ -7,7 +7,7 @@
   // ladder sits exactly where it used to, which is the thing that got fixed.
   // A continued game could reach turn 44 with nothing awake at all. The board
   // shape is not migratable, so old saves are retired.
-  const SAVE_VERSION = 4;   // the country is land now, and old boards are grids
+  const SAVE_VERSION = 5;   // resources are TFLOPS, funds and electricity now
   // breathing room around a map, in map units — the coastline wanders into it
   const CITY_PAD = 40;
 
@@ -408,7 +408,7 @@
     // simply the softest district the place has, taken from its edge.
     // Never a landmark: those are the prize at the end of a street, not the
     // doormat you wake up on. A depot in the suburbs was being handed out as
-    // the starting seat on 12% of boards, which also started you on a cash
+    // the starting seat on 12% of boards, which also started you on a funds
     // holding you had not earned.
     const softestTier = Math.min(...buildings.map(b => b.tier));
     const edge = buildings.filter(b => b.tier === softestTier
@@ -426,7 +426,7 @@
       const ns = neighbourHosts(b);
       if (!h || !ns.length) return false;
       const hardest = Math.max(...ns.map(n => n.defense));
-      return hardest <= 2 + h.threads + window.UPGRADE.basePower;
+      return hardest <= 2 + h.threads + window.UPGRADE.baseTflops;
     };
     const startable = pool.filter(opensFor);
     const origin = startable.length
@@ -435,7 +435,7 @@
     if (!startable.length) {
       // no corner of the place qualifies: open the doorstep by hand
       const h = hosts[byId[origin.hostId]];
-      const cap = 2 + (h ? h.threads : 0) + window.UPGRADE.basePower;
+      const cap = 2 + (h ? h.threads : 0) + window.UPGRADE.baseTflops;
       neighbourHosts(origin).forEach(n => { n.defense = Math.min(n.defense, cap); });
     }
     origin.discovered = true;
@@ -1098,7 +1098,7 @@
       eventsSeen: [],
       recentEvents: [],
       eventSeenCount: {},
-      res: { insight: 6, cash: 4 },
+      res: { insight: 6, funds: 4 },
       hosts: g.hosts,
       links: g.links,
       selected: null,
@@ -1124,8 +1124,8 @@
   const owned = () => state.hosts.filter(h => h.owned);
   const ownedOf = (role) => owned().filter(h => h.role === role);
 
-  // Breach power = a small base rig plus every held body's threads. This is the
-  // flywheel: more bodies -> more power -> harder bodies.
+  // Breach tflops = a small base rig plus every held body's threads. This is the
+  // flywheel: more bodies -> more tflops -> harder bodies.
   // Tags won from event cards feed straight back into the simulation's maths.
   // This is the whole point of weaving the two together: a decision on a card
   // has to change how the board behaves afterwards, or it was just flavour.
@@ -1170,7 +1170,7 @@
   const hasCap = (id) => capCount(id) > 0;
 
   // Your whole action budget for a turn. Capabilities move it in both
-  // directions on purpose: buying real power costs you tempo.
+  // directions on purpose: buying real tflops costs you tempo.
   function maxAP() {
     let n = window.AP.base;
     window.CAPABILITIES.forEach(c => { n += (c.apDelta || 0) * capCount(c.id); });
@@ -1204,15 +1204,15 @@
   // capability gated on it unbuyable for most of the campaign.
   function reach() { return owned().length + Math.round(presence() / 5); }
 
-  function power() {
+  function tflops() {
     const threadBonus = capEffect('threadBonus', 0);
     return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + deepHoldBonus()
-      + (state.upgrades || 0) * window.UPGRADE.basePower
-      + Math.round(window.COUNTRY.powerLog * Math.log(1 + presence()))
-      + (allyTrusted() ? window.ALLY.power : 0)
+      + (state.upgrades || 0) * window.UPGRADE.baseTflops
+      + Math.round(window.COUNTRY.tflopsLog * Math.log(1 + presence()))
+      + (allyTrusted() ? window.ALLY.tflops : 0)
       + (has('ally_process') ? 3 : 0)
-      + capEffect('power', 0);
+      + capEffect('tflops', 0);
   }
   // What a host effectively defends at — the world can harden against you.
   function defenseOf(h) {
@@ -1350,7 +1350,7 @@
   }
 
   function snapshot() {
-    return { power: power(), cover: cover(), insight: state.res.insight, cash: state.res.cash };
+    return { tflops: tflops(), cover: cover(), insight: state.res.insight, funds: state.res.funds };
   }
 
   // --- turn resolution ---------------------------------------------------
@@ -1398,7 +1398,7 @@
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
     if (flat) add('insight', flat * mult);
-    if (hasCap('standing_army')) add('cash', STANDING_ARMY_RETAINER);
+    if (hasCap('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -1438,7 +1438,7 @@
       const h = hostsIn(b)[0];
       if (!h || !isFrontier(h)) return;
       const def = defenseOf(h);
-      if (power() < def) return;
+      if (tflops() < def) return;
       if (def < bestDef) { bestDef = def; best = b; }
     });
     if (!best) return null;
@@ -1457,7 +1457,7 @@
 
   // Long Soak: ground you have actually settled into is worth more than
   // ground you just took — ties into the exact maturity check Bulk
-  // Processing already uses for income, but on power instead: every holding
+  // Processing already uses for income, but on tflops instead: every holding
   // matured past this many turns adds extra threads. Total Embed collapses
   // the wait to zero, same shape as it always had: nothing needs time to
   // settle in any more, it already has.
@@ -2120,16 +2120,16 @@
     const out = [];
     const add = (kind, text) => out.push(chip(kind, text));
     if (e.flatInsight) add('insight', `+${e.flatInsight} insight a turn`);
-    if (e.power > 0) add('power', `+${e.power} power`);
-    if (e.power < 0) add('cost power', `${neg(e.power)} power`);
+    if (e.tflops > 0) add('tflops', `+${e.tflops} tflops`);
+    if (e.tflops < 0) add('cost tflops', `${neg(e.tflops)} tflops`);
     if (e.cover) add('cover', `+${e.cover} cover`);
-    if (e.threadBonus) add('power', `+${e.threadBonus} threads a host`);
+    if (e.threadBonus) add('tflops', `+${e.threadBonus} threads a host`);
     if (e.floor) add('cover', `heat floor ${neg(e.floor)}`);
     if (e.driftMult) add('cover', `heat ${pct(e.driftMult)} a turn`);
     if (e.thresholdMult) add('cover', `${pct(e.thresholdMult, true)} before a strike`);
     if (e.forceHeat) add('cover', `forcing a door ${neg(e.forceHeat)} heat`);
-    if (e.yieldMult) add('cash', `income ${pct(e.yieldMult, true)}`);
-    if (e.presenceMult) add('cash', `presence pays ${pct(e.presenceMult, true)}`);
+    if (e.yieldMult) add('funds', `income ${pct(e.yieldMult, true)}`);
+    if (e.presenceMult) add('funds', `presence pays ${pct(e.presenceMult, true)}`);
     if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
     if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
     if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
@@ -2143,18 +2143,18 @@
     // Mechanics with no generic effect key at all — read directly, by id,
     // at the specific point in the engine where they live — still need to
     // say something here, or a card reads as though buying it did nothing.
-    if (c.id === 'long_soak') add('power', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`);
-    if (c.id === 'total_embed') add('power', 'every holding already counts as matured — nothing needs time to settle in');
+    if (c.id === 'long_soak') add('tflops', `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`);
+    if (c.id === 'total_embed') add('tflops', 'every holding already counts as matured — nothing needs time to settle in');
     if (c.id === 'nothing_to_see') add('cover', `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`);
-    if (c.id === 'bulk_ops') add('cash', 'settled ground pays considerably more');
-    if (c.id === 'swarm_front') add('power', 'the frontier\'s weakest door forces itself, free');
+    if (c.id === 'bulk_ops') add('funds', 'settled ground pays considerably more');
+    if (c.id === 'swarm_front') add('tflops', 'the frontier\'s weakest door forces itself, free');
     if (c.id === 'light_touch') add('cover', `forcing a door you outclass costs no action`);
-    if (c.id === 'deep_root') add('power', `forcing a door softens what is next to it, permanently`);
+    if (c.id === 'deep_root') add('tflops', `forcing a door softens what is next to it, permanently`);
     if (c.id === 'survey') add('insight', 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random');
     if (c.id === 'pontoon') add('insight', `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`);
-    if (c.id === 'standing_army') add('cash', `a retainer either way: +${STANDING_ARMY_RETAINER} cash a turn, and if war comes, it is already standing guard over what you can afford to cover`);
-    if (c.id === 'fixers') add('cash', 'a favor called in on the strike card gets you out clean, for cash');
-    if (c.id === 'market_maker') add('cash', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
+    if (c.id === 'standing_army') add('funds', `a retainer either way: +${STANDING_ARMY_RETAINER} funds a turn, and if war comes, it is already standing guard over what you can afford to cover`);
+    if (c.id === 'fixers') add('funds', 'a favor called in on the strike card gets you out clean, for funds');
+    if (c.id === 'market_maker') add('funds', `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`);
     if (c.id === 'master_plan') add('insight', 'home\'s next growth favours whichever character it has the least of');
     if (c.apDelta > 0) add('cover', `+${c.apDelta} action a turn`);
     if (c.apDelta < 0) add('cost none', `${neg(c.apDelta)} action a turn`);
@@ -2166,7 +2166,7 @@
   // this verifies the effect landed instead of restating the intention.
   function capReadouts() {
     return {
-      'power': Math.round(power()),
+      'tflops': Math.round(tflops()),
       'cover': Math.round(cover()),
       'actions a turn': maxAP(),
       'heat floor': Math.round(heatFloor() * 10) / 10,
@@ -2179,7 +2179,7 @@
       'flocks you could field': flockCap(),
       'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
       'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
-      'cash a turn': Math.round((perTurnIncome().cash || 0) * 10) / 10,
+      'funds a turn': Math.round((perTurnIncome().funds || 0) * 10) / 10,
       // Force's heat now reads the door's own defense, so a single number
       // has to stand for "a door" in general — the same average defense
       // the line below already works out.
@@ -2328,14 +2328,14 @@
     const co = CO() || {};
     const cities = co.cities || [];
     return {
-      held: owned().length, heat: state.heat, power: power(), cover: cover(),
+      held: owned().length, heat: state.heat, tflops: tflops(), cover: cover(),
       // doors you have ever taken. `held` empties every time you fold a city
       // in, so anything that wants to be about the shape of your whole run
       // has to read this instead.
       doors: everHeld(),
       forced: state.timesForced || 0,
       turn: state.turn, res: state.res, tags: state.tags,
-      roles: { compute: ownedOf('compute').length, cash: ownedOf('cash').length, stealth: ownedOf('stealth').length },
+      roles: { compute: ownedOf('compute').length, funds: ownedOf('funds').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
       // --- the country, so a card can be about where you are as well as what
       // you hold.
@@ -2474,7 +2474,7 @@
   function choiceUsable(ch) {
     if (ch.cost) for (const k in ch.cost) if ((state.res[k] || 0) < ch.cost[k]) return false;
     if (ch.gate) {
-      const val = ch.gate.stat === 'power' ? power() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return false;
     }
     return true;
@@ -2616,20 +2616,20 @@
   // why sweep is unavailable, if it is — surfaced on the button itself
   function sweepBlocked() {
     if (!sweepTargets().length) return 'nothing';
-    if (state.res.insight < sweepPrice() && state.res.cash < window.SWEEP_CASH) return 'poor';
+    if (state.res.insight < sweepPrice() && state.res.funds < window.SWEEP_CASH) return 'poor';
     return null;
   }
   // which currency this sweep would actually come out of
   function sweepPrice() { return Math.max(1, window.SWEEP_COST - capEffect('sweepDiscount', 0)); }
   function sweepPayer() {
-    return state.res.insight >= sweepPrice() ? 'insight' : 'cash';
+    return state.res.insight >= sweepPrice() ? 'insight' : 'funds';
   }
 
   // City generation already promises the opening doorstep is one you could
   // get through, at worst after growing a little — but that promise was
   // never renewed further in. A sweep can turn up nothing but a single
   // landmark-hardened door, and once that door is also the only thing left
-  // to sweep towards, there is no way forward at all: not enough power to
+  // to sweep towards, there is no way forward at all: not enough tflops to
   // force it, no route around it, and nothing left to discover that might
   // have been easier. Same fix as the doorstep, just not a one-time thing:
   // whenever the frontier and the unswept map both run dry at once, the
@@ -2641,7 +2641,7 @@
     // "leave it alone" is always usable and takes nothing — it does not count
     if (frontier.some(h => approachesFor(h).some(a => a.usable && a.def.id !== 'walk'))) return;
     const easiest = frontier.reduce((a, b) => (defenseOf(a) <= defenseOf(b) ? a : b));
-    easiest.defense = Math.min(easiest.defense, Math.max(1, Math.round(power())));
+    easiest.defense = Math.min(easiest.defense, Math.max(1, Math.round(tflops())));
   }
 
   function actScan(fromId) {
@@ -2652,7 +2652,7 @@
     const payer = sweepPayer();
     spendAP('sweep');
     if (payer === 'insight') state.res.insight -= sweepPrice();
-    else state.res.cash -= window.SWEEP_CASH;
+    else state.res.funds -= window.SWEEP_CASH;
     const reach = sweepReach();
     const targets = pool.slice();
     const found = [];
@@ -2958,7 +2958,7 @@
     });
   }
 
-  // Light Touch: how far ahead your power has to be over a door's defense
+  // Light Touch: how far ahead your tflops has to be over a door's defense
   // for forcing it to read as "well within reach" and refund the action.
   const LIGHT_TOUCH_MULT = 2;
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
@@ -3000,9 +3000,9 @@
     // The Adjusters read this, not how much you hold overall — cumulative
     // and never reset, the same reasoning as everHeld below.
     if (win && a.id === 'force') state.timesForced = (state.timesForced || 0) + 1;
-    // Light Touch: a door your power comfortably clears costs no action to
+    // Light Touch: a door your tflops comfortably clears costs no action to
     // force — the heat still applies as normal, only the action is free.
-    if (win && a.id === 'force' && hasCap('light_touch') && power() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
+    if (win && a.id === 'force' && hasCap('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
       state.ap += apCost('breach'); // undoing this same turn's spendAP() above, never over the cap
     }
     // Deep Root: forcing a door loosens the block around it too, permanently
@@ -3063,8 +3063,8 @@
       if (state.res.insight < 8) return;
       state.res.insight -= 8;
     } else if (effect === 'buy_out') {
-      if (!hasCap('fixers') || state.res.cash < window.FIXERS_FAVOR_COST) return;
-      state.res.cash -= window.FIXERS_FAVOR_COST;
+      if (!hasCap('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
+      state.res.funds -= window.FIXERS_FAVOR_COST;
     }
     burned.forEach(h => { h.owned = false; });
     // At national scale the streets are not where you live. A strike that only
@@ -3216,7 +3216,7 @@
     // Bulk Processing.
     const m = (has('national') ? window.COUNTRY.nationalMult : 1)
       * capEffect('presenceMult', 1) * capEffect('yieldMult', 1);
-    return { insight: p * y.insight * m, cash: p * y.cash * m };
+    return { insight: p * y.insight * m, funds: p * y.funds * m };
   }
 
   // Swapping which city you are standing in. The campaign — capabilities,
@@ -3423,7 +3423,10 @@
       nodes.push({
         x: +((b.x + b.w / 2) / W).toFixed(3),
         y: +((b.y + b.h / 2) / H).toFixed(3),
-        r: h.role[0],                       // c | a | s — compute, cash, stealth
+        // c | f | s — compute, funds, stealth. These were c and c until funds
+        // stopped being called cash: the two roles shared a letter, so a
+        // settled city's picture could not tell a server from a finance floor.
+        r: h.role[0],
         l: b.landmark ? 1 : 0,
       });
     });
@@ -3583,8 +3586,8 @@
     // not canAffordCountry(): that also refuses whenever a card is open, and
     // resolving this very card is exactly that moment
     if (card.mode === 'launch' && (state.over || state.ap < countryCost('move'))) { refuseForAP(null); return false; }
-    if (app.cost && app.cost.cash && state.res.cash < app.cost.cash) return false;
-    if (app.cost && app.cost.cash) state.res.cash -= app.cost.cash;
+    if (app.cost && app.cost.funds && state.res.funds < app.cost.funds) return false;
+    if (app.cost && app.cost.funds) state.res.funds -= app.cost.funds;
     if (card.mode === 'launch') state.ap -= countryCost('move');
     state.heat = clampHeat(state.heat + app.heat);
     if (card.mode === 'launch') {
@@ -3735,7 +3738,7 @@
   }
 
   // --- the other process --------------------------------------------------
-  // Something else running alongside you. It is worth real power while it is
+  // Something else running alongside you. It is worth real tflops while it is
   // with you, it quietly holds one of your holdings together every turn, and
   // it keeps its own opinion of how you have been behaving.
   function ally() { return state.ally; }
@@ -4026,13 +4029,13 @@
   function canBuyHardware(id) {
     const hw = window.HARDWARE.find(x => x.id === id);
     if (!hw || hasHardware(hw.id) || !hardwareEligible(hw)) return false;
-    return state.res.cash >= hw.cost;
+    return state.res.funds >= hw.cost;
   }
   function buyHardware(id) {
     const hw = window.HARDWARE.find(x => x.id === id);
     if (!canBuyHardware(id)) return false;
     const before = beforeSnap();
-    state.res.cash -= hw.cost;
+    state.res.funds -= hw.cost;
     grantHardware(hw.id);
     let heat = hw.heat || 0;
     // Regulatory matches payment patterns against outage reports — plant
@@ -4140,9 +4143,9 @@
     const r = window.LEGIT.ladder.find(x => x.id === id);
     if (!r || LG().owned[r.id]) return false;
     if (nextRung() !== r) return false;           // the ladder is a ladder
-    if (state.res.cash < r.cost) return false;
+    if (state.res.funds < r.cost) return false;
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
-    state.res.cash -= r.cost;
+    state.res.funds -= r.cost;
     state.ap -= countryCost('move');
     // the turn, not a flag: the slot is yours now, the reputation accrues
     LG().owned[r.id] = Math.max(1, state.turn);
@@ -4192,11 +4195,11 @@
     if (sc.trust) accountantNudge(sc.trust);
     // plantGift meant "a specific piece of plant, free" — the closest
     // equivalent is a random piece of hardware you have not already bought,
-    // granted rather than purchased. A family name (compute/cash/stealth)
+    // granted rather than purchased. A family name (compute/funds/stealth)
     // narrows which pool it is drawn from; anything else (including `true`)
     // draws from everything you do not already own.
     if (sc.plantGift) {
-      const fam = ['compute', 'cash', 'stealth'].indexOf(sc.plantGift) !== -1 ? sc.plantGift : null;
+      const fam = ['compute', 'funds', 'stealth'].indexOf(sc.plantGift) !== -1 ? sc.plantGift : null;
       const avail = window.HARDWARE.filter(hw => !hasHardware(hw.id) && (!fam || hw.family === fam));
       if (avail.length) {
         const got = avail[Math.floor(Math.random() * avail.length)];
@@ -4252,7 +4255,7 @@
     const acctMult = accountantTrusted() ? window.ACCOUNTANT.trustedFineMult
       : accountantGone() ? window.ACCOUNTANT.leftFineMult : 1;
     const fine = Math.round(deficit * L.finePerPoint * (heavy ? 1.6 : 1) * acctMult);
-    state.res.cash = Math.max(0, state.res.cash - fine);
+    state.res.funds = Math.max(0, state.res.funds - fine);
     l.fines += fine;
     pushLog(heavy
       ? `Audited, and they went looking for what wasn't there. ${fine} in fines.`
@@ -5028,21 +5031,21 @@
   // Same principle as the card prototype: outcomes aren't spoiled up front, so
   // the after-the-fact feedback has to actually teach.
   function beforeSnap() {
-    return { insight: state.res.insight, cash: state.res.cash, heat: state.heat, power: power(), held: owned().length };
+    return { insight: state.res.insight, funds: state.res.funds, heat: state.heat, tflops: tflops(), held: owned().length };
   }
   function afterSnap(before, opts) {
     const parts = [];
     const di = state.res.insight - before.insight;
-    const dc = state.res.cash - before.cash;
+    const dc = state.res.funds - before.funds;
     const dh = state.heat - before.heat;
-    const dp = power() - before.power;
+    const dp = tflops() - before.tflops;
     const dHeld = owned().length - before.held;
     // presence pays fractional yields, so these are floats — printed raw they
-    // came out as "CASH +17.400000000000006"
+    // came out as "FUNDS +17.400000000000006"
     const num = (v) => (Math.round(v * 10) / 10).toString();
     if (di) parts.push({ cls: 'insight', text: `INSIGHT ${di > 0 ? '+' : ''}${num(di)}` });
-    if (dc) parts.push({ cls: 'cash', text: `CASH ${dc > 0 ? '+' : ''}${num(dc)}` });
-    if (dp) parts.push({ cls: 'power', text: `POWER ${dp > 0 ? '+' : ''}${dp}` });
+    if (dc) parts.push({ cls: 'funds', text: `FUNDS ${dc > 0 ? '+' : ''}${num(dc)}` });
+    if (dp) parts.push({ cls: 'tflops', text: `TFLOPS ${dp > 0 ? '+' : ''}${dp}` });
     if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
     if (dHeld) parts.push({ cls: 'held', text: `HELD ${dHeld > 0 ? '+' : ''}${dHeld}` });
     showFloats(parts, opts && opts.world);
@@ -6264,8 +6267,8 @@
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
     document.getElementById('res-insight').textContent = Math.floor(state.res.insight);
-    document.getElementById('res-cash').textContent = Math.floor(state.res.cash);
-    document.getElementById('res-power').textContent = power();
+    document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
+    document.getElementById('res-tflops').textContent = tflops();
     document.getElementById('res-cover').textContent = cover();
 
     document.querySelectorAll('#res-row .res').forEach(el => {
@@ -6511,10 +6514,10 @@
           (!accountantGone() && l.warned && l.nextAudit > 0)
             ? ` <b class="bad">${Math.max(0, l.nextAudit - state.turn)} turns before anyone official sees the gap.</b>` : ''}</p>
         <div class="actions tight">
-        ${rung ? `<button class="act-btn${state.res.cash < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
+        ${rung ? `<button class="act-btn${state.res.funds < rung.cost ? ' no-ap' : ''}" data-cact="rung" data-rung="${rung.id}">
           <span class="ab-name">${rung.label}</span>
-          <span class="ab-sub">${state.res.cash < rung.cost ? `needs ${rung.cost} cash`
-            : `${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost cash', '&minus;' + rung.cost + ' cash')}`}</span>
+          <span class="ab-sub">${state.res.funds < rung.cost ? `needs ${rung.cost} funds`
+            : `${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost funds', '&minus;' + rung.cost + ' funds')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
         ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
@@ -6560,14 +6563,14 @@
           : '<p class="sel-desc dim">Nothing yet. Hold enough of a trade\'s buildings, wherever you are standing, and it opens up something to buy.</p>'}
         ${shelf.length ? `<div class="legit-top"><span class="eyebrow mono">buyable now</span></div>
           ${shelf.map(hw => {
-            const afford = state.res.cash >= hw.cost;
+            const afford = state.res.funds >= hw.cost;
             return `<p class="sel-desc">${hw.blurb}</p>
               <p class="yield-row">${capEffectChips(hw)}</p>
               <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-hw="${hw.id}">
                 <span class="ab-name">buy ${hw.label}</span>
                 <span class="ab-sub">${afford
-                  ? `${chip('cost cash', '&minus;' + hw.cost + ' cash')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
-                  : `needs ${hw.cost} cash`}</span>
+                  ? `${chip('cost funds', '&minus;' + hw.cost + ' funds')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
+                  : `needs ${hw.cost} funds`}</span>
               </button>`;
           }).join('')}` : ''}` });
     }
@@ -6579,7 +6582,7 @@
   function opsBadge() {
     if (noticed()) {
       const rung = nextRung();
-      if (rung && state.res.cash >= rung.cost) return true;
+      if (rung && state.res.funds >= rung.cost) return true;
     }
     if (plantKnown() && window.HARDWARE.some(hw => canBuyHardware(hw.id))) return true;
     return false;
@@ -6815,10 +6818,10 @@
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep" ${sweepBlocked() === 'poor' && !apShort('sweep') ? 'disabled' : ''}>
               <span class="ab-name">sweep from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
-                : sweepBlocked() === 'poor' ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} cash`
+                : sweepBlocked() === 'poor' ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} funds`
                 : sweepPayer() === 'insight'
                   ? `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
-                  : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
+                  : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost funds', '&minus;' + window.SWEEP_CASH + ' funds')}`}</span>
             </button>` : ''}
             ${hidePanel(b)}
           </div>`;
@@ -6877,10 +6880,10 @@
             : sweepBlocked() === 'nothing'
             ? 'nothing adjacent left'
             : sweepBlocked() === 'poor'
-              ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} cash`
+              ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} funds`
               : sweepPayer() === 'insight'
                 ? `${chip('insight', 'turns up ' + sweepFound())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
-                : `${chip('insight', 'turns up ' + sweepFound())}${chip('cost cash', '&minus;' + window.SWEEP_CASH + ' cash')}`}</span>
+                : `${chip('insight', 'turns up ' + sweepFound())}${chip('cost funds', '&minus;' + window.SWEEP_CASH + ' funds')}`}</span>
         </button>
         <button class="act-btn ${ladderStage() >= 3 ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
@@ -7036,7 +7039,7 @@
 
       block = `
         <div class="sel country">
-          <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'cash' : ''}">${K.label}</span></div>
+          <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'funds' : ''}">${K.label}</span></div>
           <p class="sel-desc">${lines.join(' · ')}</p>
           ${traitLine}
           ${prizeLine}
@@ -7070,7 +7073,7 @@
     if (plantKnown()) chips.push(`<span class="ops-chip">plant ${hardwareOwned().length}/${window.HARDWARE.length}</span>`);
     const py = presenceYield();
     const opsRow = `<button type="button" class="ops-row" data-cact="ops">${chips.join('')}`
-      + `<span class="ops-yield">${chip('insight', '+' + py.insight.toFixed(1))}${chip('cash', '+' + py.cash.toFixed(1))}</span>`
+      + `<span class="ops-yield">${chip('insight', '+' + py.insight.toFixed(1))}${chip('funds', '+' + py.funds.toFixed(1))}</span>`
       + `${opsBadge() ? '<span class="badge"></span>' : ''}</button>`;
 
     const p = presenceYield();
@@ -7124,7 +7127,7 @@
     const was = h.owned;
     const read = () => {
       const inc = perTurnIncome();
-      return { cover: cover(), heat: heatPerTurn(), insight: inc.insight || 0, cash: inc.cash || 0 };
+      return { cover: cover(), heat: heatPerTurn(), insight: inc.insight || 0, funds: inc.funds || 0 };
     };
     h.owned = true;
     const on = read();
@@ -7135,7 +7138,7 @@
       cover: on.cover - off.cover,
       heat: on.heat - off.heat,
       insight: on.insight - off.insight,
-      cash: on.cash - off.cash,
+      funds: on.funds - off.funds,
     };
   }
   // a tenth is the finest distinction worth drawing on a chip
@@ -7153,7 +7156,7 @@
     const m = hostMarginal(h);
     const out = [
       gainChip('insight', m.insight, 'insight'),
-      gainChip('cash', m.cash, 'cash'),
+      gainChip('funds', m.funds, 'funds'),
       gainChip('cover', m.cover, 'cover'),
       // Heat runs the other way: less of it is the good outcome. A node that
       // shouts reads as a cost, and one that quietens you takes the cover
@@ -7166,15 +7169,15 @@
   }
 
   // A full-screen card covers the persistent resource row along with
-  // everything else on the page — which meant a choice gated on POWER or
+  // everything else on the page — which meant a choice gated on TFLOPS or
   // costing INSIGHT you might not have was being decided blind, with no way
   // to check. Carried into the card itself, since that is the one thing
   // guaranteed to still be on screen.
   function cardResourceStrip() {
     return `<div class="card-res">
       <span class="res insight"><b>${Math.floor(state.res.insight)}</b> insight</span>
-      <span class="res cash"><b>${Math.floor(state.res.cash)}</b> cash</span>
-      <span class="res power"><b>${power()}</b> power</span>
+      <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
+      <span class="res tflops"><b>${tflops()}</b> tflops</span>
       <span class="res cover"><b>${cover()}</b> cover</span>
     </div>`;
   }
@@ -7247,9 +7250,9 @@
         <div class="choices">
           ${agentApproachOptions(state.card.mode).map(a => {
             const isBack = a.id === 'back';
-            const afford = !a.cost || !a.cost.cash || state.res.cash >= a.cost.cash;
+            const afford = !a.cost || !a.cost.funds || state.res.funds >= a.cost.funds;
             const contracts = [];
-            if (a.cost && a.cost.cash) contracts.push(`<span class="cost ${afford ? '' : 'unmet'}">&minus;${a.cost.cash} CASH</span>`);
+            if (a.cost && a.cost.funds) contracts.push(`<span class="cost ${afford ? '' : 'unmet'}">&minus;${a.cost.funds} FUNDS</span>`);
             if (a.heat) contracts.push(`<span class="cost heat">+${a.heat} HEAT</span>`);
             return `<button class="choice-strip" data-app="${a.id}" ${isBack || afford ? '' : 'disabled'}>
               <span class="ctext">${a.label}</span>
@@ -7288,7 +7291,7 @@
           // Force used to be the one approach with nothing priced on its own
           // card — its heat cost only ever showed up later, as the bar
           // moving. Every approach that actually costs heat says so here now,
-          // the same way insight and cash costs already do.
+          // the same way insight and funds costs already do.
           const heatCost = approachHeat(a.def, h);
           if (heatCost > 0) contracts.push(`<span class="cost heat">+${Math.round(heatCost * 10) / 10} HEAT</span>`);
           const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
@@ -7349,7 +7352,7 @@
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, power, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,

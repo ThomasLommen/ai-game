@@ -8,8 +8,8 @@
   --ink-dim: #a8b0aa;
   --muted: #7c8b83;
   --insight: #5fb3d9;
-  --cash: #e3b451;
-  --power: #a487dd;
+  --funds: #e3b451;
+  --tflops: #a487dd;
   --cover: #6f8f83;
   --heat: #d9705f;
   --item: #c9a15c;
@@ -105,7 +105,7 @@ body {
   background: var(--cover);
   transition: width .3s ease, background .3s ease;
 }
-.heat-fill.warm { background: var(--cash); }
+.heat-fill.warm { background: var(--funds); }
 .heat-fill.hot { background: var(--heat); }
 .heat-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); }
 #heat-row.compact .heat-meta { margin-top: 2px; }
@@ -155,8 +155,8 @@ body {
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 13px; }
 .res.insight b { color: var(--insight); }
-.res.cash b { color: var(--cash); }
-.res.power b { color: var(--power); }
+.res.funds b { color: var(--funds); }
+.res.tflops b { color: var(--tflops); }
 .res.cover b { color: var(--cover); }
 
 /* What you are, on the thing you are looking at. It named the scale of the
@@ -223,8 +223,8 @@ body {
   box-shadow: 0 4px 14px rgba(0,0,0,.5);
 }
 .float-chip.insight { color: var(--insight); border-color: color-mix(in srgb, var(--insight) 55%, transparent); }
-.float-chip.cash { color: var(--cash); border-color: color-mix(in srgb, var(--cash) 55%, transparent); }
-.float-chip.power { color: var(--power); border-color: color-mix(in srgb, var(--power) 55%, transparent); }
+.float-chip.funds { color: var(--funds); border-color: color-mix(in srgb, var(--funds) 55%, transparent); }
+.float-chip.tflops { color: var(--tflops); border-color: color-mix(in srgb, var(--tflops) 55%, transparent); }
 .float-chip.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 55%, transparent); }
 .float-chip.held { color: var(--ink); }
 @keyframes floatUp {
@@ -294,7 +294,7 @@ body {
   border: 1px solid currentColor;
 }
 .tag-pill.compute { color: var(--insight); }
-.tag-pill.cash { color: var(--cash); }
+.tag-pill.funds { color: var(--funds); }
 .tag-pill.stealth { color: var(--cover); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -387,7 +387,7 @@ body {
   min-height: 0;
 }
 /* The persistent resource row is under the full-screen card, not gone —
-   carried into the card itself so a choice gated on POWER or costing
+   carried into the card itself so a choice gated on TFLOPS or costing
    INSIGHT is never being decided blind. Same .res pills as #res-row,
    just laid out here instead. */
 .card-res {
@@ -455,7 +455,7 @@ body {
 }
 .gate.met { color: var(--cover); border-color: color-mix(in srgb, var(--cover) 45%, transparent); }
 .gate.unmet, .cost.unmet { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, transparent); }
-.cost { color: var(--cash); border-color: color-mix(in srgb, var(--cash) 40%, transparent); }
+.cost { color: var(--funds); border-color: color-mix(in srgb, var(--funds) 40%, transparent); }
 .cost.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 40%, transparent); }
 
 .panel-msg {
@@ -537,7 +537,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .ab-sub { font-size: 10.5px; color: var(--muted); line-height: 1.3; }
 .act-btn.primary .ab-name { color: var(--item); }
 
-.card.event { border-color: var(--power); background: color-mix(in srgb, var(--power) 6%, var(--surface)); }
+.card.event { border-color: var(--tflops); background: color-mix(in srgb, var(--tflops) 6%, var(--surface)); }
 
 /* the floor you can never get under while you hold this much */
 .heat-floor {
@@ -618,7 +618,7 @@ footer .build { opacity: .55; font-size: 10px; }
   border: 1px solid var(--line);
   color: var(--ink);
 }
-.caps-btn { flex: none; border-color: var(--power); color: var(--power); }
+.caps-btn { flex: none; border-color: var(--tflops); color: var(--tflops); }
 .end-turn-btn { flex: 1; }
 /* Nudges when it becomes true and then rests, rather than bobbing forever.
    A control that never stops moving is fidgety to sit next to, and it can
@@ -733,8 +733,8 @@ footer .build { opacity: .55; font-size: 10px; }
 /* something the deck did *to* you rather than gave you: same card, other
    colour, so the held tab reads as a ledger with two sides */
 .shop-good.against { border-left-color: var(--heat); }
-.event-row.cap { border-color: var(--power); }
-.event-row.cap .event-label { color: var(--power); }
+.event-row.cap { border-color: var(--tflops); }
+.event-row.cap .event-label { color: var(--tflops); }
 
 /* --- the city ------------------------------------------------------- */
 #graph { touch-action: none; cursor: grab; }
@@ -861,8 +861,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .breach.quiet .breach-route { stroke-width: 1.2; opacity: .75; }
 /* buying it: no force at all, just money arriving */
 .breach.buy .breach-route,
-.breach.buy .breach-land { stroke: var(--cash); }
-.breach.buy .breach-pulse { fill: var(--cash); }
+.breach.buy .breach-land { stroke: var(--funds); }
+.breach.buy .breach-pulse { fill: var(--funds); }
 
 /* it did not work: the pulse gets there and comes straight back */
 .breach.lost .breach-pulse-wrap {
@@ -1020,14 +1020,14 @@ footer .build { opacity: .55; font-size: 10px; }
 /* a soft halo in the role's colour, so your territory reads at a glance */
 .bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
 .bldg.all-held .glow { opacity: .22; stroke: var(--insight); }
-.bldg.all-held.cash .glow { stroke: var(--cash); }
+.bldg.all-held.funds .glow { stroke: var(--funds); }
 .bldg.all-held.stealth .glow { stroke: var(--cover); }
 
 /* your kit on the roof — readable without relying on colour at all */
 .aerial line { stroke: var(--insight); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .aerial circle { fill: var(--insight); }
-.bldg.cash .aerial line { stroke: var(--cash); }
-.bldg.cash .aerial circle { fill: var(--cash); }
+.bldg.funds .aerial line { stroke: var(--funds); }
+.bldg.funds .aerial circle { fill: var(--funds); }
 .bldg.stealth .aerial line { stroke: var(--cover); }
 .bldg.stealth .aerial circle { fill: var(--cover); }
 
@@ -1043,10 +1043,10 @@ footer .build { opacity: .55; font-size: 10px; }
 
 /* a building's own colour says what it earns you once it is yours */
 .bldg.all-held.compute .body { stroke: var(--insight); }
-.bldg.all-held.cash .body    { stroke: var(--cash); }
+.bldg.all-held.funds .body    { stroke: var(--funds); }
 .bldg.all-held.stealth .body { stroke: var(--cover); }
 .bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
-.bldg.all-held.cash .win.lit    { fill: color-mix(in srgb, var(--cash) 55%, #1e2724); }
+.bldg.all-held.funds .win.lit    { fill: color-mix(in srgb, var(--funds) 55%, #1e2724); }
 .bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
 
 /* Stranded, after the per-role colours on purpose: these rules and the role
@@ -1150,13 +1150,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode.folded .ctag { fill: var(--ink); }
 .cnode.seat .dot   { stroke-width: 2.2; }
 .cnode.seat.folded .dot { stroke: var(--insight); }
-.cnode.seat:not(.folded) .dot { stroke: var(--power); }
+.cnode.seat:not(.folded) .dot { stroke: var(--tflops); }
 .cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
 /* an agent is on it: a ring that fills in as the clock runs down, so how
    close it is to reporting back is answerable at a glance */
 .cnode .working {
   fill: none;
-  stroke: var(--cash);
+  stroke: var(--funds);
   stroke-width: 1.8;
   stroke-linecap: round;
   opacity: 0.85;
@@ -1244,7 +1244,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode.sel .dot.settled { stroke: var(--ink); stroke-width: 1.6; }
 .cnode .web .wn { stroke: none; opacity: .92; }
 .cnode .web .wn.r-c { fill: var(--insight); }
-.cnode .web .wn.r-a { fill: var(--cash); }
+.cnode .web .wn.r-a { fill: var(--funds); }
 .cnode .web .wn.r-s { fill: var(--cover); }
 .cnode .web .wn.lm  { stroke: #0d120f; stroke-width: .6; }
 /* what the response took: still there, still yours in shape, and gone */
@@ -1260,7 +1260,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .horizon-city.gone { opacity: .22; }
 .hz-dot { stroke: none; opacity: .85; }
 .hz-dot.r-c { fill: var(--insight); }
-.hz-dot.r-a { fill: var(--cash); }
+.hz-dot.r-a { fill: var(--funds); }
 .hz-dot.r-s { fill: var(--cover); }
 .hz-dot.lm { stroke: #0d120f; stroke-width: .5; }
 .horizon-city.gone .hz-dot { fill: var(--heat); }
@@ -1309,18 +1309,18 @@ footer .build { opacity: .55; font-size: 10px; }
 .fac-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0 4px; }
 .fac-pill {
   font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--power); border: 1px solid color-mix(in srgb, var(--power) 45%, transparent);
+  color: var(--tflops); border: 1px solid color-mix(in srgb, var(--tflops) 45%, transparent);
   border-radius: 999px; padding: 2px 8px;
 }
 
 .act-btn.consolidate { margin-top: 6px; }
 
 /* the rival: something else taking the same city */
-.bldg.rival .body { stroke: var(--power); fill: color-mix(in srgb, var(--power) 14%, #131a17); stroke-dasharray: 3 2; }
-.bldg.rival .roof { fill: color-mix(in srgb, var(--power) 22%, #1a2320); }
-.bldg.rival .win { fill: color-mix(in srgb, var(--power) 35%, #1e2724); }
-.bldg.rival .btag { fill: var(--power); letter-spacing: .1em; }
-.tag-pill.rival { color: var(--power); }
+.bldg.rival .body { stroke: var(--tflops); fill: color-mix(in srgb, var(--tflops) 14%, #131a17); stroke-dasharray: 3 2; }
+.bldg.rival .roof { fill: color-mix(in srgb, var(--tflops) 22%, #1a2320); }
+.bldg.rival .win { fill: color-mix(in srgb, var(--tflops) 35%, #1e2724); }
+.bldg.rival .btag { fill: var(--tflops); letter-spacing: .1em; }
+.tag-pill.rival { color: var(--tflops); }
 .event-row.faction { border-color: var(--heat); }
 .event-row.faction .event-label { color: var(--heat); }
 .event-row.faction-gone { border-color: var(--insight); }
@@ -1356,10 +1356,10 @@ footer .build { opacity: .55; font-size: 10px; }
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cnode.mirror .dot { stroke: var(--power); fill: color-mix(in srgb, var(--power) 20%, #1a2320); stroke-dasharray: 3 2; }
-.cnode.mirror .ctag { fill: var(--power); letter-spacing: .08em; }
-.event-row.rival { border-color: var(--power); }
-.event-row.rival .event-label { color: var(--power); }
+.cnode.mirror .dot { stroke: var(--tflops); fill: color-mix(in srgb, var(--tflops) 20%, #1a2320); stroke-dasharray: 3 2; }
+.cnode.mirror .ctag { fill: var(--tflops); letter-spacing: .08em; }
+.event-row.rival { border-color: var(--tflops); }
+.event-row.rival .event-label { color: var(--tflops); }
 
 /* --- the war, on the map -------------------------------------------------
    Yours are clouds and theirs are hard shapes. That is the whole readability
@@ -1386,7 +1386,7 @@ footer .build { opacity: .55; font-size: 10px; }
   to   { transform: translate(4.5px, -3.6px); }
 }
 /* the other one runs the same play, and is drawn the same way in its own colour */
-.force.theirs.swarm .dot { fill: var(--power); }
+.force.theirs.swarm .dot { fill: var(--tflops); }
 
 /* a flock you have parked over a city says so, quietly and continuously */
 .force.guarding .picket {
@@ -1483,8 +1483,8 @@ footer .build { opacity: .55; font-size: 10px; }
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 .yield.insight { color: var(--insight); }
-.yield.cash    { color: var(--cash); }
-.yield.power   { color: var(--power); }
+.yield.funds    { color: var(--funds); }
+.yield.tflops   { color: var(--tflops); }
 .yield.cover   { color: var(--cover); }
 .yield.flocks  { color: var(--insight); }
 .yield.heat    { color: var(--heat); }
@@ -1523,7 +1523,7 @@ footer .build { opacity: .55; font-size: 10px; }
 /* costs, so a price never reads as a reward */
 .yield.cost { border-style: dashed; background: none; }
 .yield.cost.insight { color: var(--insight); }
-.yield.cost.cash { color: var(--cash); }
+.yield.cost.funds { color: var(--funds); }
 .yield.cost.none { color: var(--muted); border-color: var(--line); }
 /* an upkeep rather than a payment: the only cost in the game you keep paying */
 .yield.cost.cover { color: var(--cover); }
