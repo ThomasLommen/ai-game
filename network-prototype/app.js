@@ -7139,7 +7139,7 @@
 
   // What a building actually gives you, in the colour of the thing it gives.
   // This used to be plain text in the middle of a run-on line — "residential ·
-  // +1 a turn · 2 threads · stability 100%" — all in the same dim grey, and
+  // +1 a turn · 2 threads · 100% held" — all in the same dim grey, and
   // the yield simply disappeared into it. Cover is in here too: a router
   // reported "no yield" while quietly being the only reason you were not
   // being found, because cover is not stored in the yield object.

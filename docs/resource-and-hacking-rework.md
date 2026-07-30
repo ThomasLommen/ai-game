@@ -177,6 +177,31 @@ Labels, programs and entity names go code-style: `trojan.exe`, `dark.relay`,
 `set ally_bot`. **Prose stays literary.** The contrast is the character — a
 machine that names its tools like files and describes the world like a novelist.
 
+## Progress
+
+**Phases 1 and 2 are done.** Insight, the capability tree, and cover-as-currency
+are all gone; TFLOPS, electricity, funds, grid buildings and the allocation
+screen are all in. The resource row is three entries: funds, TFLOPS, cover.
+
+Two things landed differently from the plan above, both for good reasons found
+while building:
+
+- Covert ops turned into a **ladder** rather than a set of unrelated grants: one
+  unit is somewhere to keep a building hidden, two makes hiding free of an
+  action, three makes a quiet entry untraceable. Quiet Protocol had to move to
+  two, because at one it shared a threshold with the first slot and "hiding
+  costs you an action" was unreachable on any real board.
+- The mechanics that were capability nodes live in a `window.UNLOCKS` table
+  mapping each to an allocation threshold, with the prose that used to sit on the
+  capability card now shown on the dial that grants it. Without that the
+  allocation screen was five sliders with no stated consequences.
+
+**Open balance question for playtesting:** a network of nothing but compute now
+earns nothing at all, because funds come only from commercial ground. The opening
+is genuinely poor until a till or an office is taken. Nothing early is mandatory,
+so this should read as intended rather than as a stall — but it changes the shape
+of the first ten turns and wants playing.
+
 ## Phases
 
 1. **Compute + electricity + funds** — retire insight, power, cover as resources

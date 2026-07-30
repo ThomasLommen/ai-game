@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { loadNetwork } = require('../helpers/load-network');
 
 // Spend the turn's budget on sweeps, and return how many actually happened.
-// An action that cannot proceed (nothing left to sweep, no insight) silently
+// An action that cannot proceed (nothing left to scan, no actions) silently
 // does nothing and spends no AP, so a `while (ap > 0)` loop around it never
 // terminates — that mistake hung the suite roughly one run in eight.
 function drainBudgetBySweeping(d) {
@@ -593,7 +593,7 @@ test('an event choice applies its cost and its effect, and closes the card', () 
   s.res.funds = 20;
   s.card = { kind: 'event', eventId: 'first_quiet' };
 
-  d.resolveEvent(0); // "Build the habit properly" — costs 4 insight, grants clean_room
+  d.resolveEvent(0); // "Build the habit properly" — costs 4 funds, grants clean_room
   assert.ok(s.tags.has('clean_room'), 'the tag was granted');
   assert.ok(s.res.funds < 20, 'the cost was paid');
   assert.equal(s.card, null, 'the card closed');
@@ -902,7 +902,7 @@ test('strike branches differ: ride burns a share, shed drops the loud ones, cove
 
   const cover = primed('burn_cover');
   assert.equal(cover.after, cover.before, 'paying protects the whole fleet');
-  assert.equal(cover.funds, 32, 'and costs 8 insight');
+  assert.equal(cover.funds, 32, 'and costs 8 funds');
 
   const shed = primed('shed_loud');
   assert.ok(shed.after <= shed.before, 'shedding drops the noisy holdings');
@@ -1484,7 +1484,7 @@ test('country: presence pays every turn, whether or not you are standing there',
 
   const before = { funds: s.res.funds, funds: s.res.funds };
   d.endTurn();
-  assert.ok(s.res.funds > before.funds, 'insight arrives from the country');
+  assert.ok(s.res.funds > before.funds, 'funds arrive from the country');
   assert.ok(s.res.funds > before.funds, 'so does funds');
 });
 
@@ -5983,7 +5983,7 @@ test('yields: income is worked out once, so the turn cannot disagree with the pa
   d.actEndTurn();
   // churn and events can move other things; income is the floor of what landed
   assert.ok(s.res.funds >= before.funds + expect.funds - 0.001,
-    `expected +${expect.funds} insight, got ${s.res.funds - before.funds}`);
+    `expected +${expect.funds} funds, got ${s.res.funds - before.funds}`);
 });
 
 test('yields: hardware says what it pays, never silently', () => {

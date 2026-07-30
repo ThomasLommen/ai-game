@@ -597,7 +597,7 @@ window.HUNT = {
   // long that cycle takes is what cover buys you.
   takeSheds: 9,
   // what it takes off you when it moves onto something you hold
-  // (it takes the building; the stability loss is what that costs elsewhere)
+  // (it takes the building; what that costs you is felt elsewhere)
   takesCityAt: 0.45,       // share of a city it holds before the city is lost
   // severing a street: loud, and it is gone for you as well
   severCost: { funds: 6 },
