@@ -109,7 +109,7 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 window.ALLOC = [
   { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
     blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, quietGateMult: 0.94 },
+  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, quietGateMult: 0.94, cover: 2 },
     blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
   { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
     blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
@@ -133,6 +133,13 @@ window.ALLOC = [
 // market_maker, fixers and standing_army are the shakiest of these: all three
 // are really about funds, and funds get their own treatment in phase 4. Expect
 // them to move.
+//
+// Covert ops reads as a ladder rather than a set of unrelated grants: one unit
+// buys somewhere to keep a building off their map, two makes putting it there
+// free of an action, three makes a quiet entry untraceable. Quiet Protocol sits
+// at two deliberately — at one it would land on the same threshold that grants
+// the first slot, and "hiding costs you an action" would never be true of any
+// reachable board.
 // The capability tree is gone, array and all. It was a shopping list of
 // permanent upgrades the player forgot existed, and everything it did now comes
 // from either plant — bought and kept, which is what that was always good at —
@@ -148,7 +155,7 @@ window.UNLOCKS = {
   long_soak:      { alloc: 'dev',    units: 2 },
   market_maker:   { alloc: 'dev',    units: 2 },
   total_embed:    { alloc: 'dev',    units: 3 },
-  quiet_protocol: { alloc: 'covert', units: 1 },
+  quiet_protocol: { alloc: 'covert', units: 2 },
   nothing_to_see: { alloc: 'covert', units: 3 },
   survey:         { alloc: 'intel',  units: 1 },
   pontoon:        { alloc: 'intel',  units: 2 },

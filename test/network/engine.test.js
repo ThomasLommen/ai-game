@@ -1690,17 +1690,23 @@ const ALLOC_FOR = { parallel_ops: ['ap', 1], false_floor: ['covert', 1] };
 function grant(window, d, ...ids) {
   const s = d.state;
   s.allocLive = s.allocLive || {};
+  s.alloc = s.alloc || {};
   ids.forEach(id => {
     const U = window.UNLOCKS[id];
     const [target, units] = U ? [U.alloc, U.units] : (ALLOC_FOR[id] || []);
     if (!target) throw new Error('no allocation grants ' + id);
     const A = window.ALLOC.find(a => a.id === target);
-    s.allocLive[target] = Math.max(s.allocLive[target] || 0, A.per * units);
+    const want = Math.max(s.allocLive[target] || 0, A.per * units);
+    // both figures, not just the live one: the dial is what the ramp walks
+    // toward, so setting only the live figure meant the first endTurn in a test
+    // quietly took the allocation away again
+    s.allocLive[target] = want;
+    s.alloc[target] = Math.max(s.alloc[target] || 0, want);
   });
   return s.allocLive;
 }
-// and the reverse: nothing running at all
-function ungrant(d) { d.state.allocLive = {}; return d.state.allocLive; }
+// and the reverse: nothing running at all, and nothing on its way either
+function ungrant(d) { d.state.allocLive = {}; d.state.alloc = {}; return d.state.allocLive; }
 
 function wake(d, id) {
   setLadderStage(d, STAGE_OF[id]);
@@ -3020,6 +3026,7 @@ test('hide: a hidden building is one they will not walk onto', () => {
   hunted(d, window);
   for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  grant(window, d, 'quiet_protocol');   // covert ops running: somewhere to keep it
 
   const target = d.huntNext();
   assert.ok(target, 'they have somewhere to go');
@@ -3035,7 +3042,7 @@ test('hide: a hidden building is one they will not walk onto', () => {
     'you could still cut it instead, and that choice is the point');
 });
 
-test('hide: you pay for it out of the cover that was slowing them down', () => {
+test('hide: it occupies a covert slot and does not drain the cover slowing them down', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -3045,52 +3052,47 @@ test('hide: you pay for it out of the cover that was slowing them down', () => {
   s.hosts.filter(h => h.role === 'stealth' && !h.owned).slice(0, 4).forEach(h => { h.owned = true; });
   assert.equal(d.ladderStage(), 0, 'nobody has noticed you yet');
   s.heat = 0;
+  grant(window, d, 'quiet_protocol');
+
+  const slots = d.hideSlots();
+  assert.ok(slots > 0, 'covert ops gives somewhere to keep things');
   const coverBefore = d.cover();
   const cadenceBefore = d.huntCadence();
   const target = d.huntNext();
   s.ap = 9;
   d.actHide(target);
 
+  // this is the whole change: your stealth is not also your budget for stealth
+  assert.equal(d.cover(), coverBefore, 'hiding costs no cover at all now');
   assert.equal(d.rawCover(), coverBefore, 'the stealth holdings are untouched');
-  assert.equal(d.cover(), coverBefore - window.HUNT.hideCover, 'but the cover is spent');
+  assert.equal(d.hideSlotsFree(), slots - 1, 'it took a slot instead');
   assert.ok(d.huntCadence() <= cadenceBefore,
     `hiding must not also slow them: ${cadenceBefore} before, ${d.huntCadence()} after`);
-  assert.equal(d.hiddenCover(), window.HUNT.hideCover, 'and the upkeep is named');
 
-  // and it is an upkeep, not a payment: it is still spent next turn
+  // and the slot stays occupied, rather than being re-charged every turn
   d.actEndTurn();
   assert.equal(d.ladderStage() >= 3, false, 'nobody took the trick away mid-test');
   assert.equal(d.isHidden(target), true, 'still hidden');
-  assert.equal(d.cover(), d.rawCover() - window.HUNT.hideCover, 'still paying for it');
+  assert.equal(d.hideSlotsFree(), slots - 1, 'and still holding the one slot');
+  assert.equal(d.cover(), d.rawCover(), 'never at the expense of cover');
 });
 
-test('hide: what you cannot pay for comes back onto their map', () => {
+test('hide: what you no longer have room for comes back onto their map', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
-  // Put the cover on the board rather than hoping the generator rolled enough
-  // routers — how much there is decides how many things can be hidden at once,
-  // and on a thin board that came out as one. These are retyped rather than
-  // given free cover so they still vanish with the rest below, which is what
-  // the second half of the test is about.
-  s.hosts.filter(h => h.role !== 'stealth' && !h.origin).slice(0, 6)
-    .forEach(h => { h.type = 'iot'; h.role = 'stealth'; });
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
-  // Own what the hunt is standing next to as well. canHide refuses anything
-  // that is not yours, so owning only the routers left it down to whether the
-  // generator happened to put two of them in reach of the hunt — and the claim
-  // here is about upkeep dropping what you cannot pay for, not about that.
   d.huntFrontier().forEach(id => {
     const b = d.buildingById(id);
     if (b) d.hostsIn(b).forEach(h => { h.owned = true; });
   });
+  // three slots' worth of covert ops, so there is room for more than one
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+  s.allocLive.covert = cov.per * 3;
+  assert.equal(d.hideSlots(), 3, 'three slots to fill');
+
   s.ap = 99;
-  // Anything of yours can be hidden — canHide never asked for the hunt's own
-  // frontier, and iterating that instead made this a test of whether the hunt
-  // happened to spawn beside two of your buildings. On a board where it has one
-  // neighbour, the frontier emptied after the first hide and the claim failed
-  // with plenty of cover still in hand.
   const mine = () => s.buildings.filter(b => d.buildingHeld(b)).map(b => b.id);
   const put = [];
   for (let i = 0; i < 6; i++) {
@@ -3099,16 +3101,16 @@ test('hide: what you cannot pay for comes back onto their map', () => {
     d.actHide(t);
     put.push(t);
   }
-  assert.ok(put.length >= 2,
-    `you can hold more than one at a time (${put.length}; cover ${d.rawCover()}, `
-    + `each costs ${d.hideMarginalCost()})`);
-  assert.ok(d.hiddenCover() <= d.rawCover(), 'and never more than you can pay for');
+  assert.equal(put.length, 3, `the slots are the limit, and nothing else is (${put.length})`);
+  assert.equal(d.hideSlotsFree(), 0, 'all of them occupied');
 
-  // lose the stealth holdings that were paying for it
-  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = false; });
+  // pull the compute back out of covert ops: the slots go with it
+  s.allocLive.covert = cov.per;
+  assert.equal(d.hideSlots(), 1, 'down to one slot');
   const lost = d.hideUpkeep();
-  assert.ok(lost.length > 0, 'the wall came down with the cover that held it');
-  assert.ok(d.hiddenCover() <= d.rawCover(), 'down to what you can still afford');
+  assert.equal(lost.length, 2, 'the two it can no longer keep came down');
+  assert.equal(d.hidden().length, 1, 'and the one it can still hold stayed up');
+  assert.ok(d.hidden().length <= d.hideSlots(), 'never more hidden than there is room for');
 });
 
 test('hide: Quiet Hours takes the whole trick away', () => {
@@ -3117,6 +3119,7 @@ test('hide: Quiet Hours takes the whole trick away', () => {
   const s = d.state;
   hunted(d, window);
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  grant(window, d, 'quiet_protocol');
   s.ap = 99;
   const t = d.huntFrontier().find(id => d.canHide(id));
   d.actHide(t);
@@ -3127,6 +3130,8 @@ test('hide: Quiet Hours takes the whole trick away', () => {
   assert.equal(d.canHide(d.huntFrontier()[0]), false, 'you cannot put up another');
   assert.deepEqual(d.hideUpkeep().length, 1, 'and the one you had comes down');
   assert.equal(d.hidden().length, 0, 'nothing is hidden from them any more');
+  // the slots are still there — it is the trick that was taken, not the capacity
+  assert.ok(d.hideSlots() > 0, 'covert ops is still running, it is just no use here');
 });
 
 test('hide: it survives a save and does not leak into the next city', () => {
@@ -3135,6 +3140,7 @@ test('hide: it survives a save and does not leak into the next city', () => {
   const s = d.state;
   hunted(d, window);
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  grant(window, d, 'quiet_protocol');
   s.ap = 9;
   const t = d.huntFrontier().find(id => d.canHide(id));
   d.actHide(t);
@@ -3146,11 +3152,6 @@ test('hide: it survives a save and does not leak into the next city', () => {
   d.unpackCity(d.EMPTY_CITY ? d.EMPTY_CITY() : { buildings: [], hosts: [], links: [], adjacency: {} });
   assert.equal(d.hidden().length, 0, 'and it does not follow you across the border');
 });
-
-// --- and it follows ------------------------------------------------------
-// Walking out of a city shook it off completely and for free, so the only
-// permanent threat in the game was optional: contain it badly, fold the city
-// in, and it was gone.
 
 function walkOn(d, window) {
   // finish here and step into the next city that is not already settled.
@@ -6766,7 +6767,7 @@ test('caps: Standing Army pays a retainer either way, and funds a real war-open 
   assert.equal(s.res.funds, 0, 'and it actually spent the going rate, not given free');
 });
 
-test('caps: Quiet Protocol makes hiding cost no action', () => {
+test('caps: Quiet Protocol makes hiding cost no action, one rung above the first slot', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -6777,11 +6778,15 @@ test('caps: Quiet Protocol makes hiding cost no action', () => {
   assert.ok(target, 'they have somewhere to go');
   s.card = null;
 
-  ungrant(d);
+  // one unit of covert ops: somewhere to keep it, but no refund
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+  s.allocLive.covert = cov.per;
+  assert.equal(d.unlocked('quiet_protocol'), false, 'not deep enough for the refund yet');
+  assert.ok(d.hideSlots() > 0, 'but there is a slot to put it in');
   s.ap = d.maxAP();
   const apBefore = s.ap;
   assert.equal(d.actHide(target), true);
-  assert.equal(s.ap, apBefore - d.apCost('lielow'), 'without the capability, hiding costs the action');
+  assert.equal(s.ap, apBefore - d.apCost('lielow'), 'so hiding costs the action');
 
   d.actUnhide(target);
   grant(window, d, 'quiet_protocol');
@@ -7878,4 +7883,69 @@ test('funds: the things insight used to buy are priced in funds now', () => {
   // and it refuses when the funds are not there, rather than looking elsewhere
   s.res.funds = 0;
   assert.equal(d.actSpin(), false, 'no funds, no spin');
+});
+
+// --- cover stopped being a currency ---------------------------------------
+// It was three things at once: the gate on a quiet entry, what slowed the
+// response down, and the budget you spent to keep buildings off their map. The
+// third one ate the other two — holding two things hidden stopped you slipping
+// into a third.
+
+test('covert: cover is never spent, only read', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  grant(window, d, 'quiet_protocol');
+  s.ap = 99;
+
+  const before = d.cover();
+  const t = s.buildings.filter(b => d.buildingHeld(b)).map(b => b.id).find(id => d.canHide(id));
+  assert.ok(t, 'something of yours can be hidden');
+  d.actHide(t);
+  assert.equal(d.cover(), before, 'hiding took no cover');
+  assert.equal(d.cover(), d.rawCover(), 'and there is no longer a gap between the two');
+  d.actUnhide(t);
+  assert.equal(d.cover(), before, 'nor did giving it back hand any over');
+});
+
+test('covert: the dial is what decides how many things can be hidden at once', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+
+  ungrant(d);
+  assert.equal(d.hideSlots(), 0, 'no covert ops, nowhere to keep anything');
+  for (let n = 1; n <= 3; n++) {
+    s.allocLive.covert = cov.per * n;
+    assert.equal(d.hideSlots(), n, `${n} units of covert ops is ${n} slots`);
+  }
+  // routers are still worth holding, but for cover rather than for slots
+  const slots = d.hideSlots();
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  assert.equal(d.hideSlots(), slots, 'stealth holdings do not add slots');
+  assert.ok(d.rawCover() > 1, 'they add cover, which is what they are for');
+});
+
+test('covert: with no covert ops running, hiding is not on offer at all', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
+  ungrant(d);
+  s.ap = 99;
+
+  const held = s.buildings.filter(b => d.buildingHeld(b)).map(b => b.id);
+  assert.ok(held.length, 'you hold something');
+  assert.equal(held.some(id => d.canHide(id)), false,
+    'however much cover you have, there is nowhere to put anything');
+  // and the panel says why rather than going quiet
+  const touching = held.find(id => (s.adjacency[id] || []).some(n => d.huntHolds(n)));
+  if (touching) {
+    assert.ok(/covert ops/.test(d.hidePanel(d.buildingById(touching))),
+      'the button names what is missing');
+  }
 });

@@ -1372,16 +1372,19 @@
       + capEffect('cover', 0)
       + (has('clean_room') ? 2 : 0);
   }
-  // Cover held down keeping buildings off the response's map. It is spent: it
-  // does not slow them down, it does not open a quiet door, it does nothing but
-  // hold the hide. That is the trade the stealth answer is made of.
-  // Quiet Protocol's first two hidden buildings hold themselves down for
-  // free — everything past that still costs cover, same as ever.
-  function hiddenCover() {
-    const free = capEffect('freeHideSlots', 0);
-    return Math.max(0, hidden().length - free) * window.HUNT.hideCover;
-  }
-  function cover() { return Math.max(0, rawCover() - hiddenCover()); }
+  // Cover is not spent any more. It gates a quiet entry and it slows the
+  // response down, and that is all it does — hiding used to eat it, which meant
+  // the same number was both your stealth and your budget for stealth, and
+  // holding two buildings off their map quietly stopped you slipping into a
+  // third.
+  function cover() { return rawCover(); }
+
+  // How many buildings can be kept off their map at once. Capacity, not
+  // currency: covert ops decides the number of slots, un-hiding gives one back,
+  // and nothing is drained while they are occupied.
+  function hideSlots() { return capEffect('freeHideSlots', 0); }
+  function hideSlotsFree() { return Math.max(0, hideSlots() - hidden().length); }
+
   function stageFor(count) {
     let s = window.STAGES[0];
     for (const st of window.STAGES) if (count >= st.min) s = st;
@@ -1976,21 +1979,13 @@
   // walk, and the moment your cover falls the wall comes down.
   function hidden() { return state.hidden || (state.hidden = []); }
   function isHidden(bid) { return hidden().indexOf(bid) !== -1; }
-  function hideRoom() { return rawCover() - hiddenCover(); }
-  // What hiding one more would actually cost — zero, while a free slot from
-  // Quiet Protocol is still open, hideCover otherwise. canHide checks this
-  // rather than hideRoom() directly, or a free slot would still demand spare
-  // cover it is not supposed to need.
-  function hideMarginalCost() {
-    return hidden().length < capEffect('freeHideSlots', 0) ? 0 : window.HUNT.hideCover;
-  }
   function canHide(bid) {
     if (!huntOn() || state.card || state.over) return false;
     if (isHidden(bid) || huntHolds(bid) || rivalHolds(bid)) return false;
     const b = buildingById(bid);
     if (!b || !buildingHeld(b)) return false;         // only what is yours
     if (ladderStage() >= 3) return false;          // Public watches the quiet
-    return hideRoom() >= hideMarginalCost() && canAfford('lielow');
+    return hideSlotsFree() > 0 && canAfford('lielow');
   }
   function actHide(bid) {
     if (!canHide(bid)) return false;
@@ -2032,7 +2027,8 @@
         lost.push(id);
         return false;
       });
-      while (hidden().length && hiddenCover() > rawCover()) lost.push(state.hidden.pop());
+      // pulling compute out of covert ops takes the slots with it
+      while (hidden().length > hideSlots()) lost.push(state.hidden.pop());
     }
     if (lost.length) {
       pushLog(lost.length === 1
@@ -6748,7 +6744,7 @@
     const hid = hidden().length;
     return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
       <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
-      ${hid ? `<p class="hb-hid">${hid} hidden from them, holding down ${hiddenCover()} cover.</p>` : ''}
+      ${hid ? `<p class="hb-hid">${hid} of ${hideSlots()} covert slots in use.</p>` : ''}
       ${nx ? '<p class="hb-hint">Cut a red street and it closes for you too. Hide a building and it does not.</p>' : ''}
     </div>`;
   }
@@ -6762,21 +6758,19 @@
     if (isHidden(b.id)) {
       return `<button class="act-btn hiding" data-act="unhide" data-bid="${b.id}">
         <span class="ab-name">stop hiding it</span>
-        <span class="ab-sub">${chip('cover', 'frees ' + H.hideCover + ' cover')}${chip('cost none', 'back on their map')}</span>
+        <span class="ab-sub">${chip('cover', 'frees a slot')}${chip('cost none', 'back on their map')}</span>
       </button>`;
     }
     // only worth offering where it does something: on the edge of their reach
     const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
     if (!touching) return '';
     const able = canHide(b.id);
-    const marginal = hideMarginalCost();
     return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
-        : able ? `${chip('cover', 'they cannot see it')}${marginal
-            ? chip('cost cover', '&minus;' + marginal + ' cover a turn')
-            : chip('cost none', 'free — Quiet Protocol')}`
-        : hideRoom() < marginal ? `needs ${marginal} cover to hold, you have ${Math.max(0, hideRoom())}`
+        : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
+        : !hideSlots() ? 'needs covert ops running — nowhere to keep it'
+        : !hideSlotsFree() ? `all ${hideSlots()} covert slots are occupied`
         : 'needs an action'}</span>
     </button>`;
   }
@@ -7400,7 +7394,7 @@
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
-    swarmFrontStep, hideMarginalCost, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
+    swarmFrontStep, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
@@ -7408,7 +7402,7 @@
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
-    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideRoom, hiddenCover, rawCover,
+    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCover,
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,

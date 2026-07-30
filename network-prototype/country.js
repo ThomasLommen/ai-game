@@ -609,7 +609,6 @@ window.HUNT = {
   // against a cover that runs six to twelve means two or three at a time, and
   // the moment your cover falls the ones you cannot pay for come back on the
   // map. Quiet Hours, when it wakes, takes the whole trick away.
-  hideCover: 3,
   // Walking out of a city used to shake it off completely and for free, which
   // made the one permanent threat in the game optional: contain it badly, fold
   // the city in, and it was simply gone. Now leaving buys a head start rather
