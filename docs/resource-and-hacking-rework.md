@@ -261,14 +261,14 @@ What the audit did find is that the deck had nothing to say about anything the
 rework added. Public standing is now wired: fifteen choices move it in both
 directions, and three cards exist only at particular standings.
 
-Still open, in priority order:
+Since closed: the grid and the rig are on the event context and have six cards
+between them — a substation quietly still live, a heatwave shedding your block,
+renting spare capacity to somebody who does not know whose rack it is, racks
+that are furniture until you can power them, something loud that people have
+started to time, and the aftermath of being traced.
 
-1. **Cards about the grid.** Electricity and allocation are the core loop and the
-   deck is silent on them. A substation offered cheap with strings; a heatwave
-   capping the ceiling; an offer to run somebody else's workload on your spare
-   TFLOPS. None of these need new machinery.
-2. **Cards about the rig and the race.** Being caught mid-hack is frequent and
-   never remarked on.
+Two effects exist for them: a card can grant headroom permanently or take it
+away for a while, and electricity can never be cut to nothing.
 
 `doors`, `forced`, `region`, `conquest`, `reach` and `regionHeat` are on the
 event context and used by no card. That is fine — not every key needs one.
