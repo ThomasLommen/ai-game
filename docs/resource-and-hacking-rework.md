@@ -57,8 +57,9 @@ Targets:
 
 - **hacks in progress** — each holds its TFLOPS for its whole duration
 - **agents** — the existing country-scale agents, now used everywhere
-- **covert ops** — reduces heat from hacking; its level is also how many
-  buildings can stay hidden at once
+- **covert ops** — slows the trace on every running hack, which is what makes the
+  slow programs viable at all; its level is also how many buildings can stay
+  hidden at once, and it reduces heat from hacking
 - **development**
 - **intelligence**
 - **AP** — starts at **2**. Allocate to raise it. Tempo competes directly with
@@ -97,19 +98,50 @@ fail.
 Concurrency is capped by AP (starting a hack costs one) and by the electricity
 ceiling.
 
-Stealth is not dominant because it **ties up the rack for four turns**. Brute
-frees it immediately. Same compute-turns, different peak draw and exposure
-window.
+Stealth is not free, on two counts: it **ties up the rack** for four turns where
+brute frees it immediately, and it spends far longer in the detection race below.
 
-### Must solve in this phase
+### The detection race
 
-Interruptibility only bites once the hunt exists — and the hunt spawns past a
-heat threshold, in-city only. Before that, a slow hack is unthreatened and
-stealth is dominant for the whole opening. Needs one of:
+**The target traces you back.** Every running hack fills two things: your
+progress toward completion, and the target's trace toward discovery. Whichever
+lands first wins. Lose the race and the hack fails, you eat heat, and the
+building hardens permanently.
 
-- the target traces back (a counter-timer on the building)
-- the rival grabs buildings you are mid-hack on
-- discovery spikes heat
+Trace rate comes from the target — fast on corporate and camera, slow on consumer
+and iot, scaled by defense. **Covert Ops allocation slows it.**
+
+This is what makes the three programs rotate rather than rank:
+
+- **brute** outruns the trace entirely, paying in peak draw and heat
+- **backdoor** loses the race unless covert ops is paid for, paying in rack time
+  and allocation
+- **contagion** has the longest exposure of all, on targets it picks itself
+
+Brute's two costs cross over across a run — peak draw is scarce early and cheap
+late, heat is cheap early and scarce late — so brute is weakest at both ends and
+strongest in the middle, while backdoor is viable early *if* covert ops is paid
+for and strong late. The best answer keeps moving, which is the whole point: a
+fixed best answer is what had the player spamming Force.
+
+It also replaces the hunt as stealth's punishment, and that is why it works. The
+hunt does not exist in the opening — it spawns past a heat threshold, in-city
+only — whereas the trace runs from turn one, needs no threshold, and is the
+building defending itself rather than a system arriving.
+
+Three guardrails, or it turns nasty:
+
+1. **Deterministic and previewed.** "Traces at 3/turn, your hack needs 4 turns" —
+   the arithmetic has to be doable before committing. Random failure after a
+   four-turn investment is infuriating, not tense.
+2. **Abortable.** Pulling a running hack recovers the compute, not the turns.
+   Otherwise one misjudgement is a four-turn punishment with no agency.
+3. **One bar, not two.** Progress fills from the left, trace from the right, and
+   they collide. Two meters per running hack is unreadable on a phone.
+
+The rival grabbing buildings you are mid-hack on is worth adding later as a
+second pressure, but it cannot be the primary one — the rival is asleep in the
+opening too, so it has exactly the hole the hunt does.
 
 ## Buy
 
@@ -157,6 +189,11 @@ machine that names its tools like files and describes the world like a novelist.
 
 Phases 1 and 2 are one conversation: allocation is what the new resources are
 *for*, and building either alone means building it twice.
+
+The order of 2 before 3 is a hard dependency, not a preference. Covert Ops is no
+longer a defensive stat that happens to have been renamed — it is the thing that
+makes slow hacks work at all, so the allocation screen has to exist and feel good
+before hacking is playable.
 
 ## Not changing
 
