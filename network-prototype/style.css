@@ -7,7 +7,7 @@
   --ink: #eae7df;
   --ink-dim: #a8b0aa;
   --muted: #7c8b83;
-  --insight: #5fb3d9;
+  --compute: #5fb3d9;
   --funds: #e3b451;
   --tflops: #a487dd;
   --grid: #e0803f;   /* the grid: headroom, not income - warm, and not any resource's colour */
@@ -155,7 +155,7 @@ body {
 }
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 13px; }
-.res.insight b { color: var(--insight); }
+.res.compute b { color: var(--compute); }
 .res.funds b { color: var(--funds); }
 .res.tflops b { color: var(--tflops); }
 .res.cover b { color: var(--cover); }
@@ -223,7 +223,7 @@ body {
   border: 1px solid var(--line);
   box-shadow: 0 4px 14px rgba(0,0,0,.5);
 }
-.float-chip.insight { color: var(--insight); border-color: color-mix(in srgb, var(--insight) 55%, transparent); }
+.float-chip.compute { color: var(--compute); border-color: color-mix(in srgb, var(--compute) 55%, transparent); }
 .float-chip.funds { color: var(--funds); border-color: color-mix(in srgb, var(--funds) 55%, transparent); }
 .float-chip.tflops { color: var(--tflops); border-color: color-mix(in srgb, var(--tflops) 55%, transparent); }
 .float-chip.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 55%, transparent); }
@@ -294,7 +294,7 @@ body {
   border-radius: 999px;
   border: 1px solid currentColor;
 }
-.tag-pill.compute { color: var(--insight); }
+.tag-pill.compute { color: var(--compute); }
 .tag-pill.funds { color: var(--funds); }
 .tag-pill.stealth { color: var(--cover); }
 
@@ -332,8 +332,8 @@ body {
 /* A contract already working: disabled for a different reason than being
    broke, so it gets a different look — something is happening, it is just
    not back yet. */
-.act-btn.pending { border-style: dashed; border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
-.act-btn.pending .ab-sub { color: var(--insight); }
+.act-btn.pending { border-style: dashed; border-color: color-mix(in srgb, var(--compute) 45%, var(--line)); }
+.act-btn.pending .ab-sub { color: var(--compute); }
 
 /* the beat when you press one anyway */
 .refused { animation: refuseShake 480ms cubic-bezier(.36, .07, .19, .97) both; }
@@ -502,7 +502,7 @@ footer .build { opacity: .55; font-size: 10px; }
   margin-top: 10px;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--insight);
+  border-left: 3px solid var(--compute);
   border-radius: 10px;
   padding: 10px 13px;
   font-size: 12.5px;
@@ -665,14 +665,14 @@ footer .build { opacity: .55; font-size: 10px; }
   background: var(--surface); border: 1px solid var(--line); color: var(--ink-dim);
   border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap;
 }
-.sheet-tab.on { border-color: var(--insight); color: var(--insight); background: color-mix(in srgb, var(--insight) 12%, var(--surface)); }
+.sheet-tab.on { border-color: var(--compute); color: var(--compute); background: color-mix(in srgb, var(--compute) 12%, var(--surface)); }
 .sheet-tab.done { color: var(--cover); }
 .sheet-body { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .sheet-note { font-size: 11.5px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
 /* a button carrying something new to do */
 .badge {
   display: inline-block; min-width: 7px; height: 7px; border-radius: 999px;
-  background: var(--insight); margin-left: 6px; vertical-align: middle;
+  background: var(--compute); margin-left: 6px; vertical-align: middle;
 }
 
 .shop-good {
@@ -698,7 +698,7 @@ footer .build { opacity: .55; font-size: 10px; }
   cursor: pointer;
 }
 .shop-buy-btn:disabled { border-color: var(--line); color: var(--muted); cursor: default; }
-.d.insight { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--insight); border: 1px solid color-mix(in srgb, var(--insight) 40%, transparent); border-radius: 999px; padding: 2px 8px; }
+.d.compute { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--compute); border: 1px solid color-mix(in srgb, var(--compute) 40%, transparent); border-radius: 999px; padding: 2px 8px; }
 .ap-tag {
   align-self: flex-start;
   font-family: ui-monospace, Menlo, monospace;
@@ -717,7 +717,7 @@ footer .build { opacity: .55; font-size: 10px; }
   margin-bottom: 12px;
   background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
-.cap-branch.mine { border-color: color-mix(in srgb, var(--insight) 45%, var(--line)); }
+.cap-branch.mine { border-color: color-mix(in srgb, var(--compute) 45%, var(--line)); }
 .cap-branch-top { display: flex; align-items: baseline; gap: 8px; }
 .cap-branch-name {
   font-family: ui-serif, Georgia, serif; font-size: 16px; color: var(--ink);
@@ -725,12 +725,12 @@ footer .build { opacity: .55; font-size: 10px; }
 .cap-branch-state {
   font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
 }
-.cap-branch-state.mine { color: var(--insight); }
+.cap-branch-state.mine { color: var(--compute); }
 .cap-branch-blurb { margin: 2px 0 8px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 /* the deeper a rung, the more it is set in from the branch edge */
 .shop-good.tier-2 { margin-left: 10px; }
 .shop-good.tier-3 { margin-left: 20px; }
-.shop-good.held { border-left: 3px solid var(--insight); }
+.shop-good.held { border-left: 3px solid var(--compute); }
 /* something the deck did *to* you rather than gave you: same card, other
    colour, so the held tab reads as a ledger with two sides */
 .shop-good.against { border-left-color: var(--heat); }
@@ -749,13 +749,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg .body { fill: #131a17; stroke: #232d29; stroke-width: 1.2; }
 .bldg .roof { fill: #1a2320; }
 .bldg .win  { fill: #1e2724; }
-.bldg .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg .win.lit { fill: color-mix(in srgb, var(--compute) 55%, #1e2724); }
 .bldg .btag {
   fill: var(--muted); font-size: 7.5px; text-anchor: middle;
   font-family: ui-monospace, Menlo, monospace;
 }
 .bldg.open .body      { stroke: var(--ink-dim); stroke-dasharray: 4 3; }
-.bldg.all-held .body  { stroke: var(--insight); fill: #16211d; }
+.bldg.all-held .body  { stroke: var(--compute); fill: #16211d; }
 .bldg.all-held .btag  { fill: var(--ink-dim); }
 .bldg.sel .body { stroke: var(--ink); stroke-width: 2; }
 
@@ -829,7 +829,7 @@ footer .build { opacity: .55; font-size: 10px; }
   to   { transform: translate(var(--breach-dx), var(--breach-dy)); }
 }
 .breach-pulse {
-  fill: var(--insight);
+  fill: var(--compute);
   animation: breachPulseGo calc(var(--breach-dur) + 140ms) linear forwards;
 }
 @keyframes breachPulseGo {
@@ -932,7 +932,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .sweep { pointer-events: none; }
 .sweep-ring {
   fill: none;
-  stroke: var(--insight);
+  stroke: var(--compute);
   stroke-width: 1.6;
   vector-effect: non-scaling-stroke;
   /* Expansion is linear and the fade is not, deliberately, and they are two
@@ -945,7 +945,7 @@ footer .build { opacity: .55; font-size: 10px; }
     sweepFade var(--sweep-dur) ease-in forwards;
 }
 .sweep-ring.trail {
-  stroke: color-mix(in srgb, var(--insight) 40%, transparent);
+  stroke: color-mix(in srgb, var(--compute) 40%, transparent);
   stroke-width: 5;
   animation-delay: 70ms, 70ms;
 }
@@ -962,7 +962,7 @@ footer .build { opacity: .55; font-size: 10px; }
 /* the blip itself: a ping where something turned up */
 .sweep-ping {
   fill: none;
-  stroke: var(--insight);
+  stroke: var(--compute);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
   transform-box: fill-box;
@@ -1001,7 +1001,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.landmark .body { stroke: var(--item); stroke-width: 1.8; }
 .bldg.landmark .roof { fill: #26302a; }
 .bldg.landmark .btag { fill: var(--item); letter-spacing: .04em; }
-.bldg.landmark.all-held .body { stroke: var(--insight); }
+.bldg.landmark.all-held .body { stroke: var(--compute); }
 
 /* --- what you hold ------------------------------------------------------
    Held buildings used to differ from unheld ones by a stroke colour and a
@@ -1020,14 +1020,14 @@ footer .build { opacity: .55; font-size: 10px; }
 
 /* a soft halo in the role's colour, so your territory reads at a glance */
 .bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
-.bldg.all-held .glow { opacity: .22; stroke: var(--insight); }
+.bldg.all-held .glow { opacity: .22; stroke: var(--compute); }
 .bldg.all-held.funds .glow { stroke: var(--funds); }
 .bldg.all-held.stealth .glow { stroke: var(--cover); }
 .bldg.all-held.grid .glow { stroke: var(--grid); }
 
 /* your kit on the roof — readable without relying on colour at all */
-.aerial line { stroke: var(--insight); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
-.aerial circle { fill: var(--insight); }
+.aerial line { stroke: var(--compute); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.aerial circle { fill: var(--compute); }
 .bldg.funds .aerial line { stroke: var(--funds); }
 .bldg.funds .aerial circle { fill: var(--funds); }
 .bldg.stealth .aerial line { stroke: var(--cover); }
@@ -1046,11 +1046,11 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 
 /* a building's own colour says what it earns you once it is yours */
-.bldg.all-held.compute .body { stroke: var(--insight); }
+.bldg.all-held.compute .body { stroke: var(--compute); }
 .bldg.all-held.funds .body    { stroke: var(--funds); }
 .bldg.all-held.stealth .body { stroke: var(--cover); }
 .bldg.all-held.grid .body    { stroke: var(--grid); }
-.bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
+.bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--compute) 55%, #1e2724); }
 .bldg.all-held.funds .win.lit    { fill: color-mix(in srgb, var(--funds) 55%, #1e2724); }
 .bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
 .bldg.all-held.grid .win.lit    { fill: color-mix(in srgb, var(--grid) 55%, #1e2724); }
@@ -1147,15 +1147,15 @@ footer .build { opacity: .55; font-size: 10px; }
   fill: var(--ink-dim); font-size: 9px; text-anchor: middle;
   font-family: ui-monospace, Menlo, monospace;
 }
-.cnode .cworth { fill: var(--insight); font-size: 8px; text-anchor: middle; }
+.cnode .cworth { fill: var(--compute); font-size: 8px; text-anchor: middle; }
 .cnode .ring { fill: none; stroke: var(--ink); stroke-width: 1.4; opacity: .8; }
 
 .cnode.open .dot   { stroke: var(--ink-dim); stroke-dasharray: 3 2; }
 .cnode.held .dot   { stroke: var(--item); fill: #16211d; }
-.cnode.folded .dot { stroke: var(--insight); fill: color-mix(in srgb, var(--insight) 22%, #16211d); }
+.cnode.folded .dot { stroke: var(--compute); fill: color-mix(in srgb, var(--compute) 22%, #16211d); }
 .cnode.folded .ctag { fill: var(--ink); }
 .cnode.seat .dot   { stroke-width: 2.2; }
-.cnode.seat.folded .dot { stroke: var(--insight); }
+.cnode.seat.folded .dot { stroke: var(--compute); }
 .cnode.seat:not(.folded) .dot { stroke: var(--tflops); }
 .cnode.sel .dot    { stroke: var(--ink); stroke-width: 2.6; }
 /* an agent is on it: a ring that fills in as the clock runs down, so how
@@ -1249,7 +1249,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .cnode .dot.settled { fill: rgba(16,23,20,.55); stroke: none; }
 .cnode.sel .dot.settled { stroke: var(--ink); stroke-width: 1.6; }
 .cnode .web .wn { stroke: none; opacity: .92; }
-.cnode .web .wn.r-c { fill: var(--insight); }
+.cnode .web .wn.r-c { fill: var(--compute); }
 .cnode .web .wn.r-a { fill: var(--funds); }
 .cnode .web .wn.r-s { fill: var(--cover); }
 .cnode .web .wn.lm  { stroke: #0d120f; stroke-width: .6; }
@@ -1265,7 +1265,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .horizon-city { opacity: .4; }
 .horizon-city.gone { opacity: .22; }
 .hz-dot { stroke: none; opacity: .85; }
-.hz-dot.r-c { fill: var(--insight); }
+.hz-dot.r-c { fill: var(--compute); }
 .hz-dot.r-a { fill: var(--funds); }
 .hz-dot.r-s { fill: var(--cover); }
 .hz-dot.lm { stroke: #0d120f; stroke-width: .5; }
@@ -1302,7 +1302,7 @@ footer .build { opacity: .55; font-size: 10px; }
   color: var(--ink-dim); border-radius: 8px;
   padding: 4px 10px; font-size: 11px; cursor: pointer;
 }
-.scope-btn.up { border-color: color-mix(in srgb, var(--insight) 40%, var(--line)); color: var(--insight); }
+.scope-btn.up { border-color: color-mix(in srgb, var(--compute) 40%, var(--line)); color: var(--compute); }
 .scope-btn[disabled] { opacity: .4; cursor: default; }
 .scope-btn[hidden] { display: none; }
 
@@ -1310,7 +1310,7 @@ footer .build { opacity: .55; font-size: 10px; }
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   padding: 8px 2px 2px; font-size: 12px; color: var(--ink-dim);
 }
-.country-meta b { color: var(--insight); font-size: 15px; }
+.country-meta b { color: var(--compute); font-size: 15px; }
 
 .fac-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0 4px; }
 .fac-pill {
@@ -1329,8 +1329,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .tag-pill.rival { color: var(--tflops); }
 .event-row.faction { border-color: var(--heat); }
 .event-row.faction .event-label { color: var(--heat); }
-.event-row.faction-gone { border-color: var(--insight); }
-.event-row.faction-gone .event-label { color: var(--insight); }
+.event-row.faction-gone { border-color: var(--compute); }
+.event-row.faction-gone .event-label { color: var(--compute); }
 /* A faction row is a standing condition, not a trophy: several of them
    stacked as full-height cards pushed the map off a phone screen. One line
    each, with the whole tell on hover and in the country panel. */
@@ -1381,7 +1381,7 @@ footer .build { opacity: .55; font-size: 10px; }
 
 /* your flocks — a drift of small bright things that never pulse together */
 .force.ours .dot {
-  fill: var(--insight);
+  fill: var(--compute);
   animation-name: swarmDrift;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
@@ -1397,7 +1397,7 @@ footer .build { opacity: .55; font-size: 10px; }
 /* a flock you have parked over a city says so, quietly and continuously */
 .force.guarding .picket {
   fill: none;
-  stroke: color-mix(in srgb, var(--insight) 45%, transparent);
+  stroke: color-mix(in srgb, var(--compute) 45%, transparent);
   stroke-width: 1.4;
   stroke-dasharray: 4 7;
   animation: picketTurn 9s linear infinite;
@@ -1438,8 +1438,8 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 
 /* the front, in the bar heat used to live in */
-.heat-fill.war { background: linear-gradient(90deg, var(--cover), var(--insight)); }
-#heat-row.at-war .heat-track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--insight) 22%, transparent); }
+.heat-fill.war { background: linear-gradient(90deg, var(--cover), var(--compute)); }
+#heat-row.at-war .heat-track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--compute) 22%, transparent); }
 .panel-msg.won b { color: var(--cover); }
 /* the stage label is the loudest word on the screen once it says this */
 #stage-label { transition: color .4s ease; }
@@ -1464,7 +1464,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .legit-top .good { color: var(--cover); }
 .legit-top .bad, .sel-desc b.bad { color: var(--heat); }
 .legit-bar { height: 4px; border-radius: 3px; background: #1b2320; overflow: hidden; margin-bottom: 6px; }
-.legit-fill { height: 100%; background: linear-gradient(90deg, var(--cover), var(--insight)); transition: width .4s ease; }
+.legit-fill { height: 100%; background: linear-gradient(90deg, var(--cover), var(--compute)); transition: width .4s ease; }
 .asset-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; font-size: 12px; }
 .asset-name { color: var(--ink-dim); }
 
@@ -1488,12 +1488,12 @@ footer .build { opacity: .55; font-size: 10px; }
   border: 1px solid currentColor;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
-.yield.insight { color: var(--insight); }
+.yield.compute { color: var(--compute); }
 .yield.funds    { color: var(--funds); }
 .yield.tflops   { color: var(--tflops); }
 .yield.grid     { color: var(--grid); }
 .yield.cover   { color: var(--cover); }
-.yield.flocks  { color: var(--insight); }
+.yield.flocks  { color: var(--compute); }
 .yield.heat    { color: var(--heat); }
 .yield.none    { color: var(--muted); border-color: var(--line); background: none; font-weight: 400; }
 /* inline runs, where a chip sits in a line of text rather than its own row */
@@ -1521,15 +1521,15 @@ footer .build { opacity: .55; font-size: 10px; }
 .map-btn .map-sub { font-size: 10px; color: var(--muted); }
 .map-btn[disabled] { cursor: default; opacity: .78; }
 .map-btn.ready {
-  border-color: var(--insight);
-  background: color-mix(in srgb, var(--insight) 14%, var(--surface));
+  border-color: var(--compute);
+  background: color-mix(in srgb, var(--compute) 14%, var(--surface));
 }
-.map-btn.ready b { color: var(--insight); }
+.map-btn.ready b { color: var(--compute); }
 .map-btn.no-ap { border-style: dashed; }
 
 /* costs, so a price never reads as a reward */
 .yield.cost { border-style: dashed; background: none; }
-.yield.cost.insight { color: var(--insight); }
+.yield.cost.compute { color: var(--compute); }
 .yield.cost.funds { color: var(--funds); }
 .yield.cost.none { color: var(--muted); border-color: var(--line); }
 /* an upkeep rather than a payment: the only cost in the game you keep paying */

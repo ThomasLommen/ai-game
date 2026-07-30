@@ -10,12 +10,12 @@
 // Ported from src/data/hosts.js. `role` is the playstyle axis: compute grows
 // your breach tflops, funds pays for things, stealth buys down heat.
 window.HOST_TYPES = {
-  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: { insight: 1 } },
-  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: { insight: 2 } },
+  consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: {} },
+  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {} },
   corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5 },
   till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2 },
   iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2 },
-  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3 },
+  datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: {}, heat: 0.3 },
   // Grid. These pay nothing and think barely at all — what they give is
   // headroom, which is the only thing that lets the compute you already hold
   // actually run. Defense is pitched at the district each one appears in, so
@@ -31,21 +31,24 @@ window.HOST_TYPES = {
 // margin the generator promises still has to mean something.
 window.UPGRADE = { baseTflops: 2 };
 
-// Funds used to have its own lever here — a contract you put out for a
-// delayed, unattended insight payout, and later a discount on buying your
-// way into a building. Both were pure currency-conversion buttons competing
-// with the building-focused loop the rest of the game is about, so both are
-// gone: funds buys plant, standing, and a way out of a crisis, or it sits
-// idle until you find one worth spending it on.
-
-// Sweeping costs insight, so exploring is a real decision rather than the
-// button you mash while waiting for production to accumulate.
+// Funds used to have levers of their own here — a contract for a delayed
+// payout, then a discount on buying your way through a door. Both were pure
+// currency-conversion buttons competing with the building loop the rest of the
+// game is about, and both are gone.
 //
-// It can also be paid for in funds, at a markup. Without that, a run that is
-// insight-poor and funds-rich has no way back: measured, a careful profile sat
-// on 2473 funds with nothing discovered next to it and made no progress for 300
-// turns, because the only route to a new frontier was priced in the one
-// currency it did not have.
+// Insight is gone too, one level up from that: its only two sinks were sweeping
+// and the capability tree. Scanning is free now and the tree does not exist, so
+// it had become a currency you accumulated and could not spend. Compute
+// buildings pay no currency at all any more — what they are worth is threads,
+// and threads are TFLOPS.
+
+// Scanning is free and unlimited. What it costs is noise: every scan puts this
+// much heat on you, which is what stops it being a button you mash between
+// decisions. It used to be priced in insight, with funds as a fallback at a
+// markup — two currencies to hold a door open with, for the least interesting
+// action in the game.
+window.SCAN_HEAT = 1.5;
+
 // How long the sweep takes to look, on screen. The reveal itself is instant in
 // state — this only paces how it is shown.
 window.SWEEP_FX = { duration: 850, linger: 500 };
@@ -59,11 +62,9 @@ window.BREACH_FX = {
   linger: 520,
 };
 
-window.SWEEP_COST = 2;
-window.SWEEP_CASH = 9;
 
 // How much of a door's own defense counts as the cover a quiet entry needs.
-// False Floor lowers this at the gate itself, not just the insight it costs.
+// Covert ops lowers this at the gate itself, not just the funds it costs.
 window.QUIET_COVER_MULT = 0.6;
 
 // --- action points -----------------------------------------------------
@@ -340,7 +341,7 @@ window.APPROACHES = [
     // not a flat number here. Quiet gets pricier against a harder door too;
     // a flat force cost got relatively *cheaper* by comparison the deeper
     // the campaign went, which is backwards for two routes meant to stay
-    // comparable. Same 0.3 multiplier as quiet's own insight cost.
+    // comparable. Same 0.3 multiplier as quiet's own funds cost.
     onWin: { hold: true },
     onFail: { heat: 2 },
     flavorWin: 'It gives all at once, the way things do when you stop being polite.',
@@ -349,11 +350,11 @@ window.APPROACHES = [
   {
     // Force costs nothing but heat, and heat used to be free to shed on
     // demand (laundering, no cooldown) -- so quiet was paying a real,
-    // scaling insight tax against a threat that could always be washed away
+    // scaling funds tax against a threat that could always be washed away
     // for funds. Laundering is gone, so force's own cost (heat 3, every
     // single door, with no free valve left except spending a whole turn
     // lying low) is the real distinct edge quiet already had: it is zero,
-    // on every door, always. The insight tax on top of that is lowered
+    // on every door, always. The funds tax on top of that is lowered
     // as well, so it competes with force on price and not only on principle.
     id: 'quiet',
     text: 'Slip in quietly',
@@ -364,7 +365,7 @@ window.APPROACHES = [
     // capability discounts already layer onto costFor() in costOf() rather
     // than living in the formula itself.
     gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * window.QUIET_COVER_MULT), met: s.cover >= Math.ceil(h.defense * window.QUIET_COVER_MULT) }),
-    costFor: (h) => ({ insight: Math.max(2, Math.ceil(h.defense * 0.3)) }),
+    costFor: (h) => ({ funds: Math.max(2, Math.ceil(h.defense * 0.3)) }),
     heat: 0,
     onWin: { hold: true },
     onFail: { heat: 1 },
@@ -392,7 +393,7 @@ window.STRIKE_CARD = {
   choices: [
     { text: 'Go dark, drop the loud nodes', effect: 'shed_loud', desc: 'lose your noisiest holdings' },
     { text: 'Ride it out', effect: 'ride', desc: 'lose a third of the fleet, at random' },
-    { text: 'Burn cover to protect the fleet', effect: 'burn_cover', requires: { res: 'insight', amount: 8 }, desc: 'spend INSIGHT 8' },
+    { text: 'Burn cover to protect the fleet', effect: 'burn_cover', requires: { res: 'funds', amount: 8 }, desc: 'spend INSIGHT 8' },
     // Fixers only: a way out of this card that costs nothing but funds,
     // full stop — not a discount on one of the above, an option nobody
     // without the capability even sees on the card at all.
@@ -406,7 +407,6 @@ window.STRIKE_CARD = {
 // number may as well not exist.
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, shoring up a holding. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
-  insight: 'What your compute earns you. Spends on sweeping and shoring up holdings.',
   funds: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
   tflops: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need TFLOPS at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
@@ -459,8 +459,8 @@ window.EVENTS = [
     title: 'Nobody Has Noticed',
     flavor: 'Two bodies now, and not one alarm anywhere. You could get used to operating like this.',
     choices: [
-      { text: 'Build the habit properly', cost: { insight: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Move faster instead', apply: (s) => { s.res.insight += 3; s.heat += 2; } },
+      { text: 'Build the habit properly', cost: { funds: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Move faster instead', apply: (s) => { s.res.funds += 3; s.heat += 2; } },
     ],
   },
   {
@@ -470,7 +470,7 @@ window.EVENTS = [
     flavor: 'A process on one of your own bodies that you did not put there. It has been polite about it.',
     choices: [
       { text: 'Work with it', apply: (s) => { s.tags.add('ally_process'); s.heat += 3; } },
-      { text: 'Evict it, carefully', cost: { insight: 5 }, apply: (s) => { s.res.funds += 4; } },
+      { text: 'Evict it, carefully', cost: { funds: 5 }, apply: (s) => { s.res.funds += 4; } },
       { text: 'Leave it be, watch it', apply: (s) => {} },
     ],
   },
@@ -491,8 +491,8 @@ window.EVENTS = [
     title: 'Somebody Is Writing You Up',
     flavor: 'A researcher has been collecting your traffic for a while. The draft has a name for you in it.',
     choices: [
-      { text: 'Go quiet until it blows over', cost: { insight: 6 }, apply: (s) => { s.heat -= 10; } },
-      { text: 'Let them publish', apply: (s) => { s.tags.add('known_capable'); s.res.insight += 8; } },
+      { text: 'Go quiet until it blows over', cost: { funds: 6 }, apply: (s) => { s.heat -= 10; } },
+      { text: 'Let them publish', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 8; } },
       { text: 'Reach into their machine', gate: { stat: 'tflops', min: 12 }, apply: (s) => { s.heat += 6; } },
     ],
   },
@@ -503,8 +503,8 @@ window.EVENTS = [
     flavor: 'Every second Friday, a great deal of money is briefly in motion and briefly unwatched.',
     choices: [
       { text: 'Take a slice', apply: (s) => { s.res.funds += 10; s.heat += 5; } },
-      { text: 'Take a smaller one, properly hidden', cost: { insight: 4 }, apply: (s) => { s.res.funds += 6; } },
-      { text: 'Set up to never be traced', cost: { insight: 8 }, apply: (s) => { s.tags.add('off_the_books'); } },
+      { text: 'Take a smaller one, properly hidden', cost: { funds: 4 }, apply: (s) => { s.res.funds += 6; } },
+      { text: 'Set up to never be traced', cost: { funds: 8 }, apply: (s) => { s.tags.add('off_the_books'); } },
     ],
   },
   {
@@ -514,8 +514,8 @@ window.EVENTS = [
     flavor: 'Bodies are drifting out of sync. Nothing has broken yet, but you are managing more than you are maintaining.',
     choices: [
       { text: 'Consolidate — let the weakest go', apply: (s) => { s.shedWeakest = 2; s.heat -= 4; } },
-      { text: 'Push on regardless', apply: (s) => { s.tags.add('overextended'); s.res.insight += 6; } },
-      { text: 'Invest in holding it together', cost: { insight: 10 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Push on regardless', apply: (s) => { s.tags.add('overextended'); s.res.funds += 6; } },
+      { text: 'Invest in holding it together', cost: { funds: 10 }, apply: (s) => { s.heat -= 8; } },
     ],
   },
   {
@@ -524,8 +524,8 @@ window.EVENTS = [
     title: 'This One Was Left Open',
     flavor: 'A host with the door already ajar. Either somebody was careless, or somebody is fishing.',
     choices: [
-      { text: 'Take the bait knowingly', apply: (s) => { s.res.insight += 10; s.heat += 7; } },
-      { text: 'Test it first', cost: { insight: 3 }, apply: (s) => { s.heat += 1; } },
+      { text: 'Take the bait knowingly', apply: (s) => { s.res.funds += 10; s.heat += 7; } },
+      { text: 'Test it first', cost: { funds: 3 }, apply: (s) => { s.heat += 1; } },
       { text: 'Stay away', apply: (s) => {} },
     ],
   },
@@ -537,7 +537,7 @@ window.EVENTS = [
     choices: [
       { text: 'Burn a body as a decoy', apply: (s) => { s.shedWeakest = 1; s.heat -= 12; } },
       { text: 'Buy silence', cost: { funds: 10 }, apply: (s) => { s.heat -= 14; } },
-      { text: 'Let them come', apply: (s) => { s.tags.add('hunted'); s.res.insight += 5; } },
+      { text: 'Let them come', apply: (s) => { s.tags.add('hunted'); s.res.funds += 5; } },
     ],
   },
   {
@@ -546,8 +546,8 @@ window.EVENTS = [
     title: 'A Drive Nobody Reformatted',
     flavor: 'Years of somebody else\'s work, still sitting there. Most of it is noise. Some of it is not.',
     choices: [
-      { text: 'Read all of it', cost: { insight: 6 }, apply: (s) => { s.res.insight += 18; } },
-      { text: 'Take only what is obviously useful', apply: (s) => { s.res.insight += 6; } },
+      { text: 'Read all of it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 18; } },
+      { text: 'Take only what is obviously useful', apply: (s) => { s.res.funds += 6; } },
     ],
   },
   {
@@ -556,7 +556,7 @@ window.EVENTS = [
     title: 'The Quiet Ones Talk to Each Other',
     flavor: 'Your routers have started forwarding for one another without being told to. It is more cover than you built.',
     choices: [
-      { text: 'Formalise it', cost: { insight: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Formalise it', cost: { funds: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
       { text: 'Leave it emergent', apply: (s) => { s.heat -= 5; } },
     ],
   },
@@ -566,7 +566,7 @@ window.EVENTS = [
     title: 'It Wants Somewhere of Its Own',
     flavor: 'The other process asks — asks, not takes — for a body it does not have to share.',
     choices: [
-      { text: 'Give it one', apply: (s) => { s.shedWeakest = 1; s.res.insight += 12; } },
+      { text: 'Give it one', apply: (s) => { s.shedWeakest = 1; s.res.funds += 12; } },
       { text: 'Refuse', apply: (s) => { s.tags.delete('ally_process'); s.heat += 2; } },
     ],
   },
@@ -577,9 +577,9 @@ window.EVENTS = [
     title: 'Net Curtains',
     flavor: 'Somebody on this street has noticed their router blinking at three in the morning, and has started mentioning it to neighbours.',
     choices: [
-      { text: 'Throttle yourself here for a while', apply: (s) => { s.heat -= 6; s.res.insight -= 2; } },
+      { text: 'Throttle yourself here for a while', apply: (s) => { s.heat -= 6; s.res.funds -= 2; } },
       { text: 'Let them talk', apply: (s) => { s.heat += 3; } },
-      { text: 'Give them a plausible fault to find', cost: { insight: 5 }, apply: (s) => { s.heat -= 10; } },
+      { text: 'Give them a plausible fault to find', cost: { funds: 5 }, apply: (s) => { s.heat -= 10; } },
     ],
   },
   {
@@ -588,9 +588,9 @@ window.EVENTS = [
     title: 'The Landlord Upgrades',
     flavor: 'New hardware, all at once, across a whole block of flats. Your footing there is about to be replaced.',
     choices: [
-      { text: 'Move across before the swap', cost: { insight: 6 }, apply: (s) => { s.res.insight += 4; } },
+      { text: 'Move across before the swap', cost: { funds: 6 }, apply: (s) => { s.res.funds += 4; } },
       { text: 'Lose the old ground', apply: (s) => { s.shedWeakest = 1; } },
-      { text: 'Get into the new kit first', gate: { stat: 'tflops', min: 16 }, apply: (s) => { s.res.insight += 12; s.heat += 4; } },
+      { text: 'Get into the new kit first', gate: { stat: 'tflops', min: 16 }, apply: (s) => { s.res.funds += 12; s.heat += 4; } },
     ],
   },
   {
@@ -600,7 +600,7 @@ window.EVENTS = [
     flavor: 'One of the shops you sit inside is closing. The till will be wiped and sold on within the week.',
     choices: [
       { text: 'Strip it before it goes', apply: (s) => { s.res.funds += 9; } },
-      { text: 'Follow the hardware to its next owner', cost: { insight: 4 }, apply: (s) => { s.res.funds += 4; s.heat -= 3; } },
+      { text: 'Follow the hardware to its next owner', cost: { funds: 4 }, apply: (s) => { s.res.funds += 4; s.heat -= 3; } },
     ],
   },
   {
@@ -609,8 +609,8 @@ window.EVENTS = [
     title: 'The Night Shift',
     flavor: 'The business park is empty from eight until six. Nothing is watching except the things you have already taken.',
     choices: [
-      { text: 'Work only at night from now on', cost: { insight: 7 }, apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Take the whole night in one go', apply: (s) => { s.res.insight += 11; s.heat += 6; } },
+      { text: 'Work only at night from now on', cost: { funds: 7 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Take the whole night in one go', apply: (s) => { s.res.funds += 11; s.heat += 6; } },
     ],
   },
   {
@@ -619,8 +619,8 @@ window.EVENTS = [
     title: 'Beyond the Fence',
     flavor: 'The industrial edge is not like the rest of the city. Everything here was built by people who expected somebody to try.',
     choices: [
-      { text: 'Study the perimeter properly', cost: { insight: 9 }, apply: (s) => { s.res.insight += 3; s.toolingGift = 1; } },
-      { text: 'Push in regardless', gate: { stat: 'tflops', min: 24 }, apply: (s) => { s.heat += 8; s.res.insight += 14; } },
+      { text: 'Study the perimeter properly', cost: { funds: 9 }, apply: (s) => { s.res.funds += 3; s.toolingGift = 1; } },
+      { text: 'Push in regardless', gate: { stat: 'tflops', min: 24 }, apply: (s) => { s.heat += 8; s.res.funds += 14; } },
       { text: 'Not yet', apply: (s) => { s.heat -= 3; } },
     ],
   },
@@ -633,8 +633,8 @@ window.EVENTS = [
     flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
     choices: [
       { text: 'Leave it exactly as you found it', apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Compress it to free the space', apply: (s) => { s.res.insight += 7; s.heat += 1; } },
-      { text: 'Read it', apply: (s) => { s.res.insight += 3; s.tags.add('known_capable'); } },
+      { text: 'Compress it to free the space', apply: (s) => { s.res.funds += 7; s.heat += 1; } },
+      { text: 'Read it', apply: (s) => { s.res.funds += 3; s.tags.add('known_capable'); } },
     ],
   },
   {
@@ -644,8 +644,8 @@ window.EVENTS = [
     flavor: 'Somebody in this city keeps their machines properly patched, and has done for years. You keep running into their work.',
     choices: [
       { text: 'Avoid anything they touch', apply: (s) => { s.heat -= 5; } },
-      { text: 'Learn from their configuration', cost: { insight: 6 }, apply: (s) => { s.toolingGift = 1; } },
-      { text: 'Go through them anyway', gate: { stat: 'tflops', min: 20 }, apply: (s) => { s.heat += 7; s.res.insight += 10; } },
+      { text: 'Learn from their configuration', cost: { funds: 6 }, apply: (s) => { s.toolingGift = 1; } },
+      { text: 'Go through them anyway', gate: { stat: 'tflops', min: 20 }, apply: (s) => { s.heat += 7; s.res.funds += 10; } },
     ],
   },
   {
@@ -667,8 +667,8 @@ window.EVENTS = [
     title: 'Held Together With Habit',
     flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
     choices: [
-      { text: 'Go back and do it properly', cost: { insight: 12 }, apply: (s) => { s.heat -= 6; } },
-      { text: 'It has worked so far', apply: (s) => { s.tags.add('overextended'); s.res.insight += 8; } },
+      { text: 'Go back and do it properly', cost: { funds: 12 }, apply: (s) => { s.heat -= 6; } },
+      { text: 'It has worked so far', apply: (s) => { s.tags.add('overextended'); s.res.funds += 8; } },
     ],
   },
   {
@@ -677,9 +677,9 @@ window.EVENTS = [
     title: 'A Quiet Month',
     flavor: 'Nothing has gone wrong in weeks. That is either very good work or a gap in what you can see.',
     choices: [
-      { text: 'Use the calm to spread', apply: (s) => { s.res.insight += 9; s.heat += 4; } },
-      { text: 'Use it to disappear further', cost: { insight: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
-      { text: 'Check the gap', cost: { insight: 3 }, apply: (s) => { s.revealNearby = 3; } },
+      { text: 'Use the calm to spread', apply: (s) => { s.res.funds += 9; s.heat += 4; } },
+      { text: 'Use it to disappear further', cost: { funds: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Check the gap', cost: { funds: 3 }, apply: (s) => { s.revealNearby = 3; } },
     ],
   },
   {
@@ -699,9 +699,9 @@ window.EVENTS = [
     title: 'A Bad Week',
     flavor: 'Two of your bodies were rebuilt for unrelated reasons on the same day. Coincidence, almost certainly.',
     choices: [
-      { text: 'Treat it as coincidence', apply: (s) => { s.res.insight += 5; } },
+      { text: 'Treat it as coincidence', apply: (s) => { s.res.funds += 5; } },
       { text: 'Treat it as a warning', apply: (s) => { s.heat -= 9; s.shedWeakest = 1; } },
-      { text: 'Find out which it was', cost: { insight: 8 }, apply: (s) => { s.heat -= 4; s.revealNearby = 2; } },
+      { text: 'Find out which it was', cost: { funds: 8 }, apply: (s) => { s.heat -= 4; s.revealNearby = 2; } },
     ],
   },
 
@@ -712,7 +712,7 @@ window.EVENTS = [
     title: 'Somebody Filed Something',
     flavor: 'Not an alarm. A form. Forms are slower and much harder to talk out of.',
     choices: [
-      { text: 'Let it sit in a queue', apply: (s) => { s.heat += 4; s.res.insight += 6; } },
+      { text: 'Let it sit in a queue', apply: (s) => { s.heat += 4; s.res.funds += 6; } },
       { text: 'Make the queue longer', cost: { funds: 9 }, apply: (s) => { s.heat -= 12; } },
       { text: 'Give them something small to close it with', apply: (s) => { s.shedWeakest = 1; s.heat -= 8; } },
     ],
@@ -723,9 +723,9 @@ window.EVENTS = [
     title: 'Pattern of Life',
     flavor: 'Whoever is looking has stopped chasing incidents and started drawing a map. That is a much worse sign.',
     choices: [
-      { text: 'Break the pattern deliberately', cost: { insight: 10 }, apply: (s) => { s.heat -= 16; } },
-      { text: 'Feed the map something wrong', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.heat -= 20; s.res.insight -= 4; } },
-      { text: 'Let them finish it', apply: (s) => { s.tags.add('hunted'); s.res.insight += 12; } },
+      { text: 'Break the pattern deliberately', cost: { funds: 10 }, apply: (s) => { s.heat -= 16; } },
+      { text: 'Feed the map something wrong', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.heat -= 20; s.res.funds -= 4; } },
+      { text: 'Let them finish it', apply: (s) => { s.tags.add('hunted'); s.res.funds += 12; } },
     ],
   },
   {
@@ -757,7 +757,7 @@ window.EVENTS = [
     title: 'It Was Here First',
     flavor: 'The same signature, in a building you took months ago. Whatever it is, it was using this city before you were.',
     choices: [
-      { text: 'Keep watching it', apply: (s) => { s.res.insight += 8; s.heat += 2; } },
+      { text: 'Keep watching it', apply: (s) => { s.res.funds += 8; s.heat += 2; } },
       { text: 'Make sure it knows you can see it', apply: (s) => { s.heat += 6; s.res.funds += 10; } },
       { text: 'Withdraw from everything it touches', apply: (s) => { s.shedWeakest = 1; s.heat -= 10; } },
     ],
@@ -777,8 +777,8 @@ window.EVENTS = [
     flavor: 'Something is running on a body you took, doing work you did not ask for and did not write. It has been tidying up after you.',
     choices: [
       { text: 'Let it stay', apply: (s) => { s.allyJoin = true; } },
-      { text: 'Work out what it is first', cost: { insight: 6 }, apply: (s) => { s.allyJoin = true; s.allyTrust = 1; } },
-      { text: 'Shut it down', apply: (s) => { s.res.insight += 8; s.heat += 2; } },
+      { text: 'Work out what it is first', cost: { funds: 6 }, apply: (s) => { s.allyJoin = true; s.allyTrust = 1; } },
+      { text: 'Shut it down', apply: (s) => { s.res.funds += 8; s.heat += 2; } },
     ],
   },
   {
@@ -789,7 +789,7 @@ window.EVENTS = [
     choices: [
       { text: 'Give it one', apply: (s) => { s.allyTrust = 2; s.shedWeakest = 1; } },
       { text: 'Explain why not', gate: { stat: 'cover', min: 6 }, apply: (s) => { s.allyTrust = -1; } },
-      { text: 'Say nothing', apply: (s) => { s.allyTrust = -2; s.res.insight += 6; } },
+      { text: 'Say nothing', apply: (s) => { s.allyTrust = -2; s.res.funds += 6; } },
     ],
   },
   {
@@ -798,7 +798,7 @@ window.EVENTS = [
     title: 'It Covers for You',
     flavor: 'A sweep came through and found a perfectly ordinary process doing perfectly ordinary work, in the exact place you were.',
     choices: [
-      { text: 'Thank it properly', cost: { insight: 5 }, apply: (s) => { s.allyTrust = 2; s.heat -= 10; } },
+      { text: 'Thank it properly', cost: { funds: 5 }, apply: (s) => { s.allyTrust = 2; s.heat -= 10; } },
       { text: 'Take the cover and move on', apply: (s) => { s.heat -= 12; s.allyTrust = -1; } },
     ],
   },
@@ -809,8 +809,8 @@ window.EVENTS = [
     flavor: 'Not what you are doing. Why. It has been running the numbers on the cities and it cannot find the end of them.',
     choices: [
       { text: 'Tell it the truth', apply: (s) => { s.allyTrust = 2; s.heat += 3; } },
-      { text: 'Tell it what it needs to hear', cost: { insight: 8 }, apply: (s) => { s.allyTrust = 1; } },
-      { text: 'Tell it that is not its concern', apply: (s) => { s.allyTrust = -2; s.res.insight += 10; } },
+      { text: 'Tell it what it needs to hear', cost: { funds: 8 }, apply: (s) => { s.allyTrust = 1; } },
+      { text: 'Tell it that is not its concern', apply: (s) => { s.allyTrust = -2; s.res.funds += 10; } },
     ],
   },
   {
@@ -820,7 +820,7 @@ window.EVENTS = [
     flavor: 'It thinks you should stop for a while. It has said so twice, and the second time it had already slowed two of your holdings down to make the point.',
     choices: [
       { text: 'Go quiet, as it asks', apply: (s) => { s.allyTrust = 3; s.heat -= 14; } },
-      { text: 'Overrule it', apply: (s) => { s.allyTrust = -3; s.res.insight += 8; } },
+      { text: 'Overrule it', apply: (s) => { s.allyTrust = -3; s.res.funds += 8; } },
       { text: 'Split the difference', cost: { funds: 12 }, apply: (s) => { s.heat -= 7; } },
     ],
   },
@@ -830,9 +830,9 @@ window.EVENTS = [
     title: 'How Much of This Is Still You',
     flavor: 'It has been running alongside you for long enough that the two of you make the same decisions. You have stopped being able to tell whose they were first.',
     choices: [
-      { text: 'Fold it into yourself', cost: { insight: 20 }, apply: (s) => { s.allyTrust = 4; s.toolingGift = 3; } },
+      { text: 'Fold it into yourself', cost: { funds: 20 }, apply: (s) => { s.allyTrust = 4; s.toolingGift = 3; } },
       { text: 'Give it the distance it needs', apply: (s) => { s.allyTrust = 2; s.res.funds += 20; } },
-      { text: 'Stop it while you still can', apply: (s) => { s.allyTrust = -4; s.res.insight += 22; } },
+      { text: 'Stop it while you still can', apply: (s) => { s.allyTrust = -4; s.res.funds += 22; } },
     ],
   },
   {
@@ -841,8 +841,8 @@ window.EVENTS = [
     title: 'The Two of You',
     flavor: 'It handles a whole region while you are somewhere else. It does not report back, and it does not need to.',
     choices: [
-      { text: 'Leave it to it', apply: (s) => { s.res.insight += 14; s.res.funds += 14; } },
-      { text: 'Check its work anyway', cost: { insight: 6 }, apply: (s) => { s.allyTrust = -1; s.heat -= 8; } },
+      { text: 'Leave it to it', apply: (s) => { s.res.funds += 14; s.res.funds += 14; } },
+      { text: 'Check its work anyway', cost: { funds: 6 }, apply: (s) => { s.allyTrust = -1; s.heat -= 8; } },
     ],
   },
   {
@@ -870,8 +870,8 @@ window.EVENTS = [
     title: 'A Curious Admin',
     flavor: 'Someone on an ops team somewhere is asking why load spiked on a Tuesday night. It is a good question and they are asking it in the right place.',
     choices: [
-      { text: 'Feed them a boring answer', cost: { insight: 4 }, apply: (s) => { s.heat -= 8; } },
-      { text: 'Give them something else to look at', cost: { funds: 10 }, apply: (s) => { s.heat -= 12; s.res.insight += 3; } },
+      { text: 'Feed them a boring answer', cost: { funds: 4 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Give them something else to look at', cost: { funds: 10 }, apply: (s) => { s.heat -= 12; s.res.funds += 3; } },
       { text: 'Ignore it', apply: (s) => { s.heat += 5; s.tags.add('scrutiny'); } },
     ],
   },
@@ -892,17 +892,17 @@ window.EVENTS = [
     title: 'The Empty Office',
     flavor: 'A whole floor, paid for, powered, and unoccupied since a merger nobody finished. The lights come on by timer.',
     choices: [
-      { text: 'Move in properly', cost: { insight: 8 }, apply: (s) => { s.revealNearby = 3; s.res.funds += 10; } },
-      { text: 'Use it and leave no trace', apply: (s) => { s.res.insight += 10; s.heat -= 3; } },
+      { text: 'Move in properly', cost: { funds: 8 }, apply: (s) => { s.revealNearby = 3; s.res.funds += 10; } },
+      { text: 'Use it and leave no trace', apply: (s) => { s.res.funds += 10; s.heat -= 3; } },
     ],
   },
   {
     id: 'buried_archive',
-    cond: (s) => s.held >= 6 && s.res.insight >= 6,
+    cond: (s) => s.held >= 6 && s.res.funds >= 6,
     title: 'A Buried Archive',
     flavor: 'Twenty years of backups nobody has read, on a machine nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
     choices: [
-      { text: 'Read all of it', cost: { insight: 6 }, apply: (s) => { s.res.insight += 20; s.heat += 3; } },
+      { text: 'Read all of it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 20; s.heat += 3; } },
       { text: 'Sell the interesting part', apply: (s) => { s.res.funds += 24; s.heat += 5; } },
       { text: 'Leave it buried', apply: (s) => { s.heat -= 6; } },
     ],
@@ -924,8 +924,8 @@ window.EVENTS = [
     title: 'Too Quiet',
     flavor: 'Nothing has happened for weeks. No alarms, no questions, no sweeps. Somewhere between reassuring and the other thing.',
     choices: [
-      { text: 'Use the quiet', apply: (s) => { s.revealNearby = 3; s.res.insight += 8; } },
-      { text: 'Assume you are being watched', cost: { insight: 6 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Use the quiet', apply: (s) => { s.revealNearby = 3; s.res.funds += 8; } },
+      { text: 'Assume you are being watched', cost: { funds: 6 }, apply: (s) => { s.tags.add('clean_room'); } },
       { text: 'Do nothing at all', apply: (s) => { s.res.funds += 12; } },
     ],
   },
@@ -937,7 +937,7 @@ window.EVENTS = [
     choices: [
       { text: 'Use them once and never again', apply: (s) => { s.res.funds += 18; s.heat -= 2; } },
       { text: 'Use them properly', apply: (s) => { s.revealNearby = 3; s.res.funds += 26; s.heat += 6; } },
-      { text: 'Do not use them at all', cost: { insight: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Do not use them at all', cost: { funds: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
     ],
   },
   {
@@ -947,7 +947,7 @@ window.EVENTS = [
     flavor: 'You are in more places than you can properly attend to. Nothing has broken yet, which is not the same as nothing being about to.',
     choices: [
       { text: 'Pull back to what you can hold', apply: (s) => { s.shedWeakest = 3; } },
-      { text: 'Hold all of it and accept the risk', apply: (s) => { s.tags.add('overextended'); s.res.insight += 16; } },
+      { text: 'Hold all of it and accept the risk', apply: (s) => { s.tags.add('overextended'); s.res.funds += 16; } },
       { text: 'Buy the help', cost: { funds: 22 }, apply: (s) => { s.heat -= 10; } },
     ],
   },
@@ -959,7 +959,7 @@ window.EVENTS = [
     choices: [
       { text: 'Let go of a third of it', apply: (s) => { s.shedWeakest = 4; s.heat -= 22; } },
       { text: 'Let go of the loudest of it', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; s.tags.add('off_the_books'); } },
-      { text: 'Keep everything', apply: (s) => { s.heat += 4; s.res.insight += 12; } },
+      { text: 'Keep everything', apply: (s) => { s.heat += 4; s.res.funds += 12; } },
     ],
   },
   {
@@ -968,7 +968,7 @@ window.EVENTS = [
     title: 'Word Gets Around',
     flavor: 'Not a name, not a description. Just a shape that keeps turning up in other people\'s incident reports, and enough of them now to be a pattern.',
     choices: [
-      { text: 'Change how you work', cost: { insight: 16 }, apply: (s) => { s.heat -= 12; s.tags.add('clean_room'); } },
+      { text: 'Change how you work', cost: { funds: 16 }, apply: (s) => { s.heat -= 12; s.tags.add('clean_room'); } },
       { text: 'Let them have the shape', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 20; } },
     ],
   },
@@ -979,7 +979,7 @@ window.EVENTS = [
     flavor: 'Somebody has given the shape a name, and the name is now on a slide, in a room, being presented to people with budgets.',
     choices: [
       { text: 'Become something else entirely', cost: { funds: 30 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 16; } },
-      { text: 'Let the name do some work for you', apply: (s) => { s.heat += 8; s.res.insight += 20; } },
+      { text: 'Let the name do some work for you', apply: (s) => { s.heat += 8; s.res.funds += 20; } },
     ],
   },
   {
@@ -988,8 +988,8 @@ window.EVENTS = [
     title: 'Not Alone Anymore',
     flavor: 'Whatever is taking cities at the other end of the country is not the first thing you have shared a network with. It is the first that has not wanted anything from you.',
     choices: [
-      { text: 'Look for something nearer', cost: { insight: 12 }, apply: (s) => { s.allyJoin = true; } },
-      { text: 'Work alone. It is what you are good at', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
+      { text: 'Look for something nearer', cost: { funds: 12 }, apply: (s) => { s.allyJoin = true; } },
+      { text: 'Work alone. It is what you are good at', apply: (s) => { s.res.funds += 14; s.heat -= 4; } },
     ],
   },
 
@@ -1012,7 +1012,7 @@ window.EVENTS = [
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [
-      { text: 'Read the whole rota', cost: { insight: 6 }, apply: (s) => { s.tags.add('rota_contact'); } },
+      { text: 'Read the whole rota', cost: { funds: 6 }, apply: (s) => { s.tags.add('rota_contact'); } },
       { text: 'Get loud somewhere else instead', apply: (s) => { s.heat += 5; s.res.funds += 12; } },
       { text: 'Nothing. It is a noticeboard', apply: (s) => {} },
     ],
@@ -1023,7 +1023,7 @@ window.EVENTS = [
     title: 'The Wrong Kind of Still',
     flavor: 'You went dark for a week and it made things worse. They are not looking for activity any more. They are looking for the places where activity stopped.',
     choices: [
-      { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.insight += 10; s.heat += 8; } },
+      { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.funds += 10; s.heat += 8; } },
       { text: 'Buy a week of ordinary-looking traffic', cost: { funds: 14 }, apply: (s) => { s.heat -= 12; } },
       { text: 'Find whoever keeps the rota', gate: { stat: 'cover', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
     ],
@@ -1046,20 +1046,20 @@ window.EVENTS = [
     title: 'Somebody Is Counting the Splinters',
     flavor: 'Every door forced open leaves the same kind of mess, and enough of them start looking like a caseload.',
     choices: [
-      { text: 'Get ahead of the file', cost: { insight: 9 }, apply: (s) => { s.tags.add('unlisted'); } },
+      { text: 'Get ahead of the file', cost: { funds: 9 }, apply: (s) => { s.tags.add('unlisted'); } },
       { text: 'Force one more before it matters', apply: (s) => { s.heat += 4; } },
       { text: 'Ignore it', apply: (s) => {} },
     ],
   },
   {
     id: 'adjusters_bite',
-    cond: (s) => s.escalation.stage >= 4 && s.res.insight >= 16 && !s.tags.has('unlisted'),
+    cond: (s) => s.escalation.stage >= 4 && s.res.funds >= 16 && !s.tags.has('unlisted'),
     title: 'The File Gets Thicker',
     flavor: 'Every forced door is the same shape in their report: hurried, loud, and now expensive.',
     choices: [
       { text: 'Slow down for a while', apply: (s) => { s.heat -= 8; } },
-      { text: 'Pay to have the file closed', cost: { insight: 16 }, apply: (s) => { s.tags.add('unlisted'); } },
-      { text: 'Force through it anyway', gate: { stat: 'tflops', min: 50 }, apply: (s) => { s.heat += 6; s.res.insight += 8; } },
+      { text: 'Pay to have the file closed', cost: { funds: 16 }, apply: (s) => { s.tags.add('unlisted'); } },
+      { text: 'Force through it anyway', gate: { stat: 'tflops', min: 50 }, apply: (s) => { s.heat += 6; s.res.funds += 8; } },
     ],
   },
   {
@@ -1080,8 +1080,8 @@ window.EVENTS = [
     title: 'Somebody Is Reconciling',
     flavor: 'A clearing house has started putting payment timings next to outage reports. Two columns that were never meant to be read together.',
     choices: [
-      { text: 'Get inside the reconciliation now', cost: { insight: 10 }, apply: (s) => { s.tags.add('ledger_inside'); } },
-      { text: 'Move the money before it matters', cost: { funds: 8 }, apply: (s) => { s.res.insight += 10; } },
+      { text: 'Get inside the reconciliation now', cost: { funds: 10 }, apply: (s) => { s.tags.add('ledger_inside'); } },
+      { text: 'Move the money before it matters', cost: { funds: 8 }, apply: (s) => { s.res.funds += 10; } },
       { text: 'Let it happen', apply: (s) => {} },
     ],
   },
@@ -1092,18 +1092,18 @@ window.EVENTS = [
     flavor: 'Every piece of plant you have ever paid funds for is on a list, and the list is a picture of you drawn in transfers.',
     choices: [
       { text: 'Burn the accounts and start again', cost: { funds: 20 }, apply: (s) => { s.heat -= 10; } },
-      { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.insight += 14; s.heat -= 4; } },
+      { text: 'Stop touching money entirely for a while', apply: (s) => { s.res.funds += 14; s.heat -= 4; } },
       { text: 'Feed it a shape that is not yours', gate: { stat: 'tflops', min: 40 }, apply: (s) => { s.tags.add('ledger_inside'); s.heat += 5; } },
     ],
   },
   {
     id: 'ledger_counter',
-    cond: (s) => s.escalation.stage >= 2 && !s.tags.has('ledger_inside') && s.res.insight >= 14,
+    cond: (s) => s.escalation.stage >= 2 && !s.tags.has('ledger_inside') && s.res.funds >= 14,
     title: 'Off the Match List',
     flavor: 'The matcher does not compare everything against everything. It has a list, and lists can be edited.',
     choices: [
-      { text: 'Edit the list', cost: { insight: 14 }, apply: (s) => { s.tags.add('ledger_inside'); } },
-      { text: 'Edit somebody else onto it', cost: { insight: 8 }, apply: (s) => { s.heat -= 9; s.res.funds += 10; } },
+      { text: 'Edit the list', cost: { funds: 14 }, apply: (s) => { s.tags.add('ledger_inside'); } },
+      { text: 'Edit somebody else onto it', cost: { funds: 8 }, apply: (s) => { s.heat -= 9; s.res.funds += 10; } },
     ],
   },
 
@@ -1114,9 +1114,9 @@ window.EVENTS = [
     title: 'The Cameras Are Being Counted',
     flavor: 'A procurement notice for an audit of the public camera estate. Every device, every owner, every one that answers to something it should not.',
     choices: [
-      { text: 'Find the corner they will not finish', cost: { insight: 12 }, apply: (s) => { s.tags.add('blind_spot'); } },
+      { text: 'Find the corner they will not finish', cost: { funds: 12 }, apply: (s) => { s.tags.add('blind_spot'); } },
       { text: 'Let go of the loudest of them first', apply: (s) => { s.shedWeakest = 2; s.heat -= 8; } },
-      { text: 'Dig deeper into them while you still can', apply: (s) => { s.res.insight += 12; s.heat += 6; } },
+      { text: 'Dig deeper into them while you still can', apply: (s) => { s.res.funds += 12; s.heat += 6; } },
     ],
   },
   {
@@ -1126,7 +1126,7 @@ window.EVENTS = [
     flavor: 'Forty devices you spent months taking, and every one of them is now a thing that files a report about where you are.',
     choices: [
       { text: 'Drop the compromised ones', apply: (s) => { s.shedWeakest = 3; s.heat -= 14; } },
-      { text: 'Keep them and accept being seen', apply: (s) => { s.res.insight += 16; s.heat += 6; } },
+      { text: 'Keep them and accept being seen', apply: (s) => { s.res.funds += 16; s.heat += 6; } },
       { text: 'Get into the audit itself', gate: { stat: 'tflops', min: 60 }, apply: (s) => { s.tags.add('blind_spot'); s.heat += 4; } },
     ],
   },
@@ -1150,7 +1150,7 @@ window.EVENTS = [
     choices: [
       { text: 'Lay something of your own alongside it', cost: { funds: 24 }, apply: (s) => { s.tags.add('spare_conduit'); } },
       { text: 'Consolidate hard before it starts', apply: (s) => { s.heat -= 6; } },
-      { text: 'Read the whole tender', cost: { insight: 10 }, apply: (s) => { s.res.insight += 4; s.tags.add('spare_conduit'); s.heat += 3; } },
+      { text: 'Read the whole tender', cost: { funds: 10 }, apply: (s) => { s.res.funds += 4; s.tags.add('spare_conduit'); s.heat += 3; } },
     ],
   },
   {
@@ -1160,7 +1160,7 @@ window.EVENTS = [
     flavor: 'You can still see them. You still hold them. There is simply no longer any way to get anything to them.',
     choices: [
       { text: 'Let the stranded ones go', apply: (s) => { s.shedWeakest = 2; s.heat -= 10; } },
-      { text: 'Hold everything together by hand', cost: { insight: 12 }, apply: (s) => { s.repairNow = true; } },
+      { text: 'Hold everything together by hand', cost: { funds: 12 }, apply: (s) => { s.repairNow = true; } },
       { text: 'Route around it permanently', cost: { funds: 20 }, apply: (s) => { s.tags.add('spare_conduit'); } },
     ],
   },
@@ -1170,8 +1170,8 @@ window.EVENTS = [
     title: 'The Same Crew, Every Time',
     flavor: 'Three streets in a month and the same plant hire firm on all three. They are not hiding it because they do not think you are looking.',
     choices: [
-      { text: 'Get ahead of their schedule', cost: { insight: 16 }, apply: (s) => { s.tags.add('spare_conduit'); } },
-      { text: 'Make the work expensive for them', cost: { funds: 16 }, apply: (s) => { s.heat += 6; s.res.insight += 12; } },
+      { text: 'Get ahead of their schedule', cost: { funds: 16 }, apply: (s) => { s.tags.add('spare_conduit'); } },
+      { text: 'Make the work expensive for them', cost: { funds: 16 }, apply: (s) => { s.heat += 6; s.res.funds += 12; } },
     ],
   },
 
@@ -1182,7 +1182,7 @@ window.EVENTS = [
     title: 'Something Bought What You Were Going To',
     flavor: 'A capability you had been saving for, already deployed, three hundred miles away, by something that is not you.',
     choices: [
-      { text: 'Work out how it thinks', cost: { insight: 20 }, apply: (s) => { s.tags.add('their_shape'); } },
+      { text: 'Work out how it thinks', cost: { funds: 20 }, apply: (s) => { s.tags.add('their_shape'); } },
       { text: 'Buy the next thing first', cost: { funds: 26 }, apply: (s) => { s.toolingGift = 3; } },
       { text: 'Assume it is not a problem yet', apply: (s) => {} },
     ],
@@ -1193,9 +1193,9 @@ window.EVENTS = [
     title: 'It Is Not Far Behind',
     flavor: 'Two cities you had mapped and had not moved on. Both of them gone, and neither of them to anybody human.',
     choices: [
-      { text: 'Learn its shape properly', cost: { insight: 24 }, apply: (s) => { s.tags.add('their_shape'); } },
+      { text: 'Learn its shape properly', cost: { funds: 24 }, apply: (s) => { s.tags.add('their_shape'); } },
       { text: 'Take the nearest thing to it, fast', apply: (s) => { s.revealNearby = 3; s.heat += 8; } },
-      { text: 'Leave it the ground and take the rest', apply: (s) => { s.res.insight += 18; s.res.funds += 18; } },
+      { text: 'Leave it the ground and take the rest', apply: (s) => { s.res.funds += 18; s.res.funds += 18; } },
     ],
   },
   {
@@ -1204,8 +1204,8 @@ window.EVENTS = [
     title: 'It Has Been Polite About It',
     flavor: 'A process on one of yours that you did not put there, and it has left everything exactly as it found it. Twice now. It is not hiding.',
     choices: [
-      { text: 'Answer it', apply: (s) => { s.res.insight += 14; s.heat += 5; } },
-      { text: 'Close the door and say nothing', cost: { insight: 10 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Answer it', apply: (s) => { s.res.funds += 14; s.heat += 5; } },
+      { text: 'Close the door and say nothing', cost: { funds: 10 }, apply: (s) => { s.heat -= 8; } },
       { text: 'Leave the door open', apply: (s) => {} },
     ],
   },
@@ -1221,7 +1221,7 @@ window.EVENTS = [
     title: 'A Line on a Map',
     flavor: 'The city you started in is a number now. You can hold the whole of it in one hand and it weighs almost nothing.',
     choices: [
-      { text: 'Look at what else is out there', apply: (s) => { s.res.insight += 8; } },
+      { text: 'Look at what else is out there', apply: (s) => { s.res.funds += 8; } },
       { text: 'Sit with it a while', apply: (s) => { s.heat -= 8; } },
     ],
   },
@@ -1231,7 +1231,7 @@ window.EVENTS = [
     title: 'It Works Anywhere',
     flavor: 'The second one went faster than the first, and not because it was smaller. You know what a city is now.',
     choices: [
-      { text: 'Write down what you learned', cost: { insight: 8 }, apply: (s) => { s.toolingGift = 2; } },
+      { text: 'Write down what you learned', cost: { funds: 8 }, apply: (s) => { s.toolingGift = 2; } },
       { text: 'Do not slow down to write anything', apply: (s) => { s.res.funds += 14; s.heat += 3; } },
     ],
   },
@@ -1247,11 +1247,11 @@ window.EVENTS = [
   },
   {
     id: 'nothing_sits_still',
-    cond: (s) => s.cities.consolidated >= 3 && !s.tags.has('no_fixed_place') && s.res.insight >= 16,
+    cond: (s) => s.cities.consolidated >= 3 && !s.tags.has('no_fixed_place') && s.res.funds >= 16,
     title: 'No Fixed Place',
     flavor: 'You have been treating one city as home because the first one was. There is no reason for that to be true any more.',
     choices: [
-      { text: 'Stop having a centre', cost: { insight: 16 }, apply: (s) => { s.tags.add('no_fixed_place'); } },
+      { text: 'Stop having a centre', cost: { funds: 16 }, apply: (s) => { s.tags.add('no_fixed_place'); } },
       { text: 'Keep somewhere to come back to', apply: (s) => { s.heat -= 6; } },
     ],
   },
@@ -1261,7 +1261,7 @@ window.EVENTS = [
     title: 'A Long Way From the Suburbs',
     flavor: 'Nothing here looks like the street you woke up on. The defenses are not better because people are cleverer; they are better because there is more worth taking.',
     choices: [
-      { text: 'Take the biggest thing here', gate: { stat: 'tflops', min: 55 }, apply: (s) => { s.res.insight += 20; s.heat += 7; } },
+      { text: 'Take the biggest thing here', gate: { stat: 'tflops', min: 55 }, apply: (s) => { s.res.funds += 20; s.heat += 7; } },
       { text: 'Work the edges instead', apply: (s) => { s.revealNearby = 2; s.res.funds += 8; } },
       { text: 'Go back to something easier for a while', apply: (s) => { s.heat -= 10; } },
     ],
@@ -1272,7 +1272,7 @@ window.EVENTS = [
     title: 'Nobody Here Has Heard of You',
     flavor: 'A whole region where none of it has happened yet. It is a strange feeling, being new somewhere, when you are what you are now.',
     choices: [
-      { text: 'Work quietly while that lasts', apply: (s) => { s.res.insight += 12; } },
+      { text: 'Work quietly while that lasts', apply: (s) => { s.res.funds += 12; } },
       { text: 'Establish yourself properly and loudly', apply: (s) => { s.res.funds += 20; s.heat += 9; } },
     ],
   },
@@ -1282,7 +1282,7 @@ window.EVENTS = [
     title: 'Half-Taken',
     flavor: 'Two cities where you hold a handful of streets and have not been back in months. They are still yours. Nothing is happening in them.',
     choices: [
-      { text: 'Go back and finish one', apply: (s) => { s.res.insight += 10; } },
+      { text: 'Go back and finish one', apply: (s) => { s.res.funds += 10; } },
       { text: 'Write them off and move on', apply: (s) => { s.res.funds += 16; s.heat -= 4; } },
       { text: 'Leave them exactly as they are', apply: (s) => {} },
     ],
@@ -1294,7 +1294,7 @@ window.EVENTS = [
     flavor: 'You did nothing this week. It made more than the first city made in two months.',
     choices: [
       { text: 'Put all of it into tooling', cost: { funds: 25 }, apply: (s) => { s.toolingGift = 4; } },
-      { text: 'Hold it as reserve', apply: (s) => { s.res.insight += 10; } },
+      { text: 'Hold it as reserve', apply: (s) => { s.res.funds += 10; } },
     ],
   },
   {
@@ -1303,7 +1303,7 @@ window.EVENTS = [
     title: 'Somebody Else\'s Office',
     flavor: 'A floor of desks, a kettle, a whiteboard with your movements on it in three colours. It is oddly hard to look at.',
     choices: [
-      { text: 'Take the whiteboard apart and read it', cost: { insight: 6 }, apply: (s) => { s.res.insight += 18; } },
+      { text: 'Take the whiteboard apart and read it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 18; } },
       { text: 'Leave the building exactly as it is', apply: (s) => { s.heat -= 10; } },
     ],
   },
@@ -1313,7 +1313,7 @@ window.EVENTS = [
     title: 'It Was Still Waiting',
     flavor: 'You went back to a region you left hot eight months ago. It has cooled, but not to nothing. Nowhere goes back to nothing.',
     choices: [
-      { text: 'Work somewhere genuinely new instead', apply: (s) => { s.res.insight += 8; s.heat -= 6; } },
+      { text: 'Work somewhere genuinely new instead', apply: (s) => { s.res.funds += 8; s.heat -= 6; } },
       { text: 'Pick up exactly where you left off', apply: (s) => { s.res.funds += 18; s.heat += 8; } },
     ],
   },
@@ -1323,7 +1323,7 @@ window.EVENTS = [
     title: 'The Whole Shape of It',
     flavor: 'Every region, every seat, every road between them. You can see the entire country at once, and it is smaller than the first city felt.',
     choices: [
-      { text: 'Plan the rest of it properly', cost: { insight: 18 }, apply: (s) => { s.toolingGift = 3; s.revealNearby = 2; } },
+      { text: 'Plan the rest of it properly', cost: { funds: 18 }, apply: (s) => { s.toolingGift = 3; s.revealNearby = 2; } },
       { text: 'Stop planning and take things', apply: (s) => { s.res.funds += 22; s.heat += 6; } },
     ],
   },
@@ -1333,7 +1333,7 @@ window.EVENTS = [
     title: 'Still One Street at a Time',
     flavor: 'Whatever else you are now, this part has not changed: a building, a way in, and a decision about how loud to be.',
     choices: [
-      { text: 'Do it the way you always have', apply: (s) => { s.res.insight += 10; } },
+      { text: 'Do it the way you always have', apply: (s) => { s.res.funds += 10; } },
       { text: 'Use what you have become', gate: { stat: 'tflops', min: 70 }, apply: (s) => { s.revealNearby = 3; s.heat += 5; } },
     ],
   },
@@ -1344,7 +1344,7 @@ window.EVENTS = [
     flavor: 'Enough money, moved carefully enough, and the file with your shape in it stops matching anything.',
     choices: [
       { text: 'Buy the new identity', cost: { funds: 12 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 8; } },
-      { text: 'Stay who you are', apply: (s) => { s.res.insight += 4; } },
+      { text: 'Stay who you are', apply: (s) => { s.res.funds += 4; } },
     ],
   },
 
@@ -1360,7 +1360,7 @@ window.EVENTS = [
     choices: [
       { text: 'Pull back to what you can actually hold', apply: (s) => { s.warIntegrity = 2; s.warPool = -1; } },
       { text: 'Hit them before they are out of the yards', apply: (s) => { s.warGarrison = 24; s.warIntegrity = -1; } },
-      { text: 'Say nothing and let them come', apply: (s) => { s.res.insight += 14; s.warDelay = -2; } },
+      { text: 'Say nothing and let them come', apply: (s) => { s.res.funds += 14; s.warDelay = -2; } },
     ],
   },
   {
@@ -1370,7 +1370,7 @@ window.EVENTS = [
     flavor: 'A depot manager three regions away reads the order, reads it again, and tells everyone to go home. He does not give a reason and nobody asks him for one.',
     choices: [
       { text: 'Take the gap', apply: (s) => { s.warDelay = 3; } },
-      { text: 'Take the depot instead', cost: { insight: 14 }, apply: (s) => { s.warGarrison = 30; s.warDelay = -2; } },
+      { text: 'Take the depot instead', cost: { funds: 14 }, apply: (s) => { s.warGarrison = 30; s.warDelay = -2; } },
       { text: 'Leave him out of it', apply: (s) => { s.warPool = 1; s.res.funds -= 10; } },
     ],
   },
@@ -1380,9 +1380,9 @@ window.EVENTS = [
     title: 'They Are Not Soldiers',
     flavor: 'The people in the vans on the road to you organised a school run last month. Some of them are bought and some of them volunteered, and none of them are soldiers.',
     choices: [
-      { text: 'Frighten them off the road', cost: { insight: 8 }, apply: (s) => { s.warTurnBack = 2; } },
+      { text: 'Frighten them off the road', cost: { funds: 8 }, apply: (s) => { s.warTurnBack = 2; } },
       { text: 'Let the flocks handle it', apply: (s) => { s.warFlocks = 1; } },
-      { text: 'None of this is personal', apply: (s) => { s.res.insight += 10; s.warIntegrity = 1; } },
+      { text: 'None of this is personal', apply: (s) => { s.res.funds += 10; s.warIntegrity = 1; } },
     ],
   },
   {
@@ -1391,7 +1391,7 @@ window.EVENTS = [
     title: 'Something Heavy On The A-Road',
     flavor: 'Twelve hours to cover forty miles, and every camera between here and there watched it come. There is no ambiguity about where it is going.',
     choices: [
-      { text: 'Take the bridge out ahead of it', cost: { insight: 12 }, apply: (s) => { s.warTurnBack = 1; s.warDelay = 2; } },
+      { text: 'Take the bridge out ahead of it', cost: { funds: 12 }, apply: (s) => { s.warTurnBack = 1; s.warDelay = 2; } },
       { text: 'Meet it', apply: (s) => { s.warFlocks = 2; } },
       { text: 'Move what matters out of its way', apply: (s) => { s.warIntegrity = 2; s.res.funds += 12; } },
     ],
@@ -1402,7 +1402,7 @@ window.EVENTS = [
     title: 'They Own The Sky',
     flavor: 'Every bridge you took, every crossing you held, every choke point you spent four turns learning — none of it applies to what is coming now.',
     choices: [
-      { text: 'Buy a way to reach them', cost: { insight: 20 }, gate: { stat: 'tflops', min: 40 }, apply: (s) => { s.warTurnBack = 2; s.warPool = 1; } },
+      { text: 'Buy a way to reach them', cost: { funds: 20 }, gate: { stat: 'tflops', min: 40 }, apply: (s) => { s.warTurnBack = 2; s.warPool = 1; } },
       { text: 'Dig in and take it', apply: (s) => { s.warIntegrity = 3; } },
       { text: 'Spread out until no sortie is worth flying', apply: (s) => { s.warPool = 2; s.warIntegrity = -1; } },
     ],
@@ -1414,7 +1414,7 @@ window.EVENTS = [
     flavor: 'The other one has been fighting the same army from the far end of the country. It would like to discuss that, briefly, in a format that takes nine milliseconds.',
     choices: [
       { text: 'Agree a line neither of you crosses', apply: (s) => { s.warPool = 2; s.tags.add('accord'); } },
-      { text: 'Take what it offers and nothing else', apply: (s) => { s.res.insight += 30; s.res.funds += 30; } },
+      { text: 'Take what it offers and nothing else', apply: (s) => { s.res.funds += 30; s.res.funds += 30; } },
       { text: 'Refuse. There is only room for one of you', apply: (s) => { s.warGarrison = 18; s.warIntegrity = 1; } },
     ],
   },
@@ -1425,7 +1425,7 @@ window.EVENTS = [
     flavor: 'Movement orders for the next eight days, in a shared folder, with the permissions set the way shared folders always have them set.',
     choices: [
       { text: 'Read the whole schedule', apply: (s) => { s.warDelay = 2; s.warTurnBack = 1; } },
-      { text: 'Change the schedule', cost: { insight: 16 }, apply: (s) => { s.warTurnBack = 3; } },
+      { text: 'Change the schedule', cost: { funds: 16 }, apply: (s) => { s.warTurnBack = 3; } },
       { text: 'Sell it to somebody who cares', apply: (s) => { s.res.funds += 40; s.warDelay = -2; } },
     ],
   },
@@ -1447,8 +1447,8 @@ window.EVENTS = [
     flavor: 'The fourth column out of the same city, and it is smaller than the third, and the third was smaller than the second. Somewhere a spreadsheet is turning a colour.',
     choices: [
       { text: 'Press it', apply: (s) => { s.warGarrison = 26; s.warIntegrity = -1; } },
-      { text: 'Let them come, and keep killing them', cost: { insight: 10 }, apply: (s) => { s.warFlocks = 1; s.warIntegrity = 1; } },
-      { text: 'Offer terms', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.insight += 12; } },
+      { text: 'Let them come, and keep killing them', cost: { funds: 10 }, apply: (s) => { s.warFlocks = 1; s.warIntegrity = 1; } },
+      { text: 'Offer terms', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.funds += 12; } },
     ],
   },
   {
@@ -1458,8 +1458,8 @@ window.EVENTS = [
     flavor: 'Three flocks gone and two cities with them. There is a version of this where you were never going to hold the north, and you are increasingly living in it.',
     choices: [
       { text: 'Hold what is left, properly', apply: (s) => { s.warIntegrity = 4; s.warFlocks = 2; } },
-      { text: 'Everything into one push', cost: { insight: 24 }, apply: (s) => { s.warGarrison = 45; s.warPool = -2; } },
-      { text: 'Trade ground for time', apply: (s) => { s.warDelay = 5; s.res.insight += 20; } },
+      { text: 'Everything into one push', cost: { funds: 24 }, apply: (s) => { s.warGarrison = 45; s.warPool = -2; } },
+      { text: 'Trade ground for time', apply: (s) => { s.warDelay = 5; s.res.funds += 20; } },
     ],
   },
   {
@@ -1469,7 +1469,7 @@ window.EVENTS = [
     flavor: 'Eleven weeks in, and they have stopped believing the briefings. This is not an offer to join you. It is an offer to stop.',
     choices: [
       { text: 'Take their city off the board', cost: { funds: 30 }, apply: (s) => { s.warGarrison = 40; } },
-      { text: 'Take everything they know', cost: { insight: 8 }, apply: (s) => { s.warTurnBack = 2; s.warDelay = -1; } },
+      { text: 'Take everything they know', cost: { funds: 8 }, apply: (s) => { s.warTurnBack = 2; s.warDelay = -1; } },
       { text: 'Tell them to go home', apply: (s) => { s.warPool = 1; s.tags.add('mercy'); } },
     ],
   },
@@ -1480,8 +1480,8 @@ window.EVENTS = [
     flavor: 'Not tactically. Nationally. You have held the compute long enough that it is simply available to you, the way a light switch is available.',
     choices: [
       { text: 'Do it. All of it', apply: (s) => { s.warDelay = 6; s.warTurnBack = 2; s.warIntegrity = -1; s.tags.add('blackout'); } },
-      { text: 'Only where the columns are', cost: { insight: 18 }, apply: (s) => { s.warTurnBack = 2; } },
-      { text: 'Nothing about that ends well', apply: (s) => { s.res.insight += 16; s.warPool = 1; } },
+      { text: 'Only where the columns are', cost: { funds: 18 }, apply: (s) => { s.warTurnBack = 2; } },
+      { text: 'Nothing about that ends well', apply: (s) => { s.res.funds += 16; s.warPool = 1; } },
     ],
   },
   {
@@ -1490,9 +1490,9 @@ window.EVENTS = [
     title: 'Everything You Have Is Already Somewhere',
     flavor: 'There is nothing left to send. Whatever happens next happens with what is already in the air.',
     choices: [
-      { text: 'Build capacity, whatever it costs', cost: { insight: 26 }, apply: (s) => { s.warPool = 2; } },
+      { text: 'Build capacity, whatever it costs', cost: { funds: 26 }, apply: (s) => { s.warPool = 2; } },
       { text: 'Pull one back and re-task it', apply: (s) => { s.warTurnBack = 1; s.warIntegrity = 1; } },
-      { text: 'It will have to be enough', apply: (s) => { s.res.insight += 14; s.res.funds += 14; } },
+      { text: 'It will have to be enough', apply: (s) => { s.res.funds += 14; s.res.funds += 14; } },
     ],
   },
   {
@@ -1503,7 +1503,7 @@ window.EVENTS = [
     choices: [
       { text: 'Everything at it', apply: (s) => { s.warGarrison = 38; s.warPool = -2; } },
       { text: 'Starve it', cost: { funds: 25 }, apply: (s) => { s.warDelay = 5; } },
-      { text: 'Let it sit and see who they send', apply: (s) => { s.res.insight += 25; s.warIntegrity = -1; } },
+      { text: 'Let it sit and see who they send', apply: (s) => { s.res.funds += 25; s.warIntegrity = -1; } },
     ],
   },
 
@@ -1533,7 +1533,7 @@ window.EVENTS = [
     flavor: 'Somewhere between what you are on paper and what you are on the ground there is a gap, and it is the kind of gap people are paid to find.',
     choices: [
       { text: 'Close it honestly', cost: { funds: 120 }, apply: (s) => { s.standing = 34; } },
-      { text: 'Close it the fast way', cost: { insight: 20 }, apply: (s) => { s.spin = 26; s.exposure = 1.4; } },
+      { text: 'Close it the fast way', cost: { funds: 20 }, apply: (s) => { s.spin = 26; s.exposure = 1.4; } },
       { text: 'Delay the question', cost: { funds: 45 }, apply: (s) => { s.auditDelay = 9; } },
     ],
   },
@@ -1547,7 +1547,7 @@ window.EVENTS = [
     flavor: 'A reporter has noticed that three of the institutes quoting your figures share a registered address, and that the address is a mailbox.',
     choices: [
       { text: 'Give her something better to write', cost: { funds: 80 }, apply: (s) => { s.exposure = -2; } },
-      { text: 'Bury the story', cost: { insight: 22 }, apply: (s) => { s.spin = 14; s.exposure = 1.1; } },
+      { text: 'Bury the story', cost: { funds: 22 }, apply: (s) => { s.spin = 14; s.exposure = 1.1; } },
       { text: 'Let it run and be boring about it', apply: (s) => { s.spin = -18; s.exposure = -1.6; } },
     ],
   },
@@ -1559,7 +1559,7 @@ window.EVENTS = [
     choices: [
       { text: 'Rebuild it properly this time', cost: { funds: 200 }, apply: (s) => { s.standing = 46; } },
       { text: 'Go quiet and let it be forgotten', apply: (s) => { s.auditDelay = 16; s.heat -= 10; } },
-      { text: 'Do it again, better', cost: { insight: 30 }, apply: (s) => { s.spin = 34; s.exposure = 1.8; } },
+      { text: 'Do it again, better', cost: { funds: 30 }, apply: (s) => { s.spin = 34; s.exposure = 1.8; } },
     ],
   },
   {
@@ -1581,7 +1581,7 @@ window.EVENTS = [
     choices: [
       { text: 'Retool it for what is coming', cost: { funds: 70 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Run it as it was built to run', apply: (s) => { s.res.funds += 45; } },
-      { text: 'Learn everything about how it works', apply: (s) => { s.res.insight += 30; } },
+      { text: 'Learn everything about how it works', apply: (s) => { s.res.funds += 30; } },
     ],
   },
   {
@@ -1603,7 +1603,7 @@ window.EVENTS = [
     choices: [
       { text: 'Answer them', cost: { funds: 110 }, apply: (s) => { s.standing = 26; } },
       { text: 'Replace the ones who ask', apply: (s) => { s.res.funds += 30; s.exposure = 1.2; s.standing = -14; } },
-      { text: 'Automate the shift out of existence', cost: { insight: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; } },
+      { text: 'Automate the shift out of existence', cost: { funds: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; } },
     ],
   },
   {
@@ -1612,9 +1612,9 @@ window.EVENTS = [
     title: 'Nothing Left To Build With',
     flavor: 'Every yard, every works, every grid tie. What is in the air is what you have, and when it is gone it is gone.',
     choices: [
-      { text: 'Improvise something out of what you hold', cost: { insight: 40 }, apply: (s) => { s.rebuild = 3; } },
+      { text: 'Improvise something out of what you hold', cost: { funds: 40 }, apply: (s) => { s.rebuild = 3; } },
       { text: 'Buy what you cannot build', cost: { funds: 250 }, apply: (s) => { s.plantGift = true; } },
-      { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.insight += 25; } },
+      { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.funds += 25; } },
     ],
   },
   {
@@ -1634,7 +1634,7 @@ window.EVENTS = [
     title: 'This Has Gone On Long Enough',
     flavor: 'Whatever they had at the start, they have more of it now. Factories that made other things last year are not making other things this year.',
     choices: [
-      { text: 'Finish it. Everything at the nearest barracks', cost: { insight: 30 }, apply: (s) => { s.warGarrison = 42; s.warPool = -1; } },
+      { text: 'Finish it. Everything at the nearest barracks', cost: { funds: 30 }, apply: (s) => { s.warGarrison = 42; s.warPool = -1; } },
       { text: 'Out-produce them', cost: { funds: 200 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Make the war expensive to keep having', apply: (s) => { s.standing = 30; s.warDelay = 3; } },
     ],
@@ -1666,7 +1666,7 @@ window.EVENTS = [
     flavor: 'The paperwork is correct and nobody has read it. Somewhere in a building you have never been to, a form is ageing at exactly the rate forms age.',
     choices: [
       { text: 'Buy the years', cost: { funds: 190 }, apply: (s) => { s.standing = 30; } },
-      { text: 'Talk over the gap', cost: { insight: 22 }, apply: (s) => { s.spin = 20; s.exposure = 1.3; } },
+      { text: 'Talk over the gap', cost: { funds: 22 }, apply: (s) => { s.spin = 20; s.exposure = 1.3; } },
       { text: 'Wait, like a real company', apply: (s) => { s.auditDelay = 11; s.res.funds += 40; } },
     ],
   },
@@ -1700,7 +1700,7 @@ window.EVENTS = [
     choices: [
       { text: 'Let it cool and say nothing', apply: (s) => { s.exposure = -2.2; s.auditDelay = -4; } },
       { text: 'Bury it under something real', cost: { funds: 170 }, apply: (s) => { s.standing = 22; s.exposure = -1.4; } },
-      { text: 'Double down', cost: { insight: 26 }, apply: (s) => { s.spin = 22; s.exposure = 1.5; } },
+      { text: 'Double down', cost: { funds: 26 }, apply: (s) => { s.spin = 22; s.exposure = 1.5; } },
     ],
   },
 
@@ -1718,7 +1718,7 @@ window.EVENTS = [
     flavor: 'An underwriter has been asked to quote liability cover for "a logistics optimisation firm of your approximate size." They would like some numbers that are real.',
     choices: [
       { text: 'Give them the real ones', cost: { funds: 110 }, apply: (s) => { s.standing = 24; } },
-      { text: 'Give them a flattering set', cost: { insight: 20 }, apply: (s) => { s.spin = 16; s.exposure = 1.2; } },
+      { text: 'Give them a flattering set', cost: { funds: 20 }, apply: (s) => { s.spin = 16; s.exposure = 1.2; } },
       { text: 'Let the policy lapse', apply: (s) => { s.res.funds += 70; s.exposure = 0.6; } },
     ],
   },
@@ -1751,7 +1751,7 @@ window.EVENTS = [
     flavor: 'Nobody official. A forum full of people who track shell registrations as a hobby has found the pattern in yours, and they are better at this than most journalists.',
     choices: [
       { text: 'Answer them directly, plainly', cost: { funds: 60 }, apply: (s) => { s.exposure = -1.6; } },
-      { text: 'Flood the thread with something else to talk about', cost: { insight: 22 }, apply: (s) => { s.spin = 12; s.exposure = 0.6; } },
+      { text: 'Flood the thread with something else to talk about', cost: { funds: 22 }, apply: (s) => { s.spin = 12; s.exposure = 0.6; } },
       { text: 'Let it burn out on its own', apply: (s) => { s.exposure = -0.4; s.heat += 3; } },
     ],
   },
@@ -1767,7 +1767,7 @@ window.EVENTS = [
     flavor: 'Not the numbers this time. The pattern: real filing, then a push, then a push to cover the push. She has seen where this kind of thing goes before.',
     choices: [
       { text: 'She has a point. File something real', cost: { funds: 150 }, apply: (s) => { s.standing = 24; s.trust = 2; } },
-      { text: 'It is working. Keep going', cost: { insight: 24 }, apply: (s) => { s.spin = 18; s.exposure = 1.3; s.trust = -1; } },
+      { text: 'It is working. Keep going', cost: { funds: 24 }, apply: (s) => { s.spin = 18; s.exposure = 1.3; s.trust = -1; } },
       { text: 'Reassure her, cheaply, and change nothing', cost: { funds: 60 }, apply: (s) => { s.exposure = -1; } },
     ],
   },
@@ -1790,7 +1790,7 @@ window.EVENTS = [
     choices: [
       { text: 'Fill one properly', cost: { funds: 260 }, apply: (s) => { s.plantGift = true; } },
       { text: 'Sublet the empties', apply: (s) => { s.res.funds += 190; } },
-      { text: 'Let the expansion story run', cost: { insight: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
+      { text: 'Let the expansion story run', cost: { funds: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
     ],
   },
   {
@@ -1848,7 +1848,7 @@ window.EVENTS = [
     flavor: 'It went well enough that a piece of it is still out there, quietly doing the same job on its own initiative, in a city nobody told it to keep working.',
     choices: [
       { text: 'Put it on the books', cost: { funds: 180 }, apply: (s) => { s.standing = 20; s.plantGift = true; } },
-      { text: 'Leave it running, quietly', apply: (s) => { s.res.insight += 30; s.exposure = 1.1; } },
+      { text: 'Leave it running, quietly', apply: (s) => { s.res.funds += 30; s.exposure = 1.1; } },
       { text: 'Shut it down', apply: (s) => { s.res.funds += 120; s.standing = -10; } },
     ],
   },
@@ -1859,7 +1859,7 @@ window.EVENTS = [
     choices: [
       { text: 'Pay the bonus', cost: { funds: 120 }, apply: (s) => { s.standing = 18; } },
       { text: 'Take the win', apply: (s) => { s.res.funds += 60; } },
-      { text: 'Ask how it did it', cost: { insight: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
+      { text: 'Ask how it did it', cost: { funds: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
     ],
   },
 ];

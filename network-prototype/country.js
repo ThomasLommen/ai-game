@@ -121,7 +121,7 @@ window.COUNTRY = {
   // builder took the whole country in 75 turns, so a little growth stays.
   blockBonusFromTier: 0.12,
   // presence pays out every country turn — this is what a finished city is worth
-  presenceYield: { insight: 0.5, funds: 0.6 },
+  presenceYield: { funds: 1.1 },
   // Folding a city in releases everything you held there, so presence has to
   // carry the flywheel or winning would make you weaker. It has to do that
   // *without* becoming the whole game: measured with a square root, 250
@@ -390,7 +390,7 @@ window.WAR = {
                         // industrial base to actually do.
   flockFloor: 2,        // however little you built, you get this many
   flockCeil: 8,         // and never more than this, so the map stays readable
-  flockCost: 4,         // insight to field one
+  flockCost: 4,         // funds to fabricate one
   flockStrength: 22,    // what a fresh flock is worth in a fight
   flockSpeed: 2,        // road hops per turn — faster than anything on the ground
   guardBonus: 1.4,      // a flock sitting on a city fights harder for it
@@ -418,7 +418,7 @@ window.WAR = {
   // once and nothing else. Measured: a war ran 32 to 56 flocks destroyed
   // against 0 to 7 columns killed, and 27 to 151 attacks thrown off a
   // garrison, because a repulsed flock came home, dissolved back into the
-  // pool, and went straight out again for four insight against a bank of ten
+  // pool, and went straight out again for four funds against a bank of ten
   // thousand. Destroyed flocks now stay destroyed; plant is what builds them
   // back, which is the whole reason to have spent a campaign acquiring some.
   // A war that drags is a war you are losing. Not an arbitrary timer: a state
@@ -508,18 +508,18 @@ window.WAR_INFO = {
 window.HARDWARE = [
   {
     id: 'rack_space', family: 'compute', tier: 1, heldAt: 2, cost: 16, heat: 0,
-    label: 'rack space', effect: { flatInsight: 1 },
+    label: 'rack space', effect: { tflops: 1 },
     blurb: 'Colocated capacity nobody is using this week. It does not care whose problem it is solving.',
   },
   {
     id: 'distributed_batch', family: 'compute', tier: 2, heldAt: 4, cost: 34, heat: 2,
-    label: 'distributed batch', effect: { flatInsight: 2, sweepReach: 1 },
-    mechanic: true, // in addition to flatInsight/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
+    label: 'distributed batch', effect: { tflops: 2, sweepReach: 1 },
+    mechanic: true, // in addition to tflops/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
     blurb: 'Spreads the job across everything you are already running, instead of waiting on any one of it.',
   },
   {
     id: 'borrowed_cycles', family: 'compute', tier: 3, heldAt: 6, cost: 60, heat: 4,
-    label: 'borrowed cycles', effect: { flatInsight: 4, flockBonus: 1, thresholdMult: 0.9 },
+    label: 'borrowed cycles', effect: { tflops: 4, flockBonus: 1, thresholdMult: 0.9 },
     blurb: 'Quietly renting out spare capacity nobody has noticed yet — and the biggest single thing you can plug into the network, which is also the loudest.',
   },
   {
@@ -600,7 +600,7 @@ window.HUNT = {
   // (it takes the building; the stability loss is what that costs elsewhere)
   takesCityAt: 0.45,       // share of a city it holds before the city is lost
   // severing a street: loud, and it is gone for you as well
-  severCost: { insight: 6 },
+  severCost: { funds: 6 },
   severHeat: 4,
   // Hiding a building: the quiet answer to the same problem. The street stays
   // open for you — that is the entire difference — but you pay for it every
@@ -799,7 +799,7 @@ window.LEGIT = {
   // turns, caught nine times, and it finished with a standing of 1086 against
   // a footprint that cannot exceed about 150. It was not that being caught did
   // nothing — it was that the supply was infinite, so nothing could matter.
-  spinCost: 14,           // insight, per push
+  spinCost: 14,           // funds, per push
   spinLegit: 11,
   spinExposure: 1.15,
   // One push used to take nineteen turns to fade against audits that land

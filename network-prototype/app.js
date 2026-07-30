@@ -1109,7 +1109,7 @@
       eventsSeen: [],
       recentEvents: [],
       eventSeenCount: {},
-      res: { insight: 6, funds: 4 },
+      res: { funds: 8 },
       hosts: g.hosts,
       links: g.links,
       selected: null,
@@ -1449,14 +1449,14 @@
   }
 
   function snapshot() {
-    return { tflops: tflops(), cover: cover(), insight: state.res.insight, funds: state.res.funds };
+    return { tflops: tflops(), cover: cover(), funds: state.res.funds };
   }
 
   // --- turn resolution ---------------------------------------------------
   // What a turn pays, worked out before it is paid. Extracted from endTurn so
   // that anything quoting income to the player runs the same arithmetic the
   // turn will run — every yield in the game is multiplied by yieldMult, and a
-  // panel transcribing the raw table said "+2 insight" for a server that had
+  // panel transcribing the raw table said "+2 a turn" for a server that had
   // been paying 3.2 since the player bought Bulk Processing.
   const BULK_OPS_MATURE_TURNS = 3, BULK_OPS_BONUS = 1.6;
   // Market Maker: a known, loud operation profits from that instead of just
@@ -1496,7 +1496,7 @@
     // as everything else — permanent from the moment it is bought, not tied
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
-    if (flat) add('insight', flat * mult);
+    // compute plant adds capacity, not income — see tflops()
     if (unlocked('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
@@ -2227,7 +2227,6 @@
     const e = c.effect || {};
     const out = [];
     const add = (kind, text) => out.push(chip(kind, text));
-    if (e.flatInsight) add('insight', `+${e.flatInsight} insight a turn`);
     if (e.tflops > 0) add('tflops', `+${e.tflops} tflops`);
     if (e.tflops < 0) add('cost tflops', `${neg(e.tflops)} tflops`);
     if (e.cover) add('cover', `+${e.cover} cover`);
@@ -2238,16 +2237,15 @@
     if (e.forceHeat) add('cover', `forcing a door ${neg(e.forceHeat)} heat`);
     if (e.yieldMult) add('funds', `income ${pct(e.yieldMult, true)}`);
     if (e.presenceMult) add('funds', `presence pays ${pct(e.presenceMult, true)}`);
-    if (e.sweepReach) add('insight', `sweeps reach ${e.sweepReach} further`);
-    if (e.sweepDiscount) add('cost insight', `sweeps &minus;${e.sweepDiscount} insight`);
-    if (e.extraCrossings) add('insight', `+${e.extraCrossings} crossing a city`);
-    if (e.growthStep) add('insight', `home grows ${e.growthStep} reach sooner`);
-    if (e.flockBonus) add('insight', `+${e.flockBonus} flocks`);
-    if (e.flockMult) add('insight', `flocks hit ${pct(e.flockMult, true)} harder`);
+    if (e.sweepReach) add('compute', `sweeps reach ${e.sweepReach} further`);
+        if (e.extraCrossings) add('compute', `+${e.extraCrossings} crossing a city`);
+    if (e.growthStep) add('compute', `home grows ${e.growthStep} reach sooner`);
+    if (e.flockBonus) add('compute', `+${e.flockBonus} flocks`);
+    if (e.flockMult) add('compute', `flocks hit ${pct(e.flockMult, true)} harder`);
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
     if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
     if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
-    if (e.agentSlots) add('insight', `+${e.agentSlots} agent out at once`);
+    if (e.agentSlots) add('compute', `+${e.agentSlots} agent out at once`);
     if (e.quietGateMult) add('cover', `slipping in needs ${pct(e.quietGateMult)} of the cover`);
     return out.join('');
   }
@@ -2293,13 +2291,11 @@
       'heat floor': Math.round(heatFloor() * 10) / 10,
       'heat a turn': Math.round(heatPerTurn() * 10) / 10,
       'strike at': Math.round(strikeThreshold()),
-      'a sweep costs': sweepPrice(),
       // shown before the war too: a standing army bought in peacetime would
       // otherwise report nothing but the action it cost you, which is the whole
       // complaint this was fixing
       'flocks you could field': flockCap(),
       'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
-      'insight a turn': Math.round((perTurnIncome().insight || 0) * 10) / 10,
       'funds a turn': Math.round((perTurnIncome().funds || 0) * 10) / 10,
       // Force's heat now reads the door's own defense, so a single number
       // has to stand for "a door" in general — the same average defense
@@ -2669,16 +2665,12 @@
     });
   }
 
-  // why sweep is unavailable, if it is — surfaced on the button itself
+  // why sweep is unavailable, if it is — surfaced on the button itself. There
+  // is no longer any way to be too poor to look: scanning is free and costs
+  // heat instead, so the only reason left is having nothing to find.
   function sweepBlocked() {
     if (!sweepTargets().length) return 'nothing';
-    if (state.res.insight < sweepPrice() && state.res.funds < window.SWEEP_CASH) return 'poor';
     return null;
-  }
-  // which currency this sweep would actually come out of
-  function sweepPrice() { return Math.max(1, window.SWEEP_COST - capEffect('sweepDiscount', 0)); }
-  function sweepPayer() {
-    return state.res.insight >= sweepPrice() ? 'insight' : 'funds';
   }
 
   // City generation already promises the opening doorstep is one you could
@@ -2704,11 +2696,10 @@
     const pool = (fromId != null && unlocked('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
-    if (sweepBlocked() === 'poor') return;
-    const payer = sweepPayer();
     spendAP('sweep');
-    if (payer === 'insight') state.res.insight -= sweepPrice();
-    else state.res.funds -= window.SWEEP_CASH;
+    // Looking costs nothing to buy and something to do: every scan puts a
+    // little heat on you, which is what stops it being a button you mash.
+    state.heat = clampHeat(state.heat + window.SCAN_HEAT);
     const reach = sweepReach();
     const targets = pool.slice();
     const found = [];
@@ -2981,7 +2972,7 @@
     // Enforcement reads forcing a door — unless you have gotten off their list.
     const adjusted = def.id === 'force' && ladderStage() >= 4 && !has('unlisted');
     // Floored at the old flat cost, not below it — an early cheap scaling
-    // this shallow (0.3, matched to quiet's own insight multiplier) undercuts
+    // this shallow (0.3, matched to quiet's own funds multiplier) undercuts
     // 3 for most of the common early host types, which would make force
     // *cheaper* than before against exactly the doors it was already winning
     // on. It should only ever cost more than it used to, against harder doors.
@@ -3000,7 +2991,7 @@
     return window.APPROACHES.filter(a => a.avail(h) && a.id !== closed).map(a => {
       let gate = a.gate ? a.gate(s, eff) : null;
       // False Floor: the cover a quiet entry needs drops at the gate itself,
-      // not just the insight it costs — recomputed here the same way a
+      // not just the funds it costs — recomputed here the same way a
       // capability discount already layers onto costFor() in costOf(),
       // rather than the formula having to know about capabilities itself.
       if (a.id === 'quiet' && gate) {
@@ -3116,8 +3107,8 @@
       const shuffled = fleet.slice().sort(() => Math.random() - 0.5);
       burned = shuffled.slice(0, n);
     } else if (effect === 'burn_cover') {
-      if (state.res.insight < 8) return;
-      state.res.insight -= 8;
+      if (state.res.funds < 8) return;
+      state.res.funds -= 8;
     } else if (effect === 'buy_out') {
       if (!unlocked('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
       state.res.funds -= window.FIXERS_FAVOR_COST;
@@ -3272,7 +3263,7 @@
     // Bulk Processing.
     const m = (has('national') ? window.COUNTRY.nationalMult : 1)
       * capEffect('presenceMult', 1) * capEffect('yieldMult', 1);
-    return { insight: p * y.insight * m, funds: p * y.funds * m };
+    return { funds: p * y.funds * m };
   }
 
   // Swapping which city you are standing in. The campaign — capabilities,
@@ -3742,13 +3733,13 @@
   function actLaunch(cityId) {
     if (!canLaunch(cityId)) return false;
     if (state.ap < warCost('reach')) { refuseForAP(null); return false; }
-    if (state.res.insight < window.WAR.flockCost) return false;
+    if (state.res.funds < window.WAR.flockCost) return false;
     const seat = launchSeat(cityId);
     if (!seat) return false;
     const f = fieldFlock(seat.id, cityId, 'strike');
     if (!f) return false;
     state.ap -= warCost('reach');
-    state.res.insight -= window.WAR.flockCost;
+    state.res.funds -= window.WAR.flockCost;
     const c = cityById(cityId);
     pushLog(`A flock is away from ${seat.name}, bound for ${c.name}.`);
     persistNow();
@@ -3759,12 +3750,12 @@
   function actGuard(cityId) {
     if (!canGuard(cityId)) return false;
     if (state.ap < warCost('move')) { refuseForAP(null); return false; }
-    if (state.res.insight < window.WAR.flockCost) return false;
+    if (state.res.funds < window.WAR.flockCost) return false;
     const seat = launchSeat(cityId) || cityById(cityId);
     const f = fieldFlock(seat.id, cityId, 'guard');
     if (!f) return false;
     state.ap -= warCost('move');
-    state.res.insight -= window.WAR.flockCost;
+    state.res.funds -= window.WAR.flockCost;
     pushLog(`A flock is standing over ${cityById(cityId).name}.`);
     persistNow();
     render();
@@ -4218,7 +4209,7 @@
   // that can be taken back all at once.
   function actSpin() {
     const L = window.LEGIT;
-    if (state.res.insight < L.spinCost) return false;
+    if (state.res.funds < L.spinCost) return false;
     // Refused out loud rather than silently not counting: the player needs to
     // know the ceiling is the reason, and that the way past it is the ladder.
     if (spinRoom() <= 0) {
@@ -4227,7 +4218,7 @@
       return false;
     }
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
-    state.res.insight -= L.spinCost;
+    state.res.funds -= L.spinCost;
     state.ap -= countryCost('move');
     LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
@@ -4487,9 +4478,9 @@
       const cost = window.WAR.flockCost;
       const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
       priority.forEach(c => {
-        if (flocksFree() <= 0 || state.res.insight < cost) return;
+        if (flocksFree() <= 0 || state.res.funds < cost) return;
         const seat = launchSeat(c.id) || c;
-        if (fieldFlock(seat.id, c.id, 'guard')) { state.res.insight -= cost; guarded.push(c); }
+        if (fieldFlock(seat.id, c.id, 'guard')) { state.res.funds -= cost; guarded.push(c); }
       });
       if (guarded.length) {
         pushLog(`The army you funded in case this came already stands over ${guarded.length === 1 ? guarded[0].name : guarded.length + ' cities'}.`);
@@ -5087,11 +5078,10 @@
   // Same principle as the card prototype: outcomes aren't spoiled up front, so
   // the after-the-fact feedback has to actually teach.
   function beforeSnap() {
-    return { insight: state.res.insight, funds: state.res.funds, heat: state.heat, tflops: tflops(), held: owned().length };
+    return { funds: state.res.funds, heat: state.heat, tflops: tflops(), held: owned().length };
   }
   function afterSnap(before, opts) {
     const parts = [];
-    const di = state.res.insight - before.insight;
     const dc = state.res.funds - before.funds;
     const dh = state.heat - before.heat;
     const dp = tflops() - before.tflops;
@@ -5099,7 +5089,6 @@
     // presence pays fractional yields, so these are floats — printed raw they
     // came out as "FUNDS +17.400000000000006"
     const num = (v) => (Math.round(v * 10) / 10).toString();
-    if (di) parts.push({ cls: 'insight', text: `INSIGHT ${di > 0 ? '+' : ''}${num(di)}` });
     if (dc) parts.push({ cls: 'funds', text: `FUNDS ${dc > 0 ? '+' : ''}${num(dc)}` });
     if (dp) parts.push({ cls: 'tflops', text: `TFLOPS ${dp > 0 ? '+' : ''}${dp}` });
     if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
@@ -6324,7 +6313,6 @@
       $end.disabled = !!state.card || state.over;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
-    document.getElementById('res-insight').textContent = Math.floor(state.res.insight);
     document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
     document.getElementById('res-tflops').textContent = tflops();
     document.getElementById('res-cover').textContent = cover();
@@ -6567,11 +6555,11 @@
           <span class="ab-sub">${state.res.funds < rung.cost ? `needs ${rung.cost} funds`
             : `${chip('cover', '+' + rung.legit + ' standing in ' + L.matureTurns)}${chip('cost funds', '&minus;' + rung.cost + ' funds')}`}</span>
         </button>` : '<p class="sel-desc dim">There is no higher rung. You are, on paper, a normal company.</p>'}
-        ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.insight < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
+        ${spinKnown() ? `<button class="act-btn${spinRoom() <= 0 || state.res.funds < L.spinCost ? ' no-ap' : ''}" data-cact="spin">
           <span class="ab-name">place a story</span>
           <span class="ab-sub">${spinRoom() <= 0 ? 'nothing left to hang it on — buy a rung first'
-            : state.res.insight < L.spinCost ? `needs ${L.spinCost} insight`
-            : `${chip('cover', '+' + Math.min(L.spinLegit, Math.round(spinRoom())) + ' standing')}${chip('cost insight', '&minus;' + L.spinCost + ' insight')}`}</span>
+            : state.res.funds < L.spinCost ? `needs ${L.spinCost} funds`
+            : `${chip('cover', '+' + Math.min(L.spinLegit, Math.round(spinRoom())) + ' standing')}${chip('cost funds', '&minus;' + L.spinCost + ' funds')}`}</span>
         </button>
         <p class="sel-desc dim">${Math.round(usableSpin())} of ${Math.round(spinCeil())} standing invented. ${window.LEGIT_INFO.ceiling}</p>` : ''}
         </div>` });
@@ -6812,8 +6800,8 @@
         <button class="act-btn${able ? ' primary' : ' no-ap'}" data-act="sever" data-ap="sweep" data-a="${c.a}" data-b="${c.b}">
           <span class="ab-name">take the street</span>
           <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-            : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
-            : `needs ${cost.insight} insight and an action`}</span>
+            : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
+            : `needs ${cost.funds} funds and an action`}</span>
         </button>
       </div>`;
   }
@@ -6874,13 +6862,10 @@
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
             ${unlocked('survey') && sweepTargetsFrom(b.id).length ? `
-            <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep" ${sweepBlocked() === 'poor' && !apShort('sweep') ? 'disabled' : ''}>
-              <span class="ab-name">sweep from here</span>
+            <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
+              <span class="ab-name">scan from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
-                : sweepBlocked() === 'poor' ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} funds`
-                : sweepPayer() === 'insight'
-                  ? `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
-                  : `${chip('insight', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost funds', '&minus;' + window.SWEEP_CASH + ' funds')}`}</span>
+                : `${chip('compute', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
             </button>` : ''}
             ${hidePanel(b)}
           </div>`;
@@ -6902,8 +6887,8 @@
               return `<button class="act-btn${able ? '' : ' no-ap'}" data-act="sever" data-a="${b.id}" data-b="${n}">
                 <span class="ab-name">take the street to ${window.BUILDING_KINDS[NB.kind].label}</span>
                 <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-                  : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost insight', '&minus;' + cost.insight + ' insight')}`
-                  : `needs ${cost.insight} insight and an action`}</span>
+                  : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
+                  : `needs ${cost.funds} funds and an action`}</span>
               </button>`;
             }).join('')}
             </div>
@@ -6933,16 +6918,12 @@
       ${sel}
       <div class="actions">
         <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scan" data-ap="sweep" data-info="sweep" ${sweepBlocked() && !apShort('sweep') ? 'disabled' : ''}>
-          <span class="ab-name">sweep</span>
+          <span class="ab-name">scan</span>
           <span class="ab-sub">${apShort('sweep')
             ? 'no actions left'
             : sweepBlocked() === 'nothing'
             ? 'nothing adjacent left'
-            : sweepBlocked() === 'poor'
-              ? `needs ${sweepPrice()} insight or ${window.SWEEP_CASH} funds`
-              : sweepPayer() === 'insight'
-                ? `${chip('insight', 'turns up ' + sweepFound())}${chip('cost insight', '&minus;' + sweepPrice() + ' insight')}`
-                : `${chip('insight', 'turns up ' + sweepFound())}${chip('cost funds', '&minus;' + window.SWEEP_CASH + ' funds')}`}</span>
+            : `${chip('compute', 'turns up ' + sweepFound())}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
         </button>
         <button class="act-btn ${ladderStage() >= 3 ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
           <span class="ab-name">lie low</span>
@@ -7049,17 +7030,17 @@
       // you have left.
       if (warOn()) {
         const w = war();
-        const short = state.res.insight < window.WAR.flockCost;
+        const short = state.res.funds < window.WAR.flockCost;
         const none = flocksFree() <= 0;
         const why = none ? 'nothing left in the pool'
-          : short ? `needs ${window.WAR.flockCost} insight` : null;
+          : short ? `needs ${window.WAR.flockCost} funds` : null;
         if (canLaunch(sel.id) || w.garrisons[sel.id] !== undefined) {
           const held = Math.ceil(w.garrisons[sel.id] || 0);
           const able = canLaunch(sel.id) && !short && !none;
           acts.push(`<button class="act-btn ${able ? 'primary' : 'no-ap'}" data-cact="launch" data-city="${sel.id}">
             <span class="ab-name">send a flock</span>
             <span class="ab-sub">${able
-              ? `<span class="dim">${held} holding it</span>${chip('cost insight', '&minus;' + window.WAR.flockCost + ' insight')}`
+              ? `<span class="dim">${held} holding it</span>${chip('cost funds', '&minus;' + window.WAR.flockCost + ' funds')}`
               : (why || 'no way through to it')}</span>
           </button>`);
         }
@@ -7069,7 +7050,7 @@
           acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="guard" data-city="${sel.id}">
             <span class="ab-name">stand over it</span>
             <span class="ab-sub">${able
-              ? `<span class="dim">${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls</span>${chip('cost insight', '&minus;' + window.WAR.flockCost + ' insight')}`
+              ? `<span class="dim">${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls</span>${chip('cost funds', '&minus;' + window.WAR.flockCost + ' funds')}`
               : (why || 'nothing to hold')}</span>
           </button>`);
         }
@@ -7132,7 +7113,7 @@
     if (plantKnown()) chips.push(`<span class="ops-chip">plant ${hardwareOwned().length}/${window.HARDWARE.length}</span>`);
     const py = presenceYield();
     const opsRow = `<button type="button" class="ops-row" data-cact="ops">${chips.join('')}`
-      + `<span class="ops-yield">${chip('insight', '+' + py.insight.toFixed(1))}${chip('funds', '+' + py.funds.toFixed(1))}</span>`
+      + `<span class="ops-yield">${chip('funds', '+' + py.funds.toFixed(1))}</span>`
       + `${opsBadge() ? '<span class="badge"></span>' : ''}</button>`;
 
     const p = presenceYield();
@@ -7164,7 +7145,7 @@
 
   // What a building actually gives you, in the colour of the thing it gives.
   // This used to be plain text in the middle of a run-on line — "residential ·
-  // +1 insight · 2 threads · stability 100%" — all in the same dim grey, and
+  // +1 a turn · 2 threads · stability 100%" — all in the same dim grey, and
   // the yield simply disappeared into it. Cover is in here too: a router
   // reported "no yield" while quietly being the only reason you were not
   // being found, because cover is not stored in the yield object.
@@ -7175,7 +7156,7 @@
   // used to print them as though they were. A router advertising "+2 cover"
   // feeds a square root: the first one you take is worth +3, the fourth +1.
   // A corporate advertising "+0.5 heat" costs 0.85, because every host carries
-  // HEAT.PER_HOST on top of its own. A server advertising "+2 insight" pays
+  // HEAT.PER_HOST on top of its own. A server advertising "+2 a turn" paid
   // 3.2 once Bulk Processing is bought. And the three types with no heat chip
   // at all were each quietly costing 0.35 a turn, while a router was quietly
   // paying 0.45 back.
@@ -7186,7 +7167,7 @@
     const was = h.owned;
     const read = () => {
       const inc = perTurnIncome();
-      return { cover: cover(), heat: heatPerTurn(), insight: inc.insight || 0, funds: inc.funds || 0 };
+      return { cover: cover(), heat: heatPerTurn(), funds: inc.funds || 0 };
     };
     h.owned = true;
     const on = read();
@@ -7196,7 +7177,6 @@
     return {
       cover: on.cover - off.cover,
       heat: on.heat - off.heat,
-      insight: on.insight - off.insight,
       funds: on.funds - off.funds,
     };
   }
@@ -7214,7 +7194,6 @@
   function yieldChips(h) {
     const m = hostMarginal(h);
     const out = [
-      gainChip('insight', m.insight, 'insight'),
       gainChip('funds', m.funds, 'funds'),
       gainChip('cover', m.cover, 'cover'),
       // Heat runs the other way: less of it is the good outcome. A node that
@@ -7237,7 +7216,6 @@
   // guaranteed to still be on screen.
   function cardResourceStrip() {
     return `<div class="card-res">
-      <span class="res insight"><b>${Math.floor(state.res.insight)}</b> insight</span>
       <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
       <span class="res tflops"><b>${tflops()}</b> tflops</span>
       <span class="res cover"><b>${cover()}</b> cover</span>
@@ -7353,7 +7331,7 @@
           // Force used to be the one approach with nothing priced on its own
           // card — its heat cost only ever showed up later, as the bar
           // moving. Every approach that actually costs heat says so here now,
-          // the same way insight and funds costs already do.
+          // the same way a funds cost already does.
           const heatCost = approachHeat(a.def, h);
           if (heatCost > 0) contracts.push(`<span class="cost heat">+${Math.round(heatCost * 10) / 10} HEAT</span>`);
           const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
@@ -7418,7 +7396,7 @@
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
     resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, sweepPayer, sweepPrice, lieLowShed, heatFloor, ensureFrontierIsOpen,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
