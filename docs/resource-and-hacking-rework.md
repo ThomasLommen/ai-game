@@ -179,7 +179,7 @@ machine that names its tools like files and describes the world like a novelist.
 
 ## Progress
 
-**Phases 1 and 2 are done.** Insight, the capability tree, and cover-as-currency
+**Phases 1, 2 and 3 are done.** Insight, the capability tree, and cover-as-currency
 are all gone; TFLOPS, electricity, funds, grid buildings and the allocation
 screen are all in. The resource row is three entries: funds, TFLOPS, cover.
 
@@ -195,6 +195,20 @@ while building:
   mapping each to an allocation threshold, with the prose that used to sit on the
   capability card now shown on the dial that grants it. Without that the
   allocation screen was five sliders with no stated consequences.
+
+Phase 3 landed close to the plan. Three things worth recording:
+
+- **Confronting the response is a hack**, not a card of its own. The core is a
+  door that defends at a multiple of its own strength, growing with everything
+  it has taken. A slow program against it takes four turns and the response
+  keeps taking your buildings for all of them, which is tension the instant
+  version could not have had.
+- **`hammer.exe` is never traced.** Outrunning the trace is its identity; its
+  gate is the peak draw instead. That means once the ceiling is large and heat
+  is low it has no downside — the lever, if that reads as too safe in play, is
+  giving it a nonzero trace rate so even one turn carries risk.
+- **The `watched` trait no longer closes a way in** — it makes everything there
+  notice you far faster, which is a better trait than a missing button.
 
 **Open balance question for playtesting:** a network of nothing but compute now
 earns nothing at all, because funds come only from commercial ground. The opening
