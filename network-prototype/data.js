@@ -1095,6 +1095,11 @@ window.EVENTS = [
     choices: [
       { text: 'Pay the clerk', cost: { funds: 16 }, apply: (s) => { s.tags.add('unlisted'); } },
       { text: "Feed them somebody else's doors", cost: { funds: 10 }, apply: (s) => { s.heat -= 7; } },
+      { text: 'Stay on the list and be careful', apply: (s) => { s.heat += 2; } },
+      { text: 'Threaten the clerk instead', gamble: true, apply: (s) => {
+        // it either works completely or it goes to their supervisor
+        if (Math.random() < 0.5) { s.tags.add('unlisted'); } else { s.heat += 12; }
+      } },
     ],
   },
 
@@ -1129,6 +1134,8 @@ window.EVENTS = [
     choices: [
       { text: 'Edit the list', cost: { funds: 14 }, apply: (s) => { s.tags.add('ledger_inside'); } },
       { text: 'Edit somebody else onto it', cost: { funds: 8 }, apply: (s) => { s.heat -= 9; s.res.funds += 10; } },
+      { text: 'Let the matcher match', apply: (s) => { s.heat += 3; } },
+      { text: 'Give them a name to chase for a while', apply: (s) => { s.heat -= 6; s.later = { id: 'ledger_counter', turns: 6 }; } },
     ],
   },
 
@@ -1197,6 +1204,7 @@ window.EVENTS = [
     choices: [
       { text: 'Get ahead of their schedule', cost: { funds: 16 }, apply: (s) => { s.tags.add('spare_conduit'); } },
       { text: 'Make the work expensive for them', cost: { funds: 16 }, apply: (s) => { s.heat += 6; s.res.funds += 12; } },
+      { text: 'Let them dig, and route around it', apply: (s) => { s.heat += 2; } },
     ],
   },
 
@@ -1560,6 +1568,10 @@ window.EVENTS = [
       { text: 'Close it honestly', cost: { funds: 120 }, apply: (s) => { s.standing = 34; } },
       { text: 'Close it the fast way', cost: { funds: 20 }, apply: (s) => { s.spin = 26; s.exposure = 1.4; } },
       { text: 'Delay the question', cost: { funds: 45 }, apply: (s) => { s.auditDelay = 9; } },
+      { text: 'Let them find it', apply: (s) => { s.exposure = 1.2; } },
+      { text: 'Bet on the auditor being lazy', gamble: true, apply: (s) => {
+        if (Math.random() < 0.55) { s.auditDelay = 12; } else { s.exposure = 2; s.trust = -1; }
+      } },
     ],
   },
   {
@@ -1794,6 +1806,7 @@ window.EVENTS = [
       { text: 'She has a point. File something real', cost: { funds: 150 }, apply: (s) => { s.standing = 24; s.trust = 2; } },
       { text: 'It is working. Keep going', cost: { funds: 24 }, apply: (s) => { s.spin = 18; s.exposure = 1.3; s.trust = -1; } },
       { text: 'Reassure her, cheaply, and change nothing', cost: { funds: 60 }, apply: (s) => { s.exposure = -1; } },
+      { text: 'Say nothing, and let her draw her own conclusion', apply: (s) => { s.trust = -1; } },
     ],
   },
   {
@@ -1805,6 +1818,7 @@ window.EVENTS = [
       { text: 'Take the compute side', cost: { funds: 200 }, apply: (s) => { s.plantGift = 'compute'; } },
       { text: 'Take the money side', cost: { funds: 200 }, apply: (s) => { s.plantGift = 'funds'; } },
       { text: 'Take the paperwork instead', cost: { funds: 90 }, apply: (s) => { s.plantGift = true; s.standing = 10; } },
+      { text: 'Let the lot go to somebody else', apply: (s) => { s.heat -= 2; } },
     ],
   },
   {

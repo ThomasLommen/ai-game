@@ -8493,3 +8493,123 @@ test('standing: both axes are on screen, and legitimacy waits until it means som
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 40, `${k} is not explained`);
   });
 });
+
+// --- cards: no numbers on the face of them --------------------------------
+
+test('cards: a choice never quotes a price, and says in words why it is closed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // a card with a real price on it, and nothing to pay it with
+  const priced = window.EVENTS.find(e => e.choices.some(c => c.cost && c.cost.funds >= 20));
+  assert.ok(priced, 'the deck has something worth paying for');
+  s.res.funds = 0;
+  s.card = { kind: 'event', eventId: priced.id };
+  d.render();
+
+  const html = window.document.getElementById('panel').innerHTML;
+  assert.ok(html.includes(priced.title), 'the card is on screen');
+  priced.choices.forEach(ch => {
+    if (!ch.cost) return;
+    for (const k in ch.cost) {
+      assert.ok(!html.includes(`${ch.cost[k]} ${k.toUpperCase()}`),
+        `the card is quoting a price: ${ch.cost[k]} ${k.toUpperCase()}`);
+    }
+  });
+  assert.ok(/not enough/.test(html), 'and says in words that you cannot pay');
+});
+
+test('cards: the reason is qualitative for gates as well as for prices', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const gated = window.EVENTS.find(e => e.choices.some(c => c.gate));
+  if (!gated) return;
+  const ch = gated.choices.find(c => c.gate);
+  s.res.funds = 0;
+  s.hosts.forEach(h => { h.owned = false; });
+  const why = d.shortOf(ch);
+  assert.ok(why && !/\d/.test(why), `a gate should not be quoted as a number: ${why}`);
+});
+
+test('cards: no card can ever grey out entirely', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // stripped of everything: no funds, no holdings, no cover
+  s.res.funds = 0;
+  s.hosts.forEach(h => { h.owned = false; });
+  window.EVENTS.forEach(e => {
+    const open = d.openChoices(e);
+    assert.ok(open.length >= 1, `${e.id} has no choice that is always available`);
+    open.forEach(ch => assert.ok(d.choiceUsable(ch), `${e.id}: an open choice is not usable when broke`));
+  });
+});
+
+test('cards: a gamble says it is one, and can land either way', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const gambles = [];
+  window.EVENTS.forEach(e => e.choices.forEach((c, i) => { if (c.gamble) gambles.push([e, i]); }));
+  assert.ok(gambles.length >= 2, 'the deck has gambles in it');
+
+  // the card marks them, rather than leaving the player to find out
+  const [ev, idx] = gambles[0];
+  d.state.res.funds = 100000;
+  d.state.card = { kind: 'event', eventId: ev.id };
+  d.render();
+  assert.ok(window.document.getElementById('panel').innerHTML.includes('could go either way'),
+    'a gamble is advertised as one');
+
+  // and both sides actually happen across enough tries
+  const outcomes = new Set();
+  for (let i = 0; i < 60; i++) {
+    const w = loadNetwork().window;
+    const dd = w.__netDebug;
+    dd.state.res.funds = 100000;
+    dd.state.card = { kind: 'event', eventId: ev.id };
+    const heat = dd.state.heat;
+    dd.resolveEvent(idx);
+    outcomes.add(dd.state.heat > heat ? 'bad' : 'good');
+  }
+  assert.equal(outcomes.size, 2, 'a gamble that only ever lands one way is not a gamble');
+});
+
+test('cards: a choice can set something in motion that comes back later', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const planter = window.EVENTS.find(e => e.choices.some(c => /s\.later\s*=/.test(String(c.apply))));
+  assert.ok(planter, 'the deck can plant things');
+  const idx = planter.choices.findIndex(c => /s\.later\s*=/.test(String(c.apply)));
+
+  s.res.funds = 100000;
+  s.card = { kind: 'event', eventId: planter.id };
+  d.resolveEvent(idx);
+
+  assert.equal((s.planted || []).length, 1, 'something is on its way');
+  const p = s.planted[0];
+  assert.ok(p.at > s.turn, 'and it is not due yet');
+  assert.equal(d.duePlanted().length, 0, 'so nothing is owed this turn');
+
+  s.turn = p.at;
+  // joined, not deepEqual: the array is built inside the vm realm, so it is
+  // never prototype-equal to one written out here
+  assert.equal(d.duePlanted().join(','), p.id, 'and then it is');
+
+  // it arrives through the deck rather than waiting on the deck's own timer
+  s.card = null;
+  s.nextEventTurn = s.turn + 999;
+  d.endTurn({ silent: true });
+  assert.ok(s.card && s.card.eventId === p.id, 'it came back on its own schedule');
+  assert.equal((s.planted || []).length, 0, 'and is no longer pending');
+});
+
+test('cards: what is planted survives a save', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.planted = [{ id: window.EVENTS[0].id, at: 40 }];
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.planted.length, 1, 'still on its way');
+  assert.equal(round.planted[0].at, 40);
+});

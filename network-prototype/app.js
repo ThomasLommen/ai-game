@@ -1701,6 +1701,12 @@
       const id = state.forced.shift();
       state.card = { kind: 'event', eventId: id };
       noteEventDrawn(id);
+    } else if (!state.card && duePlanted().length) {
+      // something you set in motion earlier coming back around
+      const id = duePlanted()[0];
+      state.planted = (state.planted || []).filter(p => p.id !== id);
+      state.card = { kind: 'event', eventId: id };
+      noteEventDrawn(id);
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       const ev = drawEvent();
       if (ev) { state.card = { kind: 'event', eventId: ev.id }; noteEventDrawn(ev.id); }
@@ -2501,6 +2507,10 @@
   // Measured: 9 distinct events across 45 draws a game — you saw the same card
   // four times over. Anything drawn recently is heavily de-weighted, and
   // anything never seen is favoured, so the deck cycles instead of looping.
+  // What you set in motion that has come due.
+  function duePlanted() {
+    return (state.planted || []).filter(p => p.at <= state.turn).map(p => p.id);
+  }
   function drawEvent() {
     const pool = eligibleEvents();
     if (!pool.length) return null;
@@ -2531,6 +2541,27 @@
 
   // A choice is offered only if its stated price and requirement are both met —
   // same contract as the card prototype: what you pay is shown, what happens is not.
+  // Why a choice is closed, in words and never in numbers. A card that quotes
+  // "-120 FUNDS" turns a decision into arithmetic and tells the player exactly
+  // how much to go and farm; "you cannot afford this" tells them the thing they
+  // actually need to know and leaves the card being about what it is about.
+  function shortOf(ch) {
+    const name = { funds: 'funds', tflops: 'TFLOPS', cover: 'cover' };
+    if (ch.cost) {
+      for (const k in ch.cost) {
+        if ((state.res[k] || 0) < ch.cost[k]) return `not enough ${name[k] || k}`;
+      }
+    }
+    if (ch.gate) {
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      if (val < ch.gate.min) return `not ${name[ch.gate.stat] || ch.gate.stat} enough`;
+    }
+    return 'not yet';
+  }
+  // Choices nothing can close: no cost, no gate. Every card is required to have
+  // one, or a run that is broke can be handed a card it cannot answer at all.
+  function openChoices(ev) { return (ev.choices || []).filter(c => !c.cost && !c.gate); }
+
   function choiceUsable(ch) {
     if (ch.cost) for (const k in ch.cost) if ((state.res[k] || 0) < ch.cost[k]) return false;
     if (ch.gate) {
@@ -2556,7 +2587,8 @@
     // outcomes the card can ask for without knowing how the graph works
     const scratch = state;
     scratch.shedWeakest = 0;
-    scratch.repairNow = false;
+scratch.later = null;
+        scratch.repairNow = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
@@ -2587,6 +2619,15 @@
     // Repairing on demand rather than waiting out The Cut's own timer —
     // whatever is currently cut comes back at the end of this turn instead
     // of whenever the council would otherwise have gotten to it.
+    // A choice that plants something instead of resolving now. The deck's own
+    // timer does not get a say: this was set in motion, and it arrives.
+    if (scratch.later && scratch.later.id) {
+      state.planted = (state.planted || []).concat([{
+        id: scratch.later.id,
+        at: state.turn + Math.max(1, scratch.later.turns || 3),
+      }]);
+      pushLog('That is not the end of it. Somebody will be back.');
+    }
     if (scratch.repairNow) {
       (state.cuts || []).forEach(c => { if (typeof c.until === 'number' && isFinite(c.until)) c.until = state.turn; });
     }
@@ -2600,7 +2641,8 @@
       }
     }
     scratch.shedWeakest = 0;
-    scratch.repairNow = false;
+scratch.later = null;
+        scratch.repairNow = false;
     scratch.toolingGift = 0;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
@@ -5329,7 +5371,7 @@
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
       hacks: state.hacks || [], mount: state.mount || null,
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
-      tags: [...(state.tags || [])], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
+      tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
       lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
@@ -5347,7 +5389,7 @@
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
         hacks: (saved.hacks || []).slice(), mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
-        tags: new Set(saved.tags || []), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
+        tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
         lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
@@ -7563,12 +7605,11 @@
         <div class="choices">
           ${ev.choices.map((ch, i) => {
             const usable = choiceUsable(ch);
-            const contracts = [];
-            if (ch.gate) contracts.push(`<span class="gate ${usable ? 'met' : 'unmet'}">needs ${ch.gate.stat.toUpperCase()} ${ch.gate.min}</span>`);
-            if (ch.cost) for (const k in ch.cost) contracts.push(`<span class="cost ${usable ? '' : 'unmet'}">&minus;${ch.cost[k]} ${k.toUpperCase()}</span>`);
-            return `<button class="choice-strip" data-choice="${i}" ${usable ? '' : 'disabled'}>
+            const why = usable ? '' : shortOf(ch);
+            return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}" data-choice="${i}" ${usable ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
-              <span class="contracts">${contracts.join('')}</span>
+              <span class="contracts">${why ? `<span class="short">${why}</span>` : ''}${
+                ch.gamble ? '<span class="gamble-tell">could go either way</span>' : ''}</span>
             </button>`;
           }).join('')}
         </div>`;
@@ -7685,7 +7726,7 @@
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
-    defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent,
+    defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     resolveStrike, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
