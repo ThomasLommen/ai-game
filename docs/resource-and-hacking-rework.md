@@ -43,7 +43,9 @@ footprint.* Funds buy buildings, spin, and fabricating war flocks.
 - **Public Standing** — gates *the deck*: which cards appear and how people react
   to you. Starts at `unknown`.
 
-Both live in the top bar.
+Both live in the top bar. Getting caught tanks public standing while leaving the
+paperwork clean; buying raises both; hacking corporate costs a little public
+standing; agent work and cards move it either way.
 
 ## Allocation (replaces the capability tree)
 
@@ -59,13 +61,18 @@ Targets:
   buildings can stay hidden at once
 - **development**
 - **intelligence**
-- **AP** — starts at **1**. Allocate to raise it. Tempo competes directly with
+- **AP** — starts at **2**. Allocate to raise it. Tempo competes directly with
   operations for the same ceiling.
+
+Starting a hack costs an AP, and so does a country move. Buying and changing an
+allocation do not — allocation already pays its own switching cost.
 
 Programs and agents both draw compute, so they compete without needing a slot
 count. There is no slot economy.
 
-Changing an allocation costs a **switching cost** — see Open Decisions.
+Changing an allocation **ramps**: the new figure takes a few turns to reach full
+effect. That is what stops the player re-optimising every turn, without charging
+a fee they would have to account for.
 
 ## Hacking
 
@@ -137,18 +144,6 @@ Free, unlimited, **adds heat per scan**. No AP cost, no resource cost.
 Labels, programs and entity names go code-style: `trojan.exe`, `dark.relay`,
 `set ally_bot`. **Prose stays literary.** The contrast is the character — a
 machine that names its tools like files and describes the world like a novelist.
-
-## Open decisions
-
-1. **What exactly costs AP?** Starting a hack, yes. Buy? Country travel/reach?
-   Allocation changes? *Recommend:* starting a hack and country moves cost AP;
-   buy and allocation do not (allocation has its own switching cost).
-2. **Switching-cost form** — turns of ramp before it pays, flat funds, or compute
-   lost in transit. *Recommend:* ramp. It stops per-turn re-optimising without
-   adding an accounting cost.
-3. **What moves public standing?** *Recommend:* getting caught tanks public and
-   leaves paperwork clean; buying raises both; hacking corporate lowers public a
-   little; agent work and cards move it.
 
 ## Phases
 
