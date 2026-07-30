@@ -4772,10 +4772,28 @@ scratch.later = null;
     }
     const ids = roadPath(fromId, toId);
     if (!ids) return null;
-    return ids.map(id => {
+    // Every city on the road is a point, and a leg longer than a turn's drive
+    // gets the points in between — otherwise a three-hundred-unit road leg took
+    // exactly as long as a fifty-unit one, and a column could outrun a
+    // helicopter over the same ground.
+    const hop = window.WAR.roadHop || window.WAR.airHop;
+    const pts = [];
+    ids.forEach((id, i) => {
       const c = cityById(id);
-      return { x: c.x, y: c.y, cityId: id };
+      if (i === 0) { pts.push({ x: c.x, y: c.y, cityId: id }); return; }
+      const prev = cityById(ids[i - 1]);
+      const legs = Math.max(1, Math.ceil(Math.hypot(c.x - prev.x, c.y - prev.y) / hop));
+      for (let k = 1; k <= legs; k++) {
+        const t = k / legs;
+        pts.push({
+          x: prev.x + (c.x - prev.x) * t,
+          y: prev.y + (c.y - prev.y) * t,
+          // only the real city at the end of the leg is somewhere you can be
+          cityId: k === legs ? id : null,
+        });
+      }
     });
+    return pts;
   }
 
   function forceAt(f) {

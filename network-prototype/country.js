@@ -411,8 +411,14 @@ window.WAR = {
   integrity: 3,         // assaults a city of yours absorbs before it flips back
   attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
   interceptAt: 46,      // how close two forces have to be to end up fighting
-  airHop: 260,          // map units a flying thing covers in a turn — must beat
-                        // roadReach, or the helicopters are slower than the vans
+  airHop: 260,          // map units a flying thing covers in a turn
+  // A van covers this much road in a turn. It has to be no larger than airHop
+  // or a helicopter can lose a race to a lorry, which was the intent behind the
+  // old comment here and not what the code did: the ground route was a list of
+  // cities, so a single road leg took one turn however long it was. Tuning
+  // airHop against roadReach could not fix that, because the ground side was
+  // not measured in distance at all.
+  roadHop: 260,
   planesAfter: 12,      // turns of war before the air force is committed
   // Losses have to be real, or the pool caps how many flocks are in the air at
   // once and nothing else. Measured: a war ran 32 to 56 flocks destroyed

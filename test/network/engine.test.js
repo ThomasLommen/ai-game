@@ -4401,10 +4401,26 @@ test('war: ground routes follow roads, air routes ignore them', () => {
   const [a, b] = pair;
   const ground = d.routeFor('squad', a.id, b.id);
   const air = d.routeFor('heli', a.id, b.id);
-  assert.ok(ground.every(p => p.cityId), 'a column on the ground is only ever at a city');
   assert.ok(air.some(p => !p.cityId), 'a helicopter is mostly over nothing at all');
   const road = d.roadPath(a.id, b.id);
-  assert.equal(ground.length, road.length, 'the ground route is the road');
+  // The cities a ground column stops at are exactly the road, in order. It may
+  // also spend turns between them: a road leg longer than a turn's drive is
+  // more than one turn, which is what stops a lorry outrunning a helicopter.
+  assert.equal(ground.filter(p => p.cityId).map(p => p.cityId).join(','), road.join(','),
+    'the ground route is the road');
+  assert.ok(ground.length >= road.length, 'and never shorter than the road it follows');
+  // every point of it lies on a leg of that road, rather than cutting across
+  ground.forEach(p => {
+    const on = road.some((id, i) => {
+      if (!i) return false;
+      const u = d.cityById(road[i - 1]), v = d.cityById(id);
+      const len = Math.hypot(v.x - u.x, v.y - u.y) || 1;
+      const t = ((p.x - u.x) * (v.x - u.x) + (p.y - u.y) * (v.y - u.y)) / (len * len);
+      if (t < -0.01 || t > 1.01) return false;
+      return Math.hypot(p.x - (u.x + (v.x - u.x) * t), p.y - (u.y + (v.y - u.y) * t)) < 0.5;
+    });
+    assert.ok(on, 'a ground column left the road');
+  });
   // and it is genuinely quicker: both move a point per turn, so the point
   // count is the travel time, and a helicopter that took longer than a van
   // would have no reason to exist
@@ -6621,6 +6637,9 @@ test('caps: Quiet Protocol makes hiding cost no action, one rung above the first
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
   const target = d.huntNext();
   assert.ok(target, 'they have somewhere to go');
+  // and it has to be yours: canHide refuses anything that is not, and the
+  // building the hunt is about to walk onto is not necessarily one you hold
+  d.hostsIn(d.buildingById(target)).forEach(h => { h.owned = true; });
   s.card = null;
 
   // one unit of covert ops: somewhere to keep it, but no refund
@@ -6630,6 +6649,7 @@ test('caps: Quiet Protocol makes hiding cost no action, one rung above the first
   assert.ok(d.hideSlots() > 0, 'but there is a slot to put it in');
   s.ap = d.maxAP();
   const apBefore = s.ap;
+  assert.equal(d.canHide(target), true, 'it is yours, reachable, and there is room');
   assert.equal(d.actHide(target), true);
   assert.equal(s.ap, apBefore - d.apCost('lielow'), 'so hiding costs the action');
 
