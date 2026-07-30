@@ -2607,7 +2607,9 @@ scratch.later = null;
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
     scratch.rebuild = 0;        // flocks put back together at once
+    scratch.pub = 0;            // what the public makes of it
     ch.apply(scratch);
+    if (scratch.pub) movePub(scratch.pub);
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
 
@@ -2661,6 +2663,7 @@ scratch.later = null;
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
     scratch.rebuild = 0;        // flocks put back together at once
+    scratch.pub = 0;            // what the public makes of it
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);

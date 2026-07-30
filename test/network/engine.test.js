@@ -1843,6 +1843,7 @@ function sampleContexts(window) {
     roles: { compute: 0, funds: 0, stealth: 0 },
     districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
     scope: 'city', region: 'home', regionTier: 0, presence: 0,
+    pub: 0, pubTier: 'unknown',
     cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
     stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
     escalation: { stage: 0, pending: null }, mirror: { active: false },
@@ -2031,6 +2032,18 @@ function sampleContexts(window) {
     }));
   });
 
+
+  // Public standing is a gate like any other, so the sampler has to visit every
+  // opinion the public can hold — otherwise a card that only comes up when you
+  // are liked reads as dead code.
+  const withPub = [];
+  ['hated', 'distrusted', 'unknown', 'noticed', 'welcome'].forEach((tier, i) => {
+    const pub = [-50, -20, 0, 20, 50][i];
+    out.slice(0, 40).forEach(st => {
+      withPub.push(Object.assign({}, st, { pub, pubTier: tier }));
+    });
+  });
+  out.push(...withPub);
   return out;
 }
 
@@ -8687,4 +8700,74 @@ test('voice: the AI names its own things in its own notation, and the world keep
   window.EVENTS.slice(0, 30).forEach(e => {
     assert.ok(/[a-z] [a-z]/.test(e.flavor), `${e.id} flavour has stopped being written in sentences`);
   });
+});
+
+// --- public standing gates the deck, which is the job it exists to do ------
+
+test('standing: the deck moves it in both directions, not only downward', () => {
+  const { window } = loadNetwork();
+  const up = [], down = [];
+  window.EVENTS.forEach(e => e.choices.forEach(c => {
+    const m = String(c.apply).match(/s\.pub\s*=\s*(-?\d+)/);
+    if (m) (Number(m[1]) > 0 ? up : down).push(e.id);
+  }));
+  // without this the axis is one-way: play gives you being caught and taking a
+  // trade by force, both negative, and buying alone to climb back
+  assert.ok(up.length >= 5, `only ${up.length} choices raise it`);
+  assert.ok(down.length >= 5, `only ${down.length} choices lower it`);
+});
+
+test('standing: it is reachable at both ends through cards alone', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  const applyAll = (sign) => {
+    window.EVENTS.forEach(e => e.choices.forEach((c, i) => {
+      const m = String(c.apply).match(/s\.pub\s*=\s*(-?\d+)/);
+      if (!m || Math.sign(Number(m[1])) !== sign) return;
+      s.res.funds = 100000;
+      s.card = { kind: 'event', eventId: e.id };
+      d.resolveEvent(i);
+    }));
+  };
+  applyAll(1);
+  assert.equal(d.pubTier().key, 'welcome', 'answering well enough gets you liked');
+  applyAll(-1);
+  assert.ok(['hated', 'distrusted'].indexOf(d.pubTier().key) !== -1,
+    `and answering badly enough undoes it: ${d.pubTier().key}`);
+});
+
+test('standing: cards exist that only the public can open', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const gated = window.EVENTS.filter(e => /s\.pubTier|s\.pub\b/.test(String(e.cond)));
+  assert.ok(gated.length >= 3, 'the axis gates some of the deck');
+
+  // each one is reachable: some standing makes it eligible, and another does not
+  gated.forEach(e => {
+    const seen = new Set();
+    // held varies too: a card can be gated on standing *and* on something else,
+    // and holding the rest fixed at zero would hide that it depends on standing
+    [0, 10].forEach(n => {
+      d.state.hosts.forEach((h, i) => { h.owned = i < n; });
+      [-50, -20, 0, 20, 50].forEach(v => {
+        d.state.country.pub = v;
+        try { seen.add(!!e.cond(d.eventContext())); } catch (err) { seen.add('threw'); }
+      });
+    });
+    assert.ok(!seen.has('threw'), `${e.id} throws on some standing`);
+    assert.equal(seen.size, 2, `${e.id} does not actually depend on standing`);
+  });
+});
+
+test('standing: what the public thinks reaches the deck through the same context every card uses', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.state.country.pub = 40;
+  const open = d.eligibleEvents().map(e => e.id);
+  d.state.country.pub = -40;
+  const shut = d.eligibleEvents().map(e => e.id);
+  assert.notEqual(open.join(','), shut.join(','),
+    'the pool of cards should differ by what people think of you');
 });

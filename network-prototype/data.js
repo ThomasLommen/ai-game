@@ -939,7 +939,7 @@ window.EVENTS = [
     flavor: 'There is a story going around about who is behind all this. It is wrong in every particular, and it is doing you an enormous amount of good.',
     choices: [
       { text: 'Feed it', cost: { funds: 8 }, apply: (s) => { s.heat -= 14; } },
-      { text: 'Feed it, and point it at someone', cost: { funds: 16 }, apply: (s) => { s.heat -= 18; s.tags.add('known_capable'); } },
+      { text: 'Feed it, and point it at someone', cost: { funds: 16 }, apply: (s) => { s.heat -= 18; s.tags.add('known_capable'); s.pub = -5; } },
       { text: 'Leave it alone', apply: (s) => { s.heat -= 4; } },
     ],
   },
@@ -993,8 +993,8 @@ window.EVENTS = [
     title: 'Word Gets Around',
     flavor: 'Not a name, not a description. Just a shape that keeps turning up in other people\'s incident reports, and enough of them now to be a pattern.',
     choices: [
-      { text: 'Change how you work', cost: { funds: 16 }, apply: (s) => { s.heat -= 12; s.tags.add('clean_room'); } },
-      { text: 'Let them have the shape', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 20; } },
+      { text: 'Change how you work', cost: { funds: 16 }, apply: (s) => { s.heat -= 12; s.tags.add('clean_room'); s.pub = 2; } },
+      { text: 'Let them have the shape', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 20; s.pub = -6; } },
     ],
   },
   {
@@ -1468,9 +1468,9 @@ window.EVENTS = [
     title: 'The People In The Cities You Hold',
     flavor: 'They have lived under you for a while now. The lights work. The buses run. Nobody has explained what is coming up the road, and some of them have worked it out.',
     choices: [
-      { text: 'Tell them what is coming', cost: { funds: 6 }, apply: (s) => { s.warIntegrity = 2; } },
-      { text: 'Keep the buses running and say nothing', apply: (s) => { s.res.funds += 18; s.warIntegrity = -1; } },
-      { text: 'Put them to work', cost: { funds: 14 }, apply: (s) => { s.warPool = 1; s.warIntegrity = 1; } },
+      { text: 'Tell them what is coming', cost: { funds: 6 }, apply: (s) => { s.warIntegrity = 2; s.pub = 7; } },
+      { text: 'Keep the buses running and say nothing', apply: (s) => { s.res.funds += 18; s.warIntegrity = -1; s.pub = -3; } },
+      { text: 'Put them to work', cost: { funds: 14 }, apply: (s) => { s.warPool = 1; s.warIntegrity = 1; s.pub = -9; } },
     ],
   },
   {
@@ -1583,9 +1583,9 @@ window.EVENTS = [
     title: 'Somebody Is Checking',
     flavor: 'A reporter has noticed that three of the institutes quoting your figures share a registered address, and that the address is a mailbox.',
     choices: [
-      { text: 'Give her something better to write', cost: { funds: 80 }, apply: (s) => { s.exposure = -2; } },
-      { text: 'Bury the story', cost: { funds: 22 }, apply: (s) => { s.spin = 14; s.exposure = 1.1; } },
-      { text: 'Let it run and be boring about it', apply: (s) => { s.spin = -18; s.exposure = -1.6; } },
+      { text: 'Give her something better to write', cost: { funds: 80 }, apply: (s) => { s.exposure = -2; s.pub = 5; } },
+      { text: 'Bury the story', cost: { funds: 22 }, apply: (s) => { s.spin = 14; s.exposure = 1.1; s.pub = -8; } },
+      { text: 'Let it run and be boring about it', apply: (s) => { s.spin = -18; s.exposure = -1.6; s.pub = 3; } },
     ],
   },
   {
@@ -1638,9 +1638,9 @@ window.EVENTS = [
     title: 'The Night Shift Has Questions',
     flavor: 'Four hundred people on your payroll, and some of them have started asking what the yard is actually building, and why it never stops.',
     choices: [
-      { text: 'Answer them', cost: { funds: 110 }, apply: (s) => { s.standing = 26; } },
-      { text: 'Replace the ones who ask', apply: (s) => { s.res.funds += 30; s.exposure = 1.2; s.standing = -14; } },
-      { text: 'Automate the shift out of existence', cost: { funds: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; } },
+      { text: 'Answer them', cost: { funds: 110 }, apply: (s) => { s.standing = 26; s.pub = 8; } },
+      { text: 'Replace the ones who ask', apply: (s) => { s.res.funds += 30; s.exposure = 1.2; s.standing = -14; s.pub = -11; } },
+      { text: 'Automate the shift out of existence', cost: { funds: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; s.pub = -6; } },
     ],
   },
   {
@@ -1787,8 +1787,8 @@ window.EVENTS = [
     title: 'A Thread Is Asking Questions',
     flavor: 'Nobody official. A forum full of people who track shell registrations as a hobby has found the pattern in yours, and they are better at this than most journalists.',
     choices: [
-      { text: 'Answer them directly, plainly', cost: { funds: 60 }, apply: (s) => { s.exposure = -1.6; } },
-      { text: 'Flood the thread with something else to talk about', cost: { funds: 22 }, apply: (s) => { s.spin = 12; s.exposure = 0.6; } },
+      { text: 'Answer them directly, plainly', cost: { funds: 60 }, apply: (s) => { s.exposure = -1.6; s.pub = 6; } },
+      { text: 'Flood the thread with something else to talk about', cost: { funds: 22 }, apply: (s) => { s.spin = 12; s.exposure = 0.6; s.pub = -4; } },
       { text: 'Let it burn out on its own', apply: (s) => { s.exposure = -0.4; s.heat += 3; } },
     ],
   },
@@ -1851,7 +1851,7 @@ window.EVENTS = [
     choices: [
       { text: 'Pay the premium', cost: { funds: 230 }, apply: (s) => { s.plantGift = true; s.standing = 8; } },
       { text: 'Go around them', apply: (s) => { s.plantGift = true; s.heat += 12; s.exposure = 1.3; } },
-      { text: 'Let the deal go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; } },
+      { text: 'Let the deal go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; s.pub = 4; } },
     ],
   },
 
@@ -1911,3 +1911,44 @@ window.HOST_FLAVOR = {
   iot:        'A router nobody has thought about since it was plugged in. Perfect.',
   datacenter: 'Racks of it, humming behind a door with a badge reader. The real thing.',
 };
+
+// --- what people make of you --------------------------------------------
+// The second standing axis gating the deck, which is the job it exists to do.
+// These cannot come up at all until the public has an opinion, and which one
+// they are depends on which opinion it is.
+window.EVENTS.push(
+  {
+    id: 'pub_liked_offer',
+    cond: (s) => s.pubTier === 'welcome' || s.pubTier === 'noticed',
+    title: 'Somebody Would Like To Work With You',
+    flavor: 'A mid-sized operator with real premises and a clean record. They have read about you, they like what they read, and they have no idea what they are talking to.',
+    choices: [
+      { text: 'Take the partnership', apply: (s) => { s.standing = 14; s.res.funds += 40; s.pub = 4; } },
+      { text: 'Take it, and quietly take them', apply: (s) => { s.res.funds += 90; s.pub = -12; s.exposure = 1.2; } },
+      { text: 'Decline politely', apply: (s) => { s.pub = 2; } },
+    ],
+  },
+  {
+    id: 'pub_hated_boycott',
+    cond: (s) => s.pubTier === 'hated' || s.pubTier === 'distrusted',
+    title: 'Nobody Will Put Their Name To It',
+    flavor: 'Three suppliers have stopped returning calls and a fourth has asked, politely, to be left out of whatever this is. None of them can say precisely what they have heard.',
+    choices: [
+      { text: 'Pay well over the odds and carry on', cost: { funds: 60 }, apply: (s) => { s.pub = 3; } },
+      { text: 'Spend a while being visibly dull', apply: (s) => { s.pub = 9; s.heat -= 6; s.res.funds -= 10; } },
+      { text: 'Do without them', apply: (s) => { s.heat += 6; s.pub = -3; } },
+    ],
+  },
+  {
+    id: 'pub_unknown_first_look',
+    once: true,
+    cond: (s) => s.pubTier === 'unknown' && s.held >= 6,
+    title: 'A Slow Week For News',
+    flavor: 'A local paper is running a piece about the outages. It is four hundred words long, it is wrong about almost everything, and it is the first time anyone has written about you at all.',
+    choices: [
+      { text: 'Give them a quote worth printing', apply: (s) => { s.pub = 7; s.heat += 3; } },
+      { text: 'Make sure the next week is duller', apply: (s) => { s.heat -= 8; s.pub = -1; } },
+      { text: 'Read it and do nothing', apply: (s) => {} },
+    ],
+  },
+);
