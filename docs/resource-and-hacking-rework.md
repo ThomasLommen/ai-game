@@ -179,7 +179,7 @@ machine that names its tools like files and describes the world like a novelist.
 
 ## Progress
 
-**Phases 1, 2 and 3 are done.** Insight, the capability tree, and cover-as-currency
+**All six phases are done.** Insight, the capability tree, and cover-as-currency
 are all gone; TFLOPS, electricity, funds, grid buildings and the allocation
 screen are all in. The resource row is three entries: funds, TFLOPS, cover.
 
@@ -215,6 +215,21 @@ earns nothing at all, because funds come only from commercial ground. The openin
 is genuinely poor until a till or an office is taken. Nothing early is mandatory,
 so this should read as intended rather than as a stall — but it changes the shape
 of the first ten turns and wants playing.
+
+Phases 4 to 6, briefly: buying returned as the legitimacy faucet and standing
+split into two axes that move independently; cards stopped quoting prices and
+gained gambles and choices that plant a card for later; and the voice split
+landed — the machine names its own things in its own notation while the world
+keeps its words.
+
+Two fixes worth remembering, because neither was a rename:
+
+- **No card could be allowed to grey out entirely.** Six of a hundred and
+  twenty-two had every choice priced or gated, so a broke run could be handed a
+  card with no answer at all.
+- **The zoom toggle used to hide itself** when the city you were in had been
+  folded in, stranding you on the country map with no way down. It falls back to
+  home now, which is never folded in.
 
 ## Phases
 
