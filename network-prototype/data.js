@@ -87,6 +87,8 @@ window.GRID = {
   rampPerTurn: 2,    // TFLOPS a changed allocation moves by each turn
 };
 
+window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; what you can switch on is the ceiling. Change your mind whenever you like — a dial moves the moment you touch it, but what it does arrives a few turns later.';
+
 // --- allocation --------------------------------------------------------
 // What replaced the capability tree. Nothing here is bought and kept; you
 // decide what your compute is doing, and you may decide differently later at

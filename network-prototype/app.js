@@ -6435,6 +6435,56 @@
   }
 
   // The five branches, each as its own section rather than one 2796px scroll.
+  // What the effect of an allocation actually is at the figure it is running
+  // at — scaled per unit, then handed to the same chip formatter a capability
+  // or a rack uses, so a thing you dialled in reads like a thing you bought.
+  function allocChips(A, units) {
+    const scaled = {};
+    for (const k in (A.effect || {})) {
+      scaled[k] = /Mult$/.test(k) ? Math.pow(A.effect[k], units) : A.effect[k] * units;
+    }
+    return capEffectChips({ effect: scaled });
+  }
+
+  // The allocation screen. One step of the dial is one unit of effect rather
+  // than one TFLOPS — the player thinks in "another action a turn", not in
+  // whether four is enough for one.
+  function allocSection() {
+    const free = allocFree();
+    const rows = window.ALLOC.map(A => {
+      const dial = allocDial(A.id), live = allocLive(A.id), units = allocUnits(A.id);
+      const pending = dial !== live;
+      return `
+        <div class="alloc-row${units ? ' on' : ''}">
+          <div class="alloc-top">
+            <span class="alloc-name">${A.label}</span>
+            <span class="mono dim">${A.per} TFLOPS each</span>
+          </div>
+          <p class="shop-good-desc">${A.blurb}</p>
+          <div class="alloc-dial">
+            <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="down" ${dial > 0 ? '' : 'disabled'}>&minus;</button>
+            <span class="alloc-fig mono">${live}${pending ? ` <i class="dim">&rarr; ${dial}</i>` : ''}</span>
+            <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="up" ${free >= A.per ? '' : 'disabled'}>+</button>
+          </div>
+          <p class="yield-row">${units
+            ? allocChips(A, units)
+            : `<span class="dim">${pending ? 'still coming up' : 'nothing running here'}</span>`}</p>
+        </div>`;
+    }).join('');
+
+    return {
+      id: 'alloc', label: 'allocation', done: false,
+      html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">the grid</span>
+          <span class="mono dim">${drawn()} / ${usableTflops()} running</span>
+        </div>
+        <p class="sheet-note">${window.GRID_INFO}</p>
+        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${chip('cover', electricity() + ' electricity')}${idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
+        ${rows}`,
+    };
+  }
+
   function capSections() {
     const committed = committedBranches();
     const order = ['tempo', 'depth', 'cover', 'trade', 'reach'];
@@ -6499,10 +6549,12 @@
         </section>` });
     });
 
-    const out = blocks.filter(b => b.html).map(b => ({
+    // Allocation comes first: it is the thing you actually touch turn to turn,
+    // and it is what the tree behind it is being replaced by.
+    const out = [allocSection()].concat(blocks.filter(b => b.html).map(b => ({
       id: b.id, label: b.label, done: b.mine,
       html: `<p class="sheet-note">Permanent. The strongest ones cost you an action every turn, for good — slower, but each move lands harder.</p>` + b.html,
-    }));
+    })));
     // last, so opening capabilities still lands on the tree rather than on a
     // list of things you cannot act on
     const held = heldSection();
@@ -6750,6 +6802,17 @@
     });
     $s.querySelectorAll('[data-cap]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => { buyCap(b.getAttribute('data-cap')); renderSheet(); });
+    });
+    // One tap is one unit of effect, up or down
+    $s.querySelectorAll('[data-alloc]:not([disabled])').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-alloc');
+        const A = window.ALLOC.find(a => a.id === id);
+        if (!A) return;
+        const step = b.getAttribute('data-step') === 'up' ? A.per : -A.per;
+        setAlloc(id, allocDial(id) + step);
+        renderSheet();
+      });
     });
     $s.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
@@ -7472,7 +7535,7 @@
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, rampAlloc, shedOverdraw,
+    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

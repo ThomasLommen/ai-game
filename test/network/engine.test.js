@@ -6815,11 +6815,11 @@ test('sheet: capabilities are five sections, not one long scroll', () => {
   d.state.res.insight = 100000;
   d.state.hosts.slice(0, 20).forEach(h => { h.owned = true; });
   const secs = d.capSections();
-  assert.ok(secs.length >= 2, 'the tree comes apart into branches');
-  secs.forEach(x => {
-    assert.ok(x.id && x.label, 'each branch is addressable and named');
-    assert.ok(x.html.includes('cap-branch'), 'and carries its own content');
-  });
+  assert.equal(secs[0].id, 'alloc', 'allocation leads, being the thing you touch every turn');
+  const tree = secs.filter(x => x.id !== 'alloc');
+  assert.ok(tree.length >= 2, 'the tree comes apart into branches');
+  secs.forEach(x => assert.ok(x.id && x.label, 'each section is addressable and named'));
+  tree.forEach(x => assert.ok(x.html.includes('cap-branch'), 'and each branch carries its own content'));
   // and no section is the whole tree
   const total = secs.reduce((a, x) => a + x.html.length, 0);
   secs.forEach(x => assert.ok(x.html.length < total,
@@ -7924,4 +7924,53 @@ test('grid: allocation survives a save, dial and live figure both', () => {
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(round.alloc.intel, 8, 'what you committed');
   assert.equal(round.allocLive.intel, 4, 'and how much of it had arrived');
+});
+
+test('grid: the allocation screen reports capacity, ceiling and what is idle', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+
+  const sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(sec, 'there is an allocation section');
+  assert.ok(sec.html.includes(d.tflops() + ' TFLOPS held'), 'it says what you hold');
+  assert.ok(sec.html.includes(d.electricity() + ' electricity'), 'and what you can power');
+  assert.ok(sec.html.includes('idle for want of power'),
+    'and names the hardware it cannot switch on, rather than hiding the gap');
+  assert.ok(sec.html.includes(`${d.drawn()} / ${d.usableTflops()} running`));
+
+  // every dial is on the screen, with its price per unit
+  window.ALLOC.forEach(A => {
+    assert.ok(sec.html.includes(A.label), `${A.id} is on the screen`);
+    assert.ok(sec.html.includes(`${A.per} TFLOPS each`), `${A.id} says what a unit costs`);
+  });
+});
+
+test('grid: a dial shows what is running and what is still on its way', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const A = window.ALLOC.find(a => a.id === 'ap');
+
+  d.setAlloc('ap', A.per);
+  let sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(sec.html.includes('&rarr;'), 'the gap between asked-for and running is drawn');
+  assert.ok(sec.html.includes('still coming up'), 'and named, so the wait is not a mystery');
+
+  while (d.allocLive('ap') < A.per) { s.card = null; d.endTurn({ silent: true }); }
+  sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(!sec.html.includes('still coming up'), 'once it lands the wait is gone');
+  assert.ok(sec.html.includes('action'), 'and the effect is quoted as a real number');
+});
+
+test('grid: allocation effect chips scale with the figure, not merely with owning it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const A = window.ALLOC.find(a => a.id === 'dev');
+  const one = d.allocChips(A, 1);
+  const three = d.allocChips(A, 3);
+  assert.ok(one.includes('+1'), 'one unit reads as one');
+  assert.ok(three.includes('+3'), 'three units read as three');
 });

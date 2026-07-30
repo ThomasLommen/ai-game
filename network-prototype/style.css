@@ -1571,3 +1571,33 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 .cap-terms { margin: 0 0 8px; }
 .cap-terms .yield { font-size: 10.5px; padding: 1px 6px; }
+
+/* --- allocation ---------------------------------------------------------
+   Same card as a capability or a rack, with a dial on it. The live figure is
+   what is running; the arrow after it is what you have asked for and have not
+   got yet, which is the switching cost made visible. */
+.alloc-row {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.alloc-row.on { border-color: color-mix(in srgb, var(--tflops) 45%, var(--line)); }
+.alloc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.alloc-name { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+.alloc-dial { display: flex; align-items: center; gap: 10px; }
+.alloc-btn {
+  width: 40px; height: 34px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 9px;
+  font-size: 17px; line-height: 1;
+  cursor: pointer;
+}
+.alloc-btn:hover:not([disabled]) { border-color: var(--ink-dim); }
+.alloc-btn[disabled] { opacity: .35; cursor: default; }
+.alloc-fig { font-size: 14px; color: var(--tflops); min-width: 5.5em; text-align: center; }
+.alloc-fig i { font-style: normal; font-size: 12px; }
