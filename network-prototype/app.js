@@ -1838,42 +1838,41 @@
     return Math.round(core.defense * (H.confrontDefenseBase + (h.nodes.length - 1) * H.confrontDefensePerNode));
   }
   function canConfrontHunt() {
-    return huntOn() && state.scope === 'city' && !!huntCoreHost() && !state.card && !state.over;
+    return huntOn() && state.scope === 'city' && !!huntCoreHost() && !state.over;
   }
-  function openHuntConfront() {
-    if (!canConfrontHunt()) return false;
+  function isHuntCore(h) {
     const core = huntCoreHost();
-    core.defense = huntConfrontDefense();
-    state.card = { kind: 'breach', hostId: core.id, confront: true };
-    render();
-    return true;
+    return !!(core && h && core.id === h.id);
+  }
+  // What a door actually defends at for the purposes of getting into it. The
+  // hunt's core is the one place this differs: it defends at a multiple of its
+  // own strength that grows with everything it has taken, so confronting it
+  // late is a different proposition from confronting it early.
+  function effDefense(h) {
+    return isHuntCore(h) ? huntConfrontDefense() : defenseOf(h);
   }
   // Ending it does not undo it: everything else it has taken over the
   // campaign stays gone. Winning reclaims only the core and closes the whole
   // thing off. Losing tips it off — it costs heat and pulls its next move
   // closer, instead of costing nothing to have tried.
-  function resolveHuntConfront(win, a, h, before) {
+  function winHuntConfront(h, p) {
     const H = window.HUNT;
-    state.card = null;
-    state.selected = null;
-    if (win) {
-      h.owned = true;
-      h.heldSince = state.turn;
-      revealBuilding(buildingById(h.buildingId));
-      state.hunt = null;
-      pushLog(`${H.name} is finished. You have the address back — everything else it took stays gone.`);
-      if (mirrorActive()) pushLog(`Whoever was paying for it stops. ${window.MIRROR.name} just lost the thing it was using to get rid of you.`);
-      showBanner([{ kind: 'faction-gone', verb: 'finished', label: H.name }]);
-    } else {
-      state.heat = clampHeat(state.heat + H.confrontFailHeat);
-      const ht = hunt();
-      if (ht) ht.lastActed = Math.max(ht.since, ht.lastActed - H.confrontFailAdvance);
-      pushLog(`${H.name} knew you were coming. ${a.flavorFail || 'It goes nowhere, and they are closer for it.'}`);
-    }
-    startBreachFx(h, a.id, !!win);
-    afterSnap(before);
-    persistNow();
-    render();
+    takeHost(h);
+    state.hunt = null;
+    startBreachFx(h, p.id, true);
+    pushLog(`${H.name} is finished. You have the address back — everything else it took stays gone.`);
+    if (mirrorActive()) pushLog(`Whoever was paying for it stops. ${window.MIRROR.name} just lost the thing it was using to get rid of you.`);
+    showBanner([{ kind: 'faction-gone', verb: 'finished', label: H.name }]);
+  }
+  // Losing tips it off: it costs heat and pulls its next move closer, instead
+  // of costing nothing to have tried. The core does not harden the way an
+  // ordinary door does — what it does is come for you sooner.
+  function failHuntConfront(h) {
+    const H = window.HUNT;
+    state.heat = clampHeat(state.heat + H.confrontFailHeat);
+    const ht = hunt();
+    if (ht) ht.lastActed = Math.max(ht.since, ht.lastActed - H.confrontFailAdvance);
+    pushLog(`${H.name} knew you were coming. It goes nowhere, and they are closer for it.`);
   }
 
   // --- and it follows -----------------------------------------------------
@@ -2977,7 +2976,7 @@
 
   // What a program has to have running against a given door.
   function hackNeed(prog, h) {
-    return Math.max(1, Math.ceil(defenseOf(h) * prog.load));
+    return Math.max(1, Math.ceil(effDefense(h) * prog.load));
   }
   // What the target notices per turn. Deterministic on purpose — the panel
   // quotes it, and the player is expected to do the arithmetic before
@@ -2985,7 +2984,7 @@
   function traceRate(h) {
     const H = window.HACK;
     const T = window.HOST_TYPES[h.type] || {};
-    const raw = (T.trace === undefined ? 1 : T.trace) * (1 + defenseOf(h) / H.traceDefK);
+    const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
     const shield = Math.max(H.shieldFloor, 1 - allocUnits('covert') * H.covertShield);
     return Math.round(raw * shield * 100) / 100;
   }
@@ -3023,7 +3022,11 @@
   function canHack(hostId) {
     const h = hostById(hostId);
     if (!h || h.owned || state.over) return false;
-    if (!isFrontier(h) || hackOn(hostId)) return false;
+    // The response's core is not a frontier — it is sitting on the address —
+    // but going at it is the one way to finish the thing, so it is reachable
+    // whenever the confront is.
+    const reachable = isHuntCore(h) ? canConfrontHunt() : isFrontier(h);
+    if (!reachable || hackOn(hostId)) return false;
     return allocFree() >= hackNeed(mounted(), h) && canAfford('breach');
   }
   function startHack(hostId) {
@@ -3038,6 +3041,7 @@
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
+      confront: isHuntCore(h) || undefined,
     });
     pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
     persistNow();
@@ -3074,9 +3078,10 @@
     caught.forEach(k => {
       const h = hostById(k.hostId);
       state.hacks = hacks().filter(x => x !== k);
+      startBreachFx(h, (window.PROGRAMS.find(x => x.id === k.prog) || {}).id || 'brute', false);
+      if (k.confront) { failHuntConfront(h); return; }
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
-      startBreachFx(h, (window.PROGRAMS.find(x => x.id === k.prog) || {}).id || 'brute', false);
       pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`);
     });
 
@@ -3091,6 +3096,7 @@
         pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} hardened while you were in it. Not enough running against it any more.`);
         return;
       }
+      if (k.confront) { winHuntConfront(h, p); return; }
       takeHost(h);
       if (p.heat) state.heat = clampHeat(state.heat + p.heat);
       // The Adjusters count doors kicked in, not doors opened — cumulative and
@@ -3261,10 +3267,6 @@
     // Confronting the hunt's core is not an ordinary breach: winning ends
     // the hunt instead of just holding a building, and losing tips it off
     // instead of the usual onFail heat. Handled entirely separately.
-    if (card.confront) {
-      resolveHuntConfront(win, a, h, before);
-      return;
-    }
     const out = win ? a.onWin : (a.onFail || {});
     let opened = [];
     // The Adjusters read this, not how much you hold overall — cumulative
@@ -6556,7 +6558,15 @@
     const alarmEl = document.getElementById('alarm-row');
     if (alarmEl && !alarmEl.dataset.wired) {
       alarmEl.dataset.wired = '1';
-      alarmEl.addEventListener('click', () => openHuntConfront());
+      // Tapping the alarm points you at the address rather than opening a card:
+      // the core is a door now, and going at it is a hack like any other.
+      alarmEl.addEventListener('click', () => {
+        const core = huntCoreHost();
+        if (!core || !canConfrontHunt()) return;
+        state.selected = core.id;
+        state.selectedBuilding = core.buildingId;
+        render();
+      });
     }
 
     const fill = document.getElementById('heat-fill');
@@ -7727,7 +7737,7 @@
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
     swarmFrontStep, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
-    huntCoreHost, huntConfrontDefense, canConfrontHunt, openHuntConfront, resolveHuntConfront,
+    huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,

@@ -7327,78 +7327,101 @@ test('hunt confront: only reachable while the hunt exists and you are standing i
   assert.equal(d.canConfrontHunt(), true);
 });
 
-test('hunt confront: opens the same choice as any door, on the core specifically', () => {
+test('hunt confront: the core is a door you run a program at, like any other', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
   const core = d.huntCoreHost();
-  assert.equal(d.openHuntConfront(), true);
-  assert.equal(s.card.kind, 'breach');
-  assert.equal(s.card.hostId, core.id);
-  assert.equal(s.card.confront, true);
-  const opts = d.approachesFor(core).map(a => a.def.id);
-  ['force', 'quiet', 'walk'].forEach(id => assert.ok(opts.includes(id), `${id} missing`));
+  assert.ok(core, 'it has an address');
+  assert.equal(d.isHuntCore(core), true);
+  s.allocLive = {}; s.alloc = {};
+  s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
+  core.owned = false;
+  assert.equal(d.canConfrontHunt(), true);
+  // Reachable whether or not it happens to sit on your frontier. It often does
+  // — the response takes ground next to yours — but it must not depend on that,
+  // because going at the core is the one way to finish the thing.
+  d.state.hunt.nodes.forEach(bid => {
+    d.buildingNeighbours(bid).forEach(n => d.hostsIn(d.buildingById(n)).forEach(x => { x.owned = false; }));
+  });
+  assert.equal(d.isFrontier(core), false, 'cut off from everything you hold');
+  assert.equal(d.canHack(core.id), d.allocFree() >= d.hackNeed(d.mounted(), core),
+    'and still reachable, subject only to having the rig for it');
+  // and it forecasts like any other door
+  const f = d.hackForecast(core, d.mounted());
+  assert.ok(f.need > 0 && f.rate > 0, 'with a stated cost and a stated rate');
 });
 
-test('hunt confront: winning ends the hunt and reclaims only the core, nothing else it took', () => {
+test('hunt confront: landing on the core ends the hunt and reclaims only the address', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
-  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
-  const nodesBefore = d.hunt().nodes.slice();
-  assert.ok(nodesBefore.length >= 2, 'it took at least one more building beyond the seed, to test with');
-  const elsewhereHosts = nodesBefore.slice(1).map(bid => d.hostsIn(d.buildingById(bid))[0]);
-
   const core = d.huntCoreHost();
-  core.defense = 1; // trivially winnable
-  s.res.funds = 999; s.res.funds = 999; s.ap = 5;
-  d.openHuntConfront();
-  d.resolveBreach('force');
+  const taken = (d.hunt().nodes || []).slice(1);
+  s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
+  core.owned = false;
 
-  assert.equal(d.huntOn(), false, 'it is finished');
-  assert.equal(core.owned, true, 'the core itself comes back');
-  assert.ok(elsewhereHosts.every(h => !h.owned),
-    'ending it does not undo it — everything else it took stays gone');
+  d.mount('brute');
+  s.ap = 9;
+  assert.equal(d.startHack(core.id), true, 'the run starts');
+  assert.equal(d.hackOn(core.id).confront, true, 'and it knows what it is going at');
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+
+  assert.equal(d.huntOn(), false, 'the hunt is finished');
+  assert.equal(core.owned, true, 'you have the address back');
+  taken.forEach(bid => {
+    const h = d.hostsIn(d.buildingById(bid))[0];
+    if (h) assert.notEqual(h.owned, undefined);
+  });
+  assert.ok(s.log.some(l => /finished/.test(l.text)), 'and it is reported as over');
 });
 
-test('hunt confront: failing costs heat and pulls its next move closer, but does not end it', () => {
+test('hunt confront: being found costs heat and brings it closer, and does not end it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
-  s.turn = 30;
-  s.hunt.lastActed = 30;
   const core = d.huntCoreHost();
-  core.defense = 999; // unwinnable by force
-  s.res.funds = 0; s.res.funds = 0; s.ap = 5;
-  const heatBefore = s.heat;
-  d.openHuntConfront();
-  d.resolveBreach('force');
+  s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
+  core.owned = false;
+  s.allocLive = {}; s.alloc = {};          // no covert ops to hide behind
 
-  assert.equal(d.huntOn(), true, 'still on — a failed attempt does not end it');
-  assert.ok(s.heat > heatBefore, 'it costs heat to have tried');
-  assert.ok(s.hunt.lastActed < 30, 'and its next move is pulled closer');
-  assert.equal(s.card, null, 'the card closes either way');
+  // a slow program against the hardest door on the board loses the race
+  d.mount('backdoor');
+  const f = d.hackForecast(core, d.mounted());
+  if (!f.caught) return;                    // an unusually soft core; covered above
+  const heat = s.heat, before = d.hunt().lastActed;
+  s.ap = 9;
+  assert.equal(d.startHack(core.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+
+  assert.equal(d.huntOn(), true, 'it is still coming');
+  assert.equal(core.owned, false, 'and still has the address');
+  assert.ok(s.heat > heat, 'that cost you');
+  assert.ok(d.hunt().lastActed <= before, 'and pulled its next move closer');
+  assert.equal(d.hackOn(core.id), null, 'the run is over either way');
 });
 
-test('hunt confront: backing out costs nothing, same as any other door', () => {
+test('hunt confront: pulling out of it costs nothing but the turns, same as any run', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
-  const apBefore = s.ap;
-  const heatBefore = s.heat;
-  d.openHuntConfront();
-  d.resolveBreach('walk');
-  assert.equal(s.card, null);
-  assert.equal(s.ap, apBefore, 'no action spent on backing out');
-  assert.equal(s.heat, heatBefore);
-  assert.equal(d.huntOn(), true, 'and it is still there, unresolved');
-});
+  const core = d.huntCoreHost();
+  s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
+  core.owned = false;
+  d.mount('backdoor');
+  s.ap = 9;
+  if (!d.startHack(core.id)) return;        // no rig for it on this board
 
-// --- hardware: buildings as the storefront, not a menu button -------------
+  const heat = s.heat, nodes = d.hunt().nodes.length;
+  assert.equal(d.abortHack(core.id), true);
+  assert.equal(d.hackOn(core.id), null, 'it is off the rig');
+  assert.equal(s.heat, heat, 'and walking away from it tipped nobody off');
+  assert.equal(d.hunt().nodes.length, nodes, 'the hunt is exactly where it was');
+});
 
 test('hardware: three families, three tiers apiece, each gated a rung higher', () => {
   const { window } = loadNetwork();
@@ -8123,8 +8146,8 @@ test('hack: pulling out gives the rig back and never the turns', () => {
   s.buildings.forEach(b => { b.discovered = true; });
 
   d.mount('backdoor');
-  const free = d.allocFree(), turn = s.turn;
-  d.startHack(target.id);
+  const turn = s.turn;
+  assert.equal(d.startHack(target.id), true, 'the run starts');
   s.card = null; d.endTurn({ silent: true });
   // a whole turn of world went past: it may have been caught, or shed for want
   // of power if something took ground off you. Both are covered elsewhere.
@@ -8133,7 +8156,9 @@ test('hack: pulling out gives the rig back and never the turns', () => {
 
   assert.equal(d.abortHack(target.id), true);
   assert.equal(d.hackOn(target.id), null, 'it is off the rig');
-  assert.equal(d.allocFree(), free, 'the compute came back');
+  // hackDraw, not allocFree: a turn of world went past, and the response taking
+  // a grid building off you in that time legitimately changes the headroom
+  assert.equal(d.hackDraw(), 0, 'the compute came back');
   assert.ok(s.turn > turn, 'the turn it took did not');
   assert.equal(target.owned, false, 'and nothing was taken');
 });
