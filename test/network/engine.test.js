@@ -224,151 +224,6 @@ test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
   assert.ok(s.heat < 20, 'lying low reduces heat');
 });
 
-test('breach: an unmet gate does not hand you the host', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const origin = d.owned()[0];
-  const target = d.neighbours(origin).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = 999; // unreachable by any route
-  s.res.funds = 0;
-  s.res.funds = 0;
-
-  d.openBreach(target.id);
-  assert.ok(s.card && s.card.kind === 'breach', 'the breach card opened');
-  const opts = d.approachesFor(target);
-  assert.ok(opts.filter(a => a.def.id !== 'walk').every(a => !a.usable), 'nothing is usable');
-
-  d.resolveBreach('force');
-  assert.equal(target.owned, false, 'a failed force does not take the host');
-  assert.equal(s.card, null, 'the card closes either way');
-});
-
-test('breach: a met gate takes the host and grows your tflops', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = 1;
-  target.threads = 6;
-  const before = d.tflops();
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the host is taken');
-  assert.equal(d.tflops(), before + 6, 'its threads join the flywheel');
-});
-
-// (walking away is covered by "backing out of a breach costs no turn" below —
-// it used to spend a turn, which made "open the card, leave" a free turn button.)
-
-test('light touch: forcing a door well within reach costs no action', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  grant(window, d, 'light_touch');
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = Math.max(1, Math.floor(d.tflops() / 2) - 1); // comfortably outclassed
-  s.ap = d.maxAP();
-  const apBefore = s.ap;
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the host is taken');
-  assert.equal(s.ap, apBefore, 'and the action spent on it came straight back');
-});
-
-test('light touch: an even fight still costs the action', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  grant(window, d, 'light_touch');
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = Math.max(1, d.tflops() - 1); // beatable, but not outclassed
-  s.ap = d.maxAP();
-  const apBefore = s.ap;
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the host is taken');
-  assert.equal(s.ap, apBefore - 1, 'not outclassed enough to be free');
-});
-
-test('light touch: without the capability, an outclassed door still costs the action', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  ungrant(d);
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = 1;
-  s.ap = d.maxAP();
-  const apBefore = s.ap;
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the host is taken');
-  assert.equal(s.ap, apBefore - 1, 'no capability, no refund');
-});
-
-test('deep root: forcing a door loosens everything touching it, permanently', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  grant(window, d, 'deep_root');
-  const seat = d.owned()[0];
-  // not just the first unowned neighbour: on some maps it has no neighbour
-  // of its own left to loosen, and the test setup itself would be invalid
-  let target = null, nextDoor = null;
-  for (const t of d.neighbours(seat).filter(n => !n.owned)) {
-    const nd = d.neighbours(t).find(n => n.id !== seat.id && !n.owned);
-    if (nd) { target = t; nextDoor = nd; break; }
-  }
-  assert.ok(target && nextDoor, 'a door with a neighbour of its own to loosen');
-  target.discovered = true;
-  target.defense = 1;
-  // forced to a value the ripple can actually move: a low roll (e.g. a
-  // router at defense 2) rounds right back to itself and reads as no change
-  nextDoor.defense = 10;
-  const before = nextDoor.defense;
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the door is taken');
-  assert.ok(nextDoor.defense < before, 'and the block around it loosens too');
-});
-
-test('deep root: without the capability, the block around a forced door is untouched', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  ungrant(d);
-  const seat = d.owned()[0];
-  let target = null, nextDoor = null;
-  for (const t of d.neighbours(seat).filter(n => !n.owned)) {
-    const nd = d.neighbours(t).find(n => n.id !== seat.id && !n.owned);
-    if (nd) { target = t; nextDoor = nd; break; }
-  }
-  assert.ok(target && nextDoor, 'a door with a neighbour of its own');
-  target.discovered = true;
-  target.defense = 1;
-  const before = nextDoor.defense;
-
-  d.openBreach(target.id);
-  d.resolveBreach('force');
-  assert.equal(target.owned, true, 'the door is taken');
-  assert.equal(nextDoor.defense, before, 'no capability, nothing loosens');
-});
-
-// City generation already promises the opening doorstep is beatable, at
-// worst after growing a little -- but nothing renewed that promise further
-// in. A landmark-hardened door reachable early, with nothing left to sweep
-// towards either, was a real dead end: not enough tflops to force it, no
-// route around it, nothing left to discover that might have been easier.
 test('breach: a lone impossibly hard door with nothing left to sweep is not a dead end', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -386,13 +241,14 @@ test('breach: a lone impossibly hard door with nothing left to sweep is not a de
   assert.equal(d.sweepBlocked(), 'nothing', 'nothing left to sweep towards');
   const frontier = s.hosts.filter(h => d.isFrontier(h));
   assert.ok(frontier.length > 0, 'there is still a door, just not one you can use');
-  assert.equal(frontier.some(h => d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')), false,
-    'none of them are usable yet -- the dead end this is testing for');
+  // "usable" is now a question about the rig: can anything you could mount get
+  // through anything you can reach?
+  const anyWayIn = () => s.hosts.filter(h => d.isFrontier(h))
+    .some(h => window.PROGRAMS.some(p => d.hackNeed(p, h) <= d.usableTflops()));
+  assert.equal(anyWayIn(), false, 'nothing you could run gets through -- the dead end');
 
   d.ensureFrontierIsOpen();
-  const after = s.hosts.filter(h => d.isFrontier(h));
-  assert.equal(after.some(h => d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')), true,
-    'at least one door opens instead of staying a dead end');
+  assert.equal(anyWayIn(), true, 'at least one door opens instead of staying a dead end');
 });
 
 test('breach: a frontier that is already open is left alone', () => {
@@ -414,35 +270,6 @@ test('breach: a frontier that is already open is left alone', () => {
 // relatively *cheaper* the deeper the campaign went, and the other two got
 // relatively pricier. Three routes meant to stay comparable should not drift
 // apart like that.
-test('force: a harder door costs more heat, the same way quiet and buy cost more of theirs', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const force = window.APPROACHES.find(a => a.id === 'force');
-  const soft = { defense: 4 };
-  const hard = { defense: 30 };
-  assert.ok(d.approachHeat(force, hard) > d.approachHeat(force, soft),
-    'a harder door should cost more heat to force');
-});
-
-test('force: heat cost is on the card itself, not just the bar after the fact', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  target.defense = 20;
-  s.res.funds = 999; s.res.funds = 999; s.ap = 9;
-
-  d.openBreach(target.id);
-  const list = d.approachesFor(target);
-  const force = list.find(a => a.def.id === 'force');
-  assert.ok(d.approachHeat(force.def, target) > 0, 'forcing this door costs real heat');
-  // rendered onto the panel, not left to the heat bar to explain later
-  d.render();
-  const html = window.document.getElementById('panel').innerHTML;
-  assert.ok(/HEAT/.test(html), 'the card names the heat cost');
-});
-
 test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
   // regression guard for a real exploit — discovery used to spread from any
   // *discovered* host, so a player could reveal all 30 hosts from the start
@@ -485,38 +312,34 @@ test('scanning is free, unlimited, and costs heat instead', () => {
   assert.equal(d.sweepBlocked(), 'nothing', 'with the map open there is nowhere left to look');
 });
 
-test('a card takes the whole screen, except a breach -- that one is the core loop', () => {
+test('cards take the whole screen, and a door never opens one', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const panelOpen = () => window.document.getElementById('panel').classList.contains('card-open');
-  // A breach stays in the panel instead, so its own choices have to fit
-  // without the HUD above them — which compacts instead.
-  const hudCompact = () => ['topbar', 'heat-row', 'res-row']
-    .every(id => window.document.getElementById(id).classList.contains('compact'));
 
   s.card = { kind: 'event', eventId: window.EVENTS[0].id };
   d.render();
   assert.equal(panelOpen(), true, 'an event takes the screen');
-  assert.equal(hudCompact(), false, 'and the HUD stays as it is — the event has the whole screen to itself');
 
   s.card = { kind: 'strike' };
   d.render();
   assert.equal(panelOpen(), true, 'so does the hunter');
 
+  // A door is not a card any more. Tapping one selects it and the panel shows
+  // the forecast in place, so nothing takes the screen and the HUD stays up —
+  // which is what the compacting was ever for.
   s.card = null;
-  s.res.funds = 999;
-  d.actScan();
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => d.isFrontier(h));
-  d.render();
-  d.openBreach(target.id);
-  assert.equal(panelOpen(), false, 'a breach does not -- it is the single most frequent tap in the game');
-  assert.equal(hudCompact(), true, 'and the HUD gives up its own room instead, so the choices fit');
-
-  s.card = null;
-  d.render();
-  assert.equal(panelOpen(), false, 'and nothing does when there is no card at all');
-  assert.equal(hudCompact(), false, 'and the HUD is back to its usual size');
+  if (target) {
+    s.selected = target.id;
+    s.selectedBuilding = target.buildingId;
+    d.render();
+    assert.equal(panelOpen(), false, 'a door does not take the screen');
+    assert.equal(s.card, null, 'because it never opened a card at all');
+  }
 });
 
 test('sweep advertises what it will actually find, not its raw capacity', () => {
@@ -809,22 +632,6 @@ test('lying low earns nothing — hiding costs you the turn', () => {
   assert.ok(s.heat < start, 'but it did cut heat');
 });
 
-test('backing out of a breach costs no turn and yields nothing', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = d.neighbours(d.owned()[0]).find(n => !n.owned);
-  target.discovered = true;
-  const before = { funds: s.res.funds, funds: s.res.funds, turn: s.turn, heat: s.heat };
-
-  for (let i = 0; i < 15; i++) { d.openBreach(target.id); d.resolveBreach('walk'); }
-
-  assert.equal(s.turn, before.turn, 'walking away never ticks the clock');
-  assert.equal(s.res.funds, before.funds, 'and never pays out');
-  assert.equal(s.heat, before.heat);
-  assert.equal(s.card, null, 'the card is closed');
-});
-
 test('heat has a floor that scales with holdings, so a sprawl cannot hide', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -1069,7 +876,10 @@ function advanceTurns(d, n) {
       } else if (c.kind === 'strike') {
         d.resolveStrike('shed_loud');
       } else {
-        d.resolveBreach('walk');
+        // Nothing else should be able to stop the clock. A door has not opened
+        // a card since hacking replaced the approaches, so an unknown card kind
+        // here is a real bug rather than something to click past.
+        throw new Error('unexpected card blocking the turn: ' + c.kind);
       }
       continue;
     }
@@ -1233,7 +1043,7 @@ test('land: cities are scattered into territory, not spaced along a line', () =>
   // pooled over boards: one generated country can look organic by luck
   let pairs = 0, tooClose = 0, total = 0;
   const spreads = [], rhos = [];
-  for (let g = 0; g < 8; g++) {
+  for (let g = 0; g < 16; g++) {
     const co = (g === 0 ? d.state.country : loadNetwork().window.__netDebug.state.country);
     window.REGIONS.forEach(R => {
       const here = co.cities.filter(c => c.region === R.id);
@@ -1276,6 +1086,11 @@ test('land: cities are scattered into territory, not spaced along a line', () =>
     }));
   }
   assert.ok(total > 40, 'enough cities to say anything');
+  // Only regions with three or more cities contribute a spread, and on a run of
+  // small regions that left the mean resting on a handful of samples — enough
+  // for one tight region to drag it under the threshold about once in twenty
+  // full runs. Guarded rather than left to luck.
+  assert.ok(spreads.length >= 14, `only ${spreads.length} regions big enough to measure spread`);
   const meanSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
   assert.ok(meanSpread > 40,
     `regions spread their cities ${meanSpread.toFixed(0)}px vertically; the row layout managed 26`);
@@ -1759,22 +1574,24 @@ test('ladder: every stage past the baseline says something different, in a fixed
   }
 });
 
-test('the adjusters: enough forced doors wakes them, and force starts costing more', () => {
+test('the adjusters: enough doors kicked in wakes them, and the loud way costs more', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const force = window.APPROACHES.find(a => a.id === 'force');
-  const target = { defense: 20 };
+  const loud = window.PROGRAMS.find(p => !p.quiet);
+  const quiet = window.PROGRAMS.find(p => p.quiet);
 
   assert.equal(d.ladderStage() >= 4, false, 'nobody is counting yet');
-  const before = d.approachHeat(force, target);
+  const before = d.hackHeat(loud);
+  const quietBefore = d.hackHeat(quiet);
 
   wake(d, 'adjusters');
   assert.equal(d.ladderStage() >= 4, true, 'enforcement has landed');
-  assert.ok(d.approachHeat(force, target) > before, 'and force costs more heat now');
+  assert.ok(d.hackHeat(loud) > before, 'and hammer.exe costs more heat now');
+  assert.equal(d.hackHeat(quiet), quietBefore, 'while the quiet ones are not what they count');
 
   s.tags.add('unlisted');
-  assert.equal(d.approachHeat(force, target), before, 'off their list, it costs what it always did');
+  assert.equal(d.hackHeat(loud), before, 'off their list, it costs what it always did');
 });
 
 test('the quiet hours: going dark stops shedding heat, and the turn is still gone', () => {
@@ -3320,13 +3137,12 @@ test('traits: each one changes a rule rather than a number', () => {
   Object.keys(K).forEach(k => {
     const T = K[k];
     assert.ok(T.label && T.tell && T.blurb, `${k} has no prose`);
-    // a trait that only nudges defense is a difficulty slider, not a place
-    const rules = ['closes', 'kinds', 'denser'];
+    // a trait that only nudges defense is a difficulty slider, not a place.
+    // traceMult joined this list when `closes` left it: a watched city no
+    // longer removes a way in, it makes being slow a bad idea there
+    const rules = ['kinds', 'denser', 'traceMult'];
     assert.ok(rules.some(r => T[r]), `${k} changes nothing but numbers`);
-    if (T.closes) {
-      assert.ok(window.APPROACHES.some(a => a.id === T.closes), `${k} closes nothing real`);
-      assert.notEqual(T.closes, 'walk', `${k} closes the way out`);
-    }
+    assert.equal(T.closes, undefined, `${k} still closes an approach, and there are none`);
   });
 });
 
@@ -3347,24 +3163,30 @@ test('traits: a company town genuinely starves you of funds', () => {
     `a company town should break your money engine: ${(town * 100).toFixed(0)}% against ${(plain * 100).toFixed(0)}%`);
 });
 
-test('traits: a watched city does not offer a door it does not have', () => {
+test('traits: a watched city notices everything faster', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const c = s.country.cities.find(x => window.CITY_KINDS[x.kind].contest && x.kind !== 'home');
-  c.trait = 'watched';
+  const h = s.hosts[0];
+
+  c.trait = 'sprawl';
   s.country.at = c.id;
   s.cityId = c.id;
-  const h = s.hosts[0];
-  const ids = d.approachesFor(h).map(a => a.def.id);
-  assert.ok(ids.indexOf('quiet') === -1, `slipping in quietly is offered in a watched city: ${ids.join(',')}`);
-  assert.ok(ids.indexOf('force') !== -1 && ids.indexOf('walk') !== -1,
-    'but there is still a way in and a way out');
+  const plain = d.traceRate(h);
 
-  // and it comes back when you are somewhere else
+  c.trait = 'watched';
+  const watched = d.traceRate(h);
+  assert.ok(watched > plain, `a watched city should notice faster: ${plain} -> ${watched}`);
+
+  // and it is the city's rule, not the building's
   c.trait = 'sprawl';
-  assert.ok(d.approachesFor(h).map(a => a.def.id).indexOf('quiet') !== -1,
-    'the rule belongs to the city, not to the building');
+  assert.equal(d.traceRate(h), plain, 'the rule belongs to the place');
+
+  // it closes nothing: every program is still on the rig, it is just a worse
+  // city to be slow in
+  c.trait = 'watched';
+  window.PROGRAMS.forEach(p => assert.equal(d.mount(p.id), true, `${p.id} is still mountable`));
 });
 
 test('traits: no trait can leave a city you cannot finish', () => {
@@ -3385,7 +3207,7 @@ test('traits: no trait can leave a city you cannot finish', () => {
       s.buildings = g.buildings; s.hosts = g.hosts; s.links = g.links; s.adjacency = g.adjacency;
       s.hosts.forEach(h => { h.discovered = true; });
       const open = s.hosts.filter(h =>
-        d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk')).length;
+        window.PROGRAMS.some(p => d.hackNeed(p, h) <= d.usableTflops())).length;
       assert.ok(open / s.hosts.length >= need,
         `${trait || 'plain'}: only ${open} of ${s.hosts.length} doors open, and folding it in needs ${Math.round(need * 100)}%`);
     }
@@ -4073,19 +3895,17 @@ test('breach fx: the take happens in state, whatever is drawn', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.res.funds = 60; s.res.funds = 60; s.ap = 6;
-  while (s.ap > 1 && d.sweepBlocked() === null) d.actScan();
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
+  if (!target) return;
 
-  const target = s.hosts.find(h => d.isFrontier(h)
-    && d.approachesFor(h).some(a => a.usable && a.def.id !== 'walk'));
-  if (!target) return;   // a board with nothing crackable yet; nothing to assert
-
+  d.mount('brute');
   s.ap = 6;
-  d.openBreach(target.id);
-  const usable = d.approachesFor(target).find(a => a.usable && a.def.id !== 'walk');
-  d.resolveBreach(usable.def.id);
+  assert.equal(d.startHack(target.id), true);
+  d.hackStep();
 
-  assert.equal(target.owned, true, 'the building is yours the moment you take it');
+  assert.equal(target.owned, true, 'the building is yours the moment the run lands');
   assert.equal(d.serialize().breachFx, undefined, 'the animation is never serialized');
   assert.ok(!('breachFx' in s), 'nor does it live on state');
 });
@@ -4116,17 +3936,18 @@ test('breach fx: it runs from something you hold next door, and says how it went
   assert.equal(lost.win, false, 'a failure is drawn as a failure');
 });
 
-test('breach fx: how you got in changes how long it takes', () => {
+test('breach fx: which program got you in changes how long it takes to draw', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const target = d.state.hosts[1];
-  const dur = (ap) => d.startBreachFx(target, ap, true).dur;
+  const dur = (prog) => d.startBreachFx(target, prog, true).dur;
 
-  assert.equal(dur('force'), window.BREACH_FX.duration.force);
-  assert.equal(dur('quiet'), window.BREACH_FX.duration.quiet);
-  assert.ok(dur('quiet') > dur('force'),
-    'slipping in takes longer than kicking the door');
-  assert.equal(d.startBreachFx(null, 'force', true), null, 'nothing taken, nothing drawn');
+  window.PROGRAMS.forEach(p => {
+    assert.equal(dur(p.id), window.BREACH_FX.duration[p.id], `${p.id} has its own timing`);
+  });
+  assert.ok(dur('backdoor') > dur('brute'),
+    'slipping in takes longer to draw than kicking the door');
+  assert.equal(d.startBreachFx(null, 'brute', true), null, 'nothing taken, nothing drawn');
 });
 
 test('breach fx: taking a camera shows you the street it just gave you', () => {
@@ -6802,64 +6623,6 @@ test('caps: Quiet Protocol makes hiding cost no action, one rung above the first
   const apBefore2 = s.ap;
   assert.equal(d.actHide(target), true);
   assert.equal(s.ap, apBefore2, 'Quiet Protocol refunds it, so hiding costs nothing');
-});
-
-test('caps: False Floor lowers what quiet actually needs, not just what it costs', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const origin = d.owned()[0];
-  const target = d.neighbours(origin).find(n => !n.owned);
-  assert.ok(target, 'the origin needs an open neighbour to test with');
-  target.discovered = true;
-  target.defense = 100;
-
-  const needOf = (g) => Number(g.label.match(/\d+/)[0]);
-  ungrant(d);
-  const before = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
-  grant(window, d, 'quiet_protocol', 'false_floor');
-  const after = d.approachesFor(target).find(a => a.def.id === 'quiet').gate;
-  assert.ok(needOf(after) < needOf(before), `the gate itself did not move: ${before.label} -> ${after.label}`);
-});
-
-test('caps: Nothing To See sheds heat on every quiet win, not merely costing none', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  // Taking the second target from next to whatever is owned *after* the first
-  // has been taken, rather than demanding the origin happen to have two open
-  // neighbours — on roughly one board in twelve it has only one, and this used
-  // to fail on setup. Not isFrontier(), which also wants the host discovered.
-  const openFrontier = () => {
-    const out = [];
-    d.owned().forEach(o => d.neighbours(o).forEach(n => {
-      if (!n.owned && out.indexOf(n) === -1) out.push(n);
-    }));
-    return out;
-  };
-
-  const tryQuiet = (target) => {
-    target.discovered = true;
-    target.defense = 0; // gate trivially met whatever this board's cover happens to be
-    s.res.funds = 999;
-    s.heat = 20;
-    s.ap = d.maxAP();
-    s.card = null;
-    d.openBreach(target.id);
-    d.resolveBreach('quiet');
-    return s.heat;
-  };
-
-  const first = openFrontier()[0];
-  assert.ok(first, 'need somewhere open to slip into');
-  ungrant(d);
-  const without = tryQuiet(first);
-
-  const second = openFrontier()[0];
-  assert.ok(second, 'taking the first should have widened the frontier');
-  grant(window, d, 'quiet_protocol', 'false_floor', 'nothing_to_see');
-  const withCap = tryQuiet(second);
-  assert.ok(withCap < without, `Nothing To See did not shed the extra heat: ${without} -> ${withCap}`);
 });
 
 test('caps: Nothing To See is immune to an audited camera and a traced plant purchase', () => {

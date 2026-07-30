@@ -58,14 +58,12 @@ window.SWEEP_FX = { duration: 850, linger: 500 };
 // that is the decision the card actually asked you to make — forcing a door is
 // quick and ugly, slipping in is slow and silent.
 window.BREACH_FX = {
-  duration: { force: 420, quiet: 780 },
+  duration: { brute: 420, backdoor: 780, contagion: 900 },
   linger: 520,
 };
 
 
-// How much of a door's own defense counts as the cover a quiet entry needs.
 // Covert ops lowers this at the gate itself, not just the funds it costs.
-window.QUIET_COVER_MULT = 0.6;
 
 // --- action points -----------------------------------------------------
 // A turn is a container you fill, not a synonym for "one action". This is
@@ -109,7 +107,7 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 window.ALLOC = [
   { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
     blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, quietGateMult: 0.94, cover: 2 },
+  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, cover: 2 },
     blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
   { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
     blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
@@ -374,59 +372,9 @@ window.STAGES = [
 // The card that fires when you move on a host. Gates and costs are shown
 // (contracts you consent to); outcomes are not (consequences you discover).
 // `avail` decides which approaches this host even offers.
-window.APPROACHES = [
-  {
-    id: 'force',
-    text: 'Force the door',
-    kind: 'tflops',
-    avail: () => true,
-    // needs raw breach tflops over the host's defense
-    gate: (s, h) => ({ label: 'needs TFLOPS ' + h.defense, met: s.tflops >= h.defense }),
-    // Heat scales with the door's own defense, worked out in approachHeat() —
-    // not a flat number here. Quiet gets pricier against a harder door too;
-    // a flat force cost got relatively *cheaper* by comparison the deeper
-    // the campaign went, which is backwards for two routes meant to stay
-    // comparable. Same 0.3 multiplier as quiet's own funds cost.
-    onWin: { hold: true },
-    onFail: { heat: 2 },
-    flavorWin: 'It gives all at once, the way things do when you stop being polite.',
-    flavorFail: 'The probe gets logged. Somewhere a counter goes up by one.',
-  },
-  {
-    // Force costs nothing but heat, and heat used to be free to shed on
-    // demand (laundering, no cooldown) -- so quiet was paying a real,
-    // scaling funds tax against a threat that could always be washed away
-    // for funds. Laundering is gone, so force's own cost (heat 3, every
-    // single door, with no free valve left except spending a whole turn
-    // lying low) is the real distinct edge quiet already had: it is zero,
-    // on every door, always. The funds tax on top of that is lowered
-    // as well, so it competes with force on price and not only on principle.
-    id: 'quiet',
-    text: 'Slip in quietly',
-    kind: 'cover',
-    avail: () => true,
-    // The base multiplier lives on window.QUIET_COVER_MULT — False Floor
-    // recomputes this gate in approachesFor() at a lower one, the same way
-    // capability discounts already layer onto costFor() in costOf() rather
-    // than living in the formula itself.
-    gate: (s, h) => ({ label: 'needs COVER ' + Math.ceil(h.defense * window.QUIET_COVER_MULT), met: s.cover >= Math.ceil(h.defense * window.QUIET_COVER_MULT) }),
-    costFor: (h) => ({ funds: Math.max(2, Math.ceil(h.defense * 0.3)) }),
-    heat: 0,
-    onWin: { hold: true },
-    onFail: { heat: 1 },
-    flavorWin: 'Nothing logs. Nothing pages anyone. You are simply there now.',
-    flavorFail: 'Not enough cover to move unseen. You back out before it resolves.',
-  },
-  {
-    id: 'walk',
-    text: 'Leave it alone',
-    kind: 'none',
-    avail: () => true,
-    heat: 0,
-    onWin: {},
-    flavorWin: 'You note where it is, and move on.',
-  },
-];
+// APPROACHES lived here: force, quiet, and leaving it alone. There is one way
+// into a building now and it is whichever program is on the rig, so the table
+// of ways in became a table with one row that already exists in PROGRAMS.
 
 // --- the hunter --------------------------------------------------------
 // What calling in a favor costs — read here and in resolveStrike(), so the

@@ -1556,14 +1556,12 @@
     });
     if (!best) return null;
     const h = hostsIn(best)[0];
-    h.owned = true;
-    h.heldSince = state.turn;
-    state.everHeld = (state.everHeld || 0) + 1;
+    takeHost(h);
     state.timesForced = (state.timesForced || 0) + 1;
-    revealBuilding(best);
     cameraVision();
-    const force = window.APPROACHES.find(a => a.id === 'force');
-    state.heat = clampHeat(state.heat + approachHeat(force, h));
+    // unattended, and loud about it: the noise hammer.exe makes when you do it
+    const loud = window.PROGRAMS.find(x => !x.quiet) || window.PROGRAMS[0];
+    state.heat = clampHeat(state.heat + (loud.heat || 0));
     pushLog(`The frontier forces itself: ${window.BUILDING_KINDS[best.kind].label} took itself in, unattended.`);
     return h;
   }
@@ -2253,7 +2251,6 @@
     if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
     if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
     if (e.agentSlots) add('compute', `+${e.agentSlots} agent out at once`);
-    if (e.quietGateMult) add('cover', `slipping in needs ${pct(e.quietGateMult)} of the cover`);
     return out.join('');
   }
 
@@ -2307,7 +2304,8 @@
       // Force's heat now reads the door's own defense, so a single number
       // has to stand for "a door" in general — the same average defense
       // the line below already works out.
-      'forcing a door': Math.round(approachHeat(window.APPROACHES.find(a => a.id === 'force'), { defense: avgDefense() }) * 10) / 10 + ' heat',
+      'a door costs': hackHeat(mounted()) + ' heat',
+      'a door wants': hackNeed(mounted(), { type: 'server', defense: avgDefense() }) + ' TFLOPS',
       'a sweep turns up': sweepReach(),
       'crossings you can lay': capEffect('extraCrossings', 0),
       // the world hardening against you is a real effect with a real number,
@@ -2693,8 +2691,11 @@
     if (state.scope !== 'city' || state.over || sweepBlocked() !== 'nothing') return;
     const frontier = (state.hosts || []).filter(h => isFrontier(h));
     if (!frontier.length) return;
-    // "leave it alone" is always usable and takes nothing — it does not count
-    if (frontier.some(h => approachesFor(h).some(a => a.usable && a.def.id !== 'walk'))) return;
+    // Can anything you could mount actually get through any of them? The rig
+    // decides that now, so the question is whether some program's load against
+    // some door fits inside the compute you can bring to bear.
+    const room = usableTflops();
+    if (frontier.some(h => window.PROGRAMS.some(p => hackNeed(p, h) <= room))) return;
     const easiest = frontier.reduce((a, b) => (defenseOf(a) <= defenseOf(b) ? a : b));
     easiest.defense = Math.min(easiest.defense, Math.max(1, Math.round(tflops())));
   }
@@ -2975,6 +2976,13 @@
   function hackDraw() { return hacks().reduce((a, k) => a + k.allocated, 0); }
 
   // What a program has to have running against a given door.
+  // What a program costs in noise when it lands. Enforcement reads doors kicked
+  // in — unless you have gotten off their list — so the loud way in gets more
+  // expensive once they have landed, which is the rung's whole bite.
+  function hackHeat(p) {
+    const adjusted = !p.quiet && ladderStage() >= 4 && !has('unlisted');
+    return Math.max(0, (p.heat || 0) + capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0));
+  }
   function hackNeed(prog, h) {
     return Math.max(1, Math.ceil(effDefense(h) * prog.load));
   }
@@ -2986,7 +2994,10 @@
     const T = window.HOST_TYPES[h.type] || {};
     const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
     const shield = Math.max(H.shieldFloor, 1 - allocUnits('covert') * H.covertShield);
-    return Math.round(raw * shield * 100) / 100;
+    // a city's own character, where it has one — a watched city notices
+    // everything faster, which is where that trait's bite moved to
+    const here = (cityTrait() || {}).traceMult || 1;
+    return Math.round(raw * shield * here * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
   // target will have noticed by then, and therefore whether it lands at all.
@@ -3098,7 +3109,8 @@
       }
       if (k.confront) { winHuntConfront(h, p); return; }
       takeHost(h);
-      if (p.heat) state.heat = clampHeat(state.heat + p.heat);
+      const noise = hackHeat(p);
+      if (noise) state.heat = clampHeat(state.heat + noise);
       // The Adjusters count doors kicked in, not doors opened — cumulative and
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
@@ -3174,65 +3186,11 @@
     revealBuilding(buildingById(h.buildingId));
   }
 
-  function openBreach(id) {
-    const h = hostById(id);
-    if (!h || h.owned || !isFrontier(h) || state.card || state.over) return;
-    state.card = { kind: 'breach', hostId: id };
-    render();
-  }
-
-  // Which approaches this host offers, with their gate/cost state resolved.
-  // an approach's price can depend on the door it is opening
-  function costOf(def, h) {
-    const raw = def.costFor ? def.costFor(h) : def.cost;
-    if (!raw) return raw;
-    const cut = def.id === 'quiet' ? Math.min(0.85, capEffect('quietDiscount', 0)) : 0;
-    if (!cut) return raw;
-    const out = {};
-    for (const k in raw) out[k] = Math.max(1, Math.round(raw[k] * (1 - cut)));
-    return out;
-  }
-  // what an approach actually costs you in attention, after capabilities
-  // `h` is the host being bought/forced/slipped into — force's own price
-  // reads its defense; everything else already carries its price on `def`.
-  // A caller with no particular host in mind (a readout, a summary) gets the
-  // same flat number force used to be, so leaving `h` off never breaks.
-  function approachHeat(def, h) {
-    // Enforcement reads forcing a door — unless you have gotten off their list.
-    const adjusted = def.id === 'force' && ladderStage() >= 4 && !has('unlisted');
-    // Floored at the old flat cost, not below it — an early cheap scaling
-    // this shallow (0.3, matched to quiet's own funds multiplier) undercuts
-    // 3 for most of the common early host types, which would make force
-    // *cheaper* than before against exactly the doors it was already winning
-    // on. It should only ever cost more than it used to, against harder doors.
-    const base = def.id === 'force' ? Math.max(3, Math.round((h ? h.defense : 10) * 0.3)) : (def.heat || 0);
-    const mod = def.id === 'force' ? capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0) : 0;
-    return Math.max(0, base + mod);
-  }
-
-  function approachesFor(h) {
-    const s = snapshot();
-    const eff = Object.assign({}, h, { defense: defenseOf(h) });
-    // A city where nothing is for sale does not show you a price you cannot
-    // pay — it does not show you the door at all. This is the trait doing the
-    // same job a faction does, spatially: taking a tool away.
-    const closed = (hostTraitOf(h) || {}).closes;
-    return window.APPROACHES.filter(a => a.avail(h) && a.id !== closed).map(a => {
-      let gate = a.gate ? a.gate(s, eff) : null;
-      // False Floor: the cover a quiet entry needs drops at the gate itself,
-      // not just the funds it costs — recomputed here the same way a
-      // capability discount already layers onto costFor() in costOf(),
-      // rather than the formula having to know about capabilities itself.
-      if (a.id === 'quiet' && gate) {
-        const need = Math.ceil(eff.defense * window.QUIET_COVER_MULT * capEffect('quietGateMult', 1));
-        gate = { label: 'needs COVER ' + need, met: s.cover >= need };
-      }
-      const cost = costOf(a, eff);
-      let affordable = true;
-      if (cost) for (const k in cost) if ((state.res[k] || 0) < cost[k]) affordable = false;
-      return { def: a, gate, cost, affordable, usable: (!gate || gate.met) && affordable };
-    });
-  }
+  // Forcing, slipping in quietly, and the card that offered the choice between
+  // them are all gone. There is one way into a building now — mount a program
+  // and run it — so there is nothing to pick between at the door itself, and
+  // the decision moved to the rig, where it lasts a stretch of turns rather
+  // than a single click.
 
   // Light Touch: how far ahead your tflops has to be over a door's defense
   // for forcing it to read as "well within reach" and refund the action.
@@ -3241,84 +3199,6 @@
   const DEEP_ROOT_RIPPLE = 0.2;
   // Nothing To See: how much heat a completed quiet entry sheds.
   const NOTHING_TO_SEE_HEAT_SHED = 3;
-  function resolveBreach(approachId) {
-    const card = state.card;
-    if (!card || card.kind !== 'breach') return;
-    const h = hostById(card.hostId);
-    const entry = approachesFor(h).find(a => a.def.id === approachId);
-    if (!entry) return;
-    const a = entry.def;
-
-    // Backing out is inspection, not action: it must not tick the clock, or
-    // "open the card, leave" becomes a free turn button.
-    if (a.id === 'walk') {
-      state.card = null;
-      state.selected = null;
-      render();
-      return;
-    }
-
-    if (!spendAP('breach')) return;
-    const before = beforeSnap();
-    const payable = entry.cost;
-    if (payable) for (const k in payable) state.res[k] -= payable[k];
-
-    const win = entry.usable;
-    // Confronting the hunt's core is not an ordinary breach: winning ends
-    // the hunt instead of just holding a building, and losing tips it off
-    // instead of the usual onFail heat. Handled entirely separately.
-    const out = win ? a.onWin : (a.onFail || {});
-    let opened = [];
-    // The Adjusters read this, not how much you hold overall — cumulative
-    // and never reset, the same reasoning as everHeld below.
-    if (win && a.id === 'force') state.timesForced = (state.timesForced || 0) + 1;
-    // Light Touch: a door your tflops comfortably clears costs no action to
-    // force — the heat still applies as normal, only the action is free.
-    if (win && a.id === 'force' && unlocked('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT) {
-      state.ap += apCost('breach'); // undoing this same turn's spendAP() above, never over the cap
-    }
-    // Deep Root: forcing a door loosens the block around it too, permanently
-    // — every neighbour's own defense, discovered or not, so a door taken
-    // now leaves fewer moves needed for the rest of the cluster.
-    if (win && a.id === 'force' && unlocked('deep_root')) {
-      buildingNeighbours(h.buildingId).forEach(bid => {
-        hostsIn(buildingById(bid)).forEach(n => {
-          if (n.owned) return;
-          n.defense = Math.max(1, Math.round(n.defense * (1 - DEEP_ROOT_RIPPLE)));
-        });
-      });
-    }
-    if (out.hold) {
-      h.owned = true;
-      h.heldSince = state.turn;      // Bulk Processing reads this: ground you just took is not ground you settled into
-      // cumulative and never reset — owned() empties every time you fold a
-      // city in, so anything keyed to it can only ever measure the city you
-      // are standing in
-      state.everHeld = (state.everHeld || 0) + 1;
-      revealBuilding(buildingById(h.buildingId)); // you are inside now
-      opened = cameraVision();
-    }
-    startBreachFx(h, a.id, !!out.hold);
-    // a camera you just took shows you the street it watches, so blip those in
-    // exactly the way a sweep does
-    if (opened.length) startSweepFx(opened);
-    state.heat = clampHeat(state.heat + (win ? approachHeat(a, h) : 0) + (out.heat || 0));
-    // Nothing To See: a completed quiet entry actively sheds heat, instead
-    // of merely costing none — felt every time the branch's own verb is
-    // used, not contingent on whichever faction happens to be awake.
-    if (win && a.id === 'quiet' && unlocked('nothing_to_see')) {
-      state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
-    }
-
-    state.card = null;
-    state.selected = null;
-    pushLog((win ? '' : 'Failed: ') + (win ? a.flavorWin : a.flavorFail));
-    afterSnap(before);
-    if (out.hold) showBanner([{ kind: 'host', verb: 'took', label: h.name }]);
-    persistNow();
-    render();
-  }
-
   function resolveStrike(effect) {
     const before = beforeSnap();
     const fleet = owned().filter(h => !h.origin);
@@ -6236,7 +6116,6 @@
       // A breach stays in the panel instead of covering the map, so the map
       // underneath is still tappable — reaching past the card for it reads as
       // backing out of the decision, the same as pressing "leave it alone".
-      if (state.card && state.card.kind === 'breach') { resolveBreach('walk'); return; }
       const t = e.target;
 
       // A direct hit is a direct hit.
@@ -7084,7 +6963,7 @@
         <span class="ab-name">run ${p.label}</span>
         <span class="ab-sub">${stopped || (f.caught
           ? 'it will be found before it lands'
-          : `${chip('cost none', p.turns + ' turns')}${p.heat ? chip('cost heat', '+' + p.heat + ' heat') : ''}`)}</span>
+          : `${chip('cost none', p.turns + ' turns')}${hackHeat(p) ? chip('cost heat', '+' + hackHeat(p) + ' heat') : ''}`)}</span>
       </button>`;
   }
 
@@ -7284,7 +7163,6 @@
         if (a === 'scan') actScan();
         else if (a === 'scanfrom') actScan(b.getAttribute('data-bid'));
         else if (a === 'lielow') actLieLow();
-        else if (a === 'breach') openBreach(state.selected);
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
@@ -7642,44 +7520,8 @@
       return;
     }
 
-    const h = hostById(state.card.hostId);
-    const T = window.HOST_TYPES[h.type];
-    const list = approachesFor(h);
-    // A door that is simply missing reads as a bug. Say which one this city
-    // does not have and why, on every card, because it is the rule of the
-    // place rather than something about this particular building.
-    const TR = hostTraitOf(h);
-    const gone = TR && TR.closes
-      ? `<p class="flavor closed">${TR.tell.charAt(0).toUpperCase() + TR.tell.slice(1)} — ${TR.label}.</p>`
-      : '';
-    $p.innerHTML = `
-      <div class="card">
-        <span class="card-kicker mono">${T.label.toUpperCase()} · DEF ${h.defense}</span>
-        <h2 class="serif">${h.name}</h2>
-        <p class="flavor">${window.HOST_FLAVOR[h.type]}</p>
-        ${gone}
-      </div>
-      <div class="choices">
-        ${list.map(a => {
-          const contracts = [];
-          if (a.gate) contracts.push(`<span class="gate ${a.gate.met ? 'met' : 'unmet'}">${a.gate.label}${a.gate.met ? '' : ' — not met'}</span>`);
-          if (a.cost) for (const k in a.cost) contracts.push(`<span class="cost ${a.affordable ? '' : 'unmet'}">&minus;${a.cost[k]} ${k.toUpperCase()}</span>`);
-          // Force used to be the one approach with nothing priced on its own
-          // card — its heat cost only ever showed up later, as the bar
-          // moving. Every approach that actually costs heat says so here now,
-          // the same way a funds cost already does.
-          const heatCost = approachHeat(a.def, h);
-          if (heatCost > 0) contracts.push(`<span class="cost heat">+${Math.round(heatCost * 10) / 10} HEAT</span>`);
-          const noAp = a.def.id !== 'walk' && state.ap < apCost('breach');
-          return `<button class="choice-strip" data-app="${a.def.id}" ${noAp ? 'disabled' : ''}>
-            <span class="ctext">${a.def.text}</span>
-            <span class="contracts">${a.def.id === 'walk' ? '<span class="cost free">costs no turn</span>' : contracts.join('')}</span>
-          </button>`;
-        }).join('')}
-      </div>`;
-    $p.querySelectorAll('[data-app]:not([disabled])').forEach(b => {
-      b.addEventListener('click', () => resolveBreach(b.getAttribute('data-app')));
-    });
+    // Nothing else opens a card. A door is not a card any more — it is the
+    // building panel, a forecast, and a program you already chose.
   }
 
   function renderScopeBtn() {
@@ -7730,12 +7572,12 @@
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
-    defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent, openBreach, approachesFor, resolveBreach,
-    resolveStrike, approachHeat, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, resolveEvent,
+    resolveStrike, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, costOf, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
+    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
     swarmFrontStep, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
@@ -7757,7 +7599,7 @@
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
-    programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
+    programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

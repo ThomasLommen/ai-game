@@ -677,9 +677,13 @@ window.CITY_TRAITS = {
     defense: -4, denser: 1, at: 1,
   },
   watched: {
-    label: 'watched', tell: 'you cannot slip in anywhere',
+    // It used to close the quiet approach outright. There is no approach to
+    // close any more, so it does the same thing where the decision now lives:
+    // everything here notices you far faster, which is what makes a slow
+    // program a bad idea in this city rather than an unavailable one.
+    label: 'watched', tell: 'everything here notices you fast',
     blurb: 'Somebody put a camera on every corner, and then — unusually — hired people to look at them.',
-    closes: 'quiet', defense: 2, at: 1,
+    traceMult: 1.8, defense: 2, at: 1,
   },
   old_money: {
     label: 'old money', tell: 'hard doors, kept that way on purpose',
