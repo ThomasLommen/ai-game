@@ -3001,7 +3001,24 @@
       goal: window.HACK.traceGoal,
       caught: traceAtEnd >= window.HACK.traceGoal,
       affordable: allocFree() >= need,
+      spread: spreadForecast(h, p, need),
     };
+  }
+  // Where contagion would go next, as far as it can be known in advance. "Up
+  // to", not a promise: it picks its own targets, the board moves while it
+  // works, and the whole character of the program is that you do not choose.
+  // But the player should not be committing four turns to the interesting half
+  // of a program with none of it stated.
+  function spreadForecast(h, p, allocated) {
+    if (!p.spread) return null;
+    const room = Math.max(0, p.spread - 1);
+    let carries = 0, holds = 0;
+    buildingNeighbours(h.buildingId).forEach(id => {
+      const t = hostsIn(buildingById(id))[0];
+      if (!t || t.owned) return;
+      if (allocated >= hackNeed(p, t)) carries++; else holds++;
+    });
+    return { room, carries, holds, upTo: Math.min(carries, room) };
   }
   function canHack(hostId) {
     const h = hostById(hostId);
@@ -7019,6 +7036,11 @@
       <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + '/turn')}${
         f.caught ? chip('cost heat', `seen at ${f.traceAtEnd} of ${f.goal} — it finds you`)
                  : chip('cover', `seen at ${f.traceAtEnd} of ${f.goal} — you get in`)}</p>
+      ${f.spread ? `<p class="yield-row">${
+        f.spread.upTo
+          ? chip('cover', `and up to ${f.spread.upTo} more beside it, its choice`)
+          : chip('cost none', 'nothing beside it is open to spread into')
+      }${f.spread.holds ? chip('cost heat', `${f.spread.holds} next door too hard to carry into`) : ''}</p>` : ''}
       <button class="act-btn ${stopped ? 'no-ap' : f.caught ? 'broken' : 'primary'}" data-act="hack" data-host="${h.id}" data-ap="breach">
         <span class="ab-name">run ${p.label}</span>
         <span class="ab-sub">${stopped || (f.caught
@@ -7696,7 +7718,7 @@
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
-    programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
+    programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

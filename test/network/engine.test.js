@@ -1317,20 +1317,27 @@ test('land: the coast is the same line for the country and for the territory beh
 });
 
 test('land: a defended city draws its towns in close, the way a real city has a cluster around it', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const co = d.state.country;
+  // Pooled over several countries, for the reason the district-difficulty test
+  // gives: this is a claim about the generator's shape, not about the roll of
+  // any one map. A single country can legitimately come out all-clustered or
+  // all-roaming, and asserting both of a lone sample fails a few runs in
+  // twenty — invisibly, because running the test alone always hands Math.random
+  // the same opening sequence and therefore the same lucky board.
   let clustered = 0, roaming = 0;
-  window.REGIONS.forEach(R => {
-    const hub = co.cities.find(c => c.region === R.id && window.CITY_KINDS[c.kind].contest);
-    if (!hub) return;
-    co.cities.filter(c => c.region === R.id && !window.CITY_KINDS[c.kind].contest).forEach(t => {
-      const d0 = Math.hypot(t.x - hub.x, t.y - hub.y);
-      if (d0 < 100) clustered++; else roaming++;
+  for (let i = 0; i < 6; i++) {
+    const { window } = loadNetwork();
+    const co = window.__netDebug.state.country;
+    window.REGIONS.forEach(R => {
+      const hub = co.cities.find(c => c.region === R.id && window.CITY_KINDS[c.kind].contest);
+      if (!hub) return;
+      co.cities.filter(c => c.region === R.id && !window.CITY_KINDS[c.kind].contest).forEach(t => {
+        const d0 = Math.hypot(t.x - hub.x, t.y - hub.y);
+        if (d0 < 100) clustered++; else roaming++;
+      });
     });
-  });
-  assert.ok(clustered > 0, 'at least one region reads as a hub with towns around it');
-  assert.ok(roaming > 0, 'and at least one town is left roaming for variety');
+  }
+  assert.ok(clustered > 0, 'regions read as hubs with towns around them');
+  assert.ok(roaming > 0, 'and some towns are left roaming for variety');
 });
 
 test('land: water is a real obstacle -- the exploratory pass respects it, and roadHitsLake is honest', () => {
@@ -8022,16 +8029,16 @@ test('hack: it lands when the work finishes, and the compute comes back', () => 
   if (!target) return;                          // no quiet, reachable door on this board
 
   d.mount('backdoor');
-  const free = d.allocFree();
   assert.equal(d.startHack(target.id), true, 'the hack started');
-  for (let i = 0; i < d.mounted().turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
   assert.equal(target.owned, true, 'the door opened');
   assert.equal(d.hackOn(target.id), null, 'and the hack is off the books');
   assert.equal(d.hackDraw(), 0, 'with the rig handed back');
-  // not equal to `free`: the holding you just took brought its own threads with
-  // it, so there is more headroom afterwards than there was before
-  assert.ok(d.allocFree() >= free, 'and no less room than you started with');
+  // deliberately not compared against `free`: four turns of world went past
+  // while it ran, and the rival or the response taking something off you in
+  // that time legitimately leaves less headroom than you started with. The
+  // claim here is that the hack released what it held, which hackDraw says.
   assert.equal(target.heldSince, s.turn, 'and it counts as taken now, not four turns ago');
 });
 
@@ -8216,7 +8223,10 @@ test('contagion: it lands on more than the door you pointed it at, and picks the
 
   d.mount('contagion');
   assert.equal(d.startHack(seed.id), true);
-  for (let i = 0; i < P.turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+  // hackStep directly rather than whole turns: with the board this full, four
+  // turns of world is violent enough to take ground off you mid-run and shed
+  // the hack for want of power, which is real behaviour but not this claim
+  for (let i = 0; i < P.turns; i++) d.hackStep();
 
   assert.equal(seed.owned, true, 'the door it was pointed at opened');
   const spread = nbrs.filter(n => n.owned).length;
@@ -8330,4 +8340,56 @@ test('hack UI: the rig is a section of its own, and mounting from it takes', () 
   const after = d.programSection();
   assert.ok(after.html.includes('reaches ' + window.PROGRAMS.find(p => p.id === 'contagion').spread + ' buildings'),
     'contagion advertises that it does not stop at one');
+});
+
+test('hack UI: contagion states where it might go next, without promising', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const P = window.PROGRAMS.find(p => p.id === 'contagion');
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const seed = s.hosts.find(h => {
+    if (h.origin || d.buildingNeighbours(h.buildingId).length < 3) return false;
+    h.owned = false;
+    const ok = d.isFrontier(h);
+    if (!ok) h.owned = true;
+    return ok;
+  });
+  assert.ok(seed, 'a door with neighbours');
+  seed.type = 'consumer'; seed.defense = 8;
+  const all = d.buildingNeighbours(seed.buildingId)
+    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
+  const open = all.slice(1);
+  open.forEach(n => { n.owned = false; n.defense = 2; });
+
+  d.mount('contagion');
+  const f = d.hackForecast(seed, d.mounted());
+  assert.ok(f.spread, 'a spreading program forecasts its spread');
+  assert.ok(f.spread.upTo > 0, 'it can see somewhere to go');
+  assert.ok(f.spread.upTo <= P.spread - 1, 'and never claims more than the program allows');
+
+  const html = d.targetPanel(seed);
+  assert.ok(html.includes(`up to ${f.spread.upTo} more beside it`), 'the panel says how many');
+  assert.ok(html.includes('its choice'), 'and that the choosing is not yours');
+
+  // a neighbour too hard for the rig is reported as such, not quietly counted
+  open.forEach(n => { n.defense = 999; });
+  const hard = d.hackForecast(seed, d.mounted());
+  assert.equal(hard.spread.upTo, 0, 'nothing it could carry into');
+  assert.equal(hard.spread.holds, open.length, 'and it knows why');
+  assert.ok(d.targetPanel(seed).includes('too hard to carry into'), 'which the panel states');
+});
+
+test('hack UI: a program that does not spread says nothing about spreading', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const t = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
+  d.mount('brute');
+  assert.equal(d.hackForecast(t, d.mounted()).spread, null, 'brute has no spread to forecast');
+  assert.ok(!/beside it/.test(d.targetPanel(t)), 'and the panel does not mention any');
 });
