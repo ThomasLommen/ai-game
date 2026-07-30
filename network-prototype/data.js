@@ -1952,3 +1952,79 @@ window.EVENTS.push(
     ],
   },
 );
+
+// --- the grid, and the rig ----------------------------------------------
+// The deck had nothing to say about either, which is a strange silence for the
+// two things the player now touches every turn.
+window.EVENTS.push(
+  {
+    id: 'grid_substation_offer',
+    cond: (s) => s.held >= 5 && s.grid && s.grid.sites <= 1,
+    title: 'A Substation Nobody Is Watching',
+    flavor: 'Decommissioned on paper eight years ago and quietly still live. The firm that owns the land would rather it stopped being their problem.',
+    choices: [
+      { text: 'Buy the land and the problem', cost: { funds: 55 }, apply: (s) => { s.supply = 8; s.standing = 4; } },
+      { text: 'Just take the feed', apply: (s) => { s.supply = 5; s.heat += 7; s.pub = -3; } },
+      { text: 'Leave it alone', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'grid_heatwave',
+    cond: (s) => s.grid && s.grid.drawn >= 6,
+    title: 'Everything Is Running Warm',
+    flavor: 'Three weeks above thirty and the grid operator is shedding load in blocks. Yours is not a priority connection, whatever the paperwork says.',
+    choices: [
+      { text: 'Ride it out on less', apply: (s) => { s.gridCut = { amount: 6, turns: 5 }; } },
+      { text: 'Pay for a priority connection', cost: { funds: 70 }, apply: (s) => { s.standing = 3; } },
+      { text: 'Take somebody else\'s block', gamble: true, apply: (s) => {
+        if (Math.random() < 0.5) { s.heat += 4; } else { s.heat += 14; s.pub = -8; }
+      } },
+    ],
+  },
+  {
+    id: 'grid_spare_cycles',
+    cond: (s) => s.grid && s.grid.free >= 8,
+    title: 'Somebody Wants Your Spare Capacity',
+    flavor: 'A rendering house with a deadline and no idea whose rack it is renting. The money is real and the paperwork is somebody else\'s.',
+    choices: [
+      { text: 'Rent it out honestly', apply: (s) => { s.res.funds += 45; s.standing = 3; } },
+      { text: 'Rent it out and read what goes through it', apply: (s) => { s.res.funds += 45; s.heat += 5; s.pub = -4; } },
+      { text: 'Keep the rack to yourself', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'grid_idle_iron',
+    cond: (s) => s.grid && s.grid.idle >= 5,
+    title: 'Hardware In The Dark',
+    flavor: 'Racks you own, powered by nothing, drawing no current and doing no thinking. On the books they are an asset. In the room they are furniture.',
+    choices: [
+      { text: 'Sell the surplus off', apply: (s) => { s.res.funds += 60; s.standing = 2; } },
+      { text: 'Bridge it onto the street supply', gamble: true, apply: (s) => {
+        if (Math.random() < 0.6) { s.supply = 6; } else { s.supply = 3; s.heat += 10; s.pub = -6; }
+      } },
+      { text: 'Leave it dark until you can power it', apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'rig_traced',
+    cond: (s) => s.rig && s.rig.sinceTraced <= 2,
+    title: 'They Kept The Logs',
+    flavor: 'Whatever you were running got as far as being noticed, and the thing that noticed it wrote everything down. Somebody is now reading a very detailed account of how you work.',
+    choices: [
+      { text: 'Change how you work, thoroughly', apply: (s) => { s.heat -= 10; s.tags.add('clean_room'); s.pub = 2; } },
+      { text: 'Buy the logs before anyone reads them', cost: { funds: 40 }, apply: (s) => { s.heat -= 6; s.exposure = 0.8; } },
+      { text: 'Let them have it and go louder', apply: (s) => { s.tags.add('known_capable'); s.pub = -5; } },
+    ],
+  },
+  {
+    id: 'rig_long_run',
+    cond: (s) => s.rig && s.rig.running >= 1 && !s.rig.quiet,
+    title: 'It Is Making A Great Deal Of Noise',
+    flavor: 'Whatever is mounted is going through the front of something, at volume, and it has been doing it for long enough that people have started to time it.',
+    choices: [
+      { text: 'Let it finish', apply: (s) => { s.heat += 4; } },
+      { text: 'Throttle it back and take longer', apply: (s) => { s.heat -= 6; s.gridCut = { amount: 3, turns: 3 }; } },
+      { text: 'Make the noise somebody else\'s', cost: { funds: 30 }, apply: (s) => { s.heat -= 12; s.pub = -4; } },
+    ],
+  },
+);

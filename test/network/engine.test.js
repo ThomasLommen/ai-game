@@ -1844,6 +1844,9 @@ function sampleContexts(window) {
     districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
     scope: 'city', region: 'home', regionTier: 0, presence: 0,
     pub: 0, pubTier: 'unknown',
+    grid: { tflops: 5, power: 16, usable: 5, idle: 0, drawn: 0, free: 5, sites: 0,
+            covert: 0, dev: 0, intel: 0, agents: 0, ap: 0 },
+    rig: { mounted: 'brute', quiet: false, running: 0, sinceTraced: 999 },
     cities: { total: 18, taken: 1, consolidated: 0, known: 3 },
     stranded: 0, cuts: 0, mirrorCities: 0, regionHeat: {}, conquest: 0, ally: null,
     escalation: { stage: 0, pending: null }, mirror: { active: false },
@@ -2036,6 +2039,26 @@ function sampleContexts(window) {
   // Public standing is a gate like any other, so the sampler has to visit every
   // opinion the public can hold — otherwise a card that only comes up when you
   // are liked reads as dead code.
+  // The grid and the rig gate cards too, and a sampler that never varies them
+  // reads every such card as dead. Both ends of each: a starved rig and a fat
+  // one, nothing running and something loud, never traced and just traced.
+  const withMachine = [];
+  [
+    { tflops: 40, power: 12, usable: 12, idle: 28, drawn: 2, free: 10, sites: 0 },
+    { tflops: 40, power: 60, usable: 40, idle: 0, drawn: 30, free: 10, sites: 3 },
+    { tflops: 12, power: 40, usable: 12, idle: 0, drawn: 0, free: 12, sites: 2 },
+  ].forEach(g => {
+    [{ running: 0, quiet: false, sinceTraced: 999 },
+     { running: 2, quiet: false, sinceTraced: 999 },
+     { running: 1, quiet: true, sinceTraced: 1 }].forEach(r => {
+      out.slice(0, 30).forEach(st => withMachine.push(Object.assign({}, st, {
+        grid: Object.assign({}, st.grid, g),
+        rig: Object.assign({}, st.rig, r),
+      })));
+    });
+  });
+  out.push(...withMachine);
+
   const withPub = [];
   ['hated', 'distrusted', 'unknown', 'noticed', 'welcome'].forEach((tier, i) => {
     const pub = [-50, -20, 0, 20, 50][i];
@@ -8790,4 +8813,89 @@ test('standing: what the public thinks reaches the deck through the same context
   const shut = d.eligibleEvents().map(e => e.id);
   assert.notEqual(open.join(','), shut.join(','),
     'the pool of cards should differ by what people think of you');
+});
+
+// --- the deck can talk about the grid and the rig -------------------------
+
+test('deck: the machine is on the event context, both halves of it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const c = d.eventContext();
+  ['tflops', 'power', 'usable', 'idle', 'drawn', 'free', 'sites', 'covert'].forEach(k =>
+    assert.equal(typeof c.grid[k], 'number', `grid.${k} is missing`));
+  ['mounted', 'quiet', 'running', 'sinceTraced'].forEach(k =>
+    assert.notEqual(c.rig[k], undefined, `rig.${k} is missing`));
+
+  // and it reports what is actually true, rather than a snapshot taken once
+  assert.equal(c.grid.power, d.electricity());
+  assert.equal(c.grid.idle, d.idleTflops());
+  assert.equal(c.rig.mounted, d.mounted().id);
+  d.mount('backdoor');
+  assert.equal(d.eventContext().rig.mounted, 'backdoor', 'it follows the rig');
+});
+
+test('deck: a card can hand you headroom, and can take it away for a while', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const base = d.electricity();
+
+  // permanently
+  s.card = { kind: 'event', eventId: 'grid_substation_offer' };
+  s.res.funds = 100000;
+  d.resolveEvent(0);
+  assert.ok(d.electricity() > base, 'the substation is yours and it powers things');
+  const withIt = d.electricity();
+
+  // and temporarily, which comes back
+  s.card = { kind: 'event', eventId: 'grid_heatwave' };
+  d.resolveEvent(0);
+  assert.ok(d.electricity() < withIt, 'the shortage bites');
+  const cut = d.state.country.gridCut;
+  assert.ok(cut && cut.until > s.turn, 'and it has an end');
+  s.turn = cut.until + 1;
+  assert.equal(d.electricity(), withIt, 'which arrives, and the headroom comes back');
+  assert.ok(d.electricity() >= 1, 'and it can never take the grid to nothing');
+});
+
+test('deck: being traced is remembered, so the aftermath can be a card', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(d.eventContext().rig.sinceTraced > 100, true, 'nothing has caught you yet');
+
+  const t = hackTarget(d, { type: 'corporate', defense: 22 });
+  if (!t) return;
+  ungrant(d);
+  d.mount('backdoor');
+  if (!d.hackForecast(t, d.mounted()).caught) return;
+  s.ap = 9;
+  assert.equal(d.startHack(t.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+
+  assert.equal(d.eventContext().rig.sinceTraced, 0, 'it happened just now');
+  const card = window.EVENTS.find(e => e.id === 'rig_traced');
+  assert.equal(card.cond(d.eventContext()), true, 'so the card about it can come up');
+  s.turn += 9;
+  assert.equal(card.cond(d.eventContext()), false, 'and stops being about anything later');
+});
+
+test('deck: the new cards are about the machine, not decoration on it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const machine = window.EVENTS.filter(e => /s\.(grid|rig)\b/.test(String(e.cond)));
+  assert.ok(machine.length >= 6, `only ${machine.length} cards about the grid or the rig`);
+
+  machine.forEach(e => {
+    // each one must actually turn on the machine's state, not merely mention it
+    const ctx = d.eventContext();
+    const off = e.cond(ctx);
+    const on = e.cond(Object.assign({}, ctx, {
+      grid: Object.assign({}, ctx.grid, { idle: 30, free: 30, drawn: 30, sites: 0 }),
+      rig: Object.assign({}, ctx.rig, { running: 2, sinceTraced: 0, quiet: false }),
+      held: 20,
+    }));
+    assert.notEqual(off, on, `${e.id} does not actually depend on the machine`);
+    assert.ok(d.openChoices(e).length >= 1, `${e.id} can grey out entirely`);
+  });
 });

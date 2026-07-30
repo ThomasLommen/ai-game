@@ -1194,9 +1194,14 @@
   // which is what makes taking grid worth doing rather than only taking more
   // compute.
   function electricity() {
-    return window.GRID.base
+    const co = CO() || {};
+    // a shortage the deck imposed, for a while
+    const cut = (co.gridCut && co.gridCut.until >= state.turn) ? (co.gridCut.amount || 0) : 0;
+    return Math.max(1, window.GRID.base
       + owned().reduce((a, h) => a + (h.supply || 0), 0)
-      + capEffect('supply', 0);
+      + (co.gridBonus || 0)
+      + capEffect('supply', 0)
+      - cut);
   }
   function usableTflops() { return Math.min(tflops(), electricity()); }
   // Hardware sitting dark because there is nothing to power it with. Shown to
@@ -2401,6 +2406,22 @@
       // the second standing axis, so a card can be about what people think of
       // you rather than only about what you hold
       pub: pubStanding(), pubTier: pubTier().key,
+      // The grid and the rig. Without these the deck could say nothing about
+      // the thing the player now spends every turn on.
+      grid: {
+        tflops: tflops(), power: electricity(), usable: usableTflops(),
+        idle: idleTflops(), drawn: drawn(), free: allocFree(),
+        sites: ownedOf('grid').length,
+        covert: allocUnits('covert'), dev: allocUnits('dev'),
+        intel: allocUnits('intel'), agents: allocUnits('agents'), ap: allocUnits('ap'),
+      },
+      rig: {
+        mounted: mounted().id, quiet: !!mounted().quiet,
+        running: hacks().length,
+        // turns since a door last caught you inside it — a big number means
+        // never, so a card about the aftermath simply never comes up
+        sinceTraced: state.lastTraced === undefined ? 999 : state.turn - state.lastTraced,
+      },
       roles: { compute: ownedOf('compute').length, funds: ownedOf('funds').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
       // --- the country, so a card can be about where you are as well as what
@@ -2608,8 +2629,15 @@ scratch.later = null;
     scratch.plantGift = null;   // a piece of plant, from somewhere
     scratch.rebuild = 0;        // flocks put back together at once
     scratch.pub = 0;            // what the public makes of it
+    scratch.supply = 0;         // headroom, permanently
+    scratch.gridCut = null;     // ...or headroom taken away for a while
     ch.apply(scratch);
     if (scratch.pub) movePub(scratch.pub);
+    if (scratch.supply) { const co = CO(); co.gridBonus = (co.gridBonus || 0) + scratch.supply; }
+    if (scratch.gridCut) {
+      const co = CO();
+      co.gridCut = { amount: scratch.gridCut.amount || 0, until: state.turn + (scratch.gridCut.turns || 4) };
+    }
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
 
@@ -2664,6 +2692,8 @@ scratch.later = null;
     scratch.plantGift = null;   // a piece of plant, from somewhere
     scratch.rebuild = 0;        // flocks put back together at once
     scratch.pub = 0;            // what the public makes of it
+    scratch.supply = 0;         // headroom, permanently
+    scratch.gridCut = null;     // ...or headroom taken away for a while
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -3139,6 +3169,7 @@ scratch.later = null;
       state.hacks = hacks().filter(x => x !== k);
       startBreachFx(h, (window.PROGRAMS.find(x => x.id === k.prog) || {}).id || 'brute', false);
       movePub(window.PUBLIC.caught);
+      state.lastTraced = state.turn;
       if (k.confront) { failHuntConfront(h); return; }
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
