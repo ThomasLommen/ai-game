@@ -195,6 +195,17 @@ longer a defensive stat that happens to have been renamed — it is the thing th
 makes slow hacks work at all, so the allocation screen has to exist and feel good
 before hacking is playable.
 
+## Deferred until all six phases are done
+
+Sixteen event-card conditions in `data.js` gate on `hasCap(...)`. Emptying the
+capability tree in phase 1 makes every one of them permanently false, so those
+cards stop appearing — they do not break, they just never come up again.
+
+Some of them should be regated onto allocation levels instead of capability
+ownership, but that is a content decision per card and it is being taken after
+the six phases land, not during them. Until then, treat those cards as dormant
+rather than as a bug.
+
 ## Not changing
 
 Heat · the escalation ladder and its footprint gating · the hunt · the rival ·
