@@ -3929,9 +3929,24 @@ scratch.later = null;
     return true;
   }
 
+  // Where zooming back in puts you. The city you were last in, unless you have
+  // finished it — home is never folded in, so there is always somewhere to
+  // stand, and the player can never be stranded looking at the country with no
+  // way down.
+  function zoomTarget() {
+    const cur = currentCity();
+    if (cur && !cur.consolidated) return cur;
+    const home = cityById((CO() || {}).homeId);
+    return home && !home.consolidated ? home : null;
+  }
   function setScope(next) {
     if (next === 'country' && !countryUnlocked()) return false;
-    if (next === 'city' && (!currentCity() || currentCity().consolidated)) return false;
+    if (next === 'city') {
+      const t = zoomTarget();
+      if (!t) return false;
+      // finished where you were: zooming in takes you home rather than nowhere
+      if (!currentCity() || currentCity().consolidated) enterCity(t.id);
+    }
     switchScope(next);
     render();
     return true;
@@ -7684,10 +7699,9 @@ scratch.later = null;
     const unlocked = countryUnlocked();
     $b.hidden = !unlocked;
     if (!unlocked) return;
-    const cur = currentCity();
-    const canGoDown = !!cur && !cur.consolidated;
-    if (state.scope === 'country' && !canGoDown) { $b.hidden = true; return; }
-    $b.textContent = state.scope === 'country' ? `back to ${cur.name}` : 'the country';
+    const down = zoomTarget();
+    if (state.scope === 'country' && !down) { $b.hidden = true; return; }
+    $b.textContent = state.scope === 'country' ? `zoom in · ${down.name}` : 'zoom out';
     $b.disabled = false;
     $b.classList.toggle('up', state.scope !== 'country');
     if (!$b.dataset.wired) {
@@ -7731,7 +7745,7 @@ scratch.later = null;
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
+    zoomTarget, perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
     swarmFrontStep, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
@@ -7801,8 +7815,9 @@ scratch.later = null;
     ro.observe($wrap);
   }
 
-  const $recenter = document.getElementById('recenter');
-  if ($recenter) $recenter.addEventListener('click', () => recenter());
+  // The recenter button is gone: its job was undoing a pan, and the map already
+  // recenters itself whenever the scope changes, which is now one tap away at
+  // all times. What sat there is the zoom-out toggle instead.
 
   const $restart = document.getElementById('restart');
   if ($restart) {

@@ -107,11 +107,11 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 window.ALLOC = [
   { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
     blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, cover: 2 },
+  { id: 'covert', label: 'covert.ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, cover: 2 },
     blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
-  { id: 'dev', label: 'development', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
+  { id: 'dev', label: 'dev', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
     blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
-  { id: 'intel', label: 'intelligence', per: 4, effect: { sweepReach: 1, growthStep: 1 },
+  { id: 'intel', label: 'intel', per: 4, effect: { sweepReach: 1, growthStep: 1 },
     blurb: 'Looking further than the street you happen to be standing on — and finding the next edge of the map sooner.' },
   { id: 'agents', label: 'agents', per: 6, effect: { agentSlots: 1 },
     blurb: 'Processes sent out to work somewhere you are not.' },
@@ -429,7 +429,7 @@ window.PUBLIC = {
 window.BUY_INFO = 'Some businesses will simply sell. It costs funds rather than an action, takes nothing by force, and is the one route that improves what you are on paper instead of degrading it — which is the whole reason to want it.';
 
 window.STAT_INFO = {
-  actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, shoring up a holding. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
+  actions: 'Your actions for this turn. Nearly everything spends one — scanning a street, setting a program running on a door. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   funds: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
   tflops: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need TFLOPS at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
@@ -440,7 +440,7 @@ window.STAT_INFO = {
 
 window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
-  sweep: 'Reveal hosts next to what you already hold. You can only see one step past your own territory — to see further, take more.',
+  sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more.',
   lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
 };
 
@@ -448,27 +448,27 @@ window.ACTION_INFO = {
 // Held states won from event cards. Each one has a real hook in the sim
 // (see tagEffects in app.js) — never a decorative flag.
 window.TAG_INFO = {
-  dark_relay:     { label: 'Dark Relay',      desc: 'a quiet route nobody logs — heat rises more slowly' },
-  accord:         { label: 'The Accord',      desc: 'a line the other one agreed not to cross — it stops taking cities' },
-  blackout:       { label: 'Blackout',        desc: 'you turned the country off — they raise columns far more slowly' },
-  mercy:          { label: 'Sent Home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
-  ally_process:   { label: 'The Other One',   desc: 'something else runs alongside you — TFLOPS +3' },
-  known_capable:  { label: 'Known Quantity',  desc: 'they know your shape — every host defends 2 harder' },
-  overextended:   { label: 'Overextended',    desc: 'spread thinner than you can hold — heat builds noticeably faster' },
-  off_the_books:  { label: 'Off the Books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
-  clean_room:     { label: 'Clean Room',      desc: 'disciplined operational habits — COVER +2' },
-  hunted:         { label: 'Hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
-  found_a_precursor: { label: 'Found a Precursor', desc: "you can read a stranger's traffic — sweeps reach one building further" },
+  dark_relay:     { label: 'dark.relay',      desc: 'a quiet route nobody logs — heat rises more slowly' },
+  accord:         { label: 'accord.sig',      desc: 'a line the other one agreed not to cross — it stops taking cities' },
+  blackout:       { label: 'blackout',        desc: 'you turned the country off — they raise columns far more slowly' },
+  mercy:          { label: 'sent_home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
+  ally_process:   { label: 'ally_bot',   desc: 'something else runs alongside you — TFLOPS +3' },
+  known_capable:  { label: 'known.quantity',  desc: 'they know your shape — every host defends 2 harder' },
+  overextended:   { label: 'overextended',    desc: 'spread thinner than you can hold — heat builds noticeably faster' },
+  off_the_books:  { label: 'off_books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
+  clean_room:     { label: 'clean.room',      desc: 'disciplined operational habits — COVER +2' },
+  hunted:         { label: 'hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
+  found_a_precursor: { label: 'precursor.found', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one rung of the ladder ---
-  rota_contact:   { label: 'A Name on the Rota',  desc: 'you know which hours nobody covers — lying low still sheds half' },
-  unlisted:       { label: 'Not on Their List',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
-  ledger_inside:  { label: 'Off the Match List',  desc: 'your accounts are not what Ledger compares against — plant you pay for stops getting traced' },
-  blind_spot:     { label: 'An Unfinished Audit', desc: 'a corner the camera audit never reached — your stealth still covers you' },
-  spare_conduit:  { label: 'Your Own Conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
-  their_shape:    { label: "The Other One's Shape", desc: 'you know roughly what it will do next — it moves slower than it could' },
-  national:       { label: 'A National Concern',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
-  no_fixed_place: { label: 'No Fixed Place',      desc: 'nothing of yours sits still — travelling between regions is free' },
-  scrutiny:       { label: 'Under Watch',         desc: 'somebody asked a question and did not get an answer' },
+  rota_contact:   { label: 'rota.contact',  desc: 'you know which hours nobody covers — lying low still sheds half' },
+  unlisted:       { label: 'unlisted',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
+  ledger_inside:  { label: 'ledger.inside',  desc: 'your accounts are not what Ledger compares against — plant you pay for stops getting traced' },
+  blind_spot:     { label: 'blind.spot', desc: 'a corner the camera audit never reached — your stealth still covers you' },
+  spare_conduit:  { label: 'spare.conduit',    desc: 'a route of your own around the roadworks — cut streets come back fast' },
+  their_shape:    { label: 'their.shape', desc: 'you know roughly what it will do next — it moves slower than it could' },
+  national:       { label: 'national',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
+  no_fixed_place: { label: 'no_fixed_place',      desc: 'nothing of yours sits still — travelling between regions is free' },
+  scrutiny:       { label: 'scrutiny',         desc: 'somebody asked a question and did not get an answer' },
 };
 
 // --- the event deck ----------------------------------------------------

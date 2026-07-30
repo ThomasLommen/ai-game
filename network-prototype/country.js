@@ -508,48 +508,48 @@ window.WAR_INFO = {
 window.HARDWARE = [
   {
     id: 'rack_space', family: 'compute', tier: 1, heldAt: 2, cost: 16, heat: 0,
-    label: 'rack space', effect: { tflops: 1 },
+    label: 'rack.space', effect: { tflops: 1 },
     blurb: 'Colocated capacity nobody is using this week. It does not care whose problem it is solving.',
   },
   {
     id: 'distributed_batch', family: 'compute', tier: 2, heldAt: 4, cost: 34, heat: 2,
-    label: 'distributed batch', effect: { tflops: 2, sweepReach: 1 },
+    label: 'batch.dist', effect: { tflops: 2, sweepReach: 1 },
     mechanic: true, // in addition to tflops/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
     blurb: 'Spreads the job across everything you are already running, instead of waiting on any one of it.',
   },
   {
     id: 'borrowed_cycles', family: 'compute', tier: 3, heldAt: 6, cost: 60, heat: 4,
-    label: 'borrowed cycles', effect: { tflops: 4, flockBonus: 1, thresholdMult: 0.9 },
+    label: 'cycles.borrowed', effect: { tflops: 4, flockBonus: 1, thresholdMult: 0.9 },
     blurb: 'Quietly renting out spare capacity nobody has noticed yet — and the biggest single thing you can plug into the network, which is also the loudest.',
   },
   {
     id: 'friendly_accountant', family: 'funds', tier: 1, heldAt: 2, cost: 18, heat: 0,
-    label: 'a friendly accountant', effect: { floor: -1 },
+    label: 'acct.friendly', effect: { floor: -1 },
     blurb: 'Someone who knows how to make a return look boring.',
   },
   {
     id: 'books_that_balance', family: 'funds', tier: 2, heldAt: 4, cost: 36, heat: 2,
-    label: 'books that balance', effect: { floor: -2, driftMult: 0.9 },
+    label: 'books.balanced', effect: { floor: -2, driftMult: 0.9 },
     blurb: 'Audits stop finding anything because there is nothing left to find.',
   },
   {
     id: 'company_nobody_questions', family: 'funds', tier: 3, heldAt: 6, cost: 62, heat: 3,
-    label: 'a company nobody questions', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
+    label: 'shell.clean', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
     blurb: 'A legitimate-looking payroll is also just payroll, for people who fight.',
   },
   {
     id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
-    label: 'dead drops', effect: { cover: 2 },
+    label: 'dead.drops', effect: { cover: 2 },
     blurb: 'A place to leave something that is not being watched.',
   },
   {
     id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
-    label: 'a borrowed signal', effect: { cover: 4, freeHideSlots: 1 },
+    label: 'signal.borrowed', effect: { cover: 4, freeHideSlots: 1 },
     blurb: "Riding somebody else's traffic instead of making your own.",
   },
   {
     id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
-    label: "nobody's asking why", effect: { cover: 6, flockBonus: 1 },
+    label: 'noquestions', effect: { cover: 6, flockBonus: 1 },
     blurb: 'Whatever they are looking for, it does not look like you.',
   },
 ];

@@ -5902,8 +5902,11 @@ test('screen: what you are is written on the map, not on a row of its own', () =
   assert.ok(!/id="stage-row"/.test(html), 'the row it used to have is gone');
   // both of these describe the map, so both live on it
   const wrap = html.slice(html.indexOf('id="graph-wrap"'), html.indexOf('id="panel"'));
-  ['stage-label', 'scope-btn', 'consolidate', 'recenter'].forEach(id =>
+  // recenter left with the rework: its job was undoing a pan, and the map
+  // recenters itself on every scope change, which is now always one tap away
+  ['stage-label', 'scope-btn', 'consolidate'].forEach(id =>
     assert.ok(wrap.includes(`id="${id}"`), `${id} belongs on the map`));
+  assert.ok(!/id="recenter"/.test(html), 'and the button it replaced is gone');
 });
 
 test('screen: the stage name still says how big you are', () => {
@@ -8612,4 +8615,76 @@ test('cards: what is planted survives a save', () => {
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(round.planted.length, 1, 'still on its way');
   assert.equal(round.planted[0].at, 40);
+});
+
+// --- zooming, and the AI's own vocabulary ---------------------------------
+
+test('zoom: you can always get back down, even from a city you have finished', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // somewhere that is not home, because home is never folded in — which is
+  // exactly why there is always somewhere left to stand
+  enterDefendedCity(d, window);
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();
+  assert.equal(d.currentCity().consolidated, true, 'this one is done');
+
+  // there is still somewhere to stand: home is never folded in
+  const t = d.zoomTarget();
+  assert.ok(t, 'zooming in has a target');
+  assert.equal(t.consolidated, false, 'and it is a city you can actually be in');
+
+  d.setScope('country');
+  assert.equal(s.scope, 'country');
+  assert.equal(d.setScope('city'), true, 'and back down again');
+  assert.equal(s.scope, 'city', 'never stranded looking at the country');
+  assert.equal(d.currentCity().consolidated, false, 'standing somewhere real');
+});
+
+test('zoom: the button says which way it goes, and never hides while there is a way down', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const btn = () => window.document.getElementById('scope-btn');
+
+  enterDefendedCity(d, window);
+  holdToGoal(d);
+  s.ap = 9;
+  d.actConsolidate();       // finishing a city puts you back on the country map
+  d.render();
+  assert.equal(s.scope, 'country', 'which is where consolidating leaves you');
+  assert.equal(btn().hidden, false, 'and the way back down is offered');
+  assert.ok(btn().textContent.startsWith('zoom in'), `says where it goes: ${btn().textContent}`);
+  assert.ok(btn().textContent.includes(d.zoomTarget().name), 'and names it');
+
+  assert.equal(d.setScope('city'), true);
+  d.render();
+  assert.equal(btn().hidden, false, 'the country is reachable again');
+  assert.equal(btn().textContent, 'zoom out');
+});
+
+test('voice: the AI names its own things in its own notation, and the world keeps its words', () => {
+  const { window } = loadNetwork();
+  const code = /^[a-z][a-z0-9]*([._][a-z0-9]+)*(\.exe)?$/;
+
+  // its own vocabulary: what it is running, what it has been given, what it holds
+  window.PROGRAMS.forEach(p => assert.ok(/\.exe$/.test(p.label), `${p.id} is not named like a program`));
+  window.ALLOC.forEach(a => assert.ok(code.test(a.label), `allocation ${a.id} reads as prose: ${a.label}`));
+  Object.keys(window.TAG_INFO).forEach(k =>
+    assert.ok(code.test(window.TAG_INFO[k].label), `tag ${k} reads as prose: ${window.TAG_INFO[k].label}`));
+  window.HARDWARE.forEach(hw => assert.ok(code.test(hw.label), `plant ${hw.id} reads as prose: ${hw.label}`));
+
+  // the world is not its to rename: buildings, places and institutions keep theirs
+  Object.keys(window.HOST_TYPES).forEach(k =>
+    assert.ok(!code.test(window.HOST_TYPES[k].label) || /^[a-z ]+$/.test(window.HOST_TYPES[k].label),
+      `host ${k} has been renamed like a program`));
+  assert.equal(window.HOST_TYPES.datacenter.label, 'datacenter', 'a datacenter is still a datacenter');
+  assert.equal(window.HOST_TYPES.consumer.label, 'home PC');
+
+  // and the prose stays prose — the contrast is the character
+  window.EVENTS.slice(0, 30).forEach(e => {
+    assert.ok(/[a-z] [a-z]/.test(e.flavor), `${e.id} flavour has stopped being written in sentences`);
+  });
 });
