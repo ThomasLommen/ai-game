@@ -8006,15 +8006,23 @@ test('hack: it lands when the work finishes, and the compute comes back', () => 
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.forEach(h => { h.owned = true; });
-  const target = s.hosts.find(h => !h.origin && (window.HOST_TYPES[h.type].trace || 1) <= 0.5);
-  if (!target) return;                          // no quiet target on this board
-  target.owned = false;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
+  // quiet enough to survive four turns of being noticed, and reachable — a host
+  // whose building has no held neighbour is not a frontier and cannot be
+  // started against at all
+  const target = s.hosts.find(h => {
+    if (h.origin || (window.HOST_TYPES[h.type].trace || 1) > 0.5) return false;
+    h.owned = false;
+    const ok = d.isFrontier(h);
+    if (!ok) h.owned = true;
+    return ok;
+  });
+  if (!target) return;                          // no quiet, reachable door on this board
 
   d.mount('backdoor');
   const free = d.allocFree();
-  d.startHack(target.id);
+  assert.equal(d.startHack(target.id), true, 'the hack started');
   for (let i = 0; i < d.mounted().turns; i++) { s.card = null; d.endTurn({ silent: true }); }
 
   assert.equal(target.owned, true, 'the door opened');
@@ -8176,4 +8184,78 @@ test('hack: hacks survive a save, mid-race', () => {
   assert.equal(round.hacks.length, 1, 'and what it was working on');
   assert.equal(round.hacks[0].hostId, target.id);
   assert.ok(round.hacks[0].trace > 0, 'with how far it had been noticed');
+});
+
+test('contagion: it lands on more than the door you pointed it at, and picks them itself', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const P = window.PROGRAMS.find(p => p.id === 'contagion');
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  // a soft door with soft neighbours, so the rig is big enough for them too
+  const seed = s.hosts.find(h => !h.origin
+    && d.buildingNeighbours(h.buildingId).length >= 3);
+  assert.ok(seed, 'somewhere with several neighbours');
+  seed.owned = false;
+  // a quiet door, so the seed survives its own four turns in the race — and
+  // soft, since the rig is sized for it and that same rig is what has to carry
+  // into whatever is next door
+  seed.type = 'consumer';
+  seed.defense = 8;
+  // all but one neighbour freed up as somewhere to spread to — the one left
+  // held is what makes the seed a frontier at all, and without it there is
+  // nothing to launch from
+  const all = d.buildingNeighbours(seed.buildingId)
+    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
+  const nbrs = all.slice(1);
+  nbrs.forEach(n => { n.owned = false; n.defense = 2; });
+  assert.ok(all[0].owned, 'and something of yours to reach from');
+
+  d.mount('contagion');
+  assert.equal(d.startHack(seed.id), true);
+  for (let i = 0; i < P.turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+
+  assert.equal(seed.owned, true, 'the door it was pointed at opened');
+  const spread = nbrs.filter(n => n.owned).length;
+  assert.ok(spread > 0, 'and it did not stop there');
+  assert.ok(spread <= P.spread - 1, `never more than the program says (${spread})`);
+});
+
+test('contagion: a neighbour harder than the rig simply holds', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const P = window.PROGRAMS.find(p => p.id === 'contagion');
+  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
+  const nbrs = d.buildingNeighbours(seed.buildingId)
+    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
+  nbrs.forEach(n => { n.owned = false; n.defense = 999; });
+
+  // a rig sized for a soft door cannot carry into a hard one
+  const took = d.spreadFrom(seed, { allocated: 1 }, P);
+  assert.equal(took.length, 0, 'nothing beside it gave');
+  assert.ok(s.log.some(l => /held/.test(l.text)), 'and the player is told why');
+});
+
+test('contagion: it will walk onto ground the rival is holding, which nothing else does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const P = window.PROGRAMS.find(p => p.id === 'contagion');
+  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
+  const victim = d.hostsIn(d.buildingById(d.buildingNeighbours(seed.buildingId)[0]))[0];
+  assert.ok(victim, 'there is something next door');
+  victim.owned = false;
+  victim.defense = 1;
+
+  s.rival = s.rival || { awake: true, buildings: [], lastActed: 0, seen: true };
+  s.rival.buildings = [victim.buildingId];
+  assert.equal(d.rivalHolds(victim.buildingId), true, 'the rival has it to begin with');
+
+  const took = d.spreadFrom(seed, { allocated: 50 }, P);
+  assert.ok(took.indexOf(victim) !== -1, 'contagion took it anyway');
+  assert.equal(d.rivalHolds(victim.buildingId), false, 'and it is not theirs any more');
+  assert.equal(victim.owned, true, 'it is yours');
 });

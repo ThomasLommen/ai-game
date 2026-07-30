@@ -3072,8 +3072,44 @@
       takeHost(h);
       if (p.heat) state.heat = clampHeat(state.heat + p.heat);
       pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is yours. ${p.label} is off the rig.`);
+      if (p.spread) spreadFrom(h, k, p);
     });
     return { done: done.length, caught: caught.length };
+  }
+
+  // Contagion, the moment it lands: the same rig is still running, and it
+  // reaches whatever is beside the door it just came through.
+  //
+  // You do not choose the targets — that is the whole character of it. What is
+  // next door might be a router or it might be a finance floor, and the rig is
+  // sized for the door it was pointed at, so anything harder than that simply
+  // does not take. It will happily walk onto ground the rival or the response
+  // is holding, which is the one thing no other program does.
+  function spreadFrom(from, k, p) {
+    const room = Math.max(0, (p.spread || 1) - 1);
+    if (!room) return [];
+    const took = [], missed = [];
+    buildingNeighbours(from.buildingId).forEach(id => {
+      if (took.length >= room) return;
+      const t = hostsIn(buildingById(id))[0];
+      if (!t || t.owned) return;
+      if (k.allocated < hackNeed(p, t)) { missed.push(t); return; }
+      took.push(t);
+    });
+    took.forEach(t => {
+      const bid = t.buildingId;
+      // taken off whoever was holding it, rather than politely skipped
+      if (state.rival) state.rival.buildings = rivalHeld().filter(x => x !== bid);
+      if (state.hunt) state.hunt.nodes = (state.hunt.nodes || []).filter(x => x !== bid);
+      takeHost(t);
+    });
+    if (took.length) {
+      pushLog(`It did not stop there: ${took.map(t => window.BUILDING_KINDS[buildingById(t.buildingId).kind].label).join(', ')} went with it.`);
+    }
+    if (missed.length) {
+      pushLog(`${missed.length} door${missed.length === 1 ? '' : 's'} beside it held — too hard for what was running.`);
+    }
+    return took;
   }
 
   // Taking a host, however it happened — hacks, the frontier forcing itself,
@@ -7563,7 +7599,7 @@
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
     programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
-    canHack, startHack, abortHack, hackStep, takeHost,
+    canHack, startHack, abortHack, hackStep, takeHost, spreadFrom,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
