@@ -10,6 +10,7 @@
   --insight: #5fb3d9;
   --funds: #e3b451;
   --tflops: #a487dd;
+  --grid: #e0803f;   /* the grid: headroom, not income - warm, and not any resource's colour */
   --cover: #6f8f83;
   --heat: #d9705f;
   --item: #c9a15c;
@@ -1022,6 +1023,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.all-held .glow { opacity: .22; stroke: var(--insight); }
 .bldg.all-held.funds .glow { stroke: var(--funds); }
 .bldg.all-held.stealth .glow { stroke: var(--cover); }
+.bldg.all-held.grid .glow { stroke: var(--grid); }
 
 /* your kit on the roof — readable without relying on colour at all */
 .aerial line { stroke: var(--insight); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
@@ -1030,6 +1032,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.funds .aerial circle { fill: var(--funds); }
 .bldg.stealth .aerial line { stroke: var(--cover); }
 .bldg.stealth .aerial circle { fill: var(--cover); }
+.bldg.grid .aerial line { stroke: var(--grid); }
+.bldg.grid .aerial circle { fill: var(--grid); }
 
 /* Cut off from the rest of you. This was only ever visible by tapping each
    building in turn, which is no way to find the one that has stopped paying —
@@ -1045,9 +1049,11 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.all-held.compute .body { stroke: var(--insight); }
 .bldg.all-held.funds .body    { stroke: var(--funds); }
 .bldg.all-held.stealth .body { stroke: var(--cover); }
+.bldg.all-held.grid .body    { stroke: var(--grid); }
 .bldg.all-held.compute .win.lit { fill: color-mix(in srgb, var(--insight) 55%, #1e2724); }
 .bldg.all-held.funds .win.lit    { fill: color-mix(in srgb, var(--funds) 55%, #1e2724); }
 .bldg.all-held.stealth .win.lit { fill: color-mix(in srgb, var(--cover) 55%, #1e2724); }
+.bldg.all-held.grid .win.lit    { fill: color-mix(in srgb, var(--grid) 55%, #1e2724); }
 
 /* Stranded, after the per-role colours on purpose: these rules and the role
    ones are the same specificity, so whichever comes last wins, and above
@@ -1485,6 +1491,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .yield.insight { color: var(--insight); }
 .yield.funds    { color: var(--funds); }
 .yield.tflops   { color: var(--tflops); }
+.yield.grid     { color: var(--grid); }
 .yield.cover   { color: var(--cover); }
 .yield.flocks  { color: var(--insight); }
 .yield.heat    { color: var(--heat); }

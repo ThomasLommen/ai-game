@@ -16,6 +16,12 @@ window.HOST_TYPES = {
   till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2 },
   iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2 },
   datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: { insight: 4 }, heat: 0.3 },
+  // Grid. These pay nothing and think barely at all — what they give is
+  // headroom, which is the only thing that lets the compute you already hold
+  // actually run. Defense is pitched at the district each one appears in, so
+  // adding them does not flatten the map's difficulty gradient.
+  feeder:     { label: 'feeder pillar', role: 'grid', defense: [3, 6],   threads: [0, 1], yield: {}, supply: 3 },
+  switchgear: { label: 'switchgear',    role: 'grid', defense: [24, 34], threads: [2, 4], yield: {}, supply: 14 },
 };
 
 // A flat margin baked into world generation, not a purchasable thing any
@@ -505,12 +511,16 @@ window.RIVAL = {
 // engine reads, so difficulty stays a single number even though the fiction
 // is now geographic.
 window.DISTRICTS = {
-  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast'] },
+  // Feeder pillars are suburban street furniture, and cheap enough to belong
+  // at this tier — the grid has to start somewhere you can actually reach on
+  // turn one, or the ceiling never moves.
+  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'pillar'] },
   commercial:  { tier: 1, label: 'high street',    kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
   business:    { tier: 2, label: 'business park',  kinds: ['office', 'office', 'finance', 'cabinet'] },
   // no street furniture out here: a row of cheap masts could drag the hardest
-  // district's average below the one before it, and the map stops teaching
-  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter', 'finance'] },
+  // district's average below the one before it, and the map stops teaching.
+  // A switchyard is as hard as the datacenter beside it, so it is welcome.
+  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
 };
 
 // One building, one host. Interiors made every building a chore — several
@@ -528,6 +538,8 @@ window.BUILDING_KINDS = {
   finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
   warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
   datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter' },
+  pillar:     { w: [20, 26], h: [16, 22], label: 'feeder pillar',  host: 'feeder' },
+  switchyard: { w: [64, 82], h: [48, 62], label: 'switchyard',     host: 'switchgear' },
   // Landmarks. One or two to a city, always up against whatever terrain the
   // region has, and always worth more than the street around them — they are
   // the reason to fight for a crossing rather than route around it.
@@ -535,7 +547,7 @@ window.BUILDING_KINDS = {
   station:    { w: [74, 92], h: [48, 60], label: 'station',        host: 'server',     landmark: true },
   depot:      { w: [66, 84], h: [46, 58], label: 'depot',          host: 'till',       landmark: true },
   exchange:   { w: [64, 80], h: [52, 66], label: 'exchange floor', host: 'corporate',  landmark: true },
-  substation: { w: [58, 72], h: [44, 56], label: 'substation',     host: 'datacenter', landmark: true },
+  substation: { w: [58, 72], h: [44, 56], label: 'substation',     host: 'switchgear', landmark: true },
 };
 
 // A landmark is a bigger prize and a harder door than the district it sits in.
@@ -569,6 +581,8 @@ window.HOST_NAMES = {
   till:       ['POS', 'TILL', 'CARD-T', 'REG'],
   iot:        ['router', 'gateway', 'cam', 'nas', 'relay'],
   datacenter: ['DC-CORE', 'RACK', 'COLO', 'FABRIC', 'TIER3'],
+  feeder:     ['FEEDER', 'PILLAR', 'LV-BOX', 'SPUR'],
+  switchgear: ['SWITCHGEAR', 'BUSBAR', 'HV-YARD', 'GRID-N', 'TRANSFORMER'],
 };
 
 // Trace/strike model, ported from src/core/network.js.

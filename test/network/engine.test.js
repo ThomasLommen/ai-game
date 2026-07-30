@@ -2893,7 +2893,7 @@ test('settled: folding a city in keeps the shape of what you took', () => {
   web.forEach(n => {
     assert.ok(n.x >= 0 && n.x <= 1, `x out of range: ${n.x}`);
     assert.ok(n.y >= 0 && n.y <= 1, `y out of range: ${n.y}`);
-    assert.ok('cfs'.indexOf(n.r) !== -1, `unknown role ${n.r}`);
+    assert.ok('cfsg'.indexOf(n.r) !== -1, `unknown role ${n.r}`);
   });
   // and it is a photograph, not a holding
   assert.equal(d.owned().length, 0, 'you are not holding it any more');
@@ -7973,4 +7973,57 @@ test('grid: allocation effect chips scale with the figure, not merely with ownin
   const three = d.allocChips(A, 3);
   assert.ok(one.includes('+1'), 'one unit reads as one');
   assert.ok(three.includes('+3'), 'three units read as three');
+});
+
+test('grid: taking grid raises the ceiling, and it is the only thing that does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  const gridHosts = s.hosts.filter(h => h.role === 'grid');
+  assert.ok(gridHosts.length > 0, 'a generated city has grid on it to take');
+  gridHosts.forEach(h => {
+    assert.ok(h.supply > 0, `${h.type} is grid and supplies nothing`);
+    // keys, not deepEqual: the object is built inside the vm realm, so it is
+    // never prototype-equal to one written out here
+    assert.equal(Object.keys(window.HOST_TYPES[h.type].yield).length, 0, 'grid pays no income');
+  });
+
+  // a non-grid holding adds capacity but no headroom
+  const base = d.electricity();
+  const plain = s.hosts.find(h => h.role !== 'grid' && !h.owned);
+  plain.owned = true;
+  assert.equal(d.electricity(), base, 'compute and funds buildings give no electricity');
+
+  const g = gridHosts.find(h => !h.owned);
+  g.owned = true;
+  assert.equal(d.electricity(), base + g.supply, 'grid does, by exactly what it supplies');
+});
+
+test('grid: a landmark substation is worth more headroom than the switchyard down the road', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // generated over several boards, since a given city need not roll a landmark
+  let landmark = null, plain = null;
+  for (let i = 0; i < 14 && !landmark; i++) {
+    const dd = loadNetwork().window.__netDebug;
+    dd.state.hosts.forEach(h => {
+      if (h.role !== 'grid') return;
+      if (h.landmark && h.supply) landmark = h;
+      else if (h.type === 'switchgear' && !plain) plain = h;
+    });
+  }
+  if (!landmark || !plain) return;   // no board rolled both; the claim is untestable here
+  assert.ok(landmark.supply > plain.supply,
+    `landmark supplies ${landmark.supply}, plain switchgear ${plain.supply}`);
+});
+
+test('grid: a grid building says what it supplies instead of claiming to pay nothing', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const g = d.state.hosts.find(h => h.role === 'grid');
+  assert.ok(g, 'there is grid on this board');
+  const chips = d.yieldChips(g);
+  assert.ok(chips.includes(`+${g.supply} electricity`), 'the headroom is on the card');
+  assert.ok(!chips.includes('nothing on its own'), 'and it does not read as worthless');
 });

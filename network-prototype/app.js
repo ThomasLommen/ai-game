@@ -228,6 +228,10 @@
         defense: Math.max(1, Math.round((rndInt(T.defense[0], T.defense[1]) + bump) * (L ? L.defense : 1))
           + (TR.defense || 0)),
         threads: Math.round(rndInt(T.threads[0], T.threads[1]) * (L ? L.threads : 1)),
+        // Headroom a grid host hands you. Scaled by the landmark multiplier for
+        // the same reason threads are: a substation is a bigger prize than the
+        // switchyard down the road, and it should power more.
+        supply: Math.round((T.supply || 0) * (L ? L.threads : 1)),
         landmark: !!L,
         x: Math.round(b.x + b.w / 2),
         y: Math.round(b.y + b.h / 2),
@@ -410,9 +414,14 @@
     // doormat you wake up on. A depot in the suburbs was being handed out as
     // the starting seat on 12% of boards, which also started you on a funds
     // holding you had not earned.
+    //
+    // Street furniture is excluded for the same reason, and a feeder pillar is
+    // street furniture: waking up on one gives you a rig with no threads and no
+    // income at all, and hands you grid headroom before you have taken anything.
+    const FURNITURE = { mast: true, cabinet: true, pillar: true };
     const softestTier = Math.min(...buildings.map(b => b.tier));
     const edge = buildings.filter(b => b.tier === softestTier
-      && b.kind !== 'mast' && b.kind !== 'cabinet' && !b.landmark);
+      && !FURNITURE[b.kind] && !b.landmark);
     const pool = edge.length ? edge : buildings;
     const byBuilding = {};
     buildings.forEach(b => { byBuilding[b.id] = b; });
@@ -542,6 +551,7 @@
           name: pick(window.HOST_NAMES[K.host]) + '-' + rndInt(10, 99),
           defense: Math.max(1, Math.round(rndInt(T.defense[0], T.defense[1]) + b.tier * 2 + (TR.defense || 0))),
           threads: Math.round(rndInt(T.threads[0], T.threads[1])),
+          supply: T.supply || 0,
           landmark: false,
           x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2),
           discovered: false, owned: false,
@@ -1185,7 +1195,11 @@
   // be switched on at once. Neither alone is the limit — the smaller one is,
   // which is what makes taking grid worth doing rather than only taking more
   // compute.
-  function electricity() { return window.GRID.base + capEffect('supply', 0); }
+  function electricity() {
+    return window.GRID.base
+      + owned().reduce((a, h) => a + (h.supply || 0), 0)
+      + capEffect('supply', 0);
+  }
   function usableTflops() { return Math.min(tflops(), electricity()); }
   // Hardware sitting dark because there is nothing to power it with. Shown to
   // the player, because "you own it and cannot run it" has to be legible or it
@@ -6480,7 +6494,7 @@
           <span class="mono dim">${drawn()} / ${usableTflops()} running</span>
         </div>
         <p class="sheet-note">${window.GRID_INFO}</p>
-        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${chip('cover', electricity() + ' electricity')}${idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
+        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${chip('grid', electricity() + ' electricity')}${idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
         ${rows}`,
     };
   }
@@ -7319,6 +7333,9 @@
       // exactly this, rather than a red chip warning you about good news.
       m.heat > 0.05 ? chip('cost heat', `+${num(m.heat)} heat`)
         : m.heat < -0.05 ? chip('cover', `heat &minus;${num(-m.heat)}`) : '',
+      // Grid pays nothing and would otherwise read as "nothing on its own",
+      // which is the opposite of true: headroom is the whole point of it.
+      h.supply ? chip('grid', `+${h.supply} electricity`) : '',
     ].filter(Boolean);
     return out.length ? out.join('') : '<span class="yield none">nothing on its own</span>';
   }
