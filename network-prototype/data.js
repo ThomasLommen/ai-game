@@ -11,9 +11,9 @@
 // your breach tflops, funds pays for things, stealth buys down heat.
 window.HOST_TYPES = {
   consumer:   { label: 'home PC',    role: 'compute', defense: [3, 5],   threads: [2, 3],  yield: {}, trace: 0.5 },
-  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {}, trace: 1.2 },
-  corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5, trace: 2 },
-  till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2, trace: 1 },
+  server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {}, trace: 1.2, buyPer: 18 },
+  corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5, trace: 2, buyPer: 26 },
+  till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2, trace: 1, buyPer: 12 },
   iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2, trace: 0.4 },
   datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: {}, heat: 0.3, trace: 1.8 },
   // Grid. These pay nothing and think barely at all — what they give is
@@ -398,12 +398,43 @@ window.STRIKE_CARD = {
 // Every stat and button gets a plain-language explanation, surfaced on tap.
 // Nothing here is flavour: if the player can't say what a number does, the
 // number may as well not exist.
+// --- what the public thinks ---------------------------------------------
+// The second standing axis. Legitimacy is what the regulator can prove; this is
+// what everybody else believes, and the two move independently on purpose —
+// being caught in something wrecks your name while leaving the paperwork
+// immaculate, and a filing cabinet full of real accounts persuades nobody who
+// has just watched you take a hospital offline.
+//
+// It gates the deck rather than any number: which cards can come up, and how
+// the people on them treat you. Starts at nothing, because nobody has heard of
+// you yet.
+window.PUBLIC = {
+  start: 0,
+  min: -60,
+  max: 60,
+  // read outward from the middle: unknown is the *absence* of an opinion, not a
+  // bad one, so a brand new AI and a thoroughly forgotten one read the same
+  tiers: [
+    { at: -34, key: 'hated',      label: 'hated' },
+    { at: -12, key: 'distrusted', label: 'distrusted' },
+    { at: -4,  key: 'unknown',    label: 'unknown' },
+    { at: 12,  key: 'noticed',    label: 'noticed' },
+    { at: 34,  key: 'welcome',    label: 'welcome' },
+  ],
+  caught: -14,       // found inside something: ruinous to the name, clean on paper
+  bought: 3,         // buying a business outright is the respectable way in
+  hackedTrade: -2,   // taking a business by force, quietly noticed by its trade
+};
+
+window.BUY_INFO = 'Some businesses will simply sell. It costs funds rather than an action, takes nothing by force, and is the one route that improves what you are on paper instead of degrading it — which is the whole reason to want it.';
+
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — moving on a building, sweeping a street, shoring up a holding. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   funds: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
   tflops: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need TFLOPS at or above their defense to force.',
   cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
+  standing: 'What the public thinks of you, which is not what the regulator can prove. Being found inside something wrecks it; buying a business outright improves it. It decides which cards come up and how the people on them treat you.',
 };
 
 window.ACTION_INFO = {

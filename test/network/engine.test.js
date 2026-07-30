@@ -8322,3 +8322,147 @@ test('parity: a hack that lands runs the same effects a forced door did', () => 
   assert.ok(d.buildingById(t.buildingId).discovered, 'you are inside, so the building is known');
   assert.ok(s.log.some(l => /is yours/.test(l.text)), 'and it is reported');
 });
+
+// --- buying, and what the public thinks -----------------------------------
+// Two axes, kept apart on purpose: the regulator reads filings, everybody else
+// reads the news. Buying is the one way in that improves both.
+
+test('standing: it starts as no opinion at all, and reads outward from there', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.pubStanding(), window.PUBLIC.start, 'nobody has heard of you');
+  assert.equal(d.pubTier().key, 'unknown', 'which is not the same as thinking badly of you');
+
+  d.movePub(50);
+  assert.equal(d.pubTier().key, 'welcome');
+  d.movePub(-200);
+  assert.equal(d.pubTier().key, 'hated');
+  assert.equal(d.pubStanding(), window.PUBLIC.min, 'and it does not run off the end');
+  d.movePub(500);
+  assert.equal(d.pubStanding(), window.PUBLIC.max, 'at either end');
+
+  // every tier is reachable and named
+  const seen = new Set();
+  for (let v = window.PUBLIC.min; v <= window.PUBLIC.max; v++) {
+    d.state.country.pub = v;
+    const t = d.pubTier();
+    assert.ok(t.label, `no name at ${v}`);
+    seen.add(t.key);
+  }
+  assert.equal(seen.size, window.PUBLIC.tiers.length, 'no tier is unreachable');
+});
+
+test('standing: being found inside something wrecks the name and leaves the paperwork clean', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'corporate', defense: 22 });
+  assert.ok(t, 'a door that notices quickly');
+  ungrant(d);
+  d.mount('backdoor');
+  const f = d.hackForecast(t, d.mounted());
+  if (!f.caught) return;                        // covered by the race tests
+
+  const pub = d.pubStanding(), legit = d.legitScore();
+  s.ap = 9;
+  assert.equal(d.startHack(t.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+
+  assert.ok(d.pubStanding() < pub, 'the public heard about it');
+  assert.equal(d.legitScore(), legit, 'and the filings are untouched — different axis, different reader');
+});
+
+test('buy: some businesses sell, and street furniture never does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; h.owned = false; });
+
+  const sells = ['corporate', 'till', 'server'];
+  Object.keys(window.HOST_TYPES).forEach(k => {
+    const h = s.hosts.find(x => x.type === k);
+    if (!h) return;
+    assert.equal(d.buyableHost(h), sells.indexOf(k) !== -1,
+      `${k} should ${sells.indexOf(k) !== -1 ? '' : 'not '}be for sale`);
+  });
+  // and nothing already yours is
+  const owned = s.hosts.find(h => d.buyableHost(h));
+  if (owned) { owned.owned = true; assert.equal(d.buyableHost(owned), false, 'you cannot buy your own'); }
+});
+
+test('buy: it costs funds and no action, takes nothing by force, and raises both axes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const t = s.hosts.find(h => !h.owned && d.buyableHost(h));
+  assert.ok(t, 'something on this board is for sale');
+
+  s.res.funds = 0;
+  assert.equal(d.canBuyBuilding(t.id), false, 'not without the money');
+  assert.equal(d.buyBuilding(t.id), false, 'and it refuses rather than going into debt');
+
+  s.res.funds = d.buyPrice(t) + 5;
+  const ap = s.ap, pub = d.pubStanding(), legit = d.legitScore(), heat = s.heat;
+  assert.equal(d.buyBuilding(t.id), true);
+
+  assert.equal(t.owned, true, 'it is yours');
+  assert.equal(s.res.funds, 5, 'paid for at the asking price');
+  assert.equal(s.ap, ap, 'and it cost no action — this is a transaction, not a move');
+  assert.equal(s.heat, heat, 'nothing was forced, so nothing was noticed');
+  assert.ok(d.legitScore() > legit, 'it is the one thing you hold that survives being looked at');
+  assert.ok(d.pubStanding() > pub, 'and the respectable way in reads as respectable');
+});
+
+test('buy: taking a business by force is quietly noticed by its trade', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'till', defense: 6 });
+  assert.ok(t, 'a business to take');
+  const pub = d.pubStanding();
+  d.mount('brute');
+  s.ap = 9;
+  assert.equal(d.startHack(t.id), true);
+  d.hackStep();
+  assert.equal(t.owned, true, 'taken');
+  assert.ok(d.pubStanding() < pub, 'and its trade noticed who took it');
+});
+
+test('buy: the panel offers it beside the program, and says what it costs', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const t = s.hosts.find(h => !h.owned && d.buyableHost(h));
+  assert.ok(t, 'something for sale');
+  s.res.funds = 100000;
+
+  const html = d.buyPanel(t);
+  assert.ok(html.includes('buy it instead'), 'the offer is there');
+  assert.ok(html.includes(String(d.buyPrice(t))), 'with its price');
+  assert.ok(/nothing forced, nothing traced/.test(html), 'and what makes it different');
+
+  // a router is not for sale, and does not pretend to be
+  const iot = s.hosts.find(h => h.type === 'iot' && !h.owned);
+  if (iot) assert.equal(d.buyPanel(iot), '', 'nothing is offered on what nobody would sell');
+});
+
+test('standing: the deck can ask what the public thinks', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const ctx = d.eventContext();
+  assert.equal(typeof ctx.pub, 'number', 'the figure is on the context');
+  assert.equal(ctx.pubTier, d.pubTier().key, 'and so is the word for it');
+  d.movePub(-100);
+  assert.equal(d.eventContext().pubTier, 'hated', 'which moves with it');
+});
+
+test('standing: it survives a save', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  d.movePub(-20);
+  const v = d.pubStanding();
+  const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(round.country.pub, v, 'what people thought of you came back with it');
+});

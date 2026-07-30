@@ -752,6 +752,7 @@ window.CITY_PRIZES = {
 // An audit that lands while your exposure is high does not fine you. It
 // establishes that the whole front is fabricated, and takes it away.
 window.LEGIT = {
+  buyLegit: 4,          // what owning a business outright is worth on paper
   ladder: [
     { id: 'register', tier: 1, cost: 50,   legit: 6, label: 'register a company',
       blurb: 'A name, an address that exists, and a filing that nobody will read for two years.' },

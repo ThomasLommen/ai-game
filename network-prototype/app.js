@@ -2392,6 +2392,9 @@
       doors: everHeld(),
       forced: state.timesForced || 0,
       turn: state.turn, res: state.res, tags: state.tags,
+      // the second standing axis, so a card can be about what people think of
+      // you rather than only about what you hold
+      pub: pubStanding(), pubTier: pubTier().key,
       roles: { compute: ownedOf('compute').length, funds: ownedOf('funds').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
       // --- the country, so a card can be about where you are as well as what
@@ -3090,6 +3093,7 @@
       const h = hostById(k.hostId);
       state.hacks = hacks().filter(x => x !== k);
       startBreachFx(h, (window.PROGRAMS.find(x => x.id === k.prog) || {}).id || 'brute', false);
+      movePub(window.PUBLIC.caught);
       if (k.confront) { failHuntConfront(h); return; }
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
@@ -3111,6 +3115,8 @@
       takeHost(h);
       const noise = hackHeat(p);
       if (noise) state.heat = clampHeat(state.heat + noise);
+      // a trade notices when one of its own is taken, however quietly
+      if ((window.HOST_TYPES[h.type] || {}).buyPer) movePub(window.PUBLIC.hackedTrade);
       // The Adjusters count doors kicked in, not doors opened — cumulative and
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
@@ -4250,6 +4256,74 @@
     const L = window.LEGIT;
     return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
       + (LG().agentFoot || 0);
+  }
+
+  // --- what the public thinks ---------------------------------------------
+  // Kept apart from legitimacy deliberately. The regulator reads filings; this
+  // reads the news. Being caught inside something is ruinous here and invisible
+  // there, and a cabinet of real accounts persuades nobody who just watched you
+  // take a hospital offline.
+  function pubStanding() {
+    const co = CO();
+    if (typeof co.pub !== 'number') co.pub = window.PUBLIC.start;
+    return co.pub;
+  }
+  function movePub(n) {
+    const P = window.PUBLIC;
+    const co = CO();
+    co.pub = Math.max(P.min, Math.min(P.max, pubStanding() + n));
+    return co.pub;
+  }
+  // Named outward from the middle: unknown is the absence of an opinion rather
+  // than a poor one, so a brand new AI and a thoroughly forgotten one read the
+  // same and neither is being insulted.
+  function pubTier() {
+    const P = window.PUBLIC;
+    const v = pubStanding();
+    let out = P.tiers[0];
+    P.tiers.forEach(t => { if (v >= t.at) out = t; });
+    return out;
+  }
+
+  // --- buying a business ---------------------------------------------------
+  // The one way in that is not a hack. It costs funds instead of an action,
+  // takes nothing by force, and is the only route that improves your standing
+  // rather than degrading it — which is the entire reason to want it, since
+  // everything else you do makes you harder to explain.
+  function buyableHost(h) {
+    return !!(h && !h.owned && h.discovered
+      && (window.HOST_TYPES[h.type] || {}).buyPer);
+  }
+  function buyPrice(h) {
+    const T = window.HOST_TYPES[h.type] || {};
+    if (!T.buyPer) return 0;
+    // what it is worth, not what it defends at: you are paying an owner, and
+    // they price the business rather than the lock on its door
+    return Math.max(1, Math.round(T.buyPer * (1 + (h.threads || 0) / 6)));
+  }
+  function canBuyBuilding(hostId) {
+    const h = hostById(hostId);
+    if (!h || state.over || !buyableHost(h)) return false;
+    return state.res.funds >= buyPrice(h);
+  }
+  function buyBuilding(hostId) {
+    if (!canBuyBuilding(hostId)) return false;
+    const h = hostById(hostId);
+    const before = beforeSnap();
+    const price = buyPrice(h);
+    state.res.funds -= price;
+    takeHost(h);
+    // the legitimacy faucet: a business you own outright is the one thing you
+    // hold that survives being looked at
+    LG().granted = (LG().granted || 0) + window.LEGIT.buyLegit;
+    movePub(window.PUBLIC.bought);
+    cameraVision();
+    pushLog(`Bought ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} outright. Nothing was broken to do it.`);
+    showBanner([{ kind: 'host', verb: 'bought', label: h.name }]);
+    afterSnap(before);
+    persistNow();
+    render();
+    return true;
   }
 
   // --- the Accountant -----------------------------------------------------
@@ -6917,6 +6991,21 @@
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
   }
 
+  // Some businesses will simply sell. No action, no program, no race — funds,
+  // and the only route in that improves what you are rather than degrading it.
+  function buyPanel(h) {
+    if (!buyableHost(h)) return '';
+    const price = buyPrice(h);
+    const can = canBuyBuilding(h.id);
+    return `
+      <button class="act-btn${can ? '' : ' no-ap'}" data-act="buy-bldg" data-host="${h.id}">
+        <span class="ab-name">buy it instead</span>
+        <span class="ab-sub">${can
+          ? `${chip('cost funds', '&minus;' + price + ' funds')}${chip('cover', 'nothing forced, nothing traced')}`
+          : `needs ${price} funds`}</span>
+      </button>`;
+  }
+
   // A door with something already running against it: how far in, how close
   // they are to noticing, and the way out.
   function hackPanel(h) {
@@ -6964,7 +7053,8 @@
         <span class="ab-sub">${stopped || (f.caught
           ? 'it will be found before it lands'
           : `${chip('cost none', p.turns + ' turns')}${hackHeat(p) ? chip('cost heat', '+' + hackHeat(p) + ' heat') : ''}`)}</span>
-      </button>`;
+      </button>
+      ${buyPanel(h)}`;
   }
 
   // stays where it is.
@@ -7166,6 +7256,7 @@
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
+        else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
         else if (a === 'abort-hack') abortHack(b.getAttribute('data-host'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
@@ -7599,6 +7690,7 @@
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
+    pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
