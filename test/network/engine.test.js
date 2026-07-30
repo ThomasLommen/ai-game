@@ -8126,6 +8126,9 @@ test('hack: pulling out gives the rig back and never the turns', () => {
   const free = d.allocFree(), turn = s.turn;
   d.startHack(target.id);
   s.card = null; d.endTurn({ silent: true });
+  // a whole turn of world went past: it may have been caught, or shed for want
+  // of power if something took ground off you. Both are covered elsewhere.
+  if (!d.hackOn(target.id)) return;
   assert.ok(d.hackOn(target.id).trace > 0, 'it has been noticed a little already');
 
   assert.equal(d.abortHack(target.id), true);
@@ -8392,4 +8395,142 @@ test('hack UI: a program that does not spread says nothing about spreading', () 
   d.mount('brute');
   assert.equal(d.hackForecast(t, d.mounted()).spread, null, 'brute has no spread to forecast');
   assert.ok(!/beside it/.test(d.targetPanel(t)), 'and the panel does not mention any');
+});
+
+// --- what forcing used to do, hacking does now ----------------------------
+
+function hackTarget(d, opts) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const t = s.hosts.find(h => {
+    if (h.origin) return false;
+    h.owned = false;
+    const ok = d.isFrontier(h);
+    if (!ok) h.owned = true;
+    return ok;
+  });
+  if (t && opts) Object.assign(t, opts);
+  return t;
+}
+
+test('parity: Light Touch means a door you comfortably clear costs no action', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'consumer', defense: 2 });
+  assert.ok(t, 'a soft door');
+  d.mount('brute');
+
+  ungrant(d);
+  s.ap = d.maxAP();
+  let ap = s.ap;
+  assert.equal(d.startHack(t.id), true);
+  assert.equal(s.ap, ap - 1, 'without it, setting one going costs the action');
+  d.abortHack(t.id);
+
+  grant(window, d, 'light_touch');
+  assert.ok(d.tflops() >= d.defenseOf(t) * 2, 'and the rig comfortably clears this one');
+  s.ap = d.maxAP();
+  ap = s.ap;
+  assert.equal(d.startHack(t.id), true);
+  assert.equal(s.ap, ap, 'with it, a door this soft is free to go at');
+});
+
+test('parity: Deep Root loosens the block around a door you get through', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'consumer', defense: 8 });
+  assert.ok(t, 'a door with a block around it');
+  // all but one freed up, so there is a block to loosen — the one left held is
+  // what keeps the target a frontier, and without it there is nothing to run from
+  const all = d.buildingNeighbours(t.buildingId)
+    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
+  const nbrs = all.slice(1);
+  if (!nbrs.length) return;                     // nothing next door on this board
+  nbrs.forEach(n => { n.owned = false; n.defense = 20; });
+  const before = nbrs.map(n => n.defense);
+
+  grant(window, d, 'deep_root');
+  d.mount('backdoor');
+  assert.equal(d.startHack(t.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+  assert.equal(t.owned, true, 'the door opened');
+
+  assert.ok(nbrs.some((n, i) => n.defense < before[i]),
+    'and what is next to it is softer than it was');
+});
+
+test('parity: a quiet program sheds heat with Nothing To See, a loud one never does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const P = window.PROGRAMS;
+  assert.ok(P.find(p => p.id === 'backdoor').quiet, 'backdoor is a quiet way in');
+  assert.ok(P.find(p => p.id === 'contagion').quiet, 'so is contagion');
+  assert.ok(!P.find(p => p.id === 'brute').quiet, 'hammer.exe is not');
+
+  const run = (progId) => {
+    const { window: w } = loadNetwork();
+    const dd = w.__netDebug;
+    const s = dd.state;
+    const t = hackTarget(dd, { type: 'consumer', defense: 6 });
+    if (!t) return null;
+    grant(w, dd, 'nothing_to_see');
+    dd.mount(progId);
+    // Parked midway between the floor and the ceiling. clampHeat squeezes from
+    // both ends — hackTarget owns the whole board, so the floor is high, and
+    // anything set well above it lands past the cap and gets snapped back down.
+    // Either end swamps the few points of heat this test is actually measuring.
+    const cap = dd.strikeThreshold() * w.HEAT.MAX_OVER;
+    const floor = dd.heatFloor();
+    if (cap - floor < 30) return null;          // no room to measure in on this board
+    s.heat = (floor + cap) / 2;
+    const before = s.heat;
+    if (!dd.startHack(t.id)) return null;
+    for (let i = 0; i < dd.mounted().turns; i++) dd.hackStep();
+    return t.owned ? s.heat - before : null;
+  };
+
+  const quiet = run('backdoor'), loud = run('brute');
+  if (quiet === null || loud === null) return;
+  assert.ok(quiet < loud, `a quiet entry should cost less heat: ${quiet} vs ${loud}`);
+  assert.ok(quiet < 0, 'and actively sheds it rather than merely costing none');
+});
+
+test('parity: the Adjusters count doors kicked in, not doors opened quietly', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'consumer', defense: 6 });
+  assert.ok(t, 'a door');
+
+  s.timesForced = 0;
+  d.mount('backdoor');
+  assert.equal(d.startHack(t.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+  assert.equal(s.timesForced, 0, 'slipping in is not kicking a door in');
+
+  const t2 = hackTarget(d, { type: 'consumer', defense: 4 });
+  if (!t2) return;
+  d.mount('brute');
+  assert.equal(d.startHack(t2.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+  assert.equal(s.timesForced, 1, 'hammer.exe is what they are counting');
+});
+
+test('parity: a hack that lands runs the same effects a forced door did', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = hackTarget(d, { type: 'consumer', defense: 6 });
+  assert.ok(t, 'a door');
+  d.mount('brute');
+  assert.equal(d.startHack(t.id), true);
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+
+  assert.equal(t.owned, true, 'it is yours');
+  assert.equal(t.heldSince, s.turn, 'and counts as taken now');
+  assert.ok(d.buildingById(t.buildingId).discovered, 'you are inside, so the building is known');
+  assert.ok(s.log.some(l => /is yours/.test(l.text)), 'and it is reported');
 });

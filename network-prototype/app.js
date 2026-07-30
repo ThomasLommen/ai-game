@@ -3030,7 +3030,11 @@
     if (!canHack(hostId)) return false;
     const h = hostById(hostId);
     const p = mounted();
-    spendAP('breach');
+    // Light Touch: a door your rig comfortably clears takes no action to set
+    // going. Checked here rather than refunded on completion — the player needs
+    // to see the action not being spent at the moment they spend it.
+    const easy = unlocked('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT;
+    if (!easy) spendAP('breach');
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
@@ -3072,6 +3076,7 @@
       state.hacks = hacks().filter(x => x !== k);
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
+      startBreachFx(h, (window.PROGRAMS.find(x => x.id === k.prog) || {}).id || 'brute', false);
       pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`);
     });
 
@@ -3088,6 +3093,30 @@
       }
       takeHost(h);
       if (p.heat) state.heat = clampHeat(state.heat + p.heat);
+      // The Adjusters count doors kicked in, not doors opened — cumulative and
+      // never reset. A loud program is what they are counting; the quiet ones
+      // are the whole reason they might not notice.
+      if (!p.quiet) state.timesForced = (state.timesForced || 0) + 1;
+      // Nothing To See: a completed quiet entry actively sheds heat rather than
+      // merely costing none.
+      if (p.quiet && unlocked('nothing_to_see')) {
+        state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
+      }
+      // Deep Root: a door you get through loosens the block around it too,
+      // permanently — every neighbour's own defense, discovered or not, so the
+      // rest of the cluster costs less from here.
+      if (unlocked('deep_root')) {
+        buildingNeighbours(h.buildingId).forEach(bid => {
+          hostsIn(buildingById(bid)).forEach(n => {
+            if (n.owned) return;
+            n.defense = Math.max(1, Math.round(n.defense * (1 - DEEP_ROOT_RIPPLE)));
+          });
+        });
+      }
+      const opened = cameraVision();
+      startBreachFx(h, p.id, true);
+      if (opened.length) startSweepFx(opened);
+      showBanner([{ kind: 'host', verb: 'took', label: h.name }]);
       pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is yours. ${p.label} is off the rig.`);
       if (p.spread) spreadFrom(h, k, p);
     });

@@ -164,9 +164,9 @@ window.ALLOC = [
 window.PROGRAMS = [
   { id: 'brute', label: 'hammer.exe', load: 1, turns: 1, heat: 6,
     blurb: 'Everything at once, through the front. Quick, and it does not care who hears.' },
-  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1,
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true,
     blurb: 'A little at a time, from somewhere nobody watches. Slow, quiet, exposed the whole way.' },
-  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3,
+  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true,
     blurb: 'One door, then whatever is beside it, and whatever is beside that. Cheap per building, and it picks its own targets.' },
 ];
 
