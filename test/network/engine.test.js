@@ -6562,8 +6562,9 @@ test('sheet: the capabilities button opens on allocation, with the deck behind i
 
   const secs = d.capSections();
   assert.equal(secs[0].id, 'alloc', 'allocation leads');
+  assert.equal(secs[1].id, 'programs', 'then what is on the rig');
   assert.ok(secs.some(x => x.id === 'held'), 'and what the deck gave you is still reachable');
-  assert.equal(secs.length, 2, 'the five branch panels are gone');
+  assert.equal(secs.length, 3, 'the five branch panels are gone');
   secs.forEach(x => assert.ok(x.id && x.label && x.html, 'each section is addressable and carries content'));
 });
 
@@ -8258,4 +8259,75 @@ test('contagion: it will walk onto ground the rival is holding, which nothing el
   assert.ok(took.indexOf(victim) !== -1, 'contagion took it anyway');
   assert.equal(d.rivalHolds(victim.buildingId), false, 'and it is not theirs any more');
   assert.equal(victim.owned, true, 'it is yours');
+});
+
+test('hack UI: the target panel shows the whole race before you commit', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
+  assert.ok(target, 'a door to look at');
+
+  d.mount('backdoor');
+  const f = d.hackForecast(target, d.mounted());
+  const html = d.targetPanel(target);
+  assert.ok(html.includes(d.mounted().label), 'it names what is mounted');
+  assert.ok(html.includes(`${f.need} TFLOPS`), 'what it will tie up');
+  assert.ok(html.includes(`notices ${f.rate}/turn`), 'how fast it is noticed');
+  assert.ok(html.includes(`${f.traceAtEnd} of ${f.goal}`), 'and where that lands by the end');
+  assert.ok(html.includes('race'), 'with the race drawn, not only described');
+  // the verdict is stated, either way round
+  assert.ok(/it finds you|you get in/.test(html), 'and it says outright whether this works');
+});
+
+test('hack UI: a running hack shows how far in, how close they are, and the way out', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+  s.card = null; d.endTurn({ silent: true });
+  if (!d.hackOn(target.id)) return;             // caught on a fast target; covered elsewhere
+
+  const html = d.hackPanel(target);
+  const k = d.hackOn(target.id);
+  assert.ok(html.includes(`${k.turnsLeft} turn`), 'how long is left');
+  assert.ok(html.includes(`${k.allocated} TFLOPS on it`), 'what it is holding');
+  assert.ok(html.includes('seen ' + k.trace), 'how much they have noticed');
+  assert.ok(html.includes('pull it out'), 'and the way out');
+  assert.ok(/they get there first|you get there first/.test(html), 'with the projection stated');
+});
+
+test('hack UI: the race bar is one bar, and the two halves never overrun it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const widths = (html) => (html.match(/width:(\d+)%/g) || []).map(x => Number(x.match(/\d+/)[0]));
+  [[0, 0], [0.5, 0.3], [1, 1], [2, 5], [-1, -1]].forEach(([a, b]) => {
+    const w = widths(d.raceBar(a, b));
+    assert.equal(w.length, 2, 'two halves, one bar');
+    assert.ok(w[0] >= 0 && w[1] >= 0, `no negative widths for ${a}/${b}`);
+    assert.ok(w[0] + w[1] <= 100, `the halves fit inside the bar for ${a}/${b}: ${w}`);
+  });
+});
+
+test('hack UI: the rig is a section of its own, and mounting from it takes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const sec = d.programSection();
+  assert.equal(sec.id, 'programs');
+  window.PROGRAMS.forEach(p => {
+    assert.ok(sec.html.includes(p.label), `${p.id} is on the rig screen`);
+    assert.ok(sec.html.includes(p.blurb), `${p.id} says what it is`);
+  });
+  assert.ok(sec.html.includes('mounted'), 'and one of them is marked as running');
+
+  d.mount('contagion');
+  const after = d.programSection();
+  assert.ok(after.html.includes('reaches ' + window.PROGRAMS.find(p => p.id === 'contagion').spread + ' buildings'),
+    'contagion advertises that it does not stop at one');
 });

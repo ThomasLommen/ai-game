@@ -174,6 +174,8 @@ window.PROGRAMS = [
 // fills toward noticing, and whichever lands first wins. Every figure is shown
 // before committing: losing a four-turn hack to arithmetic the player was not
 // allowed to do is not tension, it is a bad surprise.
+window.PROGRAM_INFO = 'One slot. Whatever is mounted is what runs against every door you go at, so pick it for the stretch ahead rather than for the building in front of you. A door notices you at its own rate while you work — fast programs finish before that matters, slow ones need covert ops to survive the wait.';
+
 window.HACK = {
   traceGoal: 7,        // trace a target accumulates before it has you
   traceDefK: 20,       // how much the door's own defense adds to its rate

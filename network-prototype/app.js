@@ -6624,10 +6624,43 @@
     };
   }
 
-  // Two sections now: what your compute is doing, and what the deck has handed
-  // you permanently. The five branch panels in between are gone.
+  // What is on the rig. One slot, so this is a posture rather than a per-door
+  // choice — it sits beside allocation because it is the same kind of decision:
+  // something you set, live with for a stretch, and change when the board does.
+  function programSection() {
+    const cur = mounted();
+    const rows = window.PROGRAMS.map(p => {
+      const on = p.id === cur.id;
+      return `
+        <div class="alloc-row${on ? ' on' : ''}">
+          <div class="alloc-top">
+            <span class="alloc-name">${p.label}</span>
+            <span class="mono dim">${p.turns} turn${p.turns === 1 ? '' : 's'}</span>
+          </div>
+          <p class="shop-good-desc">${p.blurb}</p>
+          <p class="yield-row">${chip('compute', Math.round(p.load * 100) + '% of the door, running')}${
+            p.heat ? chip('cost heat', '+' + p.heat + ' heat') : chip('cover', 'quiet')}${
+            p.spread ? chip('cover', 'reaches ' + p.spread + ' buildings') : ''}</p>
+          ${on ? '<p class="alloc-unlock on"><span class="mono">&check;</span> mounted</p>'
+               : `<button type="button" class="act-btn" data-prog="${p.id}"><span class="ab-name">mount ${p.label}</span></button>`}
+        </div>`;
+    }).join('');
+    return {
+      id: 'programs', label: 'programs', done: false,
+      html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">the rig</span>
+          <span class="mono dim">${cur.label}</span>
+        </div>
+        <p class="sheet-note">${window.PROGRAM_INFO}</p>
+        ${rows}`,
+    };
+  }
+
+  // Three sections: what your compute is doing, what it is running, and what
+  // the deck has handed you permanently. The five branch panels are gone.
   function capSections() {
-    const out = [allocSection()];
+    const out = [allocSection(), programSection()];
     const held = heldSection();
     if (held) out.push(held);
     return out;
@@ -6875,6 +6908,9 @@
       b.addEventListener('click', () => { sheetSection = b.getAttribute('data-section'); renderSheet(); });
     });
     // One tap is one unit of effect, up or down
+    $s.querySelectorAll('[data-prog]').forEach(b => {
+      b.addEventListener('click', () => { mount(b.getAttribute('data-prog')); renderSheet(); });
+    });
     $s.querySelectorAll('[data-alloc]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => {
         const id = b.getAttribute('data-alloc');
@@ -6934,6 +6970,63 @@
 
   // The quiet answer, offered on the building rather than on the street —
   // because it is the building you are taking off their map, and the street
+  // One bar, not two. Your progress fills from the left, the target's trace
+  // fills from the right, and they collide — two separate meters per running
+  // hack is unreadable on a phone, and the thing the player actually needs to
+  // know is which of them gets there first.
+  function raceBar(done, seen) {
+    const a = Math.max(0, Math.min(100, Math.round(done * 100)));
+    const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
+    return `<span class="race" aria-hidden="true">`
+      + `<i class="race-done" style="width:${a}%"></i>`
+      + `<i class="race-seen" style="width:${b}%"></i></span>`;
+  }
+
+  // A door with something already running against it: how far in, how close
+  // they are to noticing, and the way out.
+  function hackPanel(h) {
+    const k = hackOn(h.id);
+    if (!k) return '';
+    const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
+    const rate = traceRate(h);
+    const goal = window.HACK.traceGoal;
+    const turnsIn = p.turns - k.turnsLeft;
+    const willBe = Math.round((k.trace + rate * k.turnsLeft) * 100) / 100;
+    return `
+      <p class="sel-desc"><b>${p.label}</b> — ${k.turnsLeft} turn${k.turnsLeft === 1 ? '' : 's'} to go,`
+      + ` ${k.allocated} TFLOPS on it.</p>
+      ${raceBar(turnsIn / p.turns, k.trace / goal)}
+      <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + '/' + goal)}${
+        willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
+      <button class="act-btn" data-act="abort-hack" data-host="${h.id}">
+        <span class="ab-name">pull it out</span>
+        <span class="ab-sub">${chip('cover', 'frees ' + k.allocated + ' TFLOPS')}${chip('cost none', 'the turns are spent')}</span>
+      </button>`;
+  }
+
+  // A door with nothing running against it yet: the whole forecast, before
+  // committing, because a four-turn hack lost to arithmetic nobody was shown
+  // is a bad surprise rather than tension.
+  function targetPanel(h) {
+    const f = hackForecast(h, mounted());
+    const p = f.prog;
+    const stopped = apShort('breach') ? 'no actions left'
+      : !f.affordable ? `needs ${f.need} TFLOPS free, you have ${Math.max(0, allocFree())}`
+      : null;
+    return `
+      <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
+      ${raceBar(0, Math.min(1, f.traceAtEnd / f.goal))}
+      <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + '/turn')}${
+        f.caught ? chip('cost heat', `seen at ${f.traceAtEnd} of ${f.goal} — it finds you`)
+                 : chip('cover', `seen at ${f.traceAtEnd} of ${f.goal} — you get in`)}</p>
+      <button class="act-btn ${stopped ? 'no-ap' : f.caught ? 'broken' : 'primary'}" data-act="hack" data-host="${h.id}" data-ap="breach">
+        <span class="ab-name">run ${p.label}</span>
+        <span class="ab-sub">${stopped || (f.caught
+          ? 'it will be found before it lands'
+          : `${chip('cost none', p.turns + ' turns')}${p.heat ? chip('cost heat', '+' + p.heat + ' heat') : ''}`)}</span>
+      </button>`;
+  }
+
   // stays where it is.
   function hidePanel(b) {
     if (!huntOn() || !b) return '';
@@ -7076,10 +7169,13 @@
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
-            <button class="act-btn ${apShort('breach') ? 'no-ap' : 'primary'}" data-act="breach" data-ap="breach">
-              <span class="ab-name">move on it</span>
-              <span class="ab-sub">${apShort('breach') ? 'no actions left' : 'choose how you get in'}</span>
-            </button>
+            ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
+          </div>`;
+      } else if (hackOn(h.id)) {
+        sel = `
+          <div class="sel">
+            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
+            ${hackPanel(h)}
           </div>`;
       } else {
         sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p></div>`;
@@ -7130,6 +7226,8 @@
         else if (a === 'breach') openBreach(state.selected);
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
+        else if (a === 'hack') startHack(b.getAttribute('data-host'));
+        else if (a === 'abort-hack') abortHack(b.getAttribute('data-host'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
@@ -7599,7 +7697,7 @@
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
     programs, mounted, mount, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
-    canHack, startHack, abortHack, hackStep, takeHost, spreadFrom,
+    canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

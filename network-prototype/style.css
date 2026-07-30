@@ -1618,3 +1618,16 @@ footer .build { opacity: .55; font-size: 10px; }
 .alloc-unlock .mono { color: var(--line); flex: none; min-width: 1.6em; }
 .alloc-unlock.on { color: var(--ink-dim); }
 .alloc-unlock.on .mono { color: var(--tflops); }
+
+/* the detection race: your progress from the left, what they have noticed from
+   the right, colliding in the middle. One bar, because two meters per running
+   hack is unreadable at phone width. */
+.race {
+  display: block; height: 6px; margin: 2px 0 6px;
+  border-radius: 3px; overflow: hidden;
+  background: var(--line);
+  display: flex;
+}
+.race i { display: block; height: 100%; }
+.race-done { background: var(--compute); }
+.race-seen { background: var(--heat); margin-left: auto; }
