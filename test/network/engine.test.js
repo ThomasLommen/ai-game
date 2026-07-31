@@ -8033,6 +8033,13 @@ test('cover: it is not a resource, and says what it is where it does its work', 
     'the things you actually hold are on the top bar');
   assert.ok(!INDEX_HTML.includes('data-stat="cover"'),
     'and cover is not — it is never held and never spent');
+  // the one entry that is not something you hold sits apart from the ones
+  // that are: last in the row, pushed hard right, and named
+  const row = INDEX_HTML.slice(INDEX_HTML.indexOf('id="res-row"'), INDEX_HTML.indexOf('id="info-strip"'));
+  assert.ok(row.lastIndexOf('data-stat="standing"') > row.lastIndexOf('data-stat="legit"'),
+    'public standing is the last chip in the row');
+  assert.ok(/public standing<\/span>/.test(row),
+    'and says whose opinion it is, not just the word');
 
   // it is on the dial that raises it
   const sec = d.capSections().find(x => x.id === 'alloc');

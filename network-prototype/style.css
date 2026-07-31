@@ -1828,7 +1828,17 @@ footer .build { opacity: .55; font-size: 10px; }
 /* what the public thinks: a word rather than a number, because "distrusted" is
    the thing the player acts on and the figure behind it never is. Read outward
    from unknown in the middle — being forgotten is not the same as being hated. */
+/* Everything else in this row is something you hold. Public standing is
+   something other people decide about you, so it sits apart — hard right,
+   and named, because a bare word like "distrusted" next to two numbers does
+   not say whose opinion it is. */
+.res.standing { margin-left: auto; }
 .res.standing b { font-size: 12.5px; letter-spacing: .02em; }
+.res-tag {
+  font-size: 10px; letter-spacing: .08em; color: var(--muted);
+  margin-right: 6px;
+}
+#res-row.compact .res-tag { font-size: 9px; margin-right: 4px; }
 .res.standing.unknown b    { color: var(--muted); }
 .res.standing.noticed b    { color: var(--compute); }
 .res.standing.welcome b    { color: var(--cover); }
