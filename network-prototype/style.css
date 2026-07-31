@@ -1831,6 +1831,11 @@ footer .build { opacity: .55; font-size: 10px; }
 .race i { display: block; height: 100%; }
 .race-done { background: var(--compute); }
 .race-seen { background: var(--heat); margin-left: auto; }
+/* The same arithmetic, before you commit to it. Drawn identically it read as
+   a race already under way on a door you had never touched — so the forecast
+   is hollow: an outline of what would happen rather than a report of what is. */
+.race.forecast { background: transparent; border: 1px dashed var(--line); height: 8px; }
+.race.forecast i { opacity: .35; }
 
 /* what the public thinks: a word rather than a number, because "distrusted" is
    the thing the player acts on and the figure behind it never is. Read outward

@@ -3249,9 +3249,9 @@ scratch.later = null;
   function hackStep() {
     const H = window.HACK;
     const done = [], caught = [];
+    reapHacks();
     hacks().slice().forEach(k => {
       const h = hostById(k.hostId);
-      if (!h || h.owned) { state.hacks = hacks().filter(x => x !== k); return; }
       k.trace = Math.round((k.trace + traceRate(h)) * 100) / 100;
       k.turnsLeft -= 1;
       if (k.trace >= H.traceGoal) { caught.push(k); return; }
@@ -3355,6 +3355,23 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    reapHacks();
+  }
+
+  // A door can become yours while a program is still working on it —
+  // contagion spreading onto it, the frontier forcing itself, buying it
+  // outright, or simply walking into the city with stale state. The hack was
+  // only ever reconciled inside hackStep, which runs at the end of a turn, so
+  // until then the map kept drawing a race against a building you already
+  // held and the rig kept offering to pull a program out of a door that was
+  // finished. Reconciling on the way in costs nothing and cannot be forgotten.
+  function reapHacks() {
+    const before = hacks().length;
+    state.hacks = hacks().filter(k => {
+      const h = hostById(k.hostId);
+      return h && !h.owned;
+    });
+    return before - state.hacks.length;
   }
 
   // Forcing, slipping in quietly, and the card that offered the choice between
@@ -3555,6 +3572,7 @@ scratch.later = null;
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
       hunt: state.hunt || null,
+      hacks: state.hacks || [],
     };
   }
   function unpackCity(p) {
@@ -3571,6 +3589,18 @@ scratch.later = null;
     // seat, at 0.63 of a city against a 0.45 loss threshold. The city was gone
     // before you looked at it.
     state.hunt = p.hunt || null;
+    // And a running program is a fact about one city's hosts, for exactly the
+    // same reason: host ids restart at h0 in every city, so a hack left
+    // running across a border pointed at whatever happened to share its id in
+    // the new one — a door you had never touched showing a race, a bar filling
+    // on it, and an offer to pull out a program that was never there.
+    //
+    // It travels with the city rather than being thrown away, which is what
+    // leaving already does to everything else here: what you hold in a city
+    // you have walked out of stops producing and stops being worked on, and
+    // the compute a frozen hack was holding comes back to you until you
+    // return to it.
+    state.hacks = p.hacks || [];
     state.selectedCut = null;               // streets do not survive the border
     state.view = null;
   }
@@ -3580,7 +3610,7 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null,
+    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null, hacks: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -7715,10 +7745,16 @@ scratch.later = null;
   // fills from the right, and they collide — two separate meters per running
   // hack is unreadable on a phone, and the thing the player actually needs to
   // know is which of them gets there first.
-  function raceBar(done, seen) {
+  //
+  // `forecast` marks the version drawn before you commit. It is the same
+  // arithmetic — the guardrail is that you can do it in advance — but it is
+  // not a race that is happening, and drawn identically it read as one: a
+  // door you had never touched looked like a door with something working on
+  // it, which is what "these bars are always visible" meant.
+  function raceBar(done, seen, forecast) {
     const a = Math.max(0, Math.min(100, Math.round(done * 100)));
     const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
-    return `<span class="race" aria-hidden="true">`
+    return `<span class="race${forecast ? ' forecast' : ''}" aria-hidden="true">`
       + `<i class="race-done" style="width:${a}%"></i>`
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
   }
@@ -7771,10 +7807,10 @@ scratch.later = null;
       : null;
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${raceBar(0, Math.min(1, f.traceAtEnd / f.goal))}
-      <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + '/turn')}${
-        f.caught ? chip('cost heat', `seen at ${f.traceAtEnd} of ${f.goal} — it finds you`)
-                 : chip('cover', `seen at ${f.traceAtEnd} of ${f.goal} — you get in`)}</p>
+      ${raceBar(0, Math.min(1, f.traceAtEnd / f.goal), true)}
+      <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'would notice ' + f.rate + '/turn')}${
+        f.caught ? chip('cost heat', `would be seen at ${f.traceAtEnd} of ${f.goal} — it would find you`)
+                 : chip('cover', `would be seen at ${f.traceAtEnd} of ${f.goal} — you would get in`)}</p>
       ${f.spread ? `<p class="yield-row">${
         f.spread.upTo
           ? chip('cover', `and up to ${f.spread.upTo} more beside it, its choice`)
@@ -8441,7 +8477,7 @@ scratch.later = null;
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
-    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost,
+    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,

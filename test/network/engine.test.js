@@ -8006,6 +8006,67 @@ test('cover: it is not a resource, and says what it is where it does its work', 
   assert.ok(asks.includes('cover'), 'a card that asks about it does');
 });
 
+// A door can become yours while a program is still working on it — contagion
+// spreading onto it, the frontier forcing itself, buying it outright. The hack
+// was only reconciled inside hackStep, which runs at the end of a turn, so
+// until then the map drew a race against a building you already held and the
+// rig offered to pull a program out of a door that was finished.
+// Host ids restart at h0 in every city. The hunt was already fixed for exactly
+// this — a hunt left running across a border silently "held" whatever shared
+// its id in the new city — and a running hack had the same hole: walk into the
+// next city and some door you had never touched was showing a race, with a bar
+// filling on it and an offer to pull out a program that was never there.
+test('hack: a running program does not follow you across a border', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  d.mount('backdoor');
+  s.ap = 9;
+  assert.equal(d.startHack(target.id), true);
+  const startedOn = target.id;
+  assert.ok(d.hackDraw() > 0, 'it is holding compute here');
+
+  enterDefendedCity(d, window);
+  assert.equal(s.scope, 'city', 'standing in a different city');
+  assert.equal(d.hacks().length, 0, 'nothing is running in a city you just walked into');
+  assert.equal(d.hackOn(startedOn), null,
+    'and nothing claims to be running on whatever shares that id here');
+  assert.equal(d.hackDraw(), 0, 'the compute it was holding is yours again');
+  assert.equal(d.svgHackLinks(), '', 'with no wire drawn to anything');
+  const anyBar = s.buildings.some(b => d.svgBuilding(b).includes('hack-bar'));
+  assert.equal(anyBar, false, 'and no race on any building in the place');
+});
+
+test('hack: a door that becomes yours mid-run stops being a race at once', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+  assert.ok(d.hackOn(target.id), 'something is working on it');
+  assert.ok(d.svgHackLinks().includes('hack-wire'), 'and the map says so');
+
+  // taken by something that is not this hack — spread, the frontier, a purchase
+  const free = d.allocFree();
+  d.takeHost(target);
+
+  assert.equal(d.hackOn(target.id), null, 'the run is off the books immediately');
+  assert.equal(d.svgHackLinks(), '', 'no wire to a building you already hold');
+  assert.equal(d.svgBuilding(d.buildingById(target.buildingId)).includes('hack-bar'), false,
+    'and no race drawn on it');
+  assert.ok(!d.programSection().html.includes(`data-host="${target.id}"`),
+    'nor anything offering to pull a program out of a door that is yours');
+  assert.ok(d.allocFree() > free, 'and the compute it was holding came back');
+});
+
 test('hack: the mark on the map tracks the race, and goes when the hack does', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -8335,11 +8396,17 @@ test('hack UI: the target panel shows the whole race before you commit', () => {
   const html = d.targetPanel(target);
   assert.ok(html.includes(d.mounted().label), 'it names what is mounted');
   assert.ok(html.includes(`${f.need} TFLOPS`), 'what it will tie up');
-  assert.ok(html.includes(`notices ${f.rate}/turn`), 'how fast it is noticed');
+  assert.ok(html.includes(`would notice ${f.rate}/turn`), 'how fast it is noticed');
   assert.ok(html.includes(`${f.traceAtEnd} of ${f.goal}`), 'and where that lands by the end');
   assert.ok(html.includes('race'), 'with the race drawn, not only described');
   // the verdict is stated, either way round
-  assert.ok(/it finds you|you get in/.test(html), 'and it says outright whether this works');
+  assert.ok(/would find you|would get in/.test(html), 'and it says outright whether this works');
+  // but in the conditional throughout, and drawn hollow — this is arithmetic
+  // about a door you have not touched, and it used to be worded and drawn
+  // exactly like a race already under way
+  assert.ok(html.includes('race forecast'), 'the bar reads as a forecast, not a report');
+  assert.ok(!/\bdone<\/span>/.test(html), 'nothing claims progress on a hack that has not started');
+  assert.ok(!/pull it out/.test(html), 'and there is nothing to pull out of it');
 });
 
 test('hack UI: a running hack shows how far in, how close they are, and the way out', () => {
