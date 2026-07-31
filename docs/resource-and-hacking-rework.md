@@ -230,6 +230,14 @@ Two fixes worth remembering, because neither was a rename:
 - **The zoom toggle used to hide itself** when the city you were in had been
   folded in, stranding you on the country map with no way down. It falls back to
   home now, which is never folded in.
+- **Sending a hack was silent.** A breach is a moment and had an animation; a
+  hack is a *state* that lasts turns, and nothing on the map said one had been
+  sent until the turn ended. It now draws a live wire from something you hold
+  into the door, with packets going down it for as long as the program runs —
+  hot and fast for `hammer.exe`, thin and cold for the quiet ones — the door
+  itself is outlined, and the race is drawn on the building rather than only in
+  a panel that needs the right thing selected. The launch gets its own
+  one-off flourish so pressing the button is not silent either.
 
 ## Phases
 

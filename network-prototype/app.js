@@ -2896,27 +2896,33 @@ scratch.later = null;
   let breachFx = null;
   let breachFxToken = 0;
 
-  function startBreachFx(host, approach, win) {
-    if (!host) { breachFx = null; return null; }
-    const target = buildingById(host.buildingId);
-    if (!target) { breachFx = null; return null; }
-    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    const to = centre(target);
-
-    // it comes from whatever you hold that is actually next door — that is the
-    // route the breach would have run over
+  // Where a route into a building comes from: whatever you hold that is
+  // actually next door, because that is the wire it would have run over.
+  // Falling back to the nearest thing you hold at all, and then to a point
+  // just above the target, so the very first move of a game still draws
+  // something rather than a line from nowhere.
+  function routeOrigin(target) {
+    const to = bldgCentre(target.id);
     const held = state.buildings.filter(b => b.id !== target.id && hostsIn(b).some(x => x.owned));
     const neighbours = buildingNeighbours(target.id);
     const pool = held.filter(b => neighbours.indexOf(b.id) !== -1);
     const from = (pool.length ? pool : held).reduce((best, b) => {
-      const c = centre(b);
+      const c = bldgCentre(b.id);
       const d = Math.hypot(c.x - to.x, c.y - to.y);
       return (!best || d < best.d) ? { d, c } : best;
     }, null);
+    return from ? from.c : { x: to.x, y: to.y - 90 };
+  }
+
+  function startBreachFx(host, approach, win) {
+    if (!host) { breachFx = null; return null; }
+    const target = buildingById(host.buildingId);
+    if (!target) { breachFx = null; return null; }
+    const to = bldgCentre(target.id);
 
     const dur = window.BREACH_FX.duration[approach] || window.BREACH_FX.duration.force;
     breachFx = {
-      from: from ? from.c : { x: to.x, y: to.y - 90 },
+      from: routeOrigin(target),
       to, approach, win,
       targetId: target.id,
       dur,
@@ -2956,6 +2962,89 @@ scratch.later = null;
       + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
     out += '</g>';
     return out;
+  }
+
+  // --- something running, seen ---------------------------------------------
+  // A breach is a moment; a hack is a state that lasts turns. So it cannot be
+  // an animation that plays and stops — until this existed, committing an
+  // action and four turns of compute changed nothing on the board, and the
+  // only acknowledgement was a line of log and a panel you had to keep the
+  // right building selected to see.
+  //
+  // Two things, then: a wire that stays live on the map for as long as the
+  // program runs, with something visibly travelling down it, and — because a
+  // wire that was always there would be missed in the moment — one launch
+  // flourish that draws it in the instant you press the button.
+  let hackFx = null;
+  let hackFxToken = 0;
+
+  function startHackFx(host) {
+    if (!host) { hackFx = null; return null; }
+    hackFx = { targetId: host.buildingId, started: Date.now() };
+    const out = hackFx;
+    const mine = ++hackFxToken;
+    setTimeout(() => {
+      if (mine !== hackFxToken) return;
+      hackFx = null;
+      renderGraph();          // drop the class so it never replays on a redraw
+    }, window.HACK_FX.launch + window.HACK_FX.linger);
+    return out;
+  }
+  // Same trick the sweep and the breach use: a redraw part-way through would
+  // otherwise restart the flourish from zero, so the delay is rewound by
+  // however much of it has already played.
+  function hackDelay(ms) {
+    return Math.round(ms - (hackFx ? Date.now() - hackFx.started : 0));
+  }
+  function hackFxOn(buildingId) {
+    return hackFx && hackFx.targetId === buildingId ? hackFx : null;
+  }
+
+  function svgHackLinks() {
+    return hacks().map(k => {
+      const h = hostById(k.hostId);
+      const b = h && buildingById(h.buildingId);
+      if (!b || !b.discovered) return '';
+      const p = window.PROGRAMS.find(x => x.id === k.prog) || {};
+      const to = bldgCentre(b.id);
+      const from = routeOrigin(b);
+      const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+      const fresh = hackFxOn(b.id);
+      const lead = fresh ? hackDelay(0) : 0;
+      const cls = `hack-run ${k.prog}${p.quiet ? ' quiet' : ''}${fresh ? ' launching' : ''}`;
+      let out = `<g class="${cls}" style="--hack-len:${len.toFixed(1)};`
+        + `--hack-dx:${(to.x - from.x).toFixed(1)}px;--hack-dy:${(to.y - from.y).toFixed(1)}px;`
+        + `--hack-launch:${window.HACK_FX.launch}ms;animation-delay:${lead}ms">`;
+      out += `<line class="hack-wire" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"`
+        + ` style="animation-delay:${lead}ms"/>`;
+      out += `<g class="hack-packet-wrap" transform="translate(${from.x} ${from.y})"`
+        + ` style="animation-delay:${lead}ms"><circle class="hack-packet" r="2.6"/></g>`;
+      if (fresh) {
+        out += `<circle class="hack-open" cx="${to.x}" cy="${to.y}" r="6"`
+          + ` style="animation-delay:${hackDelay(window.HACK_FX.launch)}ms"/>`;
+      }
+      out += '</g>';
+      return out;
+    }).join('');
+  }
+
+  // The race the panel shows, at map scale: how far in you are from the left,
+  // how close they are to noticing from the right. On the building rather than
+  // in the panel because "which of the four is about to be caught" is a
+  // question about the board, not about whatever happens to be selected.
+  function svgRaceMark(b, k) {
+    const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    const done = clamp((p.turns - k.turnsLeft) / p.turns);
+    const seen = clamp(k.trace / window.HACK.traceGoal);
+    const y = (b.y - 6).toFixed(1);
+    const h = 2.6;
+    return `<g class="hack-bar">`
+      + `<rect class="hb-track" x="${b.x}" y="${y}" width="${b.w}" height="${h}" rx="1.3"/>`
+      + `<rect class="hb-done" x="${b.x}" y="${y}" width="${(b.w * done).toFixed(1)}" height="${h}" rx="1.3"/>`
+      + `<rect class="hb-seen" x="${(b.x + b.w * (1 - seen)).toFixed(1)}" y="${y}"`
+      + ` width="${(b.w * seen).toFixed(1)}" height="${h}" rx="1.3"/>`
+      + `</g>`;
   }
 
   // What you have tapped. Drawn as brackets around the thing rather than as
@@ -3133,6 +3222,14 @@ scratch.later = null;
       confront: isHuntCore(h) || undefined,
     });
     pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
+    // Pressing the button has to *do* something. The wire and the mark on the
+    // building are what say it is still running a turn later; these two say it
+    // started, in the same place every other outcome is reported.
+    startHackFx(h);
+    showFloats([
+      { cls: 'hack', text: `${p.label} RUNNING` },
+      { cls: 'tflops', text: `−${hackNeed(p, h)} TFLOPS` },
+    ]);
     persistNow();
     render();
     return true;
@@ -5779,6 +5876,9 @@ scratch.later = null;
     // spot the one that has stopped paying.
     const stranded = mine && strandedHosts().includes(h);
     if (stranded) cls.push('stranded');
+    // something of yours is inside it right now
+    const run = h ? hackOn(h.id) : null;
+    if (run) cls.push('hacking');
 
     const roof = Math.min(10, b.h * 0.28);
     const styles = [];
@@ -5823,6 +5923,7 @@ scratch.later = null;
     }
     const tag = theirs ? window.RIVAL.name : window.BUILDING_KINDS[b.kind].label;
     out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${tag}</text>`;
+    if (run) out += svgRaceMark(b, run);
     out += '</g>';
     return out;
   }
@@ -6275,6 +6376,7 @@ scratch.later = null;
       return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
     }).join('');
 
+    out += svgHackLinks();
     out += svgHunt();
     out += seen.map(svgBuilding).join('');
     out += svgSelection();
@@ -7792,6 +7894,7 @@ scratch.later = null;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
+    startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     resolveStrike, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,

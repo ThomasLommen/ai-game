@@ -7854,6 +7854,90 @@ test('hack: starting one takes compute and an action, and holds the compute', ()
   assert.equal(d.canHack(target.id), false);
 });
 
+// The complaint this answers: you commit an action and four turns of compute,
+// and until the turn ends nothing anywhere says a program was sent.
+test('hack: sending one shows on the map the instant you send it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+
+  assert.equal(d.svgHackLinks(), '', 'nothing running, nothing drawn');
+  assert.equal(d.svgBuilding(d.buildingById(target.buildingId)).includes('hacking'), false);
+
+  // the harness runs setTimeout straight through, which would expire the
+  // launch flourish inside startHack itself — hold the timer so the moment
+  // can be read the way the browser would read it
+  const realTimeout = window.setTimeout;
+  window.setTimeout = () => 0;
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+  const wire = d.svgHackLinks();
+  window.setTimeout = realTimeout;
+
+  assert.ok(wire.includes('hack-wire'), 'a wire runs into the door');
+  assert.ok(wire.includes('hack-packet'), 'with something going down it');
+  assert.ok(wire.includes('backdoor'), 'and it says which program was sent');
+  assert.ok(wire.includes('launching'), 'and the moment of sending is its own flourish');
+  assert.ok(d.hackFxOn(target.buildingId), 'which is what "launching" is keyed on');
+
+  const b = d.svgBuilding(d.buildingById(target.buildingId));
+  assert.ok(b.includes('hacking'), 'the door itself is marked for as long as it runs');
+  assert.ok(b.includes('hb-done') && b.includes('hb-seen'),
+    'and carries the race, so the board answers "which one is about to be caught"');
+});
+
+test('hack: the mark on the map tracks the race, and goes when the hack does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+
+  const b = d.buildingById(target.buildingId);
+  const k = d.hackOn(target.id);
+  const widthOf = (svg, cls) =>
+    Number(new RegExp(`class="${cls}"[^/]*width="([\\d.]+)"`).exec(svg)[1]);
+
+  assert.equal(widthOf(d.svgRaceMark(b, k), 'hb-done'), 0, 'nothing done on the turn you send it');
+  d.hackStep();
+  assert.ok(widthOf(d.svgRaceMark(b, k), 'hb-done') > 0, 'a turn in, the bar has moved');
+  assert.ok(widthOf(d.svgRaceMark(b, k), 'hb-seen') > 0, 'and so has what they know');
+
+  d.abortHack(target.id);
+  assert.equal(d.svgHackLinks(), '', 'pulling out takes the wire with it');
+  assert.equal(d.svgBuilding(b).includes('hacking'), false, 'and unmarks the door');
+});
+
+test('hack: a running hack is drawn from something you actually hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  const b = d.buildingById(target.buildingId);
+
+  const from = d.routeOrigin(b);
+  const held = s.buildings.filter(x => x.id !== b.id && d.hostsIn(x).some(h => h.owned));
+  assert.ok(held.some(x => Math.abs(x.x + x.w / 2 - from.x) < 0.01
+                        && Math.abs(x.y + x.h / 2 - from.y) < 0.01),
+    'the wire leaves from a building you hold, not from nowhere');
+
+  // and with nothing held at all it still draws rather than throwing
+  s.hosts.forEach(h => { h.owned = false; });
+  const orphan = d.routeOrigin(b);
+  assert.equal(Number.isFinite(orphan.x) && Number.isFinite(orphan.y), true);
+});
+
 test('hack: it lands when the work finishes, and the compute comes back', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

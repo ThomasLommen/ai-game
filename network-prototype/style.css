@@ -882,6 +882,101 @@ footer .build { opacity: .55; font-size: 10px; }
   100% { stroke-dashoffset: var(--breach-len); opacity: 0; }
 }
 .breach.lost .breach-route, .breach.lost .breach-land { stroke: var(--heat); }
+
+/* --- something running, seen --------------------------------------------
+   The breach above is a moment. A hack is a state, and it has to look like
+   one for every turn it lasts: a wire that stays lit with packets going down
+   it, plus one flourish at the instant it is launched so pressing the button
+   is not silent. */
+.hack-run { pointer-events: none; }
+
+.hack-wire {
+  fill: none;
+  stroke: var(--compute);
+  stroke-width: 1.3;
+  opacity: .55;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 3 6;
+  animation: hackCrawl 900ms linear infinite;
+}
+/* the dashes march toward the target, so the wire has a direction */
+@keyframes hackCrawl {
+  from { stroke-dashoffset: 9; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* a packet going down it, over and over — this is the part that says the
+   program is still working rather than that the wire merely exists */
+.hack-packet-wrap { animation: hackRun 1600ms linear infinite; }
+@keyframes hackRun {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(var(--hack-dx), var(--hack-dy)); }
+}
+.hack-packet {
+  fill: var(--compute);
+  animation: hackPacketFade 1600ms linear infinite;
+}
+@keyframes hackPacketFade {
+  0%   { opacity: 0; }
+  14%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* quiet programs run thinner and colder; the hammer runs hot, because how
+   loud the thing you sent is should be readable from the map */
+.hack-run.quiet .hack-wire { stroke: var(--cover); stroke-width: 1; opacity: .45; }
+.hack-run.quiet .hack-packet { fill: var(--cover); }
+.hack-run.brute .hack-wire { stroke: var(--heat); opacity: .7; }
+.hack-run.brute .hack-packet { fill: var(--heat); }
+.hack-run.brute .hack-packet-wrap { animation-duration: 620ms; }
+.hack-run.brute .hack-packet { animation-duration: 620ms; }
+
+/* the launch: the wire drawing itself in, once */
+.hack-run.launching .hack-wire {
+  animation:
+    hackCrawl 900ms linear infinite,
+    hackWake var(--hack-launch, 560ms) ease-out backwards;
+}
+@keyframes hackWake {
+  0%   { opacity: 0; stroke-width: 3; }
+  40%  { opacity: .9; }
+  100% { opacity: .55; stroke-width: 1.3; }
+}
+/* and it arriving */
+.hack-open {
+  fill: none;
+  stroke: var(--compute);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hackOpen 620ms ease-out backwards;
+}
+.hack-run.quiet .hack-open { stroke: var(--cover); }
+.hack-run.brute .hack-open { stroke: var(--heat); }
+@keyframes hackOpen {
+  0%   { transform: scale(.35); opacity: .95; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* the door with something in it, and how the race is going, drawn on the
+   building itself — otherwise the only place to read it is a panel that
+   needs the right thing selected */
+/* the colour only when it is not the selected building, so marking a door as
+   under attack never eats the selection's own outline */
+.bldg.hacking .body { stroke-dasharray: 3 3; animation: hackEdge 1400ms ease-in-out infinite; }
+.bldg.hacking:not(.sel) .body { stroke: var(--compute); }
+@keyframes hackEdge {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+.hack-bar { pointer-events: none; }
+.hb-track { fill: var(--bg-2); opacity: .85; }
+.hb-done  { fill: var(--compute); }
+.hb-seen  { fill: var(--heat); opacity: .9; }
+
+.float-chip.hack { color: var(--compute); border-color: color-mix(in srgb, var(--compute) 55%, transparent); }
 .breach.lost .breach-pulse { fill: var(--heat); }
 
 /* the building itself coming over — or not */
@@ -917,6 +1012,11 @@ footer .build { opacity: .55; font-size: 10px; }
 @media (prefers-reduced-motion: reduce) {
   .breach-pulse-wrap, .breach-land { display: none; }
   .breach-route { animation-duration: 1ms; }
+  /* the wire and the bar still have to be there — they are the only thing
+     saying a hack is running — so the motion goes and the marking stays */
+  .hack-packet-wrap, .hack-open { display: none; }
+  .hack-wire { animation: none; opacity: .7; }
+  .bldg.hacking .body { animation: none; }
   .bldg.breached.took.force, .bldg.breached.took.quiet,
   .bldg.breached.took.buy, .bldg.breached.bounced {
     animation: foundFlash 420ms ease-out both var(--breach-land);

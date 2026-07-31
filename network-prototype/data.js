@@ -62,6 +62,15 @@ window.BREACH_FX = {
   linger: 520,
 };
 
+// A hack lasts turns, so what it needs is not one animation but a state the
+// map holds for as long as the program runs. `launch` is only the flourish
+// that draws the wire in at the moment you commit — the wire itself, and the
+// packets going down it, stay until the hack lands or is pulled.
+window.HACK_FX = {
+  launch: 560,
+  linger: 420,
+};
+
 
 // Covert ops lowers this at the gate itself, not just the funds it costs.
 
