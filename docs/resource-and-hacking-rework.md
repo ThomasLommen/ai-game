@@ -21,7 +21,7 @@ everything you run draws against it, and time on the rack is the real cost.
 | --- | --- |
 | Insight | **gone** |
 | Power | **Compute (TFLOPS)** — a stat, not a resource. Never spent, only allocated. |
-| Cover | **Covert Ops** — an allocation level. Capacity, not currency. |
+| Cover | **Covert Ops** — one number, one name. Capacity, not currency. See *Cover, finally* below. |
 | Cash | **Funds** |
 | — | **Electricity** — new. A hard ceiling. |
 | Heat | unchanged |
@@ -333,6 +333,40 @@ Three things turned up while building it that were not renames:
   own" because it pays no currency, while being the only thing on the board
   that makes the rig bigger. It quotes its threads now — which it has to, since
   threads are the one thing dev moves.
+
+## Cover, finally
+
+Cover-as-a-*resource* died in phase 1. A derived number called `cover` did not,
+and when the dials became single-stat it became covert.ops' output — so the
+word was more entrenched than when it was supposed to be gone.
+
+Four things settled it:
+
+- **The aggregate stays.** Something has to add up "how hard am I to follow" —
+  routers, presence, kit and the dial all feed it. Delete the total and each of
+  those needs its own wiring into four systems.
+- **The dial is not the only source.** Routers keep feeding it; they are the
+  reason to take cheap stealth ground.
+- **The word goes.** The number is called **covert.ops**, the same as the dial
+  that raises it. One name for one idea; "cover" was the last of the Reigns
+  vocabulary still standing, and it read as a currency because it used to be
+  one. `HOST_TYPES.iot.covert`, `effect: { covert: n }`, `gate: { stat:
+  'covert' }`, `covertOps()`.
+- **A router does one thing.** It used to mask heat by its own count *and*
+  feed cover, which lowered the floor by a second, separate term. The mask now
+  reads covert.ops and nothing else touches the floor.
+
+Two constants had to be rescaled, because everything now reads the whole figure
+rather than the dial alone — which runs about 1 at the start and twenty-odd
+mid-campaign, not 0–5. The trace shield was pinned to its floor before the dial
+had done anything at all; it reaches that floor around 39 now instead of 7.
+
+Measured over eight thirty-turn openings, before and after: the mean heat floor
+goes 4.0 to 5.5 and drift 0.8 to 1.0, both inside the run-to-run spread. The
+rise is real and has one cause — covert ops used to subtract from the floor as
+a second, *uncapped* term, so it could push below what the mask cap allows.
+Now everything quiet goes through the one capped term. That is the point of
+folding them; the cap is what stops stealth erasing the floor outright.
 
 ## Two things play found
 

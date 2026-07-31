@@ -1216,7 +1216,7 @@
   // Hardware sitting dark because there is nothing to power it with. Shown to
   // the player, because "you own it and cannot run it" has to be legible or it
   // reads as the numbers being broken.
-  function idleTflops() { return Math.max(0, tflops() - electricity()); }
+  function idleTflops() { return Math.round(Math.max(0, tflops() - electricity()) * 10) / 10; }
 
   const ALLOC_IDS = () => window.ALLOC.map(a => a.id);
   function allocDial(id) { return (state.alloc || {})[id] || 0; }
@@ -1317,7 +1317,7 @@
   }
 
   // Presence is what a finished city leaves behind, so it feeds every one of
-  // these: the flywheel, the cover, and the pressure. Otherwise consolidating
+  // these: the flywheel, covert.ops, and the pressure. Otherwise consolidating
   // would be a downgrade you took for the map.
   const presence = () => (state.country && state.country.presence) || 0;
 
@@ -1352,7 +1352,7 @@
     return hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length;
   }
   // Civic Eyes audits the camera network, turning a stealth holding from
-  // cover into a witness — unless you found the corner of the audit that
+  // covert.ops into a witness — unless you found the corner of the audit that
   // never got finished (blind_spot), or Nothing To See makes the whole
   // question moot (Cover's own capstone, immune to the one thing built to
   // attack the branch's own resource).
@@ -1365,17 +1365,18 @@
   // Stealth holdings are what lower the floor: that is what they are for.
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
-    const audited = civicEyesAudited();
-    const quiet = audited ? 0 : ownedOf('stealth').length;
     const loudPart = 0.8 * loud;
+    // A router used to do two things: mask heat by its own count, and feed
+    // covert ops, which separately lowered the floor. Two terms, two rates,
+    // one idea — so the mask reads covert ops and nothing else does. Whatever
+    // makes you hard to follow is what keeps you quiet, whether that is a
+    // router, presence, kit, or compute spent on being careful.
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
-                            0.9 * quiet + (has('dark_relay') ? 3 : 0));
+                            covertOps() * window.HEAT.MASK_PER_COVERT
+                              + (has('dark_relay') ? 3 : 0));
     const national = Math.min(presence() * window.COUNTRY.heatFloorPer,
                               strikeThreshold() * window.COUNTRY.maxFloorShare);
-    // Cover lowers the floor. Being hard to follow and settling lower are the
-    // same fact about you, so they come off the same number.
-    const quietFloor = allocStat('cover') / window.ALLOC_STATS.coverFloorPer;
-    return Math.max(0, loudPart - masked + national + capEffect('floor', 0) - quietFloor);
+    return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
   }
   // Heat is bounded above as well as below: unbounded heat made being over the
   // line consequence-free, since the hunter is on a cooldown anyway.
@@ -1389,17 +1390,17 @@
       * (has('hunted') ? 0.75 : 1);
   }
   // Cover is what stealth holdings buy you — it gates the quiet approach.
-  // Diminishing returns, deliberately. Linear cover meant every extra router
+  // Diminishing returns, deliberately. Linear covert.ops meant every extra router
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
-  function rawCover() {
+  function rawCovertOps() {
     const eyes = civicEyesAudited()
       ? 0
-      : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
+      : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].covert || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
-      + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
-      + capEffect('cover', 0)
-      + allocStat('cover')
+      + Math.round(window.COUNTRY.covertRoot * Math.sqrt(presence()))
+      + capEffect('covert', 0)
+      + allocStat('covert')
       + (has('clean_room') ? 2 : 0);
   }
   // Cover is not spent any more. It gates a quiet entry and it slows the
@@ -1407,18 +1408,18 @@
   // the same number was both your stealth and your budget for stealth, and
   // holding two buildings off their map quietly stopped you slipping into a
   // third.
-  function cover() { return rawCover(); }
+  function covertOps() { return rawCovertOps(); }
 
   // How many buildings can be kept off their map at once. Capacity, not
   // currency: covert ops decides the number of slots, un-hiding gives one back,
   // and nothing is drained while they are occupied.
-  // Somewhere to keep a building off their map is bought out of cover, which
+  // Somewhere to keep a building off their map is bought out of covert.ops, which
   // is the one thing covert ops produces. It used to be its own effect key on
   // the same dial — two numbers moving together for no reason a player could
   // see.
   function hideSlots() {
     return capEffect('freeHideSlots', 0)
-      + Math.floor(cover() / window.ALLOC_STATS.coverHidePer);
+      + Math.floor(covertOps() / window.ALLOC_STATS.hidePer);
   }
   function hideSlotsFree() { return Math.max(0, hideSlots() - hidden().length); }
 
@@ -1489,7 +1490,7 @@
   }
 
   function snapshot() {
-    return { tflops: tflops(), cover: cover(), funds: state.res.funds };
+    return { tflops: tflops(), covert: covertOps(), funds: state.res.funds };
   }
 
   // --- turn resolution ---------------------------------------------------
@@ -1561,7 +1562,7 @@
       * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
     const S = window.ALLOC_STATS;
-    const quietDrift = Math.pow(S.coverDriftStep, allocStat('cover') / S.coverDriftPer);
+    const quietDrift = Math.pow(S.driftStep, covertOps() / S.driftPer);
     return h * capEffect('driftMult', 1) * quietDrift
       * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
   }
@@ -1775,12 +1776,12 @@
     return all ? (hunt() ? hunt().nodes.length : 0) / all : 0;
   }
   // How long between its moves. Cover is what makes you hard to follow — this
-  // is the first thing in the game that gives cover a job beyond gating one
+  // is the first thing in the game that gives covert.ops a job beyond gating one
   // door, and it is why a stealth holding is worth taking.
   function huntCadence() {
     const H = window.HUNT;
     if (state.heat >= strikeThreshold()) return H.hotEvery;
-    return Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+    return Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
   }
   function huntDueIn() {
     const h = hunt();
@@ -1906,7 +1907,7 @@
   function chase() { return (CO() || {}).chase || null; }
   function followDelay() {
     const H = window.HUNT;
-    return Math.min(H.followMax, Math.round(H.followBase + cover() * H.followPerCover));
+    return Math.min(H.followMax, Math.round(H.followBase + covertOps() * H.followPerCover));
   }
   function chaseDueIn() {
     const c = chase();
@@ -1946,7 +1947,7 @@
     huntReveal();
     // they came for a result and they have one; the pressure eases until it
     // does not. This is the only thing that brings heat down hard now that the
-    // fine is gone, and it is what keeps cover meaningful.
+    // fine is gone, and it is what keeps covert.ops meaningful.
     state.heat = clampHeat(state.heat - window.HUNT.takeSheds);
     pushLog(was.length
       ? `They are in ${window.BUILDING_KINDS[b.kind].label} now. It was yours.`
@@ -2008,10 +2009,10 @@
   // Severing works and it is loud: the street goes, permanently, for both of
   // you, and the city is smaller for it. Hiding is the same problem answered
   // the other way — the building comes off their map and the street stays open
-  // for you. It costs nothing up front and everything continuously: cover, per
+  // for you. It costs nothing up front and everything continuously: covert.ops, per
   // hidden building, every turn, out of the same pool that was slowing them
   // down. So a wall of hidden buildings makes the rest of the city easier to
-  // walk, and the moment your cover falls the wall comes down.
+  // walk, and the moment it falls the wall comes down.
   function hidden() { return state.hidden || (state.hidden = []); }
   function isHidden(bid) { return hidden().indexOf(bid) !== -1; }
   function canHide(bid) {
@@ -2265,7 +2266,7 @@
     const add = (kind, text) => out.push(chip(kind, text));
     if (e.tflops > 0) add('tflops', `+${e.tflops} tflops`);
     if (e.tflops < 0) add('cost tflops', `${neg(e.tflops)} tflops`);
-    if (e.cover) add('cover', `+${e.cover} cover`);
+    if (e.covert) add('cover', `+${e.covert} covert.ops`);
     if (e.threadBonus) add('tflops', `+${e.threadBonus} threads a host`);
     if (e.floor) add('cover', `heat floor ${neg(e.floor)}`);
     if (e.driftMult) add('cover', `heat ${pct(e.driftMult)} a turn`);
@@ -2298,7 +2299,7 @@
   function capReadouts() {
     return {
       'tflops': Math.round(tflops()),
-      'cover': Math.round(cover()),
+      'covert.ops': Math.round(covertOps()),
       'actions a turn': maxAP(),
       'heat floor': Math.round(heatFloor() * 10) / 10,
       'heat a turn': Math.round(heatPerTurn() * 10) / 10,
@@ -2393,7 +2394,7 @@
     const co = CO() || {};
     const cities = co.cities || [];
     return {
-      held: owned().length, heat: state.heat, tflops: tflops(), cover: cover(),
+      held: owned().length, heat: state.heat, tflops: tflops(), covert: covertOps(),
       // doors you have ever taken. `held` empties every time you fold a city
       // in, so anything that wants to be about the shape of your whole run
       // has to read this instead.
@@ -2564,14 +2565,14 @@
   // how much to go and farm; "you cannot afford this" tells them the thing they
   // actually need to know and leaves the card being about what it is about.
   function shortOf(ch) {
-    const name = { funds: 'funds', tflops: 'TFLOPS', cover: 'cover' };
+    const name = { funds: 'funds', tflops: 'TFLOPS', covert: 'covert.ops' };
     if (ch.cost) {
       for (const k in ch.cost) {
         if ((state.res[k] || 0) < ch.cost[k]) return `not enough ${name[k] || k}`;
       }
     }
     if (ch.gate) {
-      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return `not ${name[ch.gate.stat] || ch.gate.stat} enough`;
     }
     return 'not yet';
@@ -2583,7 +2584,7 @@
   function choiceUsable(ch) {
     if (ch.cost) for (const k in ch.cost) if ((state.res[k] || 0) < ch.cost[k]) return false;
     if (ch.gate) {
-      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return false;
     }
     return true;
@@ -3157,7 +3158,7 @@ scratch.later = null;
     const H = window.HACK;
     const T = window.HOST_TYPES[h.type] || {};
     const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
-    const shield = Math.max(H.shieldFloor, 1 - allocStat('cover') * H.covertShield);
+    const shield = Math.max(H.shieldFloor, 1 - covertOps() * H.covertShield);
     // a city's own character, where it has one — a watched city notices
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
@@ -7271,9 +7272,9 @@ scratch.later = null;
         const off = Math.round((1 - apCostMult()) * 100);
         return off > 0 ? chip('cover', `every action ${off}% cheaper`) : '';
       }
-      case 'cover': {
+      case 'covert': {
         const H = window.HUNT;
-        const every = Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+        const every = Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
         return chip('cover', `they step every ${every} turns`)
           + (hideSlots() ? chip('cover', `${hideSlots()} hidden at once`) : '');
       }
@@ -7301,7 +7302,7 @@ scratch.later = null;
         <div class="alloc-row${level ? ' on' : ''}">
           <div class="alloc-top">
             <span class="alloc-name">${A.label}</span>
-            <span class="mono dim">${A.per} TFLOPS per ${A.unit.replace(/s$/, '')}</span>
+            <span class="mono dim">${A.per} TFLOPS per ${A.one}</span>
           </div>
           <p class="shop-good-desc">${A.blurb}</p>
           <div class="alloc-dial">
@@ -7734,9 +7735,9 @@ scratch.later = null;
   // you, and all it buys is time between their steps.
   function coverLine() {
     const H = window.HUNT;
-    const every = Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
-    return `<b>${cover()} cover</b> — enough to keep them to a step every ${every} turn${every === 1 ? '' : 's'}.`
-      + ` Routers and covert.ops are what raise it.`;
+    const every = Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
+    return `<b>${covertOps()} covert.ops</b> — enough to keep them to a step every ${every} turn${every === 1 ? '' : 's'}.`
+      + ` Routers, kit, and compute spent on being careful all raise it.`;
   }
 
   // The quiet answer, offered on the building rather than on the street —
@@ -7843,7 +7844,7 @@ scratch.later = null;
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
-        : !hideSlots() ? `needs more cover — ${window.ALLOC_STATS.coverHidePer} of it buys somewhere to keep one`
+        : !hideSlots() ? `needs more covert.ops — ${window.ALLOC_STATS.hidePer} of it buys somewhere to keep one`
         : !hideSlotsFree() ? `all ${hideSlots()} covert slots are occupied`
         : 'needs an action'}</span>
     </button>`;
@@ -8240,7 +8241,7 @@ scratch.later = null;
     const was = h.owned;
     const read = () => {
       const inc = perTurnIncome();
-      return { cover: cover(), heat: heatPerTurn(), funds: inc.funds || 0, tflops: tflops() };
+      return { covert: covertOps(), heat: heatPerTurn(), funds: inc.funds || 0, tflops: tflops() };
     };
     h.owned = true;
     const on = read();
@@ -8248,7 +8249,7 @@ scratch.later = null;
     const off = read();
     h.owned = was;
     return {
-      cover: on.cover - off.cover,
+      covert: on.covert - off.covert,
       heat: on.heat - off.heat,
       funds: on.funds - off.funds,
       tflops: on.tflops - off.tflops,
@@ -8275,7 +8276,7 @@ scratch.later = null;
       // threads is now the one thing the dev dial does, so the figure it
       // moves has to be visible on the thing it moves it on.
       gainChip('tflops', m.tflops, 'tflops'),
-      gainChip('cover', m.cover, 'cover'),
+      gainChip('cover', m.covert, 'covert.ops'),
       // Heat runs the other way: less of it is the good outcome. A node that
       // shouts reads as a cost, and one that quietens you takes the cover
       // colour — which is the idiom the lie low button already uses for
@@ -8300,14 +8301,14 @@ scratch.later = null;
   // that actually ask about it.
   function cardResourceStrip(ev) {
     const asksCover = !!(ev && (ev.choices || []).some(ch =>
-      (ch.gate && ch.gate.stat === 'cover') || (ch.cost && ch.cost.cover)));
+      (ch.gate && ch.gate.stat === 'covert') || (ch.cost && ch.cost.covert)));
     return `<div class="card-res">
       <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
       <!-- held, not free: a card gates on what you own, so the figure shown
            has to be the one the gate compares against, and it has to say
            which of the two it is now the top bar shows in-use as well -->
       <span class="res tflops"><b>${tflops()}</b> tflops held</span>
-      ${asksCover ? `<span class="res cover"><b>${cover()}</b> cover</span>` : ''}
+      ${asksCover ? `<span class="res cover"><b>${covertOps()}</b> covert.ops</span>` : ''}
     </div>`;
   }
 
@@ -8443,7 +8444,7 @@ scratch.later = null;
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
@@ -8461,7 +8462,7 @@ scratch.later = null;
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
-    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCover,
+    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,

@@ -129,7 +129,7 @@ window.COUNTRY = {
   // and every door in the last three regions opened on the first try.
   // Logarithmic keeps the first conversion whole and flattens hard after that.
   tflopsLog: 15,
-  coverRoot: 1.2,
+  covertRoot: 1.2,
   // A city's presence is partly what its streets were actually worth to you.
   // Without this the conversion swings on how thread-rich the city happened to
   // be — a warehouse district could cost you 40% of your tflops, a suburb none.
@@ -545,17 +545,17 @@ window.HARDWARE = [
   },
   {
     id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
-    label: 'dead.drops', effect: { cover: 2 },
+    label: 'dead.drops', effect: { covert: 2 },
     blurb: 'A place to leave something that is not being watched.',
   },
   {
     id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
-    label: 'signal.borrowed', effect: { cover: 4, freeHideSlots: 1 },
+    label: 'signal.borrowed', effect: { covert: 4, freeHideSlots: 1 },
     blurb: "Riding somebody else's traffic instead of making your own.",
   },
   {
     id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
-    label: 'noquestions', effect: { cover: 6, flockBonus: 1 },
+    label: 'noquestions', effect: { covert: 6, flockBonus: 1 },
     blurb: 'Whatever they are looking for, it does not look like you.',
   },
 
@@ -616,7 +616,7 @@ window.HUNT = {
   // makes you hard to follow, and until now its only job in the whole engine
   // was gating one door type.
   everyBase: 6,
-  perCover: 0.22,          // turns added per point of cover
+  perCover: 0.22,          // turns added per point of covert.ops
   everyMax: 14,
   // and speeds up while you are over the line
   hotEvery: 3,

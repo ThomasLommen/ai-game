@@ -163,16 +163,16 @@ test('tflops: base rig + held threads + purchased tooling (the flywheel)', () =>
   assert.equal(d.tflops(), 2 + 8 + 3 * window.UPGRADE.baseTflops, 'tooling adds on top');
 });
 
-test('cover comes only from stealth holdings, and gates the quiet approach', () => {
+test('covert.ops: routers are one supply of it, and the base is one', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.forEach(h => { h.owned = false; });
-  assert.equal(d.cover(), 1, 'base cover with nothing held');
+  assert.equal(d.covertOps(), 1, 'base cover with nothing held');
 
   const routers = s.hosts.filter(h => h.type === 'iot').slice(0, 2);
   routers.forEach(h => { h.owned = true; });
-  assert.equal(d.cover(), 1 + 2 * window.HOST_TYPES.iot.cover);
+  assert.equal(d.covertOps(), 1 + 2 * window.HOST_TYPES.iot.covert);
 });
 
 test('frontier: you can reach the next building along, and nothing further', () => {
@@ -449,7 +449,7 @@ test('tags feed back into the simulation rather than sitting in a tray', () => {
   const s = d.state;
   s.hosts.slice(0, 40).forEach(h => { h.owned = true; });
 
-  const base = { tflops: d.tflops(), cover: d.cover(), heat: d.heatPerTurn(), strike: d.strikeThreshold() };
+  const base = { tflops: d.tflops(), cover: d.covertOps(), heat: d.heatPerTurn(), strike: d.strikeThreshold() };
   const host = s.hosts.find(h => h.ring === 2);
   const baseDef = d.defenseOf(host);
 
@@ -457,7 +457,7 @@ test('tags feed back into the simulation rather than sitting in a tray', () => {
   assert.equal(d.tflops(), base.tflops + 3, 'an ally raises TFLOPS');
 
   s.tags.add('clean_room');
-  assert.equal(d.cover(), base.cover + 2, 'discipline raises COVER');
+  assert.equal(d.covertOps(), base.cover + 2, 'discipline raises COVER');
 
   s.tags.add('dark_relay');
   assert.ok(d.heatPerTurn() < base.heat, 'a dark relay slows heat');
@@ -509,7 +509,7 @@ test('data integrity: every event is reachable, well formed, and references real
     e.choices.forEach(ch => {
       assert.ok(ch.text, `${e.id} choice has text`);
       assert.ok(typeof ch.apply === 'function', `${e.id} choice has an effect`);
-      if (ch.gate) assert.ok(['tflops', 'cover', 'funds', 'funds'].includes(ch.gate.stat), `${e.id} gate stat is real`);
+      if (ch.gate) assert.ok(['tflops', 'covert', 'funds'].includes(ch.gate.stat), `${e.id} gate stat is real`);
     });
   });
 
@@ -522,7 +522,7 @@ test('data integrity: every event is reachable, well formed, and references real
 
 test('every stat and action shown to the player has an explanation', () => {
   const { window } = loadNetwork();
-  ['funds', 'funds', 'tflops', 'cover', 'heat'].forEach(k => {
+  ['funds', 'tflops', 'covert', 'power', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
   ['sweep', 'lielow'].forEach(k => {
@@ -1515,12 +1515,22 @@ function setDial(window, d, id, points) {
 // handed over separately — so a test asks for room rather than for units.
 function coverForSlots(window, d, n) {
   const cov = window.ALLOC.find(a => a.id === 'covert');
-  for (let live = 0; live <= cov.per * 60; live += 1) {
+  for (let live = 0; live <= cov.per * 200; live += 1) {
     d.state.allocLive.covert = live;
     d.state.alloc.covert = live;
     if (d.hideSlots() >= n) return live;
   }
   throw new Error('could not reach ' + n + ' slots');
+}
+// Room is bought out of the whole covert.ops figure, and the dial is only one
+// supply of it — so a test that wants to prove the dial paid for something has
+// to ask for more than the board was already giving away.
+function slotsBeyondBase(window, d, extra) {
+  d.state.allocLive.covert = 0;
+  d.state.alloc.covert = 0;
+  const base = d.hideSlots();
+  coverForSlots(window, d, base + extra);
+  return base;
 }
 
 // The four rules the deck now hands out, and the two the grid shelf sells.
@@ -1630,12 +1640,12 @@ test('civic eyes: your own cameras stop covering you and start reporting', () =>
   const loud = s.hosts.filter(h => h.role !== 'stealth').slice(0, 6);
   eyes.concat(loud).forEach(h => { h.owned = true; h.discovered = true; });
 
-  const coverBefore = d.cover();
+  const coverBefore = d.covertOps();
   const driftBefore = d.heatPerTurn();
   const floorBefore = d.heatFloor();
 
   wake(d, 'civic_eyes');
-  assert.ok(d.cover() < coverBefore, 'audited cameras are not cover');
+  assert.ok(d.covertOps() < coverBefore, 'audited cameras are not cover');
   assert.ok(d.heatPerTurn() > driftBefore, 'they add heat rather than remove it');
   assert.ok(d.heatFloor() > floorBefore, 'and you cannot hide under them any more');
 
@@ -1837,7 +1847,7 @@ test('persistence: the ladder and the mirror survive a round trip', () => {
 function sampleContexts(window) {
   const out = [];
   const base = (o) => Object.assign({
-    held: 0, doors: 0, forced: 0, heat: 0, tflops: 2, cover: 1, turn: 1,
+    held: 0, doors: 0, forced: 0, heat: 0, tflops: 2, covert: 1, turn: 1,
     res: { funds: 0, funds: 0 }, tags: new Set(o.tags || []),
     roles: { compute: 0, funds: 0, stealth: 0 },
     districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
@@ -1901,7 +1911,7 @@ function sampleContexts(window) {
                   forced: Math.max(held, held * 2),
                   heat, presence, scope, regionTier, conquest: stage / 5,
                   tflops: 2 + held * 3 + Math.round(10 * Math.sqrt(presence)),
-                  cover: 4 + Math.round(1.2 * Math.sqrt(presence)),
+                  covert: 4 + Math.round(1.2 * Math.sqrt(presence)),
                   res: { funds: 5 + presence, funds: 5 + presence },
                   roles: { compute: Math.ceil(held / 2), funds: Math.ceil(held / 4), stealth: Math.ceil(held / 3) },
                   districts: { residential: Math.ceil(held / 3), commercial: Math.ceil(held / 4), business: Math.ceil(held / 5), industrial: Math.ceil(held / 6) },
@@ -1923,7 +1933,7 @@ function sampleContexts(window) {
     [1, 3, 5].forEach(stage => [4, 22, 30].forEach(heat => out.push(base({
       over: {
         held: 9, heat, presence: stage * 60, scope: 'city', regionTier: 2,
-        conquest: stage / 5, tflops: 60, cover: 9, turn: 40 + since,
+        conquest: stage / 5, tflops: 60, covert: 9, turn: 40 + since,
         res: { funds: 40, funds: 40 },
         roles: { compute: 4, funds: 3, stealth: 3 },
         districts: { residential: 3, commercial: 3, business: 3, industrial: 2 },
@@ -1940,7 +1950,7 @@ function sampleContexts(window) {
     out.push(base({
       tags: Object.keys(window.TAG_INFO),
       over: {
-        presence, held: 14, heat: 12, tflops: 60, cover: 8, turn: 120,
+        presence, held: 14, heat: 12, tflops: 60, covert: 8, turn: 120,
         res: { funds: 40, funds: 40 },
         roles: { compute: 4, funds: 3, stealth: 4 },
         districts: { residential: 5, commercial: 4, business: 3, industrial: 2 },
@@ -2016,7 +2026,7 @@ function sampleContexts(window) {
       over: {
         held: 0, heat: 0, scope: 'country', conquest: 1,
         presence: 300,
-        tflops: 40 + Math.round(war.age * 10), cover: 10 + Math.round(war.age * 2),
+        tflops: 40 + Math.round(war.age * 10), covert: 10 + Math.round(war.age * 2),
         res: { funds: 40 + Math.round(war.age * 10), funds: 40 + Math.round(war.age * 10) },
         // Zero on purpose, and this is the whole point of the wartime
         // contexts: the war is fought from the country map, where you are
@@ -2135,7 +2145,7 @@ test('deck: card ids are unique and every card is a real decision', () => {
       assert.ok(ch.text, `${e.id}[${i}] has no text`);
       assert.equal(typeof ch.apply, 'function', `${e.id}[${i}] does nothing`);
       if (ch.gate) {
-        assert.ok(['tflops', 'cover', 'funds', 'funds'].includes(ch.gate.stat),
+        assert.ok(['tflops', 'covert', 'funds'].includes(ch.gate.stat),
           `${e.id}[${i}] gates on unknown stat ${ch.gate.stat}`);
       }
       if (ch.cost) Object.keys(ch.cost).forEach(k =>
@@ -2389,7 +2399,7 @@ test('allocation: every dial moves the one stat it claims, and nothing else', ()
 
   const measure = () => ({
     ap: d.maxAP(),
-    cover: d.cover(),
+    covert: d.covertOps(),
     threads: d.tflops(),
     reach: d.sweepReach(),
     agents: d.agentSlots(),
@@ -2492,7 +2502,7 @@ test('agents: the dial is what decides how many can be out at once', () => {
   assert.equal(d.agentSlots(), 3, 'and one more for every point of it');
 });
 
-test('covert: one number, and four systems that read it', () => {
+test('covert.ops: one number, and everything quiet reads it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -2500,12 +2510,12 @@ test('covert: one number, and four systems that read it', () => {
 
   ungrant(d);
   const before = {
-    cover: d.cover(), floor: d.heatFloor(), drift: d.heatPerTurn(),
+    cover: d.covertOps(), floor: d.heatFloor(), drift: d.heatPerTurn(),
     slots: d.hideSlots(), shield: d.traceRate(s.hosts[0]),
   };
   setDial(window, d, 'covert', 6);
   const after = {
-    cover: d.cover(), floor: d.heatFloor(), drift: d.heatPerTurn(),
+    cover: d.covertOps(), floor: d.heatFloor(), drift: d.heatPerTurn(),
     slots: d.hideSlots(), shield: d.traceRate(s.hosts[0]),
   };
 
@@ -2515,8 +2525,12 @@ test('covert: one number, and four systems that read it', () => {
   assert.ok(after.slots > before.slots, 'there is somewhere to keep something');
   assert.ok(after.shield < before.shield, 'and a door notices you more slowly');
   // all of it off one figure, which is the difference from the version where
-  // the dial carried four unrelated effect keys
-  assert.equal(d.allocStat('cover'), d.allocLevel('covert'));
+  // the dial carried four unrelated effect keys — and the dial and the number
+  // it feeds go by one name, which is the difference from the version where
+  // "cover" was a separate word left over from a resource that no longer exists
+  assert.equal(d.allocStat('covert'), d.allocLevel('covert'));
+  assert.equal(window.ALLOC.find(a => a.id === 'covert').stat, 'covert');
+  assert.equal(typeof d.cover, 'undefined', 'nothing answers to the old name');
 });
 
 test('the rules that left the dials are all still reachable, from their new homes', () => {
@@ -2660,10 +2674,10 @@ test('settled: the economy is untouched — it is a record, not an asset', () =>
   assert.ok(c.granted > 0, 'presence was still granted');
   assert.equal(d.state.country.presence, c.granted, 'and it is the whole of it');
   // nothing in the record feeds tflops, cover or income
-  const before = { p: d.tflops(), c: d.cover(), i: JSON.stringify(d.perTurnIncome()) };
+  const before = { p: d.tflops(), c: d.covertOps(), i: JSON.stringify(d.perTurnIncome()) };
   c.web = c.web.concat(c.web);          // twice the picture
   assert.equal(d.tflops(), before.p, 'tflops does not read the picture');
-  assert.equal(d.cover(), before.c, 'nor cover');
+  assert.equal(d.covertOps(), before.c, 'nor cover');
   assert.equal(JSON.stringify(d.perTurnIncome()), before.i, 'nor income');
 });
 
@@ -2884,7 +2898,7 @@ test('hunt: cover is what makes it slow, which is what cover is for', () => {
   const bare = d.huntCadence();
   // stealth holdings are the only thing that buys cover
   s.hosts.filter(h => h.role === 'stealth').slice(0, 8).forEach(h => { h.owned = true; });
-  assert.ok(d.cover() > 1, 'they buy cover');
+  assert.ok(d.covertOps() > 1, 'they buy cover');
   assert.ok(d.huntCadence() > bare,
     `cover should slow it: ${bare} turns bare, ${d.huntCadence()} with cover`);
   // and being over the line makes it move at its fastest
@@ -3039,15 +3053,15 @@ test('hide: it occupies a covert slot and does not drain the cover slowing them 
 
   const slots = d.hideSlots();
   assert.ok(slots > 0, 'covert ops gives somewhere to keep things');
-  const coverBefore = d.cover();
+  const coverBefore = d.covertOps();
   const cadenceBefore = d.huntCadence();
   const target = d.huntNext();
   s.ap = 9;
   d.actHide(target);
 
   // this is the whole change: your stealth is not also your budget for stealth
-  assert.equal(d.cover(), coverBefore, 'hiding costs no cover at all now');
-  assert.equal(d.rawCover(), coverBefore, 'the stealth holdings are untouched');
+  assert.equal(d.covertOps(), coverBefore, 'hiding costs no cover at all now');
+  assert.equal(d.rawCovertOps(), coverBefore, 'the stealth holdings are untouched');
   assert.equal(d.hideSlotsFree(), slots - 1, 'it took a slot instead');
   assert.ok(d.huntCadence() <= cadenceBefore,
     `hiding must not also slow them: ${cadenceBefore} before, ${d.huntCadence()} after`);
@@ -3057,7 +3071,7 @@ test('hide: it occupies a covert slot and does not drain the cover slowing them 
   assert.equal(d.ladderStage() >= 3, false, 'nobody took the trick away mid-test');
   assert.equal(d.isHidden(target), true, 'still hidden');
   assert.equal(d.hideSlotsFree(), slots - 1, 'and still holding the one slot');
-  assert.equal(d.cover(), d.rawCover(), 'never at the expense of cover');
+  assert.equal(d.covertOps(), d.rawCovertOps(), 'never at the expense of cover');
 });
 
 test('hide: what you no longer have room for comes back onto their map', () => {
@@ -3070,9 +3084,9 @@ test('hide: what you no longer have room for comes back onto their map', () => {
     const b = d.buildingById(id);
     if (b) d.hostsIn(b).forEach(h => { h.owned = true; });
   });
-  // enough cover for room for more than one
-  coverForSlots(window, d, 3);
-  assert.ok(d.hideSlots() >= 3, 'three slots to fill');
+  // enough covert.ops for room for more than the board already gives you
+  const base = slotsBeyondBase(window, d, 2);
+  assert.ok(d.hideSlots() >= base + 2, 'room to fill');
 
   s.ap = 99;
   const mine = () => s.buildings.filter(b => d.buildingHeld(b)).map(b => b.id);
@@ -3087,13 +3101,18 @@ test('hide: what you no longer have room for comes back onto their map', () => {
   assert.equal(put.length, slots, `the slots are the limit, and nothing else is (${put.length})`);
   assert.equal(d.hideSlotsFree(), 0, 'all of them occupied');
 
-  // pull the compute back out of covert ops: the cover goes, and the room with it
-  coverForSlots(window, d, 1);
-  while (d.hideSlots() > 1) { s.allocLive.covert -= 1; s.alloc.covert = s.allocLive.covert; }
-  assert.equal(d.hideSlots(), 1, 'down to one slot');
+  // Pull the compute back out of covert ops. What is left is whatever the
+  // routers and the rest of it still pay for — the room comes off the whole
+  // covert.ops figure, and the dial is only one supply of it, so there is no
+  // guarantee it falls to any particular number.
+  s.allocLive.covert = 0;
+  s.alloc.covert = 0;
+  const fewer = d.hideSlots();
+  assert.equal(fewer, base, 'what is left is what the routers were already paying for');
+  assert.ok(fewer < slots, `taking the compute back takes room with it: ${slots} -> ${fewer}`);
   const lost = d.hideUpkeep();
-  assert.equal(lost.length, slots - 1, 'the ones it can no longer keep came down');
-  assert.equal(d.hidden().length, 1, 'and the one it can still hold stayed up');
+  assert.equal(lost.length, slots - fewer, 'the ones it can no longer keep came down');
+  assert.equal(d.hidden().length, fewer, 'and the ones it can still hold stayed up');
   assert.ok(d.hidden().length <= d.hideSlots(), 'never more hidden than there is room for');
 });
 
@@ -3194,7 +3213,7 @@ test('chase: cover is what buys the distance', () => {
   s.heat = 0;
   const bare = d.followDelay();
   s.hosts.filter(h => h.role === 'stealth').slice(0, 8).forEach(h => { h.owned = true; });
-  assert.ok(d.cover() > 1, 'stealth holdings buy cover');
+  assert.ok(d.covertOps() > 1, 'stealth holdings buy cover');
   assert.ok(d.followDelay() > bare,
     `cover should lengthen the road: ${bare} bare, ${d.followDelay()} with cover`);
 });
@@ -3565,11 +3584,19 @@ test('held: what one did to you is measured, not transcribed', () => {
   s.hosts.forEach(h => { h.owned = true; });
 
   // a gain, a cost, and one that only changes a rule
-  const cover = d.cover();
+  const covert = d.covertOps();
   // joined, not deepEqual: the array is built inside the vm realm, so it is
-  // never prototype-equal to one built out here
-  assert.equal(d.tagTerms('clean_room').join(' | '), `cover ${cover} → ${cover + 2}`,
-    'it should report the cover it actually adds');
+  // never prototype-equal to one built out here.
+  //
+  // Three rows, not one: covert.ops is a single number that the heat floor and
+  // the drift both read now, so a tag that raises it genuinely moves all three.
+  // The readout is derived from the engine rather than transcribed from the
+  // card, which is exactly why it noticed.
+  const rows = d.tagTerms('clean_room');
+  assert.ok(rows.includes(`covert.ops ${covert} → ${covert + 2}`),
+    `it should report the covert.ops it actually adds: ${rows.join(' | ')}`);
+  assert.ok(rows.some(t => /heat floor/.test(t)),
+    'and the floor it takes with it, now the two are one number');
   assert.ok(d.tagTerms('known_capable').some(t => /a door defends at/.test(t)),
     'the world hardening against you is a number, and it went unreported');
   assert.ok(d.tagTerms('overextended').some(t => /heat a turn/.test(t)),
@@ -5961,9 +5988,13 @@ test('yields: a chip says what taking the node will actually do', () => {
     const h = pool[0];
     const m = d.hostMarginal(h);
     const html = d.yieldChips(h);
-    ['funds', 'funds', 'cover'].forEach(k => {
+    // measured key -> the chip's colour class, which is a colour and not the
+    // name of the stat: quiet things are drawn in the cover colour whatever
+    // the number behind them is called
+    const colourOf = { funds: 'funds', covert: 'cover' };
+    ['funds', 'funds', 'covert'].forEach(k => {
       if (Math.abs(m[k]) < 0.05) return;
-      const said = chipNum(html, k);
+      const said = chipNum(html, colourOf[k]);
       assert.ok(said !== null, `${type} moves ${k} by ${m[k]} and says nothing`);
       assert.ok(Math.abs(Math.abs(said) - Math.abs(m[k])) < 0.06,
         `${type} claims ${said} ${k} and delivers ${m[k]}`);
@@ -5971,23 +6002,23 @@ test('yields: a chip says what taking the node will actually do', () => {
   });
 });
 
-test('yields: a router advertises the cover it adds, which falls as you take more', () => {
+test('yields: a router advertises the covert.ops it adds, which falls as you take more', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const pool = d.state.hosts.filter(h => h.type === 'iot');
   assert.ok(pool.length >= 3, 'the board has routers to take');
 
-  const first = d.hostMarginal(pool[0]).cover;
+  const first = d.hostMarginal(pool[0]).covert;
   assert.ok(first > 0, 'the first one is worth something');
-  assert.ok(d.yieldChips(pool[0]).includes(`+${first} cover`),
+  assert.ok(d.yieldChips(pool[0]).includes(`+${first} covert.ops`),
     `it does not say ${first}: ${d.yieldChips(pool[0])}`);
 
   // the curve is the whole point: the table value is the same for all of them
   pool.slice(0, 3).forEach(h => { h.owned = true; });
-  const later = d.hostMarginal(pool[3] || pool[0]).cover;
-  assert.ok(later < first, `cover should thin out: ${first} then ${later}`);
+  const later = d.hostMarginal(pool[3] || pool[0]).covert;
+  assert.ok(later < first, `covert.ops should thin out: ${first} then ${later}`);
   if (later > 0) {
-    assert.ok(d.yieldChips(pool[3]).includes(`+${later} cover`), 'and the chip follows it down');
+    assert.ok(d.yieldChips(pool[3]).includes(`+${later} covert.ops`), 'and the chip follows it down');
   }
 });
 
@@ -7452,9 +7483,9 @@ test('hardware: dead drops buys cover the moment you can afford it', () => {
   const stealthHosts = s.hosts.filter(h => h.role === hw.family);
   stealthHosts.slice(0, hw.heldAt).forEach(h => { h.owned = true; });
   s.res.funds = hw.cost;
-  const before = d.cover();
+  const before = d.covertOps();
   assert.equal(d.buyHardware(hw.id), true);
-  assert.ok(d.cover() > before, 'cover rises the moment it is bought');
+  assert.ok(d.covertOps() > before, 'cover rises the moment it is bought');
 });
 
 // --- the grid: capacity, ceiling, and what is running on it ---------------
@@ -7583,8 +7614,9 @@ test('grid: the allocation screen reports capacity, ceiling and what is idle', (
   // every dial is on the screen, with its price per unit
   window.ALLOC.forEach(A => {
     assert.ok(sec.html.includes(A.label), `${A.id} is on the screen`);
-    assert.ok(sec.html.includes(`${A.per} TFLOPS per ${A.unit.replace(/s$/, '')}`),
+    assert.ok(sec.html.includes(`${A.per} TFLOPS per ${A.one}`),
       `${A.id} says what a point of its stat costs`);
+    assert.ok(A.one && A.unit, `${A.id} needs both a plural and a singular of its stat`);
   });
 });
 
@@ -7733,21 +7765,21 @@ test('covert: cover is never spent, only read', () => {
   setDial(window, d, 'covert', 5);
   s.ap = 99;
 
-  const before = d.cover();
+  const before = d.covertOps();
   const t = s.buildings.filter(b => d.buildingHeld(b)).map(b => b.id).find(id => d.canHide(id));
   assert.ok(t, 'something of yours can be hidden');
   d.actHide(t);
-  assert.equal(d.cover(), before, 'hiding took no cover');
-  assert.equal(d.cover(), d.rawCover(), 'and there is no longer a gap between the two');
+  assert.equal(d.covertOps(), before, 'hiding took no cover');
+  assert.equal(d.covertOps(), d.rawCovertOps(), 'and there is no longer a gap between the two');
   d.actUnhide(t);
-  assert.equal(d.cover(), before, 'nor did giving it back hand any over');
+  assert.equal(d.covertOps(), before, 'nor did giving it back hand any over');
 });
 
-test('covert: room to hide something is bought out of cover, whoever supplies it', () => {
+test('covert: room to hide something is bought out of covert.ops, whoever supplies it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const per = window.ALLOC_STATS.coverHidePer;
+  const per = window.ALLOC_STATS.hidePer;
 
   ungrant(d);
   assert.equal(d.hideSlots(), 0, 'a lone foothold has nowhere to keep anything');
@@ -7755,16 +7787,16 @@ test('covert: room to hide something is bought out of cover, whoever supplies it
   for (let n = 1; n <= 3; n++) {
     coverForSlots(window, d, n);
     assert.ok(d.hideSlots() >= n, `${n} slots reached`);
-    assert.equal(d.hideSlots(), Math.floor(d.cover() / per),
-      'and the room is exactly what the cover pays for');
+    assert.equal(d.hideSlots(), Math.floor(d.covertOps() / per),
+      'and the room is exactly what covert.ops pays for');
   }
   // and so are routers. They used to be excluded on purpose, because the dial
   // handed out slots as a separate effect from the cover it also gave — two
   // numbers moving together for no reason the player could see.
   ungrant(d);
   s.hosts.filter(h => h.role === 'stealth').forEach(h => { h.owned = true; });
-  assert.ok(d.rawCover() > 1, 'stealth holdings raise cover');
-  assert.equal(d.hideSlots(), Math.floor(d.cover() / per),
+  assert.ok(d.rawCovertOps() > 1, 'stealth holdings raise cover');
+  assert.equal(d.hideSlots(), Math.floor(d.covertOps() / per),
     'and buy room on exactly the same terms the dial does');
 });
 
@@ -7996,14 +8028,14 @@ test('cover: it is not a resource, and says what it is where it does its work', 
 
   // and on the only thing it slows down
   const line = d.coverLine();
-  assert.ok(line.includes(d.cover() + ' cover'), 'the response says how much you have');
+  assert.ok(line.includes(d.covertOps() + ' cover'), 'the response says how much you have');
   assert.ok(/step every \d+ turn/.test(line), 'and what that buys you, in turns');
 
   // a card that gates on it can still be checked against it
   const plain = d.cardResourceStrip({ choices: [{ text: 'a' }] });
-  const asks = d.cardResourceStrip({ choices: [{ gate: { stat: 'cover', min: 3 } }] });
-  assert.ok(!plain.includes('cover'), 'ordinary cards do not carry it');
-  assert.ok(asks.includes('cover'), 'a card that asks about it does');
+  const asks = d.cardResourceStrip({ choices: [{ gate: { stat: 'covert', min: 3 } }] });
+  assert.ok(!plain.includes('covert.ops'), 'ordinary cards do not carry it');
+  assert.ok(asks.includes('covert.ops'), 'a card that asks about it does');
 });
 
 // A door can become yours while a program is still working on it — contagion
@@ -8211,8 +8243,19 @@ test('hack: covert ops is what buys the slow programs their race', () => {
   const shielded = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
 
   assert.ok(shielded.rate < bare.rate, 'covert ops slows what the target notices');
-  assert.ok(bare.caught && !shielded.caught,
-    `three units should turn a loss into a win: ${bare.traceAtEnd} -> ${shielded.traceAtEnd} against ${bare.goal}`);
+  // enough of it turns a loss into a win. The shield is scaled against the
+  // whole covert.ops figure rather than the dial alone — routers and kit feed
+  // the same number — so the question is how much of it, not how many units
+  // of one supply.
+  let live = cov.per * 3;
+  while (d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor')).caught
+         && live < cov.per * 400) {
+    live += cov.per;
+    s.allocLive.covert = live;
+  }
+  const won = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
+  assert.ok(bare.caught && !won.caught,
+    `enough of it should turn a loss into a win: ${bare.traceAtEnd} -> ${won.traceAtEnd} against ${bare.goal}`);
   // but never all the way to invisible
   s.allocLive.covert = cov.per * 40;
   assert.ok(d.traceRate(target) > 0, 'nothing hides you completely');
