@@ -253,13 +253,22 @@ window.DISTRICTS = {
   // the router share from two in five to two in six, and routers are the only
   // real source of cover. That quietly took away the player's ability to keep
   // more than one building hidden at a time.
-  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'mast', 'pillar'] },
-  commercial:  { tier: 1, label: 'high street',    kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
-  business:    { tier: 2, label: 'business park',  kinds: ['office', 'office', 'finance', 'cabinet'] },
+// `ground` and `edge` are what makes a district a place rather than a tier:
+// the block it sits on is tinted and named, so crossing from the high street
+// into the business park is something you can see happening. Kept close to the
+// base ground colour — this is a difficulty band you should be able to read at
+// a glance, not four coloured stripes competing with everything drawn on top.
+  residential: { tier: 0, label: 'suburbs',        ground: '#0d1410', edge: '#1b2c20',
+                 kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'mast', 'pillar'] },
+  commercial:  { tier: 1, label: 'high street',    ground: '#0e1417', edge: '#1e2f33',
+                 kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
+  business:    { tier: 2, label: 'business park',  ground: '#0d1019', edge: '#212a3d',
+                 kinds: ['office', 'office', 'finance', 'cabinet'] },
   // no street furniture out here: a row of cheap masts could drag the hardest
   // district's average below the one before it, and the map stops teaching.
   // A switchyard is as hard as the datacenter beside it, so it is welcome.
-  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
+  industrial:  { tier: 3, label: 'industrial edge', ground: '#110b', edge: '#382915',
+                 kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
 };
 
 // One building, one host. Interiors made every building a chore — several
@@ -308,8 +317,15 @@ window.CITY = {
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
-  // districts by block row, suburbs nearest the origin
-  rowDistricts: ['residential', 'commercial', 'business', 'industrial'],
+  // Districts by block row, suburbs nearest the origin. Six rows against four
+  // districts used to be written as a four-entry list and wrapped, which put a
+  // second lot of suburbs and high street *past* the industrial edge — so the
+  // difficulty ran up and then fell off a cliff, and where you woke up decided
+  // whether your neighbours were shops or a switchyard. Spelling all six rows
+  // out fixes the ordering without changing the mix: the same two residential,
+  // two commercial, one business and one industrial row, in an order that
+  // means something.
+  rowDistricts: ['residential', 'residential', 'commercial', 'commercial', 'business', 'industrial'],
   cameraVision: 160,   // a held camera reveals buildings within this radius
 };
 

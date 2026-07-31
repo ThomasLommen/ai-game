@@ -281,6 +281,46 @@ away for a while, and electricity can never be cut to nothing.
 `doors`, `forced`, `region`, `conquest`, `reach` and `regionHeat` are on the
 event context and used by no card. That is fine — not every key needs one.
 
+## The city, looked at
+
+Two things that were true in the data and false on the screen.
+
+**The four districts were invisible.** `suburbs`, `high street`, `business park`
+and `industrial edge` have always driven real difficulty — the tier on every
+building comes from the district it stands in, and so does the mix of kinds
+that spawn there — but nothing on the map said which one you were in. Each
+district now stands on its own tinted ground, with a seam where one becomes
+the next and its name repeated along the boundary roads.
+
+Drawing them exposed an ordering bug. Six block rows were laid out from a
+four-entry list and wrapped, which put a second lot of suburbs and high street
+*past* the industrial edge: the difficulty ran up and then fell off a cliff,
+and since the origin is always a residential building, where you woke up
+decided whether your neighbours were shopfronts or a switchyard. All six rows
+are now spelled out, in the same mix as before — two residential, two
+commercial, one business, one industrial — in an order that means something.
+
+**Every building was the same box.** One recipe drew all of them: a rect, a
+roof band, a checkerboard of windows. The only thing that changed from the
+suburbs to the industrial edge was that the boxes got bigger. Each kind now
+has a silhouette — a pitched roof and a chimney on a house, balconies on
+apartments, an awning and glass at street level on a shopfront, a curtain wall
+and rooftop plant on offices, a colonnade and a crown on a finance floor, a
+sawtooth roof and a roller door on a warehouse, and on a datacenter no windows
+at all, just louvres and a roof covered in cooling behind a fence. Landmarks
+get the most of it: cranes and containers, a platform canopy, bay doors, a
+pediment, a transformer yard under a pylon.
+
+None of it is decoration for its own sake — it is the information the panel
+already gives you, made readable from across the map. The streets go with it:
+every third road is an arterial with a painted centre line, junctions are
+sized to the roads that meet there, and where people live and shop there are
+trees on the verge.
+
+All of it is drawn from a hash of the building id rather than `Math.random`,
+because the map is rebuilt on every action and detail that moves between
+redraws is worse than no detail.
+
 ## Not changing
 
 Heat · the escalation ladder and its footprint gating · the hunt · the rival ·

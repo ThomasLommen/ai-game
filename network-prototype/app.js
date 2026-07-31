@@ -5740,19 +5740,157 @@ scratch.later = null;
     return v;
   }
 
+  // --- a place rather than a grid of boxes ---------------------------------
+  // Detail on a map that is redrawn on every action cannot be random: a tree
+  // that moves when you end a turn is worse than no tree. Everything
+  // decorative below is drawn from this instead, so the city is the same city
+  // every frame while still not being a repeating pattern.
+  function cityNoise(seed, i) {
+    let x = (seed * 374761393 + i * 668265263) >>> 0;
+    x = (x ^ (x >>> 13)) >>> 0;
+    x = (x * 1274126177) >>> 0;
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+  }
+  function idSeed(id) {
+    let h = 2166136261;
+    for (let i = 0; i < String(id).length; i++) {
+      h = (Math.imul(h ^ String(id).charCodeAt(i), 16777619)) >>> 0;
+    }
+    return h;
+  }
+
+  // Which district each block row is, read off the buildings themselves rather
+  // than stored — the country's cities lay their rows out differently from
+  // home, and this way it is right for both without a second source of truth.
+  function districtRows() {
+    const rows = {};
+    (state.buildings || []).forEach(b => {
+      if (rows[b.row] === undefined && b.district) rows[b.row] = b.district;
+    });
+    return rows;
+  }
+
+  // The ground a district stands on, tinted and named. This is the answer to
+  // "I have never seen a distinct district": they were only ever a tier on a
+  // building and a different mix of kinds, both invisible from the map.
+  function svgDistricts() {
+    const C = window.CITY;
+    const d = cityDims();
+    const B = cityBounds();
+    const rows = districtRows();
+    let out = '';
+    for (let r = 0; r < d.rows; r++) {
+      const D = window.DISTRICTS[rows[r]];
+      if (!D) continue;
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      const h = C.blockH + C.street;
+      out += `<rect class="district ${rows[r]}" x="${-CITY_PAD}" y="${y}"`
+        + ` width="${B.w + CITY_PAD * 2}" height="${h}" fill="${D.ground}"/>`;
+      // the seam between two districts, so the change of place has an edge
+      if (r > 0 && rows[r - 1] !== rows[r]) {
+        out += `<line class="district-seam" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"`
+          + ` stroke="${D.edge}"/>`;
+      }
+    }
+    return out;
+  }
+
+  // The names go on last, over the roads: the road is where there is room for
+  // them, and drawn with the ground they were sliced in half by the street
+  // that gets painted on top.
+  function svgDistrictTags() {
+    const C = window.CITY;
+    const d = cityDims();
+    const rows = districtRows();
+    let out = '';
+    for (let r = 0; r < d.rows; r++) {
+      const D = window.DISTRICTS[rows[r]];
+      if (!D) continue;
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      // repeated every few blocks so a label is on screen wherever you panned
+      for (let c = 0; c < d.cols; c += 2) {
+        const x = C.street + c * (C.blockW + C.street) + 4;
+        out += `<text class="district-tag" x="${x}" y="${(y + 4).toFixed(1)}">${D.label}</text>`;
+      }
+    }
+    return out;
+  }
+
   function svgStreets() {
     const C = window.CITY;
     const d = cityDims();
     const B = cityBounds();
     let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
+    out += svgDistricts();
+    // Every third street is an arterial: wider, and with a painted centre line.
+    // A grid of identical roads reads as graph paper — the thing that makes a
+    // street plan look like a city is that not all of them matter equally.
+    const arterial = (n) => n % 3 === 0;
     for (let c = 0; c <= d.cols; c++) {
       const x = c * (C.blockW + C.street) + C.street / 2;
-      out += `<line class="street" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      out += `<line class="street${arterial(c) ? ' main' : ''}" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      if (arterial(c)) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
     }
     for (let r = 0; r <= d.rows; r++) {
       const y = r * (C.blockH + C.street) + C.street / 2;
-      out += `<line class="street" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      out += `<line class="street${arterial(r) ? ' main' : ''}" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      if (arterial(r)) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
     }
+    // Junctions, and the things standing beside the road. Both are drawn from
+    // the block index, so they are fixed for a given city.
+    const rows = districtRows();
+    for (let r = 0; r <= d.rows; r++) {
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      for (let c = 0; c <= d.cols; c++) {
+        const x = c * (C.blockW + C.street) + C.street / 2;
+        // sized to the roads that meet here, not to the gap between blocks —
+        // a pad wider than its own street reads as a notch cut in the block
+        const jw = arterial(c) ? 30 : 22;
+        const jh = arterial(r) ? 30 : 22;
+        out += `<rect class="junction" x="${(x - jw / 2).toFixed(1)}" y="${(y - jh / 2).toFixed(1)}"`
+          + ` width="${jw}" height="${jh}"/>`;
+        // a crossing on the arterials only, marked across the mouth
+        if (arterial(r) && arterial(c)) {
+          for (let i = 0; i < 4; i++) {
+            out += `<rect class="zebra" x="${(x - 13 + i * 6).toFixed(1)}" y="${(y - jh / 2 + 2).toFixed(1)}" width="3" height="7"/>`;
+          }
+        }
+      }
+    }
+    // Street trees where people live and shop, parked cars everywhere. Two
+    // cheap marks each, but they are what stops the gaps between blocks
+    // reading as empty space.
+    for (let r = 0; r < d.rows; r++) {
+      const leafy = rows[r] === 'residential' || rows[r] === 'commercial';
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      for (let c = 0; c < d.cols; c++) {
+        const x = C.street + c * (C.blockW + C.street);
+        const seed = r * 97 + c * 31 + 7;
+        for (let i = 0; i < 5; i++) {
+          const n = cityNoise(seed, i);
+          if (leafy && n < 0.55) {
+            const tx = Math.round(x + 14 + i * (C.blockW / 5));
+            const ty = Math.round(y - 10 + cityNoise(seed, i + 40) * 8);
+            out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
+          } else if (n > 0.74) {
+            const tx = Math.round(x + 20 + i * (C.blockW / 5));
+            const ty = Math.round(y + C.blockH + C.street / 2 - 6);
+            out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
+          }
+        }
+        // and down the side streets, or the planting only runs one way and the
+        // city looks combed
+        if (leafy) {
+          const vx = x - C.street / 2 - 5;
+          for (let i = 0; i < 4; i++) {
+            if (cityNoise(seed + 11, i) > 0.5) continue;
+            const ty = Math.round(y + 24 + i * (C.blockH / 4));
+            out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
+          }
+        }
+      }
+    }
+    out += svgDistrictTags();
     return out;
   }
 
@@ -5852,6 +5990,250 @@ scratch.later = null;
     return out + '</g>';
   }
 
+  // --- what a building looks like ------------------------------------------
+  // Every building used to be the same recipe: a box, a roof band, and a
+  // checkerboard of windows. That made the whole city one material, and made
+  // the districts — which really do differ in what stands in them — invisible,
+  // because the only thing that changed from the suburbs to the industrial
+  // edge was that the boxes got bigger.
+  //
+  // So each kind now has a silhouette. None of it is decoration for its own
+  // sake: a datacenter with no windows and chillers on the roof is the same
+  // information the panel gives you, available from across the map.
+
+  // How a kind wears its openings.
+  const WINDOW_STYLE = {
+    office: 'curtain', finance: 'curtain', exchange: 'curtain',
+    warehouse: 'slots', datacenter: 'slots', depot: 'slots',
+    docks: 'slots', station: 'slots', switchyard: 'slots',
+    cabinet: 'few', mast: 'few', pillar: 'few',
+  };
+  // Returns every opening, with `on` marking the ones your presence can light.
+  // Unheld buildings still draw them all — a dark window is how you tell there
+  // is a building there at all.
+  function windowCells(b, roof) {
+    const style = WINDOW_STYLE[b.kind] || 'grid';
+    const cells = [];
+    const push = (x, y, w, h, on) => cells.push({
+      i: cells.length, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10,
+      w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10, on,
+    });
+    if (style === 'curtain') {
+      // glazed front, floor by floor: narrow panes and the mullions between
+      const cols = Math.max(3, Math.round(b.w / 10));
+      const rows = Math.max(2, Math.round((b.h - roof) / 12));
+      const pw = (b.w - 9) / cols, ph = (b.h - roof - 9) / rows;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 4.5 + c * pw + 0.8, b.y + roof + 4.5 + r * ph,
+               Math.max(1.8, pw - 1.6), Math.min(6, ph - 2), (r + c) % 2 === 0);
+        }
+      }
+    } else if (style === 'slots') {
+      // a shed has louvres near the eaves, not offices
+      const cols = Math.max(2, Math.round(b.w / 20));
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 6 + c * ((b.w - 12) / cols), b.y + roof + 4 + r * 7,
+               Math.max(6, (b.w - 12) / cols - 6), 2.4, c % 2 === 0);
+        }
+      }
+    } else if (style === 'few') {
+      // street furniture: one indicator, which is the whole point of it
+      push(b.x + b.w / 2 - 1.5, b.y + b.h - 6, 3, 3, true);
+    } else {
+      const cols = Math.max(2, Math.round(b.w / 14));
+      const rows = Math.max(1, Math.round((b.h - roof) / 13));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 5 + c * ((b.w - 10) / cols), b.y + roof + 5 + r * ((b.h - roof - 8) / rows),
+               5, 5, (r + c) % 2 === 0);
+        }
+      }
+    }
+    return cells;
+  }
+
+  const KIND_DETAIL = {
+    // somewhere a person lives: the pitched roof is the one shape that reads
+    // as a home at any zoom
+    house: (b, n) => {
+      const peak = Math.min(11, b.h * 0.32);
+      const cx = b.x + b.w / 2;
+      let s = `<polygon class="gable" points="${(b.x - 1.5).toFixed(1)},${b.y} `
+        + `${cx.toFixed(1)},${(b.y - peak).toFixed(1)} ${(b.x + b.w + 1.5).toFixed(1)},${b.y}"/>`;
+      const chx = b.x + b.w * (0.62 + n(1) * 0.18);
+      s += `<rect class="chimney" x="${chx.toFixed(1)}" y="${(b.y - peak * 0.72).toFixed(1)}"`
+        + ` width="3.2" height="${(peak * 0.7).toFixed(1)}"/>`;
+      s += `<rect class="door" x="${(cx - 3).toFixed(1)}" y="${(b.y + b.h - 7).toFixed(1)}" width="6" height="7"/>`;
+      return s;
+    },
+    // stacked living: balconies, and a parapet instead of a roof
+    apartment: (b) => {
+      let s = `<rect class="parapet" x="${b.x - 1}" y="${(b.y - 2).toFixed(1)}" width="${b.w + 2}" height="3"/>`;
+      const floors = Math.max(2, Math.round((b.h - 12) / 13));
+      for (let f = 1; f < floors; f++) {
+        const y = b.y + 12 + f * ((b.h - 14) / floors);
+        s += `<line class="balcony" x1="${(b.x + 3).toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${(b.x + b.w - 3).toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    // trade at street level: an awning, a sign, and glass you can see through
+    shop: (b, n) => {
+      const aw = b.y + b.h - 13;
+      let s = `<rect class="glassfront" x="${(b.x + 3).toFixed(1)}" y="${(b.y + b.h - 11).toFixed(1)}"`
+        + ` width="${(b.w - 6).toFixed(1)}" height="9"/>`;
+      s += `<rect class="awning" x="${(b.x + 1).toFixed(1)}" y="${aw.toFixed(1)}" width="${(b.w - 2).toFixed(1)}" height="3.4"/>`;
+      const sw = Math.max(10, b.w * (0.4 + n(2) * 0.2));
+      s += `<rect class="sign" x="${(b.x + 4).toFixed(1)}" y="${(b.y + 12).toFixed(1)}"`
+        + ` width="${sw.toFixed(1)}" height="4"/>`;
+      return s;
+    },
+    // work: plant on the roof and a canopy over the door
+    office: (b, n) => {
+      let s = '';
+      const units = Math.max(1, Math.round(b.w / 26));
+      for (let i = 0; i < units; i++) {
+        const w = 8 + n(i) * 5;
+        s += `<rect class="plant" x="${(b.x + 6 + i * ((b.w - 12) / units)).toFixed(1)}"`
+          + ` y="${(b.y - 4).toFixed(1)}" width="${w.toFixed(1)}" height="4"/>`;
+      }
+      s += `<rect class="canopy" x="${(b.x + b.w / 2 - 9).toFixed(1)}" y="${(b.y + b.h - 5).toFixed(1)}" width="18" height="2.6"/>`;
+      return s;
+    },
+    // money: a colonnade at the base and a stepped crown, because that is what
+    // buildings that want to be trusted have always done
+    finance: (b) => {
+      let s = `<rect class="crown" x="${(b.x + b.w * 0.18).toFixed(1)}" y="${(b.y - 5).toFixed(1)}"`
+        + ` width="${(b.w * 0.64).toFixed(1)}" height="5"/>`;
+      const piers = Math.max(3, Math.round(b.w / 15));
+      for (let i = 0; i < piers; i++) {
+        s += `<rect class="pier" x="${(b.x + 4 + i * ((b.w - 8) / piers)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 11).toFixed(1)}" width="3" height="11"/>`;
+      }
+      return s;
+    },
+    // a shed: sawtooth roof and a door big enough for a lorry
+    warehouse: (b) => {
+      let s = '';
+      const teeth = Math.max(3, Math.round(b.w / 18));
+      const tw = b.w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        const x = b.x + i * tw;
+        s += `<polygon class="sawtooth" points="${x.toFixed(1)},${b.y} `
+          + `${(x + tw * 0.65).toFixed(1)},${(b.y - 6).toFixed(1)} ${(x + tw).toFixed(1)},${(b.y - 6).toFixed(1)} `
+          + `${(x + tw).toFixed(1)},${b.y}"/>`;
+      }
+      s += `<rect class="roller" x="${(b.x + b.w * 0.5 - 11).toFixed(1)}" y="${(b.y + b.h - 14).toFixed(1)}" width="22" height="14"/>`;
+      return s;
+    },
+    // the tell for a datacenter has always been that it has no windows and a
+    // roof covered in cooling, behind a fence
+    datacenter: (b, n) => {
+      let s = '';
+      const units = Math.max(2, Math.round(b.w / 20));
+      for (let i = 0; i < units; i++) {
+        s += `<rect class="chiller" x="${(b.x + 5 + i * ((b.w - 10) / units)).toFixed(1)}"`
+          + ` y="${(b.y - 6).toFixed(1)}" width="${(9 + n(i) * 4).toFixed(1)}" height="6"/>`;
+      }
+      s += `<line class="fence" x1="${(b.x - 4).toFixed(1)}" y1="${(b.y + b.h + 3).toFixed(1)}"`
+        + ` x2="${(b.x + b.w + 4).toFixed(1)}" y2="${(b.y + b.h + 3).toFixed(1)}"/>`;
+      return s;
+    },
+    // grid kit, drawn as kit: a lattice yard rather than a building
+    switchyard: (b) => {
+      let s = '';
+      const bays = Math.max(2, Math.round(b.w / 24));
+      for (let i = 0; i < bays; i++) {
+        const x = b.x + 6 + i * ((b.w - 12) / bays);
+        s += `<line class="gantry" x1="${x.toFixed(1)}" y1="${(b.y - 8).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(b.y + b.h - 4).toFixed(1)}"/>`;
+        s += `<circle class="insulator" cx="${x.toFixed(1)}" cy="${(b.y - 8).toFixed(1)}" r="1.8"/>`;
+      }
+      s += `<line class="busbar" x1="${(b.x + 4).toFixed(1)}" y1="${(b.y - 8).toFixed(1)}"`
+        + ` x2="${(b.x + b.w - 4).toFixed(1)}" y2="${(b.y - 8).toFixed(1)}"/>`;
+      return s;
+    },
+    // street furniture, at the scale it actually is
+    cabinet: (b) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<line class="vent" x1="${(b.x + 3).toFixed(1)}" y1="${(b.y + 5 + i * 3).toFixed(1)}"`
+          + ` x2="${(b.x + b.w - 3).toFixed(1)}" y2="${(b.y + 5 + i * 3).toFixed(1)}"/>`;
+      }
+      s += `<circle class="latch" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + b.h / 2).toFixed(1)}" r="1.2"/>`;
+      return s;
+    },
+    mast: (b) => {
+      const cx = b.x + b.w / 2;
+      let s = `<line class="pole" x1="${cx.toFixed(1)}" y1="${b.y}" x2="${cx.toFixed(1)}" y2="${(b.y - 12).toFixed(1)}"/>`;
+      s += `<line class="arm" x1="${cx.toFixed(1)}" y1="${(b.y - 11).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 11).toFixed(1)}"/>`;
+      s += `<rect class="cam" x="${(cx + 4).toFixed(1)}" y="${(b.y - 13).toFixed(1)}" width="5" height="3.2"/>`;
+      return s;
+    },
+    pillar: (b) => {
+      let s = `<rect class="hazard" x="${(b.x + 2).toFixed(1)}" y="${(b.y + b.h - 5).toFixed(1)}"`
+        + ` width="${(b.w - 4).toFixed(1)}" height="2.6"/>`;
+      s += `<rect class="hatch" x="${(b.x + 3).toFixed(1)}" y="${(b.y + 4).toFixed(1)}"`
+        + ` width="${(b.w - 6).toFixed(1)}" height="${(b.h - 11).toFixed(1)}"/>`;
+      return s;
+    },
+
+    // --- landmarks: the biggest thing in the city looks like it -------------
+    docks: (b, n) => {
+      let s = `<line class="crane-rail" x1="${b.x}" y1="${(b.y - 2).toFixed(1)}" x2="${(b.x + b.w).toFixed(1)}" y2="${(b.y - 2).toFixed(1)}"/>`;
+      const cx = b.x + b.w * 0.3;
+      s += `<line class="crane" x1="${cx.toFixed(1)}" y1="${(b.y - 2).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${(b.y - 20).toFixed(1)}"/>`;
+      s += `<line class="crane" x1="${(cx - 10).toFixed(1)}" y1="${(b.y - 18).toFixed(1)}" x2="${(cx + 16).toFixed(1)}" y2="${(b.y - 18).toFixed(1)}"/>`;
+      for (let i = 0; i < 5; i++) {
+        s += `<rect class="container" x="${(b.x + 8 + i * ((b.w - 16) / 5)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 6 - (n(i) > 0.5 ? 5 : 0)).toFixed(1)}" width="11" height="4.4"/>`;
+      }
+      return s;
+    },
+    station: (b) => {
+      let s = `<rect class="platform" x="${(b.x - 6).toFixed(1)}" y="${(b.y - 4).toFixed(1)}" width="${(b.w + 12).toFixed(1)}" height="4"/>`;
+      for (let i = 0; i < 2; i++) {
+        s += `<line class="rail-line" x1="${(b.x - 6).toFixed(1)}" y1="${(b.y + b.h + 3 + i * 3).toFixed(1)}"`
+          + ` x2="${(b.x + b.w + 6).toFixed(1)}" y2="${(b.y + b.h + 3 + i * 3).toFixed(1)}"/>`;
+      }
+      s += `<rect class="clock" x="${(b.x + b.w / 2 - 3).toFixed(1)}" y="${(b.y + 12).toFixed(1)}" width="6" height="6" rx="3"/>`;
+      return s;
+    },
+    depot: (b) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 20));
+      for (let i = 0; i < bays; i++) {
+        s += `<rect class="bay" x="${(b.x + 5 + i * ((b.w - 10) / bays)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 12).toFixed(1)}" width="${Math.max(8, (b.w - 10) / bays - 5).toFixed(1)}" height="12"/>`;
+      }
+      return s;
+    },
+    exchange: (b) => {
+      const cx = b.x + b.w / 2;
+      let s = `<polygon class="pediment" points="${(b.x + 4).toFixed(1)},${b.y} `
+        + `${cx.toFixed(1)},${(b.y - 9).toFixed(1)} ${(b.x + b.w - 4).toFixed(1)},${b.y}"/>`;
+      const cols = Math.max(4, Math.round(b.w / 13));
+      for (let i = 0; i < cols; i++) {
+        s += `<rect class="column" x="${(b.x + 5 + i * ((b.w - 10) / cols)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 15).toFixed(1)}" width="3.4" height="15"/>`;
+      }
+      return s;
+    },
+    substation: (b) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<rect class="transformer" x="${(b.x + 7 + i * ((b.w - 14) / 3)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 16).toFixed(1)}" width="12" height="16" rx="1.5"/>`;
+      }
+      const cx = b.x + b.w * 0.78;
+      s += `<line class="pylon" x1="${cx.toFixed(1)}" y1="${b.y}" x2="${cx.toFixed(1)}" y2="${(b.y - 22).toFixed(1)}"/>`;
+      s += `<line class="pylon" x1="${(cx - 9).toFixed(1)}" y1="${(b.y - 16).toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${(b.y - 16).toFixed(1)}"/>`;
+      s += `<line class="pylon" x1="${(cx - 6).toFixed(1)}" y1="${(b.y - 21).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 21).toFixed(1)}"/>`;
+      return s;
+    },
+  };
+
   function svgBuilding(b) {
     const h = hostsIn(b)[0];
     const theirs = rivalHolds(b.id);
@@ -5881,6 +6263,7 @@ scratch.later = null;
     if (run) cls.push('hacking');
 
     const roof = Math.min(10, b.h * 0.28);
+    const n = (i) => cityNoise(idSeed(b.id), i);
     const styles = [];
     if (fx !== null) styles.push(`animation-delay:${fx}ms`);
     if (bf) styles.push(`--breach-land:${breachDelay(bf.dur)}ms`);
@@ -5890,29 +6273,28 @@ scratch.later = null;
     if (mine) {
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
     }
+    // enough relief that a block reads as objects standing on ground rather
+    // than as shapes cut out of it
+    out += `<rect class="shade" x="${b.x + 2}" y="${b.y + 3}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
+    // what this kind of building actually looks like, under its windows
+    const detail = KIND_DETAIL[b.kind];
+    if (detail) out += detail(b, n, roof);
 
-    // windows hint at how much is inside, and go dark together the moment
-    // it is cut off — there is no partial fade any more, just held or not
-    const cols = Math.max(2, Math.round(b.w / 14));
-    const rows = Math.max(1, Math.round((b.h - roof) / 13));
-    const litCells = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) if ((r + c) % 2 === 0) litCells.push(r * cols + c);
-    }
-    const litCount = mine ? Math.ceil(litCells.length * (stranded ? 0.35 : 1)) : 0;
+    // Windows hint at how much is inside, and go dark together the moment it
+    // is cut off — there is no partial fade any more, just held or not. How
+    // they are arranged is part of the silhouette: a curtain wall is not a
+    // cottage's two lit squares, and a datacenter has louvres instead.
+    const cells = windowCells(b, roof);
+    const canLight = cells.filter(c => c.on);
+    const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
-    litCells.slice(0, litCount).forEach(i => { lightUp[i] = true; });
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const wx = b.x + 5 + c * ((b.w - 10) / cols);
-        const wy = b.y + roof + 5 + r * ((b.h - roof - 8) / rows);
-        const lit = !!lightUp[r * cols + c];
-        out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
-      }
-    }
+    canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
+    cells.forEach(c => {
+      out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
+        + ` width="${c.w}" height="${c.h}"/>`;
+    });
 
     // your kit on the roof: something you put there, readable without colour
     if (mine) {
@@ -7896,7 +8278,8 @@ scratch.later = null;
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
-    resolveStrike, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    resolveStrike, svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    districtRows, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,

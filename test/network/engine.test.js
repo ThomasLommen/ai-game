@@ -4223,6 +4223,94 @@ function holdOne(d, b) {
   return h;
 }
 
+// --- the city, looked at -------------------------------------------------
+// Four districts always existed and drove real difficulty, but nothing on the
+// map said so, and every building was the same box with a different label on
+// it. Both of those are visual claims, so both are tested by reading the SVG.
+
+test('city: districts run outward in one direction and never double back', () => {
+  const { window } = loadNetwork();
+  const rows = window.CITY.rowDistricts.map(k => window.DISTRICTS[k].tier);
+  assert.equal(rows.length, window.CITY.rows,
+    'every block row is named, so none of them wraps back to the start');
+  for (let i = 1; i < rows.length; i++) {
+    assert.ok(rows[i] >= rows[i - 1],
+      `the difficulty curve has to run one way: ${rows.join(',')}`);
+  }
+  assert.equal(rows[0], 0, 'and you wake up in the softest of them');
+});
+
+test('city: the map says which district you are standing in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const rows = d.districtRows();
+  const present = [...new Set(Object.values(rows))];
+  assert.ok(present.length > 1, 'a city is more than one kind of place');
+
+  const svg = d.svgStreets();
+  present.forEach(k => {
+    const D = window.DISTRICTS[k];
+    assert.ok(svg.includes(D.ground), `${k} stands on its own ground`);
+    assert.ok(svg.includes(D.label), `and says its name: ${D.label}`);
+  });
+  assert.ok(svg.includes('district-seam'), 'with an edge where one becomes the next');
+  // the names go on after the roads, or the road paints over them
+  assert.ok(svg.lastIndexOf('district-tag') > svg.lastIndexOf('class="street'),
+    'and the names are drawn over the streets, not under them');
+});
+
+test('city: every kind of building looks like its own kind of building', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const b = s.buildings[0];
+  b.discovered = true;
+  // strip the label, which is the one thing that always differs, and compare
+  // what is left: the silhouette itself has to carry the difference
+  const shapeOf = (kind) => {
+    b.kind = kind;
+    return d.svgBuilding(b)
+      .replace(/<text class="btag".*?<\/text>/, '')
+      .replace(/class="bldg [^"]*"/, '');
+  };
+  const kinds = Object.keys(window.BUILDING_KINDS);
+  const seen = {};
+  kinds.forEach(k => {
+    const shape = shapeOf(k);
+    assert.ok(!seen[shape], `${k} draws the same as ${seen[shape]}`);
+    seen[shape] = k;
+  });
+});
+
+test('city: what a building is drawn from never moves between redraws', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const b = d.state.buildings.find(x => x.kind === 'house') || d.state.buildings[0];
+  b.discovered = true;
+  // decoration driven by Math.random would dance every time the map is drawn,
+  // which is worse than having none
+  assert.equal(d.svgBuilding(b), d.svgBuilding(b));
+  assert.equal(d.svgStreets(), d.svgStreets());
+});
+
+test('city: openings suit the building — a datacenter has none to speak of', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const mk = (kind) => ({ id: 'q', kind, x: 0, y: 0, w: 70, h: 54 });
+  const count = (kind) => d.windowCells(mk(kind), 10).length;
+
+  assert.ok(count('office') > count('house'), 'a curtain wall is more glass than a cottage');
+  assert.ok(count('datacenter') < count('office'), 'and a datacenter is famously neither');
+  assert.equal(count('cabinet'), 1, 'street furniture has one light, which is the point of it');
+
+  // and every kind still has something your presence can light, or holding it
+  // would show nothing at all
+  Object.keys(window.BUILDING_KINDS).forEach(kind => {
+    assert.ok(d.windowCells(mk(kind), 10).some(c => c.on),
+      `${kind} has nowhere for your presence to show`);
+  });
+});
+
 test('held: a building you hold wears a halo and a roof aerial', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
