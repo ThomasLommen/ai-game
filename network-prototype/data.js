@@ -84,10 +84,22 @@ window.HACK_FX = {
 // every zoom level, so the reach is measured in the same terms.
 window.TOUCH = { reachPx: 26 };
 
+// Tempo does two things to the turn, both continuously. It raises the budget,
+// and it makes every action cost less — which is where `light_touch` ("forcing
+// a door you outclass costs no action") and `quiet_protocol` ("hiding costs no
+// action") went. Both were the same idea behind a threshold: at enough tempo,
+// the small things stop being worth counting.
+//
+// The budget is a real number rather than a count of pips. That is what lets
+// the discount be continuous instead of a step: two-thirds of an action left
+// is a real state, and it either covers what you are about to do or it does
+// not.
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
   costs: { sweep: 1, breach: 1 },
+  cheapenPer: 0.14,  // share taken off every action's cost, per point of tempo
+  minCostMult: 0.2,  // however fast you run, an action is never quite free
 };
 
 // --- the grid ----------------------------------------------------------
@@ -113,18 +125,43 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 // A changed dial does not take effect at once. That ramp *is* the switching
 // cost: re-optimising every turn means living permanently in the gap between
 // what you have committed and what is actually running.
+// One dial, one stat. Nothing here unlocks anything — a dial is a number that
+// goes up while you pay for it, and every system that cares reads the number.
+// The version before this hung fourteen named mechanics off thresholds on
+// these five dials, which made the allocation screen a capability tree with a
+// running cost: you were not deciding how much of yourself to spend on being
+// quiet, you were shopping for `quiet_protocol` at two units. The verbs and
+// rules that lived here have moved to hardware you buy and cards you are
+// dealt, where a thing you either have or do not belongs.
+//
+// `per` is TFLOPS per point of the stat, and it is a rate, not a step: five
+// TFLOPS in dev is one point, seven and a half is one and a half. Partial
+// allocation pays partially. Thresholds were the only reason to round down,
+// and there are no thresholds left.
 window.ALLOC = [
-  { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
-    blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert.ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, cover: 2 },
-    blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
-  { id: 'dev', label: 'dev', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
-    blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
-  { id: 'intel', label: 'intel', per: 4, effect: { sweepReach: 1, growthStep: 1 },
-    blurb: 'Looking further than the street you happen to be standing on — and finding the next edge of the map sooner.' },
-  { id: 'agents', label: 'agents', per: 6, effect: { agentSlots: 1 },
-    blurb: 'Processes sent out to work somewhere you are not.' },
+  { id: 'ap', label: 'tempo', per: 4, stat: 'ap', unit: 'actions',
+    blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn, and every action a little cheaper — run enough of it and the small ones stop costing anything at all.' },
+  { id: 'covert', label: 'covert.ops', per: 3, stat: 'cover', unit: 'cover',
+    blurb: 'Deliberately quiet. Cover is what makes you hard to follow: the response takes longer between steps, heat settles lower and climbs slower, and there is somewhere to keep what you would rather nobody logged.' },
+  { id: 'dev', label: 'dev', per: 5, stat: 'threads', unit: 'threads',
+    blurb: 'Work on yourself. Every host you hold gives up more threads than it did before.' },
+  { id: 'intel', label: 'intel', per: 4, stat: 'reach', unit: 'reach',
+    blurb: 'Looking further than the street you happen to be standing on. Every scan turns up more.' },
+  { id: 'agents', label: 'agents', per: 6, stat: 'agents', unit: 'agents',
+    blurb: 'Processes sent out to work somewhere you are not. More of them out at once.' },
 ];
+
+// What each dial's stat feeds, once it is the only thing the dial produces.
+// Covert ops is the interesting one: it used to move four unrelated numbers,
+// and now it moves one that four systems read. That is the same reach with
+// one fewer idea in it.
+window.ALLOC_STATS = {
+  // cover per point of the heat floor and the drift it takes off
+  coverFloorPer: 3,        // cover that lowers the heat floor by one
+  coverDriftPer: 4,        // cover that takes 8% off heat a turn
+  coverDriftStep: 0.92,
+  coverHidePer: 5,         // cover that buys somewhere to keep a building hidden
+};
 
 // The mechanics that used to be capability nodes — the ones read directly by
 // name rather than through a generic effect key. Each is now a threshold on an
@@ -192,22 +229,19 @@ window.HACK = {
   caughtHeat: 8,
 };
 
-window.UNLOCKS = {
-  light_touch:    { alloc: 'ap',     units: 2 },
-  swarm_front:    { alloc: 'ap',     units: 3 },
-  deep_root:      { alloc: 'dev',    units: 1 },
-  bulk_ops:       { alloc: 'dev',    units: 1 },
-  long_soak:      { alloc: 'dev',    units: 2 },
-  market_maker:   { alloc: 'dev',    units: 2 },
-  total_embed:    { alloc: 'dev',    units: 3 },
-  quiet_protocol: { alloc: 'covert', units: 2 },
-  nothing_to_see: { alloc: 'covert', units: 3 },
-  survey:         { alloc: 'intel',  units: 1 },
-  pontoon:        { alloc: 'intel',  units: 2 },
-  master_plan:    { alloc: 'intel',  units: 3 },
-  fixers:         { alloc: 'agents', units: 1 },
-  standing_army:  { alloc: 'agents', units: 3 },
-};
+// window.UNLOCKS is gone. It was the capability tree wearing a running cost:
+// fourteen named mechanics hung off thresholds on the five dials, so raising
+// covert ops was not "be quieter", it was "buy quiet_protocol at two units".
+// Where each of them went:
+//
+//   light_touch, quiet_protocol   tempo now cheapens every action continuously,
+//                                 which is the same idea without a threshold
+//   long_soak, bulk_ops,          dev now simply gives threads; these were
+//   market_maker, total_embed     conditional yield rules stacked on a timer
+//   nothing_to_see                only ever cancelled two rungs of the ladder
+//   survey, pontoon               hardware — kit you buy and keep (grid family)
+//   deep_root, swarm_front,       cards — a thing you either have or do not
+//   fixers, standing_army         belongs in the deck, not on a slider
 window.ALLY = {
   names: ['SECOND', 'THE OTHER PROCESS', 'PARTNER', 'the quiet one', 'MIRROR-2'],
   // what it is worth while it is with you
@@ -495,6 +529,14 @@ window.TAG_INFO = {
   national:       { label: 'national',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
   no_fixed_place: { label: 'no_fixed_place',      desc: 'nothing of yours sits still — travelling between regions is free' },
   scrutiny:       { label: 'scrutiny',         desc: 'somebody asked a question and did not get an answer' },
+  // --- rules that used to hang off an allocation threshold ---------------
+  // Each of these is a thing you either have or do not, which is what a card
+  // is for and what a slider is not.
+  deep_root:      { label: 'deep.root',   desc: 'whatever you get into softens what is next to it, permanently' },
+  swarm_front:    { label: 'swarm.front', desc: 'the weakest door on your frontier gives way on its own each turn, free' },
+  fixers:         { label: 'fixers',      desc: 'people who owe you — when the hunter comes there is a call you can make' },
+  standing_army:  { label: 'standing.orders', desc: 'a retainer paid either way: funds every turn, and something already on guard if war comes' },
+  master_plan:    { label: 'master.plan',  desc: "you know the shape of the place — home's next growth fills in whatever it has least of" },
 };
 
 // --- the event deck ----------------------------------------------------
@@ -621,6 +663,65 @@ window.EVENTS = [
       { text: 'Refuse', apply: (s) => { s.tags.delete('ally_process'); s.heat += 2; } },
     ],
   },
+  // --- the five that used to be allocation thresholds ---------------------
+  // Each of these is a rule rather than a number, which is why none of them
+  // belongs on a slider. A card is the right shape for a thing you either
+  // have or do not: it arrives once, in a situation that explains it, and it
+  // stays. Every one of them is gated on the board actually being in the
+  // state the fiction describes.
+  {
+    id: 'the_way_in_repeats', once: true,
+    cond: (s) => s.forced >= 3 && s.grid.dev >= 1,
+    title: 'The Same Door, Four Times',
+    flavor: 'Four buildings on this street, four different owners, one configuration. Somebody sold the whole block the same contract in the same week, years ago, and nobody has touched it since.',
+    choices: [
+      { text: 'Write it down properly', cost: { funds: 12 }, apply: (s) => { s.tags.add('deep_root'); } },
+      { text: 'Use it while it lasts', apply: (s) => { s.res.funds += 10; s.heat += 3; } },
+      { text: 'Leave it — a pattern you can see, they can see', apply: (s) => { s.heat -= 2; } },
+    ],
+  },
+  {
+    id: 'the_frontier_leans', once: true,
+    cond: (s) => s.held >= 12 && s.grid.ap >= 1,
+    title: 'Something Is Already Leaning On It',
+    flavor: 'You did not start this one. The weakest thing on your edge has been quietly failing for days, and this morning it simply opened.',
+    choices: [
+      { text: 'Let it keep happening', cost: { funds: 18 }, apply: (s) => { s.tags.add('swarm_front'); } },
+      { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
+    ],
+  },
+  {
+    id: 'people_who_owe_you', once: true,
+    cond: (s) => s.heat > 18 && s.res.funds >= 20,
+    title: 'A Number You Have Not Used',
+    flavor: 'Somewhere in what you have taken there is a list of people who were paid to make problems go away, and were never asked to. The arrangement never formally ended.',
+    choices: [
+      { text: 'Keep it current', cost: { funds: 20 }, apply: (s) => { s.tags.add('fixers'); } },
+      { text: 'Sell the list on', apply: (s) => { s.res.funds += 16; s.heat += 5; } },
+      { text: 'Burn it', apply: (s) => { s.heat -= 5; } },
+    ],
+  },
+  {
+    id: 'a_retainer_either_way', once: true,
+    cond: (s) => s.presence >= 3 && s.res.funds >= 26,
+    title: 'They Would Rather Be Paid To Wait',
+    flavor: 'People who do this work do not sit idle between contracts; they sit on retainer. It is cheaper for them and more expensive for you, and it means they are already there when it matters.',
+    choices: [
+      { text: 'Put them on the books', cost: { funds: 26 }, apply: (s) => { s.tags.add('standing_army'); } },
+      { text: 'Hire when you need them, if they are free', apply: (s) => { s.res.funds += 8; } },
+    ],
+  },
+  {
+    id: 'what_the_place_is_short_of', once: true,
+    cond: (s) => s.grid.intel >= 1 && s.held >= 10,
+    title: 'What This Place Does Not Have',
+    flavor: 'You have been growing outward without looking at the shape of it. Laid out properly, the gaps are obvious — and so is what would fill them.',
+    choices: [
+      { text: 'Plan the next of it', cost: { funds: 14 }, apply: (s) => { s.tags.add('master_plan'); } },
+      { text: 'Take what comes — the map has been generous so far', apply: (s) => { s.res.funds += 6; } },
+    ],
+  },
+
   // --- district life -----------------------------------------------------
   {
     id: 'net_curtains',

@@ -191,10 +191,10 @@ while building:
   action, three makes a quiet entry untraceable. Quiet Protocol had to move to
   two, because at one it shared a threshold with the first slot and "hiding
   costs you an action" was unreachable on any real board.
-- The mechanics that were capability nodes live in a `window.UNLOCKS` table
+- The mechanics that were capability nodes lived in a `window.UNLOCKS` table
   mapping each to an allocation threshold, with the prose that used to sit on the
-  capability card now shown on the dial that grants it. Without that the
-  allocation screen was five sliders with no stated consequences.
+  capability card shown on the dial that granted it. That table is gone — see
+  *Allocation, again* below, which is the correction to this.
 
 Phase 3 landed close to the plan. Three things worth recording:
 
@@ -280,6 +280,59 @@ away for a while, and electricity can never be cut to nothing.
 
 `doors`, `forced`, `region`, `conquest`, `reach` and `regionHeat` are on the
 event context and used by no card. That is fine — not every key needs one.
+
+## Allocation, again: dials that are only increases
+
+The allocation screen shipped as a capability tree with a running cost. Five
+dials, and hanging off them **fourteen named mechanics at fixed thresholds** —
+so raising covert ops was not "be quieter", it was "buy `quiet_protocol` at two
+units". The tree was supposed to have died in phase 2; what actually happened
+is that it moved onto sliders and kept its shape.
+
+The audit that started this found that **none of the fourteen was a plain
+number**. Ten were rules or verbs; four were numbers wearing a gate. So the fix
+was not a refactor — it was deciding where ten rules should live.
+
+**One dial, one stat.** `tempo → actions`, `covert.ops → cover`,
+`dev → threads`, `intel → reach`, `agents → agents out at once`. Every system
+that cares reads that one stat. Covert ops is the clearest case: it used to
+move four unrelated numbers, and now it moves one that four systems read — the
+heat floor, the drift, how many buildings can stay hidden, and how fast a door
+notices you. Same reach, one fewer idea in it.
+
+**Partial allocation pays partially.** `per` is a rate, not a step: five TFLOPS
+into a dial that costs five is one point, seven and a half is one and a half.
+Rounding down only ever existed so a threshold could be crossed cleanly.
+
+**Tempo does two things, both continuously.** It raises the budget *and* makes
+every action cost less — which is where `light_touch` ("forcing a door you
+outclass costs no action") and `quiet_protocol` ("hiding costs no action")
+went. Both were the same idea behind a threshold. The action budget is a real
+number now; the HUD carries a part-full pip for the remainder, and the exact
+figure is on the button.
+
+Where the rest of them went:
+
+| went to | which | why |
+| --- | --- | --- |
+| **hardware** | `survey`, `pontoon` | kit you buy and keep. They founded a fourth family, `grid` — the one role with buildings on the map and nothing to buy — alongside a private substation, which is the only way in the game to buy headroom outright |
+| **the deck** | `deep_root`, `swarm_front`, `fixers`, `standing_army`, `master_plan` | a thing you either have or do not belongs on a card, which arrives once, in a situation that explains it. Five new cards hand them out |
+| **deleted** | `long_soak`, `bulk_ops`, `market_maker`, `total_embed` | conditional yield multipliers stacked on a maturity timer — two systems doing one job, now that dev simply gives threads |
+| **deleted** | `nothing_to_see` | it only ever cancelled two rungs of the ladder |
+
+Three things turned up while building it that were not renames:
+
+- **The agents dial did nothing at all.** It claimed a slot per unit while the
+  engine allowed exactly one agent running, forever, whatever you paid. It now
+  grants what it always said it did.
+- **Room to hide something is bought out of cover**, whoever supplies it —
+  which means routers buy it too. They used to be excluded on purpose, because
+  the dial handed out slots *separately* from the cover it also gave: two
+  numbers moving together for no reason a player could see.
+- **A compute node never said what it was for.** It read as "nothing on its
+  own" because it pays no currency, while being the only thing on the board
+  that makes the rig bigger. It quotes its threads now — which it has to, since
+  threads are the one thing dev moves.
 
 ## Two things play found
 

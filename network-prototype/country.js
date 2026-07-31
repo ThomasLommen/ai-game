@@ -558,6 +558,34 @@ window.HARDWARE = [
     label: 'noquestions', effect: { cover: 6, flockBonus: 1 },
     blurb: 'Whatever they are looking for, it does not look like you.',
   },
+
+  // The grid family. It exists for two reasons. Grid was the one role with
+  // buildings and no kit to buy, and it is the natural home for the two things
+  // the allocation dials used to unlock — both of which are civil works rather
+  // than numbers: surveying the lines so you choose where to look, and putting
+  // your own crossing over the water. The third is the only way in the game to
+  // buy headroom outright, which matters now the top bar says plainly when the
+  // rack has outrun the grid.
+  //
+  // Gated lower than the other families because grid buildings are rarer: a
+  // feeder pillar or two is a normal opening, six of them is not.
+  {
+    id: 'line_survey', family: 'grid', tier: 1, heldAt: 1, cost: 20, heat: 0,
+    label: 'line.survey', effect: {},
+    mechanic: true, // scan from a building you choose, rather than anywhere on the frontier
+    blurb: 'Somebody walked the lines and wrote down what they went past. You can decide where to look instead of taking what turns up.',
+  },
+  {
+    id: 'pontoon_kit', family: 'grid', tier: 2, heldAt: 2, cost: 44, heat: 2,
+    label: 'pontoon.kit', effect: {},
+    mechanic: true, // your own crossings, and settled ground reports two streets out unprompted
+    blurb: 'Your own way over the water, and ground that has been yours a while starts telling you what is two streets past it without being asked.',
+  },
+  {
+    id: 'own_substation', family: 'grid', tier: 3, heldAt: 4, cost: 70, heat: 3,
+    label: 'substation.own', effect: { supply: 9 },
+    blurb: 'Not borrowed, not spliced. Yours, on the paperwork, feeding whatever you decide to switch on.',
+  },
 ];
 
 // --- the hunt ------------------------------------------------------------

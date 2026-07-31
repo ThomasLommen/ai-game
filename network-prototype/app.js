@@ -482,7 +482,7 @@
     // Reach branch reshape, step 5: Master Plan trades pure chance for
     // deliberate variety — whichever trait is rarest across what already
     // stands, not just whatever didn't happen last time.
-    if (unlocked('master_plan')) {
+    if (has('master_plan')) {
       const counts = {};
       pool.forEach(k => { counts[k] = 0; });
       (state.buildings || []).forEach(b => { if (b.trait && counts[b.trait] !== undefined) counts[b.trait]++; });
@@ -1182,10 +1182,19 @@
 
   // Your whole action budget for a turn. Capabilities move it in both
   // directions on purpose: buying real tflops costs you tempo.
+  // A real number, not a count of pips. Tempo raises it continuously, and a
+  // partial action left over is a real state that either covers the next thing
+  // or does not.
   function maxAP() {
-    let n = window.AP.base;
-    n += allocUnits('ap');
-    return Math.max(window.AP.min, n);
+    const n = window.AP.base + allocStat('ap');
+    return Math.max(window.AP.min, Math.round(n * 100) / 100);
+  }
+  // And the other half of what tempo does: everything gets cheaper as you run
+  // more of it. This is where the two "that action is free" unlocks went —
+  // same idea, no threshold, and it never quite reaches zero.
+  function apCostMult() {
+    const A = window.AP;
+    return Math.max(A.minCostMult, 1 - allocStat('ap') * A.cheapenPer);
   }
 
   // --- the grid and what is running on it ---------------------------------
@@ -1214,33 +1223,30 @@
   function allocLive(id) { return (state.allocLive || {})[id] || 0; }
   // Effects read the live figure, never the dial. That is the whole switching
   // cost: a dial you keep turning is a dial whose effect never arrives.
-  function allocUnits(id) {
+  // How much of a dial's stat is actually running, as a real number. Partial
+  // allocation pays partially: five TFLOPS into a dial that costs five is one
+  // point, seven and a half is one and a half. Rounding down was only ever
+  // there so a threshold could be crossed cleanly, and there are no thresholds
+  // left to cross.
+  function allocLevel(id) {
     const A = window.ALLOC.find(a => a.id === id);
     if (!A || !A.per) return 0;
-    return Math.floor(allocLive(id) / A.per);
+    return Math.round((allocLive(id) / A.per) * 100) / 100;
   }
-  // Composed onto a running value rather than starting from the default, so it
-  // can be the third source inside capEffect alongside capabilities and plant.
-  function allocEffectOn(key, v) {
-    window.ALLOC.forEach(A => {
-      if (!A.effect || A.effect[key] === undefined) return;
-      const units = allocUnits(A.id);
-      if (!units) return;
-      // per-unit, unlike the other two sources: three units of covert ops is
-      // three applications of its effect, not one
-      v = /Mult$/.test(key) ? v * Math.pow(A.effect[key], units) : v + A.effect[key] * units;
-    });
-    return v;
+  // The whole points of it, for the handful of things that genuinely cannot be
+  // fractional — a pip is a pip and half an agent is not out working.
+  function allocUnits(id) { return Math.floor(allocLevel(id)); }
+  // What a named stat is running at. One dial feeds each; nothing else does.
+  function allocStat(stat) {
+    const A = window.ALLOC.find(a => a.stat === stat);
+    return A ? allocLevel(A.id) : 0;
   }
 
   // Whether a named mechanic is running. One source now the tree is gone: the
   // allocation threshold in window.UNLOCKS. That difference is the point of the
   // rework — a bought capability was true forever, an allocation is true while
   // you are paying for it and false again the moment the compute goes elsewhere.
-  function unlocked(id) {
-    const U = (window.UNLOCKS || {})[id];
-    return !!U && allocUnits(U.alloc) >= U.units;
-  }
+
 
   function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0) + hackDraw(); }
   function allocFree() { return usableTflops() - drawn(); }
@@ -1303,9 +1309,11 @@
       if (!hasHardware(c.id) || !c.effect || c.effect[key] === undefined) return;
       v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
     });
-    // Allocation is the third source. Unlike a capability or a rack, it is the
-    // only one you can turn back down again.
-    return allocEffectOn(key, v);
+    // Allocation used to compose in here as a third source. It does not any
+    // more: a dial produces exactly one named stat, and the systems that care
+    // read that stat directly, so there is one place to look for what a dial
+    // does rather than a key that might be picked up by any of three sources.
+    return v;
   }
 
   // Presence is what a finished city leaves behind, so it feeds every one of
@@ -1320,14 +1328,16 @@
   function reach() { return owned().length + Math.round(presence() / 5); }
 
   function tflops() {
-    const threadBonus = capEffect('threadBonus', 0);
-    return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
+    const threadBonus = capEffect('threadBonus', 0) + allocStat('threads');
+    // rounded: threads are a float now that dev pays fractionally, and an
+    // unrounded sum prints as 68.00000000000003 in the HUD
+    return Math.round((2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + deepHoldBonus()
       + (state.upgrades || 0) * window.UPGRADE.baseTflops
       + Math.round(window.COUNTRY.tflopsLog * Math.log(1 + presence()))
       + (allyTrusted() ? window.ALLY.tflops : 0)
       + (has('ally_process') ? 3 : 0)
-      + capEffect('tflops', 0);
+      + capEffect('tflops', 0)) * 10) / 10;
   }
   // What a host effectively defends at — the world can harden against you.
   function defenseOf(h) {
@@ -1347,7 +1357,7 @@
   // question moot (Cover's own capstone, immune to the one thing built to
   // attack the branch's own resource).
   function civicEyesAudited() {
-    return ladderStage() >= 4 && !has('blind_spot') && !unlocked('nothing_to_see');
+    return ladderStage() >= 4 && !has('blind_spot');
   }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
@@ -1362,7 +1372,10 @@
                             0.9 * quiet + (has('dark_relay') ? 3 : 0));
     const national = Math.min(presence() * window.COUNTRY.heatFloorPer,
                               strikeThreshold() * window.COUNTRY.maxFloorShare);
-    return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
+    // Cover lowers the floor. Being hard to follow and settling lower are the
+    // same fact about you, so they come off the same number.
+    const quietFloor = allocStat('cover') / window.ALLOC_STATS.coverFloorPer;
+    return Math.max(0, loudPart - masked + national + capEffect('floor', 0) - quietFloor);
   }
   // Heat is bounded above as well as below: unbounded heat made being over the
   // line consequence-free, since the hunter is on a cooldown anyway.
@@ -1386,6 +1399,7 @@
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
       + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
       + capEffect('cover', 0)
+      + allocStat('cover')
       + (has('clean_room') ? 2 : 0);
   }
   // Cover is not spent any more. It gates a quiet entry and it slows the
@@ -1398,7 +1412,14 @@
   // How many buildings can be kept off their map at once. Capacity, not
   // currency: covert ops decides the number of slots, un-hiding gives one back,
   // and nothing is drained while they are occupied.
-  function hideSlots() { return capEffect('freeHideSlots', 0); }
+  // Somewhere to keep a building off their map is bought out of cover, which
+  // is the one thing covert ops produces. It used to be its own effect key on
+  // the same dial — two numbers moving together for no reason a player could
+  // see.
+  function hideSlots() {
+    return capEffect('freeHideSlots', 0)
+      + Math.floor(cover() / window.ALLOC_STATS.coverHidePer);
+  }
   function hideSlotsFree() { return Math.max(0, hideSlots() - hidden().length); }
 
   function stageFor(count) {
@@ -1477,22 +1498,20 @@
   // turn will run — every yield in the game is multiplied by yieldMult, and a
   // panel transcribing the raw table said "+2 a turn" for a server that had
   // been paying 3.2 since the player bought Bulk Processing.
-  const BULK_OPS_MATURE_TURNS = 3, BULK_OPS_BONUS = 1.6;
   // Market Maker: a known, loud operation profits from that instead of just
   // risking it — heat has to be at least this share of the strike threshold
   // before the bonus kicks in, and this is the size of it.
-  const MARKET_MAKER_HEAT_SHARE = 0.5, MARKET_MAKER_HOT_BONUS = 1.4;
   // Standing Army: a force raised in case the shooting starts is still a
   // standing expense either way — it rents itself out for the duration,
   // whether or not the war ever actually opens.
   const STANDING_ARMY_RETAINER = 6;
   function perTurnIncome() {
-    const mult = capEffect('yieldMult', 1)
-      * ((unlocked('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
-    // Bulk Processing does not make everything worth more on the spot — it
-    // rewards ground you have actually settled into, not ground you took last
-    // turn. A holding under three turns old pays exactly as it always did.
-    const matures = unlocked('bulk_ops');
+    const mult = capEffect('yieldMult', 1);
+    // Bulk Processing and Market Maker are gone with the thresholds that
+    // granted them. Both were conditional multipliers on the same yield —
+    // one for ground you had settled into, one for running hot — and neither
+    // was a thing a dial should have been handing out.
+    const matures = false;
     // The Cut's whole bite now: a holding it has stranded still stands, it
     // simply pays nothing while there is no way to get anything to or from
     // it — not a slow rot, a real and immediate stop.
@@ -1503,7 +1522,7 @@
     owned().forEach(h => {
       if (cutOff[h.id]) return;
       const y = window.HOST_TYPES[h.type].yield || {};
-      const maturedBonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
+      const maturedBonus = 1;
       for (const k in y) add(k, y[k] * mult * maturedBonus);
     });
     // finished cities pay whether or not you are standing in them — that is
@@ -1516,7 +1535,7 @@
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
     // compute plant adds capacity, not income — see tflops()
-    if (unlocked('standing_army')) add('funds', STANDING_ARMY_RETAINER);
+    if (has('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -1541,7 +1560,10 @@
     h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
       * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
-    return h * capEffect('driftMult', 1) * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
+    const S = window.ALLOC_STATS;
+    const quietDrift = Math.pow(S.coverDriftStep, allocStat('cover') / S.coverDriftPer);
+    return h * capEffect('driftMult', 1) * quietDrift
+      * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
   }
 
   // Broad Front: once a turn, the weakest thing on the frontier forces its
@@ -1550,7 +1572,7 @@
   // kicked it in yourself. Tempo's capstone acts on its own rather than
   // making you faster; this is the first thing in the game that does.
   function swarmFrontStep() {
-    if (state.scope !== 'city' || state.card || !unlocked('swarm_front')) return null;
+    if (state.scope !== 'city' || state.card || !has('swarm_front')) return null;
     let best = null, bestDef = Infinity;
     (state.buildings || []).forEach(b => {
       const h = hostsIn(b)[0];
@@ -1571,19 +1593,12 @@
     return h;
   }
 
-  // Long Soak: ground you have actually settled into is worth more than
-  // ground you just took — ties into the exact maturity check Bulk
-  // Processing already uses for income, but on tflops instead: every holding
-  // matured past this many turns adds extra threads. Total Embed collapses
-  // the wait to zero, same shape as it always had: nothing needs time to
-  // settle in any more, it already has.
-  const LONG_SOAK_MATURE_TURNS = 5, LONG_SOAK_THREAD_BONUS = 1;
-  function deepHoldBonus() {
-    if (!unlocked('long_soak')) return 0;
-    const instant = unlocked('total_embed');
-    return owned().filter(h => instant || (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS).length
-      * LONG_SOAK_THREAD_BONUS;
-  }
+  // Long Soak and Total Embed are gone. Both were extra threads for ground
+  // that had sat still long enough, gated on a dial — and dev now simply gives
+  // threads, to everything you hold, for as long as you run it. A timer that
+  // only paid out if you had also bought the right threshold was two systems
+  // doing one job.
+  function deepHoldBonus() { return 0; }
 
   // Pontoon: ground you have actually settled into gives up what's past it,
   // on its own. Every holding older than PONTOON_MATURE_TURNS reveals
@@ -1592,7 +1607,7 @@
   // up rather than buried in a generation-time number nobody sees change.
   const PONTOON_MATURE_TURNS = 4;
   function pontoonReveals() {
-    if (!unlocked('pontoon')) return [];
+    if (!hasHardware('pontoon_kit')) return [];
     const seen = {};
     const out = [];
     owned().forEach(h => {
@@ -1672,7 +1687,7 @@
     // Pontoon used to fire once, at the moment it was bought. It answers to an
     // allocation now, so it is checked every turn instead and the band's own
     // guard keeps it from laying a second crossing over the same water.
-    if (unlocked('pontoon')) layOwnCrossings();
+    if (hasHardware('pontoon_kit')) layOwnCrossings();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -2010,10 +2025,6 @@
   function actHide(bid) {
     if (!canHide(bid)) return false;
     spendAP('lielow');
-    // Quiet Protocol: hiding something costs no action at all, on top of the
-    // first two costing no ongoing upkeep either — the branch's own core
-    // verb, made completely free rather than just cheaper.
-    if (unlocked('quiet_protocol')) state.ap += apCost('lielow');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -2195,23 +2206,32 @@
   // --- action points -----------------------------------------------------
   // Free things (looking at a node, backing out of a card, reading a stat)
   // never touch this. Only committing actions do.
-  function apCost(kind) { return (window.AP.costs && window.AP.costs[kind]) || 1; }
-  function canAfford(kind) { return !state.card && !state.over && state.ap >= apCost(kind); }
+  function apCost(kind) {
+    const base = (window.AP.costs && window.AP.costs[kind]) || 1;
+    return Math.round(base * apCostMult() * 100) / 100;
+  }
+  // Compared with a hair of slack, for the same reason the spend is rounded.
+  const AP_EPSILON = 0.001;
+  function canAfford(kind) {
+    return !state.card && !state.over && state.ap + AP_EPSILON >= apCost(kind);
+  }
   // "Refused specifically because the turn is spent", as opposed to refused
   // because a card is open or the run is over — those are different answers and
   // deserve different words.
   function apShort(kind) {
     if (state.card || state.over) return false;
-    return state.ap < apCost(kind);
+    return state.ap + AP_EPSILON < apCost(kind);
   }
   function countryApShort(kind) {
     if (state.card || state.over) return false;
-    return state.ap < countryCost(kind);
+    return state.ap + AP_EPSILON < countryCost(kind);
   }
   function spendAP(kind) {
     const c = apCost(kind);
-    if (state.ap < c) return false;
-    state.ap -= c;
+    if (state.ap + AP_EPSILON < c) return false;
+    // rounded at every mutation: a budget that drifts to 0.30000000000000004
+    // refuses an action it can plainly afford
+    state.ap = Math.max(0, Math.round((state.ap - c) * 100) / 100);
     return true;
   }
 
@@ -2262,38 +2282,15 @@
     if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
     if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
     if (e.agentSlots) add('compute', `+${e.agentSlots} agent out at once`);
+    // headroom you buy rather than take: the only lever on the grid that is
+    // not a building on the map
+    if (e.supply) add('grid', `+${e.supply} electricity`);
     return out.join('');
   }
 
-  // What each named mechanic actually does, in the player's terms. This prose
-  // used to hang off the capability card it was bought on; the mechanics answer
-  // to allocation thresholds now, so it hangs off the dial that grants them and
-  // the allocation screen lists what is running and what is next.
-  function unlockNote(id) {
-    switch (id) {
-      case 'quiet_protocol': return 'hiding something costs no action';
-      case 'long_soak':      return `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`;
-      case 'total_embed':    return 'every holding already counts as matured — nothing needs time to settle in';
-      case 'nothing_to_see': return `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`;
-      case 'bulk_ops':       return 'settled ground pays considerably more';
-      case 'swarm_front':    return 'the frontier\'s weakest door forces itself, free';
-      case 'light_touch':    return 'forcing a door you outclass costs no action';
-      case 'deep_root':      return 'forcing a door softens what is next to it, permanently';
-      case 'survey':         return 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random';
-      case 'pontoon':        return `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`;
-      case 'standing_army':  return `a retainer either way: +${STANDING_ARMY_RETAINER} funds a turn, and if war comes, it is already standing guard over what you can afford to cover`;
-      case 'fixers':         return 'a favor called in on the strike card gets you out clean, for funds';
-      case 'market_maker':   return `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`;
-      case 'master_plan':    return 'home\'s next growth favours whichever character it has the least of';
-      default: return '';
-    }
-  }
-  // Every mechanic a given dial grants, cheapest first.
-  function unlocksFor(id) {
-    return Object.keys(window.UNLOCKS || {})
-      .filter(k => window.UNLOCKS[k].alloc === id)
-      .sort((a, b) => window.UNLOCKS[a].units - window.UNLOCKS[b].units);
-  }
+  // unlockNote and unlocksFor are gone with the thresholds they described. A
+  // dial has one line of prose and one number that goes up; there is no list
+  // of things it will hand you at two units and at three.
 
   // Everything a capability could plausibly move, so a purchase can report what
   // it actually changed rather than trusting the card. Derived, not stored:
@@ -2779,7 +2776,7 @@ scratch.later = null;
   }
 
   function actScan(fromId) {
-    const pool = (fromId != null && unlocked('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
+    const pool = (fromId != null && hasHardware('line_survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
     spendAP('sweep');
@@ -3160,7 +3157,7 @@ scratch.later = null;
     const H = window.HACK;
     const T = window.HOST_TYPES[h.type] || {};
     const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
-    const shield = Math.max(H.shieldFloor, 1 - allocUnits('covert') * H.covertShield);
+    const shield = Math.max(H.shieldFloor, 1 - allocStat('cover') * H.covertShield);
     // a city's own character, where it has one — a watched city notices
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
@@ -3211,11 +3208,11 @@ scratch.later = null;
     if (!canHack(hostId)) return false;
     const h = hostById(hostId);
     const p = mounted();
-    // Light Touch: a door your rig comfortably clears takes no action to set
-    // going. Checked here rather than refunded on completion — the player needs
-    // to see the action not being spent at the moment they spend it.
-    const easy = unlocked('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT;
-    if (!easy) spendAP('breach');
+    // Light Touch is gone with the thresholds. Tempo makes every action
+    // cheaper instead, which covers the same ground continuously: run enough
+    // of it and setting a program going against an easy door costs a fraction
+    // of a turn rather than a whole one.
+    spendAP('breach');
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
@@ -3294,15 +3291,10 @@ scratch.later = null;
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
       if (!p.quiet) state.timesForced = (state.timesForced || 0) + 1;
-      // Nothing To See: a completed quiet entry actively sheds heat rather than
-      // merely costing none.
-      if (p.quiet && unlocked('nothing_to_see')) {
-        state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
-      }
       // Deep Root: a door you get through loosens the block around it too,
       // permanently — every neighbour's own defense, discovered or not, so the
       // rest of the cluster costs less from here.
-      if (unlocked('deep_root')) {
+      if (has('deep_root')) {
         buildingNeighbours(h.buildingId).forEach(bid => {
           hostsIn(buildingById(bid)).forEach(n => {
             if (n.owned) return;
@@ -3371,13 +3363,8 @@ scratch.later = null;
   // the decision moved to the rig, where it lasts a stretch of turns rather
   // than a single click.
 
-  // Light Touch: how far ahead your tflops has to be over a door's defense
-  // for forcing it to read as "well within reach" and refund the action.
-  const LIGHT_TOUCH_MULT = 2;
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
   const DEEP_ROOT_RIPPLE = 0.2;
-  // Nothing To See: how much heat a completed quiet entry sheds.
-  const NOTHING_TO_SEE_HEAT_SHED = 3;
   function resolveStrike(effect) {
     const before = beforeSnap();
     const fleet = owned().filter(h => !h.origin);
@@ -3394,7 +3381,7 @@ scratch.later = null;
       if (state.res.funds < 8) return;
       state.res.funds -= 8;
     } else if (effect === 'buy_out') {
-      if (!unlocked('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
+      if (!has('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
       state.res.funds -= window.FIXERS_FAVOR_COST;
     }
     burned.forEach(h => { h.owned = false; });
@@ -3498,7 +3485,7 @@ scratch.later = null;
   // nothing could check whether it had.
   function sweepReach() {
     return 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
-      + capEffect('sweepReach', 0);
+      + capEffect('sweepReach', 0) + Math.floor(allocStat('reach'));
   }
   // What a sweep actually turns up right now, as opposed to what it is capable
   // of turning up in general. sweepReach() is a capacity — it is what a
@@ -3681,15 +3668,20 @@ scratch.later = null;
   // --- country actions ---
   function countryCost(kind) {
     if (kind === 'move' && has('no_fixed_place')) return 0;
-    return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
+    // tempo is tempo everywhere: the country scale was the one place a dial
+    // that makes you faster did not make you faster
+    const base = (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
+    return Math.round(base * apCostMult() * 100) / 100;
   }
-  function canAffordCountry(kind) { return !state.card && !state.over && state.ap >= countryCost(kind); }
+  function canAffordCountry(kind) {
+    return !state.card && !state.over && state.ap + AP_EPSILON >= countryCost(kind);
+  }
 
   function actTravel(id) {
     const c = cityById(id);
     if (!c || !c.taken || c.id === CO().at) return false;
     if (!canAffordCountry('move')) return false;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     CO().at = c.id;
     if (c.consolidated) {
       // nothing left to walk here, but standing somewhere quiet still means
@@ -3713,7 +3705,7 @@ scratch.later = null;
     // an agent is already inside; walking into it yourself is not a second
     // route in, it is two of you working the same streets
     if (c.agent && !c.agent.done) return false;
-    state.ap -= countryCost('reach');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('reach')) * 100) / 100);
     const K = window.CITY_KINDS[c.kind];
     if (!K.contest) {
       // a town small enough to fold in without going there
@@ -3816,7 +3808,7 @@ scratch.later = null;
   function actConsolidate() {
     if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
     const c = currentCity();
-    state.ap -= countryCost('consolidate');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('consolidate')) * 100) / 100);
     const held = heldHere();
     const bonus = Math.round((held / Math.max(1, state.buildings.length)) * c.worth);
     // and what its streets were actually running for you
@@ -3853,7 +3845,14 @@ scratch.later = null;
   // was in it. So a city carrying something you want is a city you go to
   // yourself, and a city that is only presence is one you point compute at.
   function agents() { return (CO().cities || []).filter(c => c.agent); }
-  function agentRunning() { return agents().some(c => !c.agent.done); }
+  function agentsOut() { return agents().filter(c => !c.agent.done).length; }
+  // How many can be out at once. This is what the agents dial produces, and
+  // until now nothing read it at all: the dial claimed a slot per unit while
+  // the engine allowed exactly one agent running, forever, whatever you paid.
+  function agentSlots() {
+    return Math.max(1, 1 + capEffect('agentSlots', 0) + Math.floor(allocStat('agents')));
+  }
+  function agentRunning() { return agentsOut() >= agentSlots(); }
   function agentsKnown() {
     return (CO().cities || []).filter(c => c.consolidated).length >= window.AGENTS.at;
   }
@@ -3919,7 +3918,7 @@ scratch.later = null;
     if (card.mode === 'launch' && (state.over || state.ap < countryCost('move'))) { refuseForAP(null); return false; }
     if (app.cost && app.cost.funds && state.res.funds < app.cost.funds) return false;
     if (app.cost && app.cost.funds) state.res.funds -= app.cost.funds;
-    if (card.mode === 'launch') state.ap -= countryCost('move');
+    if (card.mode === 'launch') state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     state.heat = clampHeat(state.heat + app.heat);
     if (card.mode === 'launch') {
       const A = window.AGENTS;
@@ -4387,7 +4386,7 @@ scratch.later = null;
     // Regulatory matches payment patterns against outage reports — plant
     // it is watching gets traced back to you instead of going clean, unless
     // you have a way to be untraceable or have already gotten off its list.
-    if (ladderStage() >= 2 && !has('ledger_inside') && !unlocked('nothing_to_see')) heat += window.HEAT.BUY_TRACE;
+    if (ladderStage() >= 2 && !has('ledger_inside')) heat += window.HEAT.BUY_TRACE;
     if (heat) state.heat = clampHeat(state.heat + heat);
     pushLog(`${hw.label}. ${hw.blurb}`);
     afterSnap(before);
@@ -4560,7 +4559,7 @@ scratch.later = null;
     if (state.res.funds < r.cost) return false;
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.funds -= r.cost;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     // the turn, not a flag: the slot is yours now, the reputation accrues
     LG().owned[r.id] = Math.max(1, state.turn);
     accountantNudge(window.ACCOUNTANT.rungNudge);
@@ -4586,7 +4585,7 @@ scratch.later = null;
     }
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.funds -= L.spinCost;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
     accountantNudge(window.ACCOUNTANT.spinNudge);
@@ -4840,7 +4839,7 @@ scratch.later = null;
     // from zero — but it costs exactly what fielding a flock always costs,
     // for each city, so it only covers as much as you can actually afford
     // the instant the war opens rather than arriving free.
-    if (unlocked('standing_army')) {
+    if (has('standing_army')) {
       const guarded = [];
       const cost = window.WAR.flockCost;
       const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
@@ -7053,11 +7052,20 @@ scratch.later = null;
       document.getElementById('held-count').textContent =
         held + ' held' + (theirs ? ` · ${theirs} lost` : '');
     }
+    // The budget is a real number now that tempo cheapens actions, so a row of
+    // whole dots cannot say it exactly. It does not have to: what a player
+    // needs off the HUD is "roughly how much turn is left", and the exact
+    // figure is one tap away on the same button. A part-full pip carries the
+    // remainder rather than rounding it out of sight.
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
     if ($ap) {
       let pips = '';
-      for (let i = 0; i < cap; i++) pips += `<span class="pip${i < state.ap ? ' on' : ''}"></span>`;
+      const whole = Math.floor(state.ap + 0.001);
+      for (let i = 0; i < Math.ceil(cap - 0.001); i++) {
+        const part = i === whole && state.ap - whole > 0.05;
+        pips += `<span class="pip${i < whole ? ' on' : part ? ' part' : ''}"></span>`;
+      }
       $ap.innerHTML = pips;
     }
     // A row of dots is not self-explanatory. Name it, and let it be tapped for
@@ -7067,7 +7075,9 @@ scratch.later = null;
     const $apGroup = document.getElementById('ap-group');
     if ($apGroup) {
       $apGroup.classList.toggle('spent', state.ap <= 0);
-      $apGroup.title = `${state.ap} of ${cap} actions left this turn`;
+      const fig = (n) => (Math.round(n * 10) / 10).toString();
+      $apGroup.title = `${fig(state.ap)} of ${fig(cap)} actions left this turn`
+        + (apCostMult() < 1 ? ` — tempo has each one down to ${fig(apCost('breach'))}` : '');
       if (!$apGroup.dataset.wired) {
         $apGroup.dataset.wired = '1';
         $apGroup.addEventListener('click', () => showInfo(window.STAT_INFO.actions));
@@ -7220,27 +7230,48 @@ scratch.later = null;
   // What the effect of an allocation actually is at the figure it is running
   // at — scaled per unit, then handed to the same chip formatter a capability
   // or a rack uses, so a thing you dialled in reads like a thing you bought.
-  function allocChips(A, units) {
-    const scaled = {};
-    for (const k in (A.effect || {})) {
-      scaled[k] = /Mult$/.test(k) ? Math.pow(A.effect[k], units) : A.effect[k] * units;
+  // A dial produces one number, so the chip beside it is that number. What it
+  // is *worth* is the second chip: the same figure said in the terms of
+  // whatever reads it, so raising covert ops says how much longer the response
+  // takes between steps rather than only that cover went up by two.
+  function allocReadout(A, level) {
+    if (!level) return '';
+    switch (A.stat) {
+      case 'ap': {
+        const off = Math.round((1 - apCostMult()) * 100);
+        return off > 0 ? chip('cover', `every action ${off}% cheaper`) : '';
+      }
+      case 'cover': {
+        const H = window.HUNT;
+        const every = Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+        return chip('cover', `they step every ${every} turns`)
+          + (hideSlots() ? chip('cover', `${hideSlots()} hidden at once`) : '');
+      }
+      case 'threads':
+        return chip('tflops', `+${Math.round(allocStat('threads') * owned().length)} TFLOPS across what you hold`);
+      case 'reach':
+        return chip('compute', `a scan turns up ${sweepReach()}`);
+      case 'agents':
+        return chip('compute', `${agentSlots()} out at once`);
+      default: return '';
     }
-    return capEffectChips({ effect: scaled });
   }
 
-  // The allocation screen. One step of the dial is one unit of effect rather
-  // than one TFLOPS — the player thinks in "another action a turn", not in
-  // whether four is enough for one.
+  // The allocation screen. Five dials, five numbers. Nothing here is bought
+  // and kept, and nothing here is waiting behind a threshold.
   function allocSection() {
     const free = allocFree();
     const rows = window.ALLOC.map(A => {
-      const dial = allocDial(A.id), live = allocLive(A.id), units = allocUnits(A.id);
+      const dial = allocDial(A.id), live = allocLive(A.id);
+      const level = allocLevel(A.id);
+      const want = A.per ? Math.round((dial / A.per) * 100) / 100 : 0;
       const pending = dial !== live;
+      const fig = (n) => (Math.round(n * 10) / 10).toString();
       return `
-        <div class="alloc-row${units ? ' on' : ''}">
+        <div class="alloc-row${level ? ' on' : ''}">
           <div class="alloc-top">
             <span class="alloc-name">${A.label}</span>
-            <span class="mono dim">${A.id === 'covert' ? `${cover()} cover · ` : ''}${A.per} TFLOPS each</span>
+            <span class="mono dim">${A.per} TFLOPS per ${A.unit.replace(/s$/, '')}</span>
           </div>
           <p class="shop-good-desc">${A.blurb}</p>
           <div class="alloc-dial">
@@ -7248,15 +7279,8 @@ scratch.later = null;
             <span class="alloc-fig mono">${live}${pending ? ` <i class="dim">&rarr; ${dial}</i>` : ''}</span>
             <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="up" ${free >= A.per ? '' : 'disabled'}>+</button>
           </div>
-          <p class="yield-row">${units
-            ? allocChips(A, units)
-            : `<span class="dim">${pending ? 'still coming up' : 'nothing running here'}</span>`}</p>
-          ${unlocksFor(A.id).map(k => {
-            const need = window.UNLOCKS[k].units;
-            const on = units >= need;
-            return `<p class="alloc-unlock${on ? ' on' : ''}">
-              <span class="mono">${on ? '&check;' : need + '&times;'}</span> ${unlockNote(k)}</p>`;
-          }).join('')}
+          <p class="yield-row">${chip('compute', `+${fig(level)} ${A.unit}`)}${
+            pending ? chip('cost none', `${fig(want)} on the way`) : ''}${allocReadout(A, level)}</p>
         </div>`;
     }).join('');
 
@@ -7783,7 +7807,7 @@ scratch.later = null;
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
-        : !hideSlots() ? 'needs covert ops running — nowhere to keep it'
+        : !hideSlots() ? `needs more cover — ${window.ALLOC_STATS.coverHidePer} of it buys somewhere to keep one`
         : !hideSlotsFree() ? `all ${hideSlots()} covert slots are occupied`
         : 'needs an action'}</span>
     </button>`;
@@ -7869,7 +7893,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${unlocked('survey') && sweepTargetsFrom(b.id).length ? `
+            ${hasHardware('line_survey') && sweepTargetsFrom(b.id).length ? `
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
               <span class="ab-name">scan from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
@@ -8030,7 +8054,7 @@ scratch.later = null;
         acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="launch-agent" data-city="${sel.id}">
           <span class="ab-name">send ${window.AGENTS.name}</span>
           <span class="ab-sub">${agentsLaunched() >= agentCapEver() ? 'you have used up what compute can spare for this'
-            : agentRunning() ? 'one is already out there'
+            : agentRunning() ? (agentSlots() === 1 ? 'one is already out there' : `all ${agentSlots()} of them are already out there`)
             : `${chip('cover', sel.worth + ' presence')}${P && !sel.prizeTaken ? chip('cost none', 'never see the plant') : ''}`}</span>
         </button>`);
       }
@@ -8180,7 +8204,7 @@ scratch.later = null;
     const was = h.owned;
     const read = () => {
       const inc = perTurnIncome();
-      return { cover: cover(), heat: heatPerTurn(), funds: inc.funds || 0 };
+      return { cover: cover(), heat: heatPerTurn(), funds: inc.funds || 0, tflops: tflops() };
     };
     h.owned = true;
     const on = read();
@@ -8191,6 +8215,7 @@ scratch.later = null;
       cover: on.cover - off.cover,
       heat: on.heat - off.heat,
       funds: on.funds - off.funds,
+      tflops: on.tflops - off.tflops,
     };
   }
   // a tenth is the finest distinction worth drawing on a chip
@@ -8208,6 +8233,12 @@ scratch.later = null;
     const m = hostMarginal(h);
     const out = [
       gainChip('funds', m.funds, 'funds'),
+      // What a compute node is actually for. It never said so: a server read
+      // as "nothing on its own" because it pays no currency, while being the
+      // only thing on the board that makes the rig bigger — and dev raising
+      // threads is now the one thing the dev dial does, so the figure it
+      // moves has to be visible on the thing it moves it on.
+      gainChip('tflops', m.tflops, 'tflops'),
       gainChip('cover', m.cover, 'cover'),
       // Heat runs the other way: less of it is the good outcome. A node that
       // shouts reads as a cost, and one that quietens you takes the cover
@@ -8282,7 +8313,7 @@ scratch.later = null;
           <p class="flavor">${c.flavor}</p>
         </div>
         <div class="choices">
-          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || unlocked(ch.requires.cap)).map(ch => {
+          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || has(ch.requires.cap)).map(ch => {
             const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
             return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
@@ -8406,11 +8437,11 @@ scratch.later = null;
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
+    allocUnits, allocLevel, allocStat, apCostMult, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
-    runningSection, coverLine, cardResourceStrip, huntBar,
+    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
