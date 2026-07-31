@@ -281,6 +281,27 @@ away for a while, and electricity can never be cut to nothing.
 `doors`, `forced`, `region`, `conquest`, `reach` and `regionHeat` are on the
 event context and used by no card. That is fine — not every key needs one.
 
+## Two things play found
+
+**A hack could not be stopped.** It could — `abortHack` has existed since phase
+3 — but only from the panel of the one building it was running against. With
+three going at once you had to remember which three buildings and find them
+again on the map, so the honest read from playing it was that starting a hack
+was a commitment you could not take back. The rig tab now lists everything
+running, with its race, what it is holding, a way to jump to the target, and
+its own **pull it out**. The button on the building stays where it was.
+
+**Cover was still sitting in the resource row.** It has not been a currency
+since phase 1 — it is never held and never spent, it is what routers and
+covert.ops running make *true about you* — but a number between funds and
+TFLOPS teaches the opposite, and it was the only thing up there that could not
+be spent on anything. It comes off the top bar. Its figure now appears in the
+two places it means something: on the covert.ops dial that raises it, and on
+the response's own bar, where it says what it actually buys — *"7 cover —
+enough to keep them to a step every 3 turns"*. A handful of cards still gate
+on it, and those cards, and only those, carry it on their resource strip so a
+gate is never uncheckable.
+
 ## The city, looked at
 
 Two things that were true in the data and false on the screen.

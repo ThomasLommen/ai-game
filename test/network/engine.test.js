@@ -2,6 +2,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadNetwork } = require('../helpers/load-network');
+const fs = require('node:fs');
+const path = require('node:path');
+// The DOM stub invents an element for any id asked for, so "this chip is not
+// on the page" cannot be asked of it. Read the page.
+const INDEX_HTML = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'network-prototype', 'index.html'), 'utf8');
 
 // Spend the turn's budget on sweeps, and return how many actually happened.
 // An action that cannot proceed (nothing left to scan, no actions) silently
@@ -7976,6 +7982,72 @@ test('hack: sending one shows on the map the instant you send it', () => {
   assert.ok(b.includes('hacking'), 'the door itself is marked for as long as it runs');
   assert.ok(b.includes('hb-done') && b.includes('hb-seen'),
     'and carries the race, so the board answers "which one is about to be caught"');
+});
+
+// Pulling out has always been in the engine, but only on the panel of the one
+// building it was against — so with several going you had to remember which
+// buildings and find them again, and the honest read from play was that a hack
+// could not be stopped at all.
+test('hack: the rig lists what is running, and every one of them can be pulled', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const empty = d.programSection().html;
+  assert.ok(/nothing running/i.test(empty), 'and says so when there is nothing');
+
+  const targets = s.hosts.filter(h => !h.origin).slice(0, 3);
+  targets.forEach(t => { t.owned = false; });
+  d.mount('backdoor');
+  s.ap = 9;
+  const started = targets.filter(t => d.startHack(t.id));
+  assert.ok(started.length >= 2, 'two doors going at once');
+
+  const html = d.programSection().html;
+  started.forEach(t => {
+    assert.ok(html.includes(`data-host="${t.id}"`),
+      'every running hack is on the rig, with its own way out');
+  });
+  assert.ok(html.includes('pull it out'), 'named the same as it is on the building');
+  assert.ok(html.includes(String(d.hackDraw())), 'and says what it is all holding');
+  // two runs against the same kind of building would otherwise both read
+  // "against apartments" and be impossible to tell apart
+  started.forEach(t => {
+    assert.ok(html.includes(t.name), `${t.name} is named, not just its kind`);
+  });
+  assert.ok(html.includes('data-sact="show"'), 'and each one can be gone and looked at');
+
+  // and the way out actually works from there
+  const free = d.allocFree();
+  d.abortHack(started[0].id);
+  assert.equal(d.hackOn(started[0].id), null, 'pulled');
+  assert.ok(d.allocFree() > free, 'and the compute came back');
+});
+
+test('cover: it is not a resource, and says what it is where it does its work', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.ok(INDEX_HTML.includes('data-stat="funds"') && INDEX_HTML.includes('data-stat="tflops"'),
+    'the things you actually hold are on the top bar');
+  assert.ok(!INDEX_HTML.includes('data-stat="cover"'),
+    'and cover is not — it is never held and never spent');
+
+  // it is on the dial that raises it
+  const sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(sec.html.includes(d.cover() + ' cover'), 'the covert.ops dial reports it');
+
+  // and on the only thing it slows down
+  const line = d.coverLine();
+  assert.ok(line.includes(d.cover() + ' cover'), 'the response says how much you have');
+  assert.ok(/step every \d+ turn/.test(line), 'and what that buys you, in turns');
+
+  // a card that gates on it can still be checked against it
+  const plain = d.cardResourceStrip({ choices: [{ text: 'a' }] });
+  const asks = d.cardResourceStrip({ choices: [{ gate: { stat: 'cover', min: 3 } }] });
+  assert.ok(!plain.includes('cover'), 'ordinary cards do not carry it');
+  assert.ok(asks.includes('cover'), 'a card that asks about it does');
 });
 
 test('hack: the mark on the map tracks the race, and goes when the hack does', () => {

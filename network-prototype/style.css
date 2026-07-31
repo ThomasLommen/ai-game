@@ -1846,3 +1846,11 @@ footer .build { opacity: .55; font-size: 10px; }
 .choice-strip .gamble-tell {
   color: var(--tflops); font-size: 11.5px; letter-spacing: .02em;
 }
+
+/* the target of a running hack, tapped to go and look at it */
+.run-where {
+  background: none; border: none; padding: 0;
+  color: var(--muted); font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; cursor: pointer;
+}
+.run-where:hover { color: var(--ink-dim); }

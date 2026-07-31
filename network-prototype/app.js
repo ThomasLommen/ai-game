@@ -7088,7 +7088,11 @@ scratch.later = null;
     }
     document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
     document.getElementById('res-tflops').textContent = tflops();
-    document.getElementById('res-cover').textContent = cover();
+    // Cover deliberately has no chip up here. It is never held and never
+    // spent — it is what routers and covert ops make true about you — and a
+    // number sitting between funds and TFLOPS taught the opposite. It is
+    // reported where it does its work: on the covert.ops dial that raises it,
+    // and on the response's own bar, which is the only thing it slows down.
 
     // What the public thinks is a word, not a number: "distrusted" is the thing
     // the player acts on and the figure behind it never is.
@@ -7215,7 +7219,7 @@ scratch.later = null;
         <div class="alloc-row${units ? ' on' : ''}">
           <div class="alloc-top">
             <span class="alloc-name">${A.label}</span>
-            <span class="mono dim">${A.per} TFLOPS each</span>
+            <span class="mono dim">${A.id === 'covert' ? `${cover()} cover · ` : ''}${A.per} TFLOPS each</span>
           </div>
           <p class="shop-good-desc">${A.blurb}</p>
           <div class="alloc-dial">
@@ -7277,8 +7281,48 @@ scratch.later = null;
           <span class="mono dim">${cur.label}</span>
         </div>
         <p class="sheet-note">${window.PROGRAM_INFO}</p>
+        ${runningSection()}
         ${rows}`,
     };
+  }
+
+  // Everything you currently have running, in one place. Pulling a hack out
+  // has always been possible, but only from the panel of the one building it
+  // is against — so with three going at once you had to remember which three
+  // and find them again on the map, and the honest read from play was that a
+  // hack could not be stopped at all. The rig knows what it is running.
+  function runningSection() {
+    const ks = hacks();
+    if (!ks.length) {
+      return `<p class="sheet-note dim">Nothing running. Whatever is mounted is what goes at the next door you pick.</p>`;
+    }
+    const rows = ks.map(k => {
+      const h = hostById(k.hostId);
+      const b = h && buildingById(h.buildingId);
+      const p = window.PROGRAMS.find(x => x.id === k.prog) || cur();
+      const done = p.turns - k.turnsLeft;
+      const goal = window.HACK.traceGoal;
+      const willBe = Math.round((k.trace + traceRate(h) * k.turnsLeft) * 100) / 100;
+      return `
+        <div class="alloc-row on">
+          <div class="alloc-top">
+            <span class="alloc-name">${p.label}</span>
+            <button type="button" class="run-where mono" data-sact="show" data-host="${h.id}">against ${bldgLabel(b)} &rsaquo;</button>
+          </div>
+          <p class="shop-good-desc">${h.name} · ${b ? window.DISTRICTS[b.district].label : ''}</p>
+          ${raceBar(done / p.turns, k.trace / goal)}
+          <p class="yield-row">${chip('compute', done + '/' + p.turns + ' done')}${
+            chip('tflops', k.allocated + ' TFLOPS held')}${
+            willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
+          <button type="button" class="act-btn" data-sact="abort" data-host="${h.id}">
+            <span class="ab-name">pull it out</span>
+            <span class="ab-sub">${chip('cover', 'frees ' + k.allocated + ' TFLOPS')}${chip('cost none', 'the turns are spent')}</span>
+          </button>
+        </div>`;
+    }).join('');
+    function cur() { return mounted(); }
+    return `<div class="legit-top"><span class="eyebrow mono">running now</span>`
+      + `<span class="mono dim">${hackDraw()} TFLOPS committed</span></div>${rows}`;
   }
 
   // Three sections: what your compute is doing, what it is running, and what
@@ -7545,6 +7589,22 @@ scratch.later = null;
         renderSheet();
       });
     });
+    $s.querySelectorAll('[data-sact]').forEach(b => {
+      b.addEventListener('click', () => {
+        const act = b.getAttribute('data-sact');
+        const hid = b.getAttribute('data-host');
+        if (act === 'abort') { abortHack(hid); renderSheet(); return; }
+        // "which apartments" is a question the map answers better than a
+        // longer label does: close up, select it, and put it on screen
+        if (act === 'show') {
+          const h = hostById(hid);
+          const bl = h && buildingById(h.buildingId);
+          closeSheet();
+          if (bl) { pickBuilding(bl.id); focusOn([{ x: bl.x + bl.w / 2, y: bl.y + bl.h / 2 }]); }
+          render();
+        }
+      });
+    });
     $s.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
         const a = b.getAttribute('data-cact');
@@ -7572,7 +7632,7 @@ scratch.later = null;
         <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
           ? 'They are about to find this place.'
           : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
-        <p class="hb-hint">Cover is what buys the distance. They start again from one building.</p>
+        <p class="hb-hint">${coverLine()} They start again from one building.</p>
       </div>`;
     }
     const H = window.HUNT;
@@ -7587,9 +7647,21 @@ scratch.later = null;
     const hid = hidden().length;
     return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
       <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
+      <p class="hb-hint">${coverLine()}</p>
       ${hid ? `<p class="hb-hid">${hid} of ${hideSlots()} covert slots in use.</p>` : ''}
       ${nx ? '<p class="hb-hint">Cut a red street and it closes for you too. Hide a building and it does not.</p>' : ''}
     </div>`;
+  }
+
+  // Cover, stated where it does its only real work. It used to be a chip on
+  // the top bar between funds and TFLOPS, which read as something you hold and
+  // spend; it is neither. It is what routers and covert ops make true about
+  // you, and all it buys is time between their steps.
+  function coverLine() {
+    const H = window.HUNT;
+    const every = Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+    return `<b>${cover()} cover</b> — enough to keep them to a step every ${every} turn${every === 1 ? '' : 's'}.`
+      + ` Routers and covert.ops are what raise it.`;
   }
 
   // The quiet answer, offered on the building rather than on the street —
@@ -8134,11 +8206,17 @@ scratch.later = null;
   // costing INSIGHT you might not have was being decided blind, with no way
   // to check. Carried into the card itself, since that is the one thing
   // guaranteed to still be on screen.
-  function cardResourceStrip() {
+  // Cover is not on the top bar any more, because it is not a resource — but a
+  // handful of cards still gate on it, and a gate you cannot check is exactly
+  // what this strip exists to prevent. So it appears here only on the cards
+  // that actually ask about it.
+  function cardResourceStrip(ev) {
+    const asksCover = !!(ev && (ev.choices || []).some(ch =>
+      (ch.gate && ch.gate.stat === 'cover') || (ch.cost && ch.cost.cover)));
     return `<div class="card-res">
       <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
       <span class="res tflops"><b>${tflops()}</b> tflops</span>
-      <span class="res cover"><b>${cover()}</b> cover</span>
+      ${asksCover ? `<span class="res cover"><b>${cover()}</b> cover</span>` : ''}
     </div>`;
   }
 
@@ -8147,7 +8225,7 @@ scratch.later = null;
       const ev = eventById(state.card.eventId);
       if (!ev) { state.card = null; renderPanel(); return; }
       $p.innerHTML = `
-        ${cardResourceStrip()}
+        ${cardResourceStrip(ev)}
         <div class="card event">
           <span class="card-kicker mono">SOMETHING HAPPENS</span>
           <h2 class="serif">${ev.title}</h2>
@@ -8308,6 +8386,7 @@ scratch.later = null;
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    runningSection, coverLine, cardResourceStrip, huntBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
