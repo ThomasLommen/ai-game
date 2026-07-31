@@ -1847,12 +1847,12 @@ footer .build { opacity: .55; font-size: 10px; }
 /* legitimacy runs short of your footprint more often than not, and that gap is
    the thing worth glancing at — so the figure goes warm when you are behind. */
 .res.legit.short b { color: var(--heat); }
-/* The ceiling is marked, never the figure in use. Iron you cannot switch on
-   is not capacity, and which of the two is stopping you is worth a colour —
-   but the grid is the binding limit on about half of all turns, so an alarm
-   over the whole number would just be permanent. */
-.res.tflops .lim { font-style: normal; }
-.res.tflops.capped .lim { color: var(--grid); }
+/* Power is its own limit, in its own colour. It goes bright when the rack has
+   outrun the grid — iron you hold and cannot switch on — because that is the
+   moment a substation is worth more to you than another datacenter. */
+.res.grid b { color: var(--muted); }
+.res.grid.capped b { color: var(--grid); }
+.res.grid.capped { border-color: color-mix(in srgb, var(--grid) 45%, var(--line)); }
 
 /* A closed choice says why in words, never in numbers. Quoting "-120 funds"
    turns a decision into arithmetic and tells the player exactly how much to go

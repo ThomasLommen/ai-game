@@ -8026,7 +8026,7 @@ test('hack: the rig lists what is running, and every one of them can be pulled',
   assert.ok(d.allocFree() > free, 'and the compute came back');
 });
 
-test('top bar: TFLOPS says how much is already spoken for, against what you can run', () => {
+test('top bar: TFLOPS is the rack, power is the draw, and they are not the same limit', () => {
   const { window, document } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -8035,39 +8035,42 @@ test('top bar: TFLOPS says how much is already spoken for, against what you can 
   d.setAlloc('covert', 3);
   d.render();
 
-  const chip = () => document.getElementById('res-tflops').innerHTML;
-  assert.ok(chip().startsWith(d.drawn() + '/'),
-    `what is committed comes first: ${chip()}`);
-  assert.ok(chip().includes('>' + d.usableTflops() + '<'),
-    'and the ceiling is what you can actually switch on, not what you own');
+  const rack = () => document.getElementById('res-tflops').textContent;
+  const power = () => document.getElementById('res-power').textContent;
+  assert.equal(Number(rack()), d.tflops(), 'the rack chip is what you own, whole');
+  assert.equal(power(), d.drawn() + '/' + d.electricity(),
+    'and the draw is against the grid, which is what it actually draws against');
 
-  // committing more moves the first figure and nothing else
-  const ceiling = d.usableTflops();
-  const before = d.drawn();
+  // committing more moves the draw and leaves both ceilings alone
+  const rackWas = d.tflops(), gridWas = d.electricity();
+  const drawWas = d.drawn();
   d.setAlloc('dev', d.allocDial('dev') + window.ALLOC.find(a => a.id === 'dev').per);
   d.render();
-  assert.ok(d.drawn() > before, 'the dial took capacity');
-  assert.ok(chip().startsWith(d.drawn() + '/'), 'and the chip says so at once');
-  assert.equal(d.usableTflops(), ceiling, 'without moving the ceiling');
+  assert.ok(d.drawn() > drawWas, 'the dial took capacity');
+  assert.equal(power(), d.drawn() + '/' + d.electricity(), 'and the chip says so at once');
+  assert.equal(d.tflops(), rackWas, 'without changing what the rack adds up to');
+  assert.equal(d.electricity(), gridWas, 'or what the grid will carry');
+
+  // the same number is never printed twice under two names
+  // the stub keeps whatever was assigned, and a bare number is assigned here
+  assert.ok(!String(rack()).includes('/'), 'the rack does not also carry the draw');
 });
 
-test('top bar: only the ceiling is marked, and only when the grid is what set it', () => {
+test('top bar: power goes bright exactly when the rack has outrun the grid', () => {
   const { window, document } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const cls = () => document.getElementById('res-tflops-btn').className;
+  const cls = () => document.getElementById('res-power-btn').className;
 
-  // hold nothing but compute: the rack outruns the grid
+  // hold everything except the grid: plenty of iron, nothing to switch it on
   s.hosts.forEach(h => { h.owned = !h.supply; h.discovered = true; });
   d.render();
   if (d.idleTflops() > 0) {
-    assert.ok(/capped/.test(cls()), 'iron you cannot power says so');
-    assert.ok(document.getElementById('res-tflops').innerHTML.includes('class="lim"'),
-      'on the ceiling alone — the figure in use stays legible, because the grid '
-      + 'binds on about half of all turns and a permanent alarm is not one');
+    assert.ok(/capped/.test(cls()),
+      'iron you hold and cannot power says so — this is when a substation beats a datacenter');
   }
 
-  // and with power to spare it is unmarked
+  // and with nothing held there is nothing idle and nothing to flag
   s.hosts.forEach(h => { h.owned = false; });
   d.render();
   assert.equal(d.idleTflops(), 0, 'nothing held, nothing idle');

@@ -37,7 +37,10 @@
 
   <div id="res-row">
     <button type="button" class="res funds" data-stat="funds"><b id="res-funds">0</b> funds</button>
-    <button type="button" class="res tflops" data-stat="tflops" id="res-tflops-btn"><b id="res-tflops">0/0</b> TFLOPS</button>
+    <button type="button" class="res tflops" data-stat="tflops" id="res-tflops-btn"><b id="res-tflops">0</b> TFLOPS</button>
+    <!-- The draw lives here rather than on TFLOPS: what is running draws
+         against the grid, not against the rack. One number, one meaning. -->
+    <button type="button" class="res grid" data-stat="power" id="res-power-btn"><b id="res-power">0/0</b> power</button>
     <button type="button" class="res legit" data-stat="legit" id="res-legit-btn" hidden><b id="res-legit">0</b> legit</button>
     <!-- Last, and pushed to the far right of the row: it is the only entry
          here that is not something you hold, so it sits apart from the ones

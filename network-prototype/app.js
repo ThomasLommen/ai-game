@@ -7093,17 +7093,22 @@ scratch.later = null;
     // actually switch on rather than what you own: with the grid short, some
     // of the rack is furniture, and a ceiling you cannot reach is not a
     // number to plan against.
+    // Two chips, because there are two limits and they are not the same one.
+    // TFLOPS is what the rack adds up to — capacity you own, raised by taking
+    // ground. Power is what you can run at once, and the draw belongs on it
+    // rather than on TFLOPS because what is running draws against the grid,
+    // not against the rack. Putting the draw on both would print the same
+    // number twice under two names.
     //
-    // Only the ceiling is ever marked, never the figure in use. Measured over
-    // twelve openings, the grid is the binding limit on 51% of turns and more
-    // as the campaign runs — so colouring the whole number would be an alarm
-    // that is on half the time, which is not an alarm. Marking the second
-    // figure alone says the useful thing precisely: this ceiling belongs to
-    // the grid, not to the rack, and a substation raises it.
+    // The power chip is marked when the rack outruns the grid — when there is
+    // iron you hold and cannot switch on, which is exactly when a substation
+    // is worth more to you than another datacenter.
     const $tf = document.getElementById('res-tflops');
-    if ($tf) $tf.innerHTML = `${drawn()}/<i class="lim">${usableTflops()}</i>`;
-    const $tfb = document.getElementById('res-tflops-btn');
-    if ($tfb) $tfb.className = 'res tflops' + (idleTflops() > 0 ? ' capped' : '');
+    if ($tf) $tf.textContent = tflops();
+    const $pw = document.getElementById('res-power');
+    if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
+    const $pwb = document.getElementById('res-power-btn');
+    if ($pwb) $pwb.className = 'res grid' + (idleTflops() > 0 ? ' capped' : '');
     // Cover deliberately has no chip up here. It is never held and never
     // spent — it is what routers and covert ops make true about you — and a
     // number sitting between funds and TFLOPS taught the opposite. It is
