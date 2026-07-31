@@ -291,6 +291,21 @@ was a commitment you could not take back. The rig tab now lists everything
 running, with its race, what it is holding, a way to jump to the target, and
 its own **pull it out**. The button on the building stays where it was.
 
+**TFLOPS only ever said what you owned.** "How much have I got" was never the
+live question — every dial and every running program holds its allocation
+until you take it back, so "how much is already spoken for" is. The chip reads
+`11/22` now: committed over what you can actually switch on. The denominator is
+`usableTflops()`, not the total held, because with the grid short some of the
+rack is furniture and a ceiling you cannot reach is not a number to plan
+against. The total, the electricity and the idle remainder are all on the
+allocation screen, which is where a breakdown belongs.
+
+Only the *ceiling* is coloured when the grid is what set it, never the figure
+in use. Measured over twelve openings the grid is the binding limit on 51% of
+turns and more as the campaign runs, so an alarm over the whole number would
+have been on permanently. Marking the second figure alone says the useful
+thing precisely: this ceiling belongs to the grid, and a substation raises it.
+
 **Cover was still sitting in the resource row.** It has not been a currency
 since phase 1 — it is never held and never spent, it is what routers and
 covert.ops running make *true about you* — but a number between funds and

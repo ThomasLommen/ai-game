@@ -8026,6 +8026,54 @@ test('hack: the rig lists what is running, and every one of them can be pulled',
   assert.ok(d.allocFree() > free, 'and the compute came back');
 });
 
+test('top bar: TFLOPS says how much is already spoken for, against what you can run', () => {
+  const { window, document } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.setAlloc('covert', 3);
+  d.render();
+
+  const chip = () => document.getElementById('res-tflops').innerHTML;
+  assert.ok(chip().startsWith(d.drawn() + '/'),
+    `what is committed comes first: ${chip()}`);
+  assert.ok(chip().includes('>' + d.usableTflops() + '<'),
+    'and the ceiling is what you can actually switch on, not what you own');
+
+  // committing more moves the first figure and nothing else
+  const ceiling = d.usableTflops();
+  const before = d.drawn();
+  d.setAlloc('dev', d.allocDial('dev') + window.ALLOC.find(a => a.id === 'dev').per);
+  d.render();
+  assert.ok(d.drawn() > before, 'the dial took capacity');
+  assert.ok(chip().startsWith(d.drawn() + '/'), 'and the chip says so at once');
+  assert.equal(d.usableTflops(), ceiling, 'without moving the ceiling');
+});
+
+test('top bar: only the ceiling is marked, and only when the grid is what set it', () => {
+  const { window, document } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const cls = () => document.getElementById('res-tflops-btn').className;
+
+  // hold nothing but compute: the rack outruns the grid
+  s.hosts.forEach(h => { h.owned = !h.supply; h.discovered = true; });
+  d.render();
+  if (d.idleTflops() > 0) {
+    assert.ok(/capped/.test(cls()), 'iron you cannot power says so');
+    assert.ok(document.getElementById('res-tflops').innerHTML.includes('class="lim"'),
+      'on the ceiling alone — the figure in use stays legible, because the grid '
+      + 'binds on about half of all turns and a permanent alarm is not one');
+  }
+
+  // and with power to spare it is unmarked
+  s.hosts.forEach(h => { h.owned = false; });
+  d.render();
+  assert.equal(d.idleTflops(), 0, 'nothing held, nothing idle');
+  assert.ok(!/capped/.test(cls()), 'so nothing is flagged');
+});
+
 test('cover: it is not a resource, and says what it is where it does its work', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

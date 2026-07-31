@@ -456,7 +456,7 @@ window.BUY_INFO = 'Some businesses will simply sell. It costs funds rather than 
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — scanning a street, setting a program running on a door. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   funds: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
-  tflops: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need TFLOPS at or above their defense to force.',
+  tflops: 'Your capacity, and how much of it is already spoken for. Every held body adds threads; every dial and every running program holds its share until you take it back. The second figure is what you can actually switch on — hold more iron than the grid can power and the rest is furniture, and the figure turns orange to say so.',
   cover: 'How hard you are to follow. Not a resource — it is never held and never spent, it is what routers and covert.ops running make true about you. All it buys is time: the more of it, the longer between the response\'s steps. A few people will only deal with you if you have enough of it.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
   legit: 'What the regulator can prove you are, against the footprint they can see. Short of your footprint and the audits start; ahead of it and they look elsewhere. Buying a business outright is the honest way to raise it.',

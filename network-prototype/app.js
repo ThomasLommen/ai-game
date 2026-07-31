@@ -7087,7 +7087,23 @@ scratch.later = null;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
     document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
-    document.getElementById('res-tflops').textContent = tflops();
+    // "How much have I got" was never the live question — "how much of it is
+    // already spoken for" is, because every dial and every running hack holds
+    // its allocation until you take it back. The denominator is what you can
+    // actually switch on rather than what you own: with the grid short, some
+    // of the rack is furniture, and a ceiling you cannot reach is not a
+    // number to plan against.
+    //
+    // Only the ceiling is ever marked, never the figure in use. Measured over
+    // twelve openings, the grid is the binding limit on 51% of turns and more
+    // as the campaign runs — so colouring the whole number would be an alarm
+    // that is on half the time, which is not an alarm. Marking the second
+    // figure alone says the useful thing precisely: this ceiling belongs to
+    // the grid, not to the rack, and a substation raises it.
+    const $tf = document.getElementById('res-tflops');
+    if ($tf) $tf.innerHTML = `${drawn()}/<i class="lim">${usableTflops()}</i>`;
+    const $tfb = document.getElementById('res-tflops-btn');
+    if ($tfb) $tfb.className = 'res tflops' + (idleTflops() > 0 ? ' capped' : '');
     // Cover deliberately has no chip up here. It is never held and never
     // spent — it is what routers and covert ops make true about you — and a
     // number sitting between funds and TFLOPS taught the opposite. It is
@@ -8215,7 +8231,10 @@ scratch.later = null;
       (ch.gate && ch.gate.stat === 'cover') || (ch.cost && ch.cost.cover)));
     return `<div class="card-res">
       <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
-      <span class="res tflops"><b>${tflops()}</b> tflops</span>
+      <!-- held, not free: a card gates on what you own, so the figure shown
+           has to be the one the gate compares against, and it has to say
+           which of the two it is now the top bar shows in-use as well -->
+      <span class="res tflops"><b>${tflops()}</b> tflops held</span>
       ${asksCover ? `<span class="res cover"><b>${cover()}</b> cover</span>` : ''}
     </div>`;
   }
