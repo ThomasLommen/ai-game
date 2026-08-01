@@ -7905,6 +7905,61 @@ test('hack: the rig lists what is running, and none of it can be called off', ()
   assert.equal(d.hackDraw(), held, 'every run is holding its share, and keeps it');
 });
 
+// Measured in play, the power ceiling started binding around turn 7-22 of the
+// first city — so a player still learning what a door is met a second ceiling,
+// with no idea what raised it, in the stretch that should be nothing but
+// taking ground.
+test('grid: there is no power ceiling until there is a country', () => {
+  const { window, document } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  assert.equal(d.countryUnlocked(), false, 'one city in, still learning it');
+  assert.equal(d.gridBinds(), false, 'so the grid does not bind');
+
+  // Hold a real chunk of the city but stay under the goal — holding all of it
+  // is itself what opens the country, so a test that takes everything is
+  // testing the wrong side of the line.
+  const goal = d.cityGoal();
+  let n = 0;
+  for (const b of s.buildings) {
+    if (d.owned().length >= goal - 1) break;
+    const h = d.hostsIn(b)[0];
+    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
+  }
+  assert.equal(d.countryUnlocked(), false, 'still short of the goal');
+  assert.ok(d.tflops() > d.electricity(),
+    `the rack has outrun what the grid would carry: ${d.tflops()} vs ${d.electricity()}`);
+  assert.equal(d.usableTflops(), d.tflops(), 'and every bit of it is still usable');
+  assert.equal(d.idleTflops(), 0, 'nothing is idle, because nothing is capping it');
+
+  // the allocation screen does not teach the rule either, while it is untrue
+  const sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(!sec.html.includes('electricity'), 'the grid screen does not mention a ceiling');
+  assert.ok(/rack itself/.test(sec.html), 'it says what actually limits you');
+});
+
+test('grid: it starts binding the moment the first city is genuinely yours', () => {
+  const { window, document } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  holdToGoal(d);
+  assert.equal(d.countryUnlocked(), true, 'the country is open');
+  assert.equal(d.gridBinds(), true, 'so the ceiling is real now');
+
+  s.hosts.forEach(h => { h.owned = true; });
+  assert.equal(d.usableTflops(), Math.min(d.tflops(), d.electricity()));
+  assert.ok(d.idleTflops() > 0, 'and iron you cannot power is idle');
+  const sec = d.capSections().find(x => x.id === 'alloc');
+  assert.ok(sec.html.includes('electricity'), 'with the ceiling on the screen now');
+
+  // what you took at home is what pays for it — home is never folded in, so a
+  // feeder pillar taken while learning is banked against the day it counts
+  const supply = d.owned().reduce((a, h) => a + (h.supply || 0), 0);
+  assert.ok(supply > 0, 'the city had grid in it');
+  assert.ok(d.electricity() > window.GRID.base, 'and it is raising the ceiling now');
+});
+
 test('top bar: one draw, two ceilings, and both of them on screen', () => {
   const { window, document } = loadNetwork();
   const d = window.__netDebug;
@@ -8069,6 +8124,26 @@ test('hack: a running program does not follow you across a border', () => {
 // Measured before this change: across 215 doors in real play all three
 // programs got in 100% of the time and none was ever caught, so the mount was
 // chosen once and never thought about again.
+// Raising hammer's load made it unaffordable on turn one, and it was the
+// program mounted before you have chosen one: measured, a run that started on
+// hammer took 1 to 4 buildings in thirty turns against 22 for one that started
+// on backdoor. Whatever is mounted by default has to be liftable.
+test('programs: the one mounted before you choose is one the opening can run', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const target = s.hosts.find(h => !h.owned && d.isFrontier(h));
+  assert.ok(target, 'there is a door off the doorstep');
+  assert.equal(d.canHack(target.id), true,
+    `turn one has to be playable with whatever is mounted: ${d.mounted().label} wants `
+    + `${d.hackNeed(d.mounted(), target)} of ${d.allocFree()}`);
+  assert.ok(d.hackNeed(d.mounted(), target) <= d.tflops(),
+    'the default program fits on the opening rack');
+});
+
 test('programs: no one of them is the answer to every door', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

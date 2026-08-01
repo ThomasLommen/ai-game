@@ -109,6 +109,10 @@ window.GRID = {
 };
 
 window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; what you can switch on is the ceiling. Change your mind whenever you like — a dial moves the moment you touch it, but what it does arrives a few turns later.';
+// Before the country opens there is no ceiling at all, so saying there is one
+// would be teaching a rule that is not yet true. One city is enough to learn
+// on, and the grid is a thing you meet when you are running more than one.
+window.GRID_INFO_EARLY = 'Everything you run draws on the rack and holds its draw until it is done. Change your mind whenever you like — a dial moves the moment you touch it, but what it does arrives a few turns later. Nothing limits you here but the rack itself; power becomes a ceiling once you are running more than one place.';
 
 // --- allocation --------------------------------------------------------
 // What replaced the capability tree. Nothing here is bought and kept; you
@@ -220,11 +224,17 @@ window.ALLOC_STATS = {
 // TFLOPS against a rack of 60 was no cost at all. At 1.8 the hardest doors ask
 // for more of the rack than you have, which is what stops it being the answer
 // to everything.
+// The first entry is what is mounted before you have chosen anything, and that
+// has to be a program the opening rack can actually run. hammer at load 1.8
+// wants 1.8x a door's defense in one turn, which on turn one is more TFLOPS
+// than exist — measured, a run that started on hammer took 1 to 4 buildings in
+// thirty turns against 22 for one that started on backdoor. You start careful
+// and reach for the hammer, rather than starting with a tool you cannot lift.
 window.PROGRAMS = [
-  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
-    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
   { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true, traceMult: 1,
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
+  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
+    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
   { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true, traceMult: 1.5,
     blurb: 'One door, then whatever is beside it, and whatever is beside that. The cheapest way in and the loudest of the quiet ones — it is touching four buildings, and gets noticed for all of them.' },
 ];

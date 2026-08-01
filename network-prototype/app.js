@@ -1204,11 +1204,30 @@
       + capEffect('supply', 0)
       - cut);
   }
-  function usableTflops() { return Math.min(tflops(), electricity()); }
+  // The grid is a country-scale constraint, and only exists once the country
+  // does. Measured in play, the ceiling started binding around turn 7-22 of
+  // the *first* city — so a player still learning what a door is met a second
+  // ceiling, with no idea what raised it, in the one stretch of the game that
+  // should be nothing but taking ground. It is also a ceiling on a number that
+  // is itself a ceiling, and two limits interacting is a lot to hold before
+  // you have held anything.
+  //
+  // So there is no power ceiling until the first city is genuinely yours. By
+  // then you have walked past feeder pillars and a switchyard and know what
+  // they are, and the constraint arrives with its answer already on the map.
+  // Grid buildings supply from the moment you take them, and home is never
+  // folded in — so what you take there is banked against the day it counts.
+  function gridBinds() { return countryUnlocked(); }
+  function usableTflops() {
+    return gridBinds() ? Math.min(tflops(), electricity()) : tflops();
+  }
   // Hardware sitting dark because there is nothing to power it with. Shown to
   // the player, because "you own it and cannot run it" has to be legible or it
   // reads as the numbers being broken.
-  function idleTflops() { return Math.round(Math.max(0, tflops() - electricity()) * 10) / 10; }
+  function idleTflops() {
+    if (!gridBinds()) return 0;
+    return Math.round(Math.max(0, tflops() - electricity()) * 10) / 10;
+  }
 
   const ALLOC_IDS = () => window.ALLOC.map(a => a.id);
   function allocDial(id) { return (state.alloc || {})[id] || 0; }
@@ -7140,10 +7159,16 @@ scratch.later = null;
     // is worth more to you than another datacenter.
     const $tf = document.getElementById('res-tflops');
     if ($tf) $tf.textContent = `${drawn()}/${tflops()}`;
+    // And no power chip at all until there is a power ceiling. A second limit
+    // in the HUD that does nothing yet is not a hint — it is a question the
+    // player carries around unanswered for the whole first city.
     const $pw = document.getElementById('res-power');
     if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
     const $pwb = document.getElementById('res-power-btn');
-    if ($pwb) $pwb.className = 'res grid' + (idleTflops() > 0 ? ' capped' : '');
+    if ($pwb) {
+      $pwb.hidden = !gridBinds();
+      $pwb.className = 'res grid' + (idleTflops() > 0 ? ' capped' : '');
+    }
     // Cover deliberately has no chip up here. It is never held and never
     // spent — it is what routers and covert ops make true about you — and a
     // number sitting between funds and TFLOPS taught the opposite. It is
@@ -7314,8 +7339,10 @@ scratch.later = null;
           <span class="eyebrow mono">the grid</span>
           <span class="mono dim">${drawn()} / ${usableTflops()} running</span>
         </div>
-        <p class="sheet-note">${window.GRID_INFO}</p>
-        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${chip('grid', electricity() + ' electricity')}${idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
+        <p class="sheet-note">${gridBinds() ? window.GRID_INFO : window.GRID_INFO_EARLY}</p>
+        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${
+          gridBinds() ? chip('grid', electricity() + ' electricity') : ''}${
+          idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
         ${rows}`,
     };
   }
@@ -8475,7 +8502,7 @@ scratch.later = null;
     accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
-    electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
+    electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
