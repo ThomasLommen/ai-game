@@ -129,7 +129,7 @@ window.COUNTRY = {
   // and every door in the last three regions opened on the first try.
   // Logarithmic keeps the first conversion whole and flattens hard after that.
   tflopsLog: 15,
-  coverRoot: 1.2,
+  covertRoot: 1.2,
   // A city's presence is partly what its streets were actually worth to you.
   // Without this the conversion swings on how thread-rich the city happened to
   // be — a warehouse district could cost you 40% of your tflops, a suburb none.
@@ -183,6 +183,16 @@ window.CITY_NAMES = {
 //                   currently counting down this much closer instead
 window.LADDER = {
   thresholds: [55, 90, 130, 180],
+  // Heat is the regulator's attention, and this is the only thing it does at
+  // country scale. The strike card is gone and the hunt no longer answers to
+  // heat, so without this heat drove nothing but card payloads.
+  //
+  // It is weighted against the *threshold*, not against raw heat: heat at the
+  // line contributes this much, and HEAT.MAX_OVER caps the contribution at
+  // 1.6x it. Deliberately smaller than the first rung — running permanently
+  // hot with no footprint at all cannot escalate you (40 < 55). It only ever
+  // pulls a rung nearer, which is what "they noticed you sooner" should mean.
+  heatWeight: 25,
   warnTurns: 5,
   delayOnTrusted: 3,
   rushOnCaught: 6,
@@ -545,18 +555,46 @@ window.HARDWARE = [
   },
   {
     id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
-    label: 'dead.drops', effect: { cover: 2 },
+    label: 'dead.drops', effect: { covert: 2 },
     blurb: 'A place to leave something that is not being watched.',
   },
   {
     id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
-    label: 'signal.borrowed', effect: { cover: 4, freeHideSlots: 1 },
+    label: 'signal.borrowed', effect: { covert: 4, freeHideSlots: 1 },
     blurb: "Riding somebody else's traffic instead of making your own.",
   },
   {
     id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
-    label: 'noquestions', effect: { cover: 6, flockBonus: 1 },
+    label: 'noquestions', effect: { covert: 6, flockBonus: 1 },
     blurb: 'Whatever they are looking for, it does not look like you.',
+  },
+
+  // The grid family. It exists for two reasons. Grid was the one role with
+  // buildings and no kit to buy, and it is the natural home for the two things
+  // the allocation dials used to unlock — both of which are civil works rather
+  // than numbers: surveying the lines so you choose where to look, and putting
+  // your own crossing over the water. The third is the only way in the game to
+  // buy headroom outright, which matters now the top bar says plainly when the
+  // rack has outrun the grid.
+  //
+  // Gated lower than the other families because grid buildings are rarer: a
+  // feeder pillar or two is a normal opening, six of them is not.
+  {
+    id: 'line_survey', family: 'grid', tier: 1, heldAt: 1, cost: 20, heat: 0,
+    label: 'line.survey', effect: {},
+    mechanic: true, // scan from a building you choose, rather than anywhere on the frontier
+    blurb: 'Somebody walked the lines and wrote down what they went past. You can decide where to look instead of taking what turns up.',
+  },
+  {
+    id: 'pontoon_kit', family: 'grid', tier: 2, heldAt: 2, cost: 44, heat: 2,
+    label: 'pontoon.kit', effect: {},
+    mechanic: true, // your own crossings, and settled ground reports two streets out unprompted
+    blurb: 'Your own way over the water, and ground that has been yours a while starts telling you what is two streets past it without being asked.',
+  },
+  {
+    id: 'own_substation', family: 'grid', tier: 3, heldAt: 4, cost: 70, heat: 3,
+    label: 'substation.own', effect: { supply: 9 },
+    blurb: 'Not borrowed, not spliced. Yours, on the paperwork, feeding whatever you decide to switch on.',
   },
 ];
 
@@ -569,26 +607,32 @@ window.HARDWARE = [
 // could do was a smaller version of something you do to yourself and call
 // winning.
 //
-// So crossing the threshold no longer fines you. It starts something. It takes
-// a building of yours inside the city you are standing in, garrisons it, and
-// walks along the streets from there. What it holds, you do not.
+// So heat no longer fines you, and it is no longer what brings them either.
+// Doors that catch you are. Get caught enough times in one city and something
+// arrives at the last door that caught you, garrisons it, and comes for the
+// rest of what you hold there. What it holds, you do not.
+//
+// It does not walk streets. That was the whole problem with the first version:
+// a street network is a thing you can wall in, so the hunt was one puzzle
+// solved once and then ignored for the rest of the game. Reach is distance now
+// — it crosses whatever is in the way — so there is nothing to seal, and the
+// only answers are the ones that were always the point: be quiet enough that
+// it moves slowly, hide what matters, get caught less, or be somewhere else.
 //
 // The important part is that it does not go away when you leave. A city it
 // takes enough of is lost off the national map for good — early on you have no
-// way to take one back, so every loss is permanent and the only answers are
-// spatial: sever the street it would have walked down, and accept that the
-// street is gone for you too. Later, when there are flocks, the cities it
-// holds are exactly what a flock knows how to attack, and the ratchet lets go.
+// way to take one back, so every loss is permanent. Later, when there are
+// flocks, the cities it holds are exactly what a flock knows how to attack,
+// and the ratchet lets go.
 window.HUNT = {
   name: 'the response',
-  // it does not arrive before you have anything to lose, or before there is a
-  // street network worth cutting
+  // it does not arrive before you have anything to lose
   minHeld: 8,
   // turns between moves. It slows down as your cover rises: cover is what
   // makes you hard to follow, and until now its only job in the whole engine
   // was gating one door type.
   everyBase: 6,
-  perCover: 0.22,          // turns added per point of cover
+  perCover: 0.22,          // turns added per point of covert.ops
   everyMax: 14,
   // and speeds up while you are over the line
   hotEvery: 3,
@@ -605,9 +649,11 @@ window.HUNT = {
   // what it takes off you when it moves onto something you hold
   // (it takes the building; what that costs you is felt elsewhere)
   takesCityAt: 0.45,       // share of a city it holds before the city is lost
-  // severing a street: loud, and it is gone for you as well
-  severCost: { funds: 6 },
-  severHeat: 4,
+  // Doors here that have caught a program of yours before anybody comes to
+  // look. This replaced a heat threshold: heat was a meter the player stopped
+  // reading, so the response arriving off it felt like weather. Getting caught
+  // is something you did, in a place, for a reason you can point at.
+  caughtToStart: 3,
   // Hiding a building: the quiet answer to the same problem. The street stays
   // open for you — that is the entire difference — but you pay for it every
   // turn out of the same cover that was slowing them down, so a wall of hidden

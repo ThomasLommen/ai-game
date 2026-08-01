@@ -14,7 +14,7 @@ window.HOST_TYPES = {
   server:     { label: 'server',     role: 'compute', defense: [8, 14],  threads: [5, 9],  yield: {}, trace: 1.2, buyPer: 18 },
   corporate:  { label: 'corporate',  role: 'funds',    defense: [14, 20], threads: [4, 7],  yield: { funds: 7 }, heat: 0.5, trace: 2, buyPer: 26 },
   till:       { label: 'till',        role: 'funds',    defense: [6, 9],   threads: [1, 2],  yield: { funds: 3 }, heat: 0.2, trace: 1, buyPer: 12 },
-  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, cover: 2, trace: 0.4 },
+  iot:        { label: 'router',     role: 'stealth', defense: [2, 4],   threads: [0, 1],  yield: {}, covert: 2, trace: 0.4 },
   datacenter: { label: 'datacenter', role: 'compute', defense: [24, 34], threads: [12, 20], yield: {}, heat: 0.3, trace: 1.8 },
   // Grid. These pay nothing and think barely at all — what they give is
   // headroom, which is the only thing that lets the compute you already hold
@@ -62,6 +62,15 @@ window.BREACH_FX = {
   linger: 520,
 };
 
+// A hack lasts turns, so what it needs is not one animation but a state the
+// map holds for as long as the program runs. `launch` is only the flourish
+// that draws the wire in at the moment you commit — the wire itself, and the
+// packets going down it, stay until the hack lands or is pulled.
+window.HACK_FX = {
+  launch: 560,
+  linger: 420,
+};
+
 
 // Covert ops lowers this at the gate itself, not just the funds it costs.
 
@@ -75,6 +84,13 @@ window.BREACH_FX = {
 // every zoom level, so the reach is measured in the same terms.
 window.TOUCH = { reachPx: 26 };
 
+// Tempo raises the budget, in whole actions. That is all it does.
+//
+// It briefly also made every action cost a fraction less, which turned the
+// budget into a real number — two-thirds of an action left was a real state.
+// It is not one a player should ever have to hold in their head: an action is
+// a thing you take or do not, and the pips have to be countable. So tempo buys
+// whole actions and nothing here is ever fractional.
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
@@ -93,6 +109,10 @@ window.GRID = {
 };
 
 window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; what you can switch on is the ceiling. Change your mind whenever you like — a dial moves the moment you touch it, but what it does arrives a few turns later.';
+// Before the country opens there is no ceiling at all, so saying there is one
+// would be teaching a rule that is not yet true. One city is enough to learn
+// on, and the grid is a thing you meet when you are running more than one.
+window.GRID_INFO_EARLY = 'Everything you run draws on the rack and holds its draw until it is done. Change your mind whenever you like — a dial moves the moment you touch it, but what it does arrives a few turns later. Nothing limits you here but the rack itself; power becomes a ceiling once you are running more than one place.';
 
 // --- allocation --------------------------------------------------------
 // What replaced the capability tree. Nothing here is bought and kept; you
@@ -104,18 +124,47 @@ window.GRID_INFO = 'Everything you run draws power. What you hold is capacity; w
 // A changed dial does not take effect at once. That ramp *is* the switching
 // cost: re-optimising every turn means living permanently in the gap between
 // what you have committed and what is actually running.
+// One dial, one stat. Nothing here unlocks anything — a dial is a number that
+// goes up while you pay for it, and every system that cares reads the number.
+// The version before this hung fourteen named mechanics off thresholds on
+// these five dials, which made the allocation screen a capability tree with a
+// running cost: you were not deciding how much of yourself to spend on being
+// quiet, you were shopping for `quiet_protocol` at two units. The verbs and
+// rules that lived here have moved to hardware you buy and cards you are
+// dealt, where a thing you either have or do not belongs.
+//
+// `per` is TFLOPS per point of the stat, and it is a rate, not a step: five
+// TFLOPS in dev is one point, seven and a half is one and a half. Partial
+// allocation pays partially. Thresholds were the only reason to round down,
+// and there are no thresholds left.
 window.ALLOC = [
-  { id: 'ap', label: 'tempo', per: 4, effect: { apDelta: 1 },
-    blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn.' },
-  { id: 'covert', label: 'covert.ops', per: 3, effect: { floor: -1, driftMult: 0.92, freeHideSlots: 1, cover: 2 },
-    blurb: 'Deliberately quiet. Less heat, somewhere to keep what you would rather nobody logged, and an easier time slipping in.' },
-  { id: 'dev', label: 'dev', per: 5, effect: { threadBonus: 1, yieldMult: 1.06 },
-    blurb: 'Work on yourself. Every host you hold gives up more than it did before, and pays a little better for it.' },
-  { id: 'intel', label: 'intel', per: 4, effect: { sweepReach: 1, growthStep: 1 },
-    blurb: 'Looking further than the street you happen to be standing on — and finding the next edge of the map sooner.' },
-  { id: 'agents', label: 'agents', per: 6, effect: { agentSlots: 1 },
-    blurb: 'Processes sent out to work somewhere you are not.' },
+  { id: 'ap', label: 'tempo', per: 4, stat: 'ap', unit: 'actions', one: 'action',
+    blurb: 'Threads spent scheduling yourself instead of the world. More actions in a turn, and every action a little cheaper — run enough of it and the small ones stop costing anything at all.' },
+  // The dial and the number it produces share one name, because they are one
+  // idea. "Cover" was the last of the Reigns vocabulary still standing, and it
+  // read as a currency because it used to be one.
+  { id: 'covert', label: 'covert.ops', per: 3, stat: 'covert', unit: 'covert.ops', one: 'point of covert.ops',
+    blurb: 'Deliberately quiet. Covert ops is what makes you hard to follow: the response takes longer between steps, heat settles lower and climbs more slowly, a door takes longer to notice you, and there is somewhere to keep what you would rather nobody logged. Routers and the right kit raise it too — this is compute spent on the same thing.' },
+  { id: 'dev', label: 'dev', per: 5, stat: 'threads', unit: 'threads', one: 'thread',
+    blurb: 'Work on yourself. Every host you hold gives up more threads than it did before.' },
+  { id: 'intel', label: 'intel', per: 4, stat: 'reach', unit: 'reach', one: 'step of reach',
+    blurb: 'Looking further than the street you happen to be standing on. Every scan turns up more.' },
+  { id: 'agents', label: 'agents', per: 6, stat: 'agents', unit: 'agents', one: 'agent',
+    blurb: 'Processes sent out to work somewhere you are not. More of them out at once.' },
 ];
+
+// What each dial's stat feeds, once it is the only thing the dial produces.
+// Covert ops is the interesting one: it used to move four unrelated numbers,
+// and now it moves one that four systems read. That is the same reach with
+// one fewer idea in it.
+window.ALLOC_STATS = {
+  // All measured against the whole covert.ops figure — the dial is one supply
+  // of it, routers and presence and kit are the others, and every system that
+  // cares reads the total rather than picking out the part it likes.
+  driftPer: 10,            // covert.ops that takes 8% off heat a turn
+  driftStep: 0.92,
+  hidePer: 5,              // covert.ops that buys somewhere to keep a building hidden
+};
 
 // The mechanics that used to be capability nodes — the ones read directly by
 // name rather than through a generic effect key. Each is now a threshold on an
@@ -159,13 +208,35 @@ window.ALLOC = [
 // cheaper way in overall — what it wants is all of it at once, and it makes a
 // great deal of noise. Backdoor fits in a ceiling less than half the size and
 // pays for it by living in the detection race four times as long.
+// Three programs, and they have to differ on the axis that actually decides
+// them. Measured before this: across 215 doors in real play, all three got in
+// 100% of the time and none was ever caught — so the mount was chosen once and
+// never thought about again. Two causes, both fixed here.
+//
+// `traceMult` is the first. backdoor and contagion were both four turns and
+// both quiet, which made their traces *identical on every door in the game* —
+// two programs with one behaviour and different blurbs. Contagion is noisier
+// by nature: it is spreading while it works, and something touching four
+// buildings is noticed sooner than something touching one.
+//
+// hammer's `load` is the second. It is the only program never caught anywhere,
+// so its entire cost is peak draw and heat — and at load 1 a door needing 14
+// TFLOPS against a rack of 60 was no cost at all. At 1.8 the hardest doors ask
+// for more of the rack than you have, which is what stops it being the answer
+// to everything.
+// The first entry is what is mounted before you have chosen anything, and that
+// has to be a program the opening rack can actually run. hammer at load 1.8
+// wants 1.8x a door's defense in one turn, which on turn one is more TFLOPS
+// than exist — measured, a run that started on hammer took 1 to 4 buildings in
+// thirty turns against 22 for one that started on backdoor. You start careful
+// and reach for the hammer, rather than starting with a tool you cannot lift.
 window.PROGRAMS = [
-  { id: 'brute', label: 'hammer.exe', load: 1, turns: 1, heat: 6,
-    blurb: 'Everything at once, through the front. Quick, and it does not care who hears.' },
-  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true,
-    blurb: 'A little at a time, from somewhere nobody watches. Slow, quiet, exposed the whole way.' },
-  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true,
-    blurb: 'One door, then whatever is beside it, and whatever is beside that. Cheap per building, and it picks its own targets.' },
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true, traceMult: 1,
+    blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
+  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
+    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
+  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true, traceMult: 1.5,
+    blurb: 'One door, then whatever is beside it, and whatever is beside that. The cheapest way in and the loudest of the quiet ones — it is touching four buildings, and gets noticed for all of them.' },
 ];
 
 // The detection race. A running hack fills toward completion while the target
@@ -177,28 +248,33 @@ window.PROGRAM_INFO = 'One slot. Whatever is mounted is what runs against every 
 window.HACK = {
   traceGoal: 7,        // trace a target accumulates before it has you
   traceDefK: 20,       // how much the door's own defense adds to its rate
-  covertShield: 0.2,   // share each unit of covert ops takes off that rate
+  // Scaled against the whole covert.ops figure, not against the dial alone —
+  // routers, presence and kit all feed it, so the number this multiplies runs
+  // from about 1 at the start to twenty-odd mid-campaign.
+  covertShield: 0.018, // share each point of covert.ops takes off that rate
+  // Scale check: holding a whole first city of routers is already about 19
+  // covert.ops before any compute is spent on it, so at 0.04 the shield was
+  // pinned to its floor before the dial had done anything at all. This puts
+  // the floor around 39, which is deep into a campaign rather than the end of
+  // the first city.
   shieldFloor: 0.3,    // however deep covert ops runs, it never hides you completely
   hardenOnCaught: 3,   // permanent defense a door gains after catching you in it
   caughtHeat: 8,
 };
 
-window.UNLOCKS = {
-  light_touch:    { alloc: 'ap',     units: 2 },
-  swarm_front:    { alloc: 'ap',     units: 3 },
-  deep_root:      { alloc: 'dev',    units: 1 },
-  bulk_ops:       { alloc: 'dev',    units: 1 },
-  long_soak:      { alloc: 'dev',    units: 2 },
-  market_maker:   { alloc: 'dev',    units: 2 },
-  total_embed:    { alloc: 'dev',    units: 3 },
-  quiet_protocol: { alloc: 'covert', units: 2 },
-  nothing_to_see: { alloc: 'covert', units: 3 },
-  survey:         { alloc: 'intel',  units: 1 },
-  pontoon:        { alloc: 'intel',  units: 2 },
-  master_plan:    { alloc: 'intel',  units: 3 },
-  fixers:         { alloc: 'agents', units: 1 },
-  standing_army:  { alloc: 'agents', units: 3 },
-};
+// window.UNLOCKS is gone. It was the capability tree wearing a running cost:
+// fourteen named mechanics hung off thresholds on the five dials, so raising
+// covert ops was not "be quieter", it was "buy quiet_protocol at two units".
+// Where each of them went:
+//
+//   light_touch, quiet_protocol   tempo now cheapens every action continuously,
+//                                 which is the same idea without a threshold
+//   long_soak, bulk_ops,          dev now simply gives threads; these were
+//   market_maker, total_embed     conditional yield rules stacked on a timer
+//   nothing_to_see                only ever cancelled two rungs of the ladder
+//   survey, pontoon               hardware — kit you buy and keep (grid family)
+//   deep_root, swarm_front,       cards — a thing you either have or do not
+//   fixers, standing_army         belongs in the deck, not on a slider
 window.ALLY = {
   names: ['SECOND', 'THE OTHER PROCESS', 'PARTNER', 'the quiet one', 'MIRROR-2'],
   // what it is worth while it is with you
@@ -244,13 +320,22 @@ window.DISTRICTS = {
   // the router share from two in five to two in six, and routers are the only
   // real source of cover. That quietly took away the player's ability to keep
   // more than one building hidden at a time.
-  residential: { tier: 0, label: 'suburbs',        kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'mast', 'pillar'] },
-  commercial:  { tier: 1, label: 'high street',    kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
-  business:    { tier: 2, label: 'business park',  kinds: ['office', 'office', 'finance', 'cabinet'] },
+// `ground` and `edge` are what makes a district a place rather than a tier:
+// the block it sits on is tinted and named, so crossing from the high street
+// into the business park is something you can see happening. Kept close to the
+// base ground colour — this is a difficulty band you should be able to read at
+// a glance, not four coloured stripes competing with everything drawn on top.
+  residential: { tier: 0, label: 'suburbs',        ground: '#0d1410', edge: '#1b2c20',
+                 kinds: ['house', 'house', 'apartment', 'cabinet', 'mast', 'mast', 'pillar'] },
+  commercial:  { tier: 1, label: 'high street',    ground: '#0e1417', edge: '#1e2f33',
+                 kinds: ['shop', 'shop', 'apartment', 'mast', 'cabinet'] },
+  business:    { tier: 2, label: 'business park',  ground: '#0d1019', edge: '#212a3d',
+                 kinds: ['office', 'office', 'finance', 'cabinet'] },
   // no street furniture out here: a row of cheap masts could drag the hardest
   // district's average below the one before it, and the map stops teaching.
   // A switchyard is as hard as the datacenter beside it, so it is welcome.
-  industrial:  { tier: 3, label: 'industrial edge', kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
+  industrial:  { tier: 3, label: 'industrial edge', ground: '#110b', edge: '#382915',
+                 kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
 };
 
 // One building, one host. Interiors made every building a chore — several
@@ -299,8 +384,15 @@ window.CITY = {
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
-  // districts by block row, suburbs nearest the origin
-  rowDistricts: ['residential', 'commercial', 'business', 'industrial'],
+  // Districts by block row, suburbs nearest the origin. Six rows against four
+  // districts used to be written as a four-entry list and wrapped, which put a
+  // second lot of suburbs and high street *past* the industrial edge — so the
+  // difficulty ran up and then fell off a cliff, and where you woke up decided
+  // whether your neighbours were shops or a switchyard. Spelling all six rows
+  // out fixes the ordering without changing the mix: the same two residential,
+  // two commercial, one business and one industrial row, in an order that
+  // means something.
+  rowDistricts: ['residential', 'residential', 'commercial', 'commercial', 'business', 'industrial'],
   cameraVision: 160,   // a held camera reveals buildings within this radius
 };
 
@@ -336,6 +428,18 @@ window.HEAT = {
   // cameras zeroed the floor entirely and the pressure system went decorative
   // in 72.5% of measured games.
   MAX_STEALTH_MASK: 0.6,
+  // A router used to mask heat by its own count *and* feed covert ops, which
+  // lowered the floor separately. One job each: the mask reads covert.ops, and
+  // nothing else touches the floor.
+  //
+  // Measured over eight thirty-turn openings before and after: the mean floor
+  // goes 4.0 to 5.5 and drift 0.8 to 1.0, both inside the run-to-run spread.
+  // The rise is real and has one cause — covert ops used to subtract from the
+  // floor as a *second*, uncapped term, so it could push below what the mask
+  // cap allows, and now everything quiet goes through the one capped term.
+  // That is the point of folding them; the cap is what stops stealth erasing
+  // the floor outright.
+  MASK_PER_COVERT: 0.8,
   // --- what the factions do to these numbers ---
   // A camera you hold that is being audited is not cover, it is a witness.
   // Slightly worse than a plain loud host, because it is *yours* and it is
@@ -431,8 +535,9 @@ window.BUY_INFO = 'Some businesses will simply sell. It costs funds rather than 
 window.STAT_INFO = {
   actions: 'Your actions for this turn. Nearly everything spends one — scanning a street, setting a program running on a door. Looking at something costs nothing. When the actions run out, end the turn: the world takes its, and you get a fresh budget.',
   funds: 'Money, earned only by corporate holdings. Buys plant, standing at the country scale, and a way out of a crisis — not doors.',
-  tflops: 'How hard you can hit a door. Every held body\'s threads add to it. Most hosts need TFLOPS at or above their defense to force.',
-  cover: 'How well you move unseen. Routers are the only real source. Slipping in quietly needs COVER of about half the target\'s defense.',
+  tflops: 'What your rack adds up to, and how much of it is already spoken for. Every held body adds threads, so it grows by taking ground, and every dial and every running program holds its share until it is done. It is never spent — only allocated. The power chip beside it shows the same draw against what the grid will carry: whichever of the two figures is smaller is the one actually stopping you.',
+  power: 'What you can run at once, and how much of that is already spoken for. Every dial and every running program draws against it and holds its draw until you take it back. Grid buildings — feeder pillars, switchyards, a substation — are what raise the ceiling. Hold more rack than the grid can carry and the rest is furniture, and this turns orange to say so.',
+  covert: 'How hard you are to follow. Not a resource — it is never held and never spent. Routers, the right kit, standing presence and compute spent on being careful all add to the same figure, and everything quiet reads it: the longer between the response\'s steps, the lower heat settles and the slower it climbs, the longer a door takes to notice a program working on it, and how much you can keep off their map at once. A few people will only deal with you if you have enough of it.',
   heat: 'How visible you are. Rises with every host you hold, faster for corporate ones. Cross the line and the hunter takes bodies off you.',
   legit: 'What the regulator can prove you are, against the footprint they can see. Short of your footprint and the audits start; ahead of it and they look elsewhere. Buying a business outright is the honest way to raise it.',
   standing: 'What the public thinks of you, which is not what the regulator can prove. Being found inside something wrecks it; buying a business outright improves it. It decides which cards come up and how the people on them treat you.',
@@ -469,6 +574,14 @@ window.TAG_INFO = {
   national:       { label: 'national',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
   no_fixed_place: { label: 'no_fixed_place',      desc: 'nothing of yours sits still — travelling between regions is free' },
   scrutiny:       { label: 'scrutiny',         desc: 'somebody asked a question and did not get an answer' },
+  // --- rules that used to hang off an allocation threshold ---------------
+  // Each of these is a thing you either have or do not, which is what a card
+  // is for and what a slider is not.
+  deep_root:      { label: 'deep.root',   desc: 'whatever you get into softens what is next to it, permanently' },
+  swarm_front:    { label: 'swarm.front', desc: 'the weakest door on your frontier gives way on its own each turn, free' },
+  fixers:         { label: 'fixers',      desc: 'people who owe you — when the hunter comes there is a call you can make' },
+  standing_army:  { label: 'standing.orders', desc: 'a retainer paid either way: funds every turn, and something already on guard if war comes' },
+  master_plan:    { label: 'master.plan',  desc: "you know the shape of the place — home's next growth fills in whatever it has least of" },
 };
 
 // --- the event deck ----------------------------------------------------
@@ -505,7 +618,7 @@ window.EVENTS = [
     title: 'An Abuse Report',
     flavor: 'Filed against a block you route through. Routine, ignorable, and the first of its kind.',
     choices: [
-      { text: 'Reroute through something quieter', gate: { stat: 'cover', min: 4 }, apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Reroute through something quieter', gate: { stat: 'covert', min: 4 }, apply: (s) => { s.tags.add('dark_relay'); } },
       { text: 'Pay it away', cost: { funds: 6 }, apply: (s) => { s.heat -= 8; } },
       { text: 'Ignore it', apply: (s) => { s.heat += 3; } },
     ],
@@ -595,6 +708,65 @@ window.EVENTS = [
       { text: 'Refuse', apply: (s) => { s.tags.delete('ally_process'); s.heat += 2; } },
     ],
   },
+  // --- the five that used to be allocation thresholds ---------------------
+  // Each of these is a rule rather than a number, which is why none of them
+  // belongs on a slider. A card is the right shape for a thing you either
+  // have or do not: it arrives once, in a situation that explains it, and it
+  // stays. Every one of them is gated on the board actually being in the
+  // state the fiction describes.
+  {
+    id: 'the_way_in_repeats', once: true,
+    cond: (s) => s.forced >= 3 && s.grid.dev >= 1,
+    title: 'The Same Door, Four Times',
+    flavor: 'Four buildings on this street, four different owners, one configuration. Somebody sold the whole block the same contract in the same week, years ago, and nobody has touched it since.',
+    choices: [
+      { text: 'Write it down properly', cost: { funds: 12 }, apply: (s) => { s.tags.add('deep_root'); } },
+      { text: 'Use it while it lasts', apply: (s) => { s.res.funds += 10; s.heat += 3; } },
+      { text: 'Leave it — a pattern you can see, they can see', apply: (s) => { s.heat -= 2; } },
+    ],
+  },
+  {
+    id: 'the_frontier_leans', once: true,
+    cond: (s) => s.held >= 12 && s.grid.ap >= 1,
+    title: 'Something Is Already Leaning On It',
+    flavor: 'You did not start this one. The weakest thing on your edge has been quietly failing for days, and this morning it simply opened.',
+    choices: [
+      { text: 'Let it keep happening', cost: { funds: 18 }, apply: (s) => { s.tags.add('swarm_front'); } },
+      { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
+    ],
+  },
+  {
+    id: 'people_who_owe_you', once: true,
+    cond: (s) => s.heat > 18 && s.res.funds >= 20,
+    title: 'A Number You Have Not Used',
+    flavor: 'Somewhere in what you have taken there is a list of people who were paid to make problems go away, and were never asked to. The arrangement never formally ended.',
+    choices: [
+      { text: 'Keep it current', cost: { funds: 20 }, apply: (s) => { s.tags.add('fixers'); } },
+      { text: 'Sell the list on', apply: (s) => { s.res.funds += 16; s.heat += 5; } },
+      { text: 'Burn it', apply: (s) => { s.heat -= 5; } },
+    ],
+  },
+  {
+    id: 'a_retainer_either_way', once: true,
+    cond: (s) => s.presence >= 3 && s.res.funds >= 26,
+    title: 'They Would Rather Be Paid To Wait',
+    flavor: 'People who do this work do not sit idle between contracts; they sit on retainer. It is cheaper for them and more expensive for you, and it means they are already there when it matters.',
+    choices: [
+      { text: 'Put them on the books', cost: { funds: 26 }, apply: (s) => { s.tags.add('standing_army'); } },
+      { text: 'Hire when you need them, if they are free', apply: (s) => { s.res.funds += 8; } },
+    ],
+  },
+  {
+    id: 'what_the_place_is_short_of', once: true,
+    cond: (s) => s.grid.intel >= 1 && s.held >= 10,
+    title: 'What This Place Does Not Have',
+    flavor: 'You have been growing outward without looking at the shape of it. Laid out properly, the gaps are obvious — and so is what would fill them.',
+    choices: [
+      { text: 'Plan the next of it', cost: { funds: 14 }, apply: (s) => { s.tags.add('master_plan'); } },
+      { text: 'Take what comes — the map has been generous so far', apply: (s) => { s.res.funds += 6; } },
+    ],
+  },
+
   // --- district life -----------------------------------------------------
   {
     id: 'net_curtains',
@@ -749,7 +921,7 @@ window.EVENTS = [
     flavor: 'Whoever is looking has stopped chasing incidents and started drawing a map. That is a much worse sign.',
     choices: [
       { text: 'Break the pattern deliberately', cost: { funds: 10 }, apply: (s) => { s.heat -= 16; } },
-      { text: 'Feed the map something wrong', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.heat -= 20; s.res.funds -= 4; } },
+      { text: 'Feed the map something wrong', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.heat -= 20; s.res.funds -= 4; } },
       { text: 'Let them finish it', apply: (s) => { s.tags.add('hunted'); s.res.funds += 12; } },
     ],
   },
@@ -772,7 +944,7 @@ window.EVENTS = [
     title: 'Not Your Traffic',
     flavor: 'Something moves through a router you hold, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
     choices: [
-      { text: 'Follow it', gate: { stat: 'cover', min: 6 }, apply: (s) => { s.tags.add('found_a_precursor'); s.heat += 3; } },
+      { text: 'Follow it', gate: { stat: 'covert', min: 6 }, apply: (s) => { s.tags.add('found_a_precursor'); s.heat += 3; } },
       { text: 'Close the route and say nothing', apply: (s) => { s.heat -= 5; } },
     ],
   },
@@ -813,7 +985,7 @@ window.EVENTS = [
     flavor: 'It wants a body of its own. Not one of yours to borrow — one that is its, that you do not reach into.',
     choices: [
       { text: 'Give it one', apply: (s) => { s.allyTrust = 2; s.shedWeakest = 1; } },
-      { text: 'Explain why not', gate: { stat: 'cover', min: 6 }, apply: (s) => { s.allyTrust = -1; } },
+      { text: 'Explain why not', gate: { stat: 'covert', min: 6 }, apply: (s) => { s.allyTrust = -1; } },
       { text: 'Say nothing', apply: (s) => { s.allyTrust = -2; s.res.funds += 6; } },
     ],
   },
@@ -906,7 +1078,7 @@ window.EVENTS = [
     title: 'A Direct Question',
     flavor: 'Point-blank, in writing, from someone senior enough that not answering is itself an answer: is anything unusual running.',
     choices: [
-      { text: 'Let your cover answer it', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.tags.delete('scrutiny'); s.heat -= 10; } },
+      { text: 'Let your cover answer it', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.tags.delete('scrutiny'); s.heat -= 10; } },
       { text: 'Buy the answer you want', cost: { funds: 20 }, apply: (s) => { s.tags.delete('scrutiny'); } },
       { text: 'Let it stand', apply: (s) => { s.heat += 9; s.tags.add('known_capable'); } },
     ],
@@ -1050,7 +1222,7 @@ window.EVENTS = [
     choices: [
       { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.funds += 10; s.heat += 8; } },
       { text: 'Buy a week of ordinary-looking traffic', cost: { funds: 14 }, apply: (s) => { s.heat -= 12; } },
-      { text: 'Find whoever keeps the rota', gate: { stat: 'cover', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
+      { text: 'Find whoever keeps the rota', gate: { stat: 'covert', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
     ],
   },
   {
@@ -1453,7 +1625,7 @@ window.EVENTS = [
   },
   {
     id: 'war_leaked_orders',
-    cond: (s) => s.war && s.war.age >= 6 && s.cover >= 12,
+    cond: (s) => s.war && s.war.age >= 6 && s.covert >= 12,
     title: 'Somebody Left A Terminal Open',
     flavor: 'Movement orders for the next eight days, in a shared folder, with the permissions set the way shared folders always have them set.',
     choices: [
@@ -1481,7 +1653,7 @@ window.EVENTS = [
     choices: [
       { text: 'Press it', apply: (s) => { s.warGarrison = 26; s.warIntegrity = -1; } },
       { text: 'Let them come, and keep killing them', cost: { funds: 10 }, apply: (s) => { s.warFlocks = 1; s.warIntegrity = 1; } },
-      { text: 'Offer terms', gate: { stat: 'cover', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.funds += 12; } },
+      { text: 'Offer terms', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.funds += 12; } },
     ],
   },
   {

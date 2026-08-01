@@ -37,10 +37,19 @@
 
   <div id="res-row">
     <button type="button" class="res funds" data-stat="funds"><b id="res-funds">0</b> funds</button>
-    <button type="button" class="res tflops" data-stat="tflops"><b id="res-tflops">0</b> TFLOPS</button>
-    <button type="button" class="res cover" data-stat="cover"><b id="res-cover">0</b> cover</button>
-    <button type="button" class="res standing" data-stat="standing" id="res-standing-btn"><b id="res-standing">unknown</b></button>
-    <button type="button" class="res legit" data-stat="legit" id="res-legit-btn" hidden><b id="res-legit">0</b> legit</button>
+    <button type="button" class="res tflops" data-stat="tflops" id="res-tflops-btn"><b id="res-tflops">0</b> TFLOPS</button>
+    <!-- The draw lives here rather than on TFLOPS: what is running draws
+         against the grid, not against the rack. One number, one meaning. -->
+    <button type="button" class="res grid" data-stat="power" id="res-power-btn"><b id="res-power">0/0</b> power</button>
+    <!-- The two standing axes travel together, in one group pushed to the far
+         right. Neither is something you hold, which is why they sit apart from
+         the three that are — and grouping them means that when the row is too
+         narrow for everything, the pair wraps as a pair. Public standing on
+         its own under three number chips is what looked like an accident. -->
+    <span id="res-standing-pair" class="res-pair">
+      <button type="button" class="res legit" data-stat="legit" id="res-legit-btn" hidden><b id="res-legit">0</b> legit</button>
+      <button type="button" class="res standing" data-stat="standing" id="res-standing-btn"><span class="res-tag">public</span><b id="res-standing">unknown</b></button>
+    </span>
   </div>
 
   <div id="info-strip"></div>

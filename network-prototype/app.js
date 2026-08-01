@@ -482,7 +482,7 @@
     // Reach branch reshape, step 5: Master Plan trades pure chance for
     // deliberate variety — whichever trait is rarest across what already
     // stands, not just whatever didn't happen last time.
-    if (unlocked('master_plan')) {
+    if (has('master_plan')) {
       const counts = {};
       pool.forEach(k => { counts[k] = 0; });
       (state.buildings || []).forEach(b => { if (b.trait && counts[b.trait] !== undefined) counts[b.trait]++; });
@@ -1182,10 +1182,11 @@
 
   // Your whole action budget for a turn. Capabilities move it in both
   // directions on purpose: buying real tflops costs you tempo.
+  // Whole actions only. Tempo buys them one at a time — a partial action is
+  // not a state a player should ever have to hold in their head, and a row of
+  // pips has to be countable.
   function maxAP() {
-    let n = window.AP.base;
-    n += allocUnits('ap');
-    return Math.max(window.AP.min, n);
+    return Math.max(window.AP.min, window.AP.base + Math.floor(allocStat('ap')));
   }
 
   // --- the grid and what is running on it ---------------------------------
@@ -1203,44 +1204,60 @@
       + capEffect('supply', 0)
       - cut);
   }
-  function usableTflops() { return Math.min(tflops(), electricity()); }
+  // The grid is a country-scale constraint, and only exists once the country
+  // does. Measured in play, the ceiling started binding around turn 7-22 of
+  // the *first* city — so a player still learning what a door is met a second
+  // ceiling, with no idea what raised it, in the one stretch of the game that
+  // should be nothing but taking ground. It is also a ceiling on a number that
+  // is itself a ceiling, and two limits interacting is a lot to hold before
+  // you have held anything.
+  //
+  // So there is no power ceiling until the first city is genuinely yours. By
+  // then you have walked past feeder pillars and a switchyard and know what
+  // they are, and the constraint arrives with its answer already on the map.
+  // Grid buildings supply from the moment you take them, and home is never
+  // folded in — so what you take there is banked against the day it counts.
+  function gridBinds() { return countryUnlocked(); }
+  function usableTflops() {
+    return gridBinds() ? Math.min(tflops(), electricity()) : tflops();
+  }
   // Hardware sitting dark because there is nothing to power it with. Shown to
   // the player, because "you own it and cannot run it" has to be legible or it
   // reads as the numbers being broken.
-  function idleTflops() { return Math.max(0, tflops() - electricity()); }
+  function idleTflops() {
+    if (!gridBinds()) return 0;
+    return Math.round(Math.max(0, tflops() - electricity()) * 10) / 10;
+  }
 
   const ALLOC_IDS = () => window.ALLOC.map(a => a.id);
   function allocDial(id) { return (state.alloc || {})[id] || 0; }
   function allocLive(id) { return (state.allocLive || {})[id] || 0; }
   // Effects read the live figure, never the dial. That is the whole switching
   // cost: a dial you keep turning is a dial whose effect never arrives.
-  function allocUnits(id) {
+  // How much of a dial's stat is actually running, as a real number. Partial
+  // allocation pays partially: five TFLOPS into a dial that costs five is one
+  // point, seven and a half is one and a half. Rounding down was only ever
+  // there so a threshold could be crossed cleanly, and there are no thresholds
+  // left to cross.
+  function allocLevel(id) {
     const A = window.ALLOC.find(a => a.id === id);
     if (!A || !A.per) return 0;
-    return Math.floor(allocLive(id) / A.per);
+    return Math.round((allocLive(id) / A.per) * 100) / 100;
   }
-  // Composed onto a running value rather than starting from the default, so it
-  // can be the third source inside capEffect alongside capabilities and plant.
-  function allocEffectOn(key, v) {
-    window.ALLOC.forEach(A => {
-      if (!A.effect || A.effect[key] === undefined) return;
-      const units = allocUnits(A.id);
-      if (!units) return;
-      // per-unit, unlike the other two sources: three units of covert ops is
-      // three applications of its effect, not one
-      v = /Mult$/.test(key) ? v * Math.pow(A.effect[key], units) : v + A.effect[key] * units;
-    });
-    return v;
+  // The whole points of it, for the handful of things that genuinely cannot be
+  // fractional — a pip is a pip and half an agent is not out working.
+  function allocUnits(id) { return Math.floor(allocLevel(id)); }
+  // What a named stat is running at. One dial feeds each; nothing else does.
+  function allocStat(stat) {
+    const A = window.ALLOC.find(a => a.stat === stat);
+    return A ? allocLevel(A.id) : 0;
   }
 
   // Whether a named mechanic is running. One source now the tree is gone: the
   // allocation threshold in window.UNLOCKS. That difference is the point of the
   // rework — a bought capability was true forever, an allocation is true while
   // you are paying for it and false again the moment the compute goes elsewhere.
-  function unlocked(id) {
-    const U = (window.UNLOCKS || {})[id];
-    return !!U && allocUnits(U.alloc) >= U.units;
-  }
+
 
   function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0) + hackDraw(); }
   function allocFree() { return usableTflops() - drawn(); }
@@ -1303,13 +1320,15 @@
       if (!hasHardware(c.id) || !c.effect || c.effect[key] === undefined) return;
       v = /Mult$/.test(key) ? v * c.effect[key] : v + c.effect[key];
     });
-    // Allocation is the third source. Unlike a capability or a rack, it is the
-    // only one you can turn back down again.
-    return allocEffectOn(key, v);
+    // Allocation used to compose in here as a third source. It does not any
+    // more: a dial produces exactly one named stat, and the systems that care
+    // read that stat directly, so there is one place to look for what a dial
+    // does rather than a key that might be picked up by any of three sources.
+    return v;
   }
 
   // Presence is what a finished city leaves behind, so it feeds every one of
-  // these: the flywheel, the cover, and the pressure. Otherwise consolidating
+  // these: the flywheel, covert.ops, and the pressure. Otherwise consolidating
   // would be a downgrade you took for the map.
   const presence = () => (state.country && state.country.presence) || 0;
 
@@ -1320,14 +1339,16 @@
   function reach() { return owned().length + Math.round(presence() / 5); }
 
   function tflops() {
-    const threadBonus = capEffect('threadBonus', 0);
-    return 2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
+    const threadBonus = capEffect('threadBonus', 0) + allocStat('threads');
+    // rounded: threads are a float now that dev pays fractionally, and an
+    // unrounded sum prints as 68.00000000000003 in the HUD
+    return Math.round((2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + deepHoldBonus()
       + (state.upgrades || 0) * window.UPGRADE.baseTflops
       + Math.round(window.COUNTRY.tflopsLog * Math.log(1 + presence()))
       + (allyTrusted() ? window.ALLY.tflops : 0)
       + (has('ally_process') ? 3 : 0)
-      + capEffect('tflops', 0);
+      + capEffect('tflops', 0)) * 10) / 10;
   }
   // What a host effectively defends at — the world can harden against you.
   function defenseOf(h) {
@@ -1342,12 +1363,12 @@
     return hs.reduce((a, h) => a + defenseOf(h), 0) / hs.length;
   }
   // Civic Eyes audits the camera network, turning a stealth holding from
-  // cover into a witness — unless you found the corner of the audit that
+  // covert.ops into a witness — unless you found the corner of the audit that
   // never got finished (blind_spot), or Nothing To See makes the whole
   // question moot (Cover's own capstone, immune to the one thing built to
   // attack the branch's own resource).
   function civicEyesAudited() {
-    return ladderStage() >= 4 && !has('blind_spot') && !unlocked('nothing_to_see');
+    return ladderStage() >= 4 && !has('blind_spot');
   }
   // You cannot hide a sprawl. Heat can be driven down toward this floor but
   // never past it, so growth permanently costs visibility — without a floor,
@@ -1355,11 +1376,15 @@
   // Stealth holdings are what lower the floor: that is what they are for.
   function heatFloor() {
     const loud = owned().filter(h => h.role !== 'stealth').length;
-    const audited = civicEyesAudited();
-    const quiet = audited ? 0 : ownedOf('stealth').length;
     const loudPart = 0.8 * loud;
+    // A router used to do two things: mask heat by its own count, and feed
+    // covert ops, which separately lowered the floor. Two terms, two rates,
+    // one idea — so the mask reads covert ops and nothing else does. Whatever
+    // makes you hard to follow is what keeps you quiet, whether that is a
+    // router, presence, kit, or compute spent on being careful.
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
-                            0.9 * quiet + (has('dark_relay') ? 3 : 0));
+                            covertOps() * window.HEAT.MASK_PER_COVERT
+                              + (has('dark_relay') ? 3 : 0));
     const national = Math.min(presence() * window.COUNTRY.heatFloorPer,
                               strikeThreshold() * window.COUNTRY.maxFloorShare);
     return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
@@ -1376,16 +1401,17 @@
       * (has('hunted') ? 0.75 : 1);
   }
   // Cover is what stealth holdings buy you — it gates the quiet approach.
-  // Diminishing returns, deliberately. Linear cover meant every extra router
+  // Diminishing returns, deliberately. Linear covert.ops meant every extra router
   // made the quiet route strictly better, and measurement showed 98% of all
   // entries were quiet — one of three routes doing nearly all the work.
-  function rawCover() {
+  function rawCovertOps() {
     const eyes = civicEyesAudited()
       ? 0
-      : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].cover || 0), 0);
+      : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].covert || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
-      + Math.round(window.COUNTRY.coverRoot * Math.sqrt(presence()))
-      + capEffect('cover', 0)
+      + Math.round(window.COUNTRY.covertRoot * Math.sqrt(presence()))
+      + capEffect('covert', 0)
+      + allocStat('covert')
       + (has('clean_room') ? 2 : 0);
   }
   // Cover is not spent any more. It gates a quiet entry and it slows the
@@ -1393,12 +1419,19 @@
   // the same number was both your stealth and your budget for stealth, and
   // holding two buildings off their map quietly stopped you slipping into a
   // third.
-  function cover() { return rawCover(); }
+  function covertOps() { return rawCovertOps(); }
 
   // How many buildings can be kept off their map at once. Capacity, not
   // currency: covert ops decides the number of slots, un-hiding gives one back,
   // and nothing is drained while they are occupied.
-  function hideSlots() { return capEffect('freeHideSlots', 0); }
+  // Somewhere to keep a building off their map is bought out of covert.ops, which
+  // is the one thing covert ops produces. It used to be its own effect key on
+  // the same dial — two numbers moving together for no reason a player could
+  // see.
+  function hideSlots() {
+    return capEffect('freeHideSlots', 0)
+      + Math.floor(covertOps() / window.ALLOC_STATS.hidePer);
+  }
   function hideSlotsFree() { return Math.max(0, hideSlots() - hidden().length); }
 
   function stageFor(count) {
@@ -1468,7 +1501,7 @@
   }
 
   function snapshot() {
-    return { tflops: tflops(), cover: cover(), funds: state.res.funds };
+    return { tflops: tflops(), covert: covertOps(), funds: state.res.funds };
   }
 
   // --- turn resolution ---------------------------------------------------
@@ -1477,22 +1510,20 @@
   // turn will run — every yield in the game is multiplied by yieldMult, and a
   // panel transcribing the raw table said "+2 a turn" for a server that had
   // been paying 3.2 since the player bought Bulk Processing.
-  const BULK_OPS_MATURE_TURNS = 3, BULK_OPS_BONUS = 1.6;
   // Market Maker: a known, loud operation profits from that instead of just
   // risking it — heat has to be at least this share of the strike threshold
   // before the bonus kicks in, and this is the size of it.
-  const MARKET_MAKER_HEAT_SHARE = 0.5, MARKET_MAKER_HOT_BONUS = 1.4;
   // Standing Army: a force raised in case the shooting starts is still a
   // standing expense either way — it rents itself out for the duration,
   // whether or not the war ever actually opens.
   const STANDING_ARMY_RETAINER = 6;
   function perTurnIncome() {
-    const mult = capEffect('yieldMult', 1)
-      * ((unlocked('market_maker') && state.heat >= strikeThreshold() * MARKET_MAKER_HEAT_SHARE) ? MARKET_MAKER_HOT_BONUS : 1);
-    // Bulk Processing does not make everything worth more on the spot — it
-    // rewards ground you have actually settled into, not ground you took last
-    // turn. A holding under three turns old pays exactly as it always did.
-    const matures = unlocked('bulk_ops');
+    const mult = capEffect('yieldMult', 1);
+    // Bulk Processing and Market Maker are gone with the thresholds that
+    // granted them. Both were conditional multipliers on the same yield —
+    // one for ground you had settled into, one for running hot — and neither
+    // was a thing a dial should have been handing out.
+    const matures = false;
     // The Cut's whole bite now: a holding it has stranded still stands, it
     // simply pays nothing while there is no way to get anything to or from
     // it — not a slow rot, a real and immediate stop.
@@ -1503,7 +1534,7 @@
     owned().forEach(h => {
       if (cutOff[h.id]) return;
       const y = window.HOST_TYPES[h.type].yield || {};
-      const maturedBonus = (matures && (state.turn - (h.heldSince || 1)) >= BULK_OPS_MATURE_TURNS) ? BULK_OPS_BONUS : 1;
+      const maturedBonus = 1;
       for (const k in y) add(k, y[k] * mult * maturedBonus);
     });
     // finished cities pay whether or not you are standing in them — that is
@@ -1516,7 +1547,7 @@
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
     // compute plant adds capacity, not income — see tflops()
-    if (unlocked('standing_army')) add('funds', STANDING_ARMY_RETAINER);
+    if (has('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -1541,7 +1572,10 @@
     h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
       * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
-    return h * capEffect('driftMult', 1) * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
+    const S = window.ALLOC_STATS;
+    const quietDrift = Math.pow(S.driftStep, covertOps() / S.driftPer);
+    return h * capEffect('driftMult', 1) * quietDrift
+      * (has('overextended') ? OVEREXTENDED_DRIFT_MULT : 1);
   }
 
   // Broad Front: once a turn, the weakest thing on the frontier forces its
@@ -1550,7 +1584,7 @@
   // kicked it in yourself. Tempo's capstone acts on its own rather than
   // making you faster; this is the first thing in the game that does.
   function swarmFrontStep() {
-    if (state.scope !== 'city' || state.card || !unlocked('swarm_front')) return null;
+    if (state.scope !== 'city' || state.card || !has('swarm_front')) return null;
     let best = null, bestDef = Infinity;
     (state.buildings || []).forEach(b => {
       const h = hostsIn(b)[0];
@@ -1571,19 +1605,12 @@
     return h;
   }
 
-  // Long Soak: ground you have actually settled into is worth more than
-  // ground you just took — ties into the exact maturity check Bulk
-  // Processing already uses for income, but on tflops instead: every holding
-  // matured past this many turns adds extra threads. Total Embed collapses
-  // the wait to zero, same shape as it always had: nothing needs time to
-  // settle in any more, it already has.
-  const LONG_SOAK_MATURE_TURNS = 5, LONG_SOAK_THREAD_BONUS = 1;
-  function deepHoldBonus() {
-    if (!unlocked('long_soak')) return 0;
-    const instant = unlocked('total_embed');
-    return owned().filter(h => instant || (state.turn - (h.heldSince || 1)) >= LONG_SOAK_MATURE_TURNS).length
-      * LONG_SOAK_THREAD_BONUS;
-  }
+  // Long Soak and Total Embed are gone. Both were extra threads for ground
+  // that had sat still long enough, gated on a dial — and dev now simply gives
+  // threads, to everything you hold, for as long as you run it. A timer that
+  // only paid out if you had also bought the right threshold was two systems
+  // doing one job.
+  function deepHoldBonus() { return 0; }
 
   // Pontoon: ground you have actually settled into gives up what's past it,
   // on its own. Every holding older than PONTOON_MATURE_TURNS reveals
@@ -1592,7 +1619,7 @@
   // up rather than buried in a generation-time number nobody sees change.
   const PONTOON_MATURE_TURNS = 4;
   function pontoonReveals() {
-    if (!unlocked('pontoon')) return [];
+    if (!hasHardware('pontoon_kit')) return [];
     const seen = {};
     const out = [];
     owned().forEach(h => {
@@ -1672,7 +1699,7 @@
     // Pontoon used to fire once, at the moment it was bought. It answers to an
     // allocation now, so it is checked every turn instead and the band's own
     // guard keeps it from laying a second crossing over the same water.
-    if (unlocked('pontoon')) layOwnCrossings();
+    if (hasHardware('pontoon_kit')) layOwnCrossings();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
     coolRegionsAway();
@@ -1697,8 +1724,7 @@
     // A strike card cannot be created any more, but a stale one (an old save,
     // a leftover test) must not sit there blocking every other card forever.
     if (state.card && state.card.kind === 'strike') state.card = null;
-    if (!warOn() && state.heat >= strikeThreshold()) state.everCrossed = true;
-    if (!warOn() && state.everCrossed && !huntOn()) huntStart();
+    if (!warOn() && !huntOn()) huntStart();
     if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -1760,12 +1786,12 @@
     return all ? (hunt() ? hunt().nodes.length : 0) / all : 0;
   }
   // How long between its moves. Cover is what makes you hard to follow — this
-  // is the first thing in the game that gives cover a job beyond gating one
+  // is the first thing in the game that gives covert.ops a job beyond gating one
   // door, and it is why a stealth holding is worth taking.
   function huntCadence() {
     const H = window.HUNT;
     if (state.heat >= strikeThreshold()) return H.hotEvery;
-    return Math.min(H.everyMax, Math.round(H.everyBase + cover() * H.perCover));
+    return Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
   }
   function huntDueIn() {
     const h = hunt();
@@ -1774,33 +1800,45 @@
   }
   // Everything it could step onto next, along the streets from what it holds.
   // Always shown: a permanent loss must never arrive as a surprise.
+  // It does not walk streets any more, and there is nothing to wall it into.
+  //
+  // Street-walking gave it exactly one counter — sever every road out of it —
+  // and that counter was cheap, obviously correct, and permanent. Measured in
+  // play: the response is sealed off early and then holds one building for the
+  // rest of the game while heat sits sixty per cent over its own line, doing
+  // nothing. A threat with a fence around it is not a threat.
+  //
+  // So it works outward by distance from where it got in. Everything you hold
+  // is reachable, sooner or later; what buys you time is how far from them you
+  // are operating, and the only way to take something off the list is to hide
+  // it, which costs covert.ops every turn it stays hidden.
   function huntFrontier() {
     if (!huntOn()) return [];
-    const adj = state.adjacency || {};
-    const out = {};
-    hunt().nodes.forEach(id => {
-      (adj[id] || []).forEach(n => {
-        if (huntHolds(n)) return;
-        if (isHidden(n)) return;              // they do not know it is there
-        out[n] = true;
-      });
-    });
-    return Object.keys(out);
+    return (state.buildings || [])
+      .filter(b => !huntHolds(b.id) && !isHidden(b.id) && buildingHeld(b))
+      .map(b => b.id);
   }
-  // what it will actually take, of those: yours first, and the biggest of them
+  // How far a building is from the nearest thing they hold.
+  function huntReach(bid) {
+    const to = bldgCentre(bid);
+    if (!to) return Infinity;
+    return hunt().nodes.reduce((best, id) => {
+      const from = bldgCentre(id);
+      if (!from) return best;
+      return Math.min(best, Math.hypot(from.x - to.x, from.y - to.y));
+    }, Infinity);
+  }
+  // What it takes next: the nearest thing you hold, and of equals the biggest.
   function huntNext() {
     const opts = huntFrontier();
     if (!opts.length) return null;
-    const score = (bid) => {
-      const hs = hostsIn(buildingById(bid));
-      const mine = hs.some(h => h.owned);
-      return (mine ? 1000 : 0) + hs.reduce((a, h) => a + h.threads, 0);
-    };
-    return opts.slice().sort((a, b) => score(b) - score(a))[0];
+    const threads = (bid) => hostsIn(buildingById(bid)).reduce((a, h) => a + h.threads, 0);
+    return opts.slice().sort((a, b) =>
+      (huntReach(a) - huntReach(b)) || (threads(b) - threads(a)))[0];
   }
-  // Everything it holds, and everything it could step onto, is on the map
-  // whether or not you had swept it. You cannot cut a street you cannot see,
-  // and an invisible frontier made the whole thing feel like weather.
+  // Everything it holds, and everything it could come for, is on the map
+  // whether or not you had swept it. An invisible frontier made the whole
+  // thing feel like weather; a named one makes it a thing you are losing to.
   function huntReveal() {
     if (!huntOn()) return;
     hunt().nodes.forEach(id => revealBuilding(buildingById(id)));
@@ -1809,24 +1847,38 @@
   // It always arrives the same way: one building, the smallest thing you hold,
   // and it takes that building off you on the way in.
   function huntSeed(line) {
+    // where they came in: the last door that caught something of yours, if it
+    // is still on the board. Failing that, the smallest thing you hold.
+    const caught = (state.caughtAt || []).slice().reverse()
+      .map(id => buildingById(id)).filter(Boolean)[0];
     const mine = owned().slice().sort((a, b) => a.threads - b.threads);
-    const seed = mine[0];
-    if (!seed) return null;
-    state.hunt = { on: true, nodes: [seed.buildingId], since: state.turn, lastActed: state.turn };
-    hostsIn(buildingById(seed.buildingId)).forEach(h => { h.owned = false; });
+    const seedBid = caught ? caught.id : (mine[0] && mine[0].buildingId);
+    if (seedBid === undefined) return null;
+    state.hunt = { on: true, nodes: [seedBid], since: state.turn, lastActed: state.turn };
+    // whatever is in there is theirs now — usually the door that caught you,
+    // which you never held in the first place
+    hostsIn(buildingById(seedBid)).forEach(h => { h.owned = false; });
     huntReveal();
-    pushLog(line(window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label));
+    pushLog(line(window.BUILDING_KINDS[buildingById(seedBid).kind].label));
     showBanner([{ kind: 'faction', verb: 'against you', label: window.HUNT.name }]);
     return state.hunt;
   }
+  // How many doors in this city have caught a program of yours. This is what
+  // brings the response, and it is a fact about *here* — it packs with the
+  // city and does not travel.
+  function caughtHere() { return state.caughtHere || 0; }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
-    if (!state.everCrossed) return null;
     if (owned().length < window.HUNT.minHeld) return null;
-    // it starts on something of yours: the point is that it takes, not that it
-    // races you for open ground the way the rival does
+    // It arrives because doors here have caught you, not because a meter
+    // crossed a line. Heat was the old trigger and it made the response
+    // something that happened *to* you off a number you had stopped reading;
+    // this way it grows out of the part of the game you are actually playing,
+    // and the counter-play is the same thing you were already deciding — which
+    // program, and how much covert.ops behind it.
+    if (caughtHere() < window.HUNT.caughtToStart) return null;
     return huntSeed((what) =>
-      `${window.HUNT.name} has an address. They are inside ${what}, and they are not leaving.`);
+      `${window.HUNT.name} followed one of them home. They are inside ${what}, and they are not leaving.`);
   }
 
   // --- ending it ------------------------------------------------------------
@@ -1891,7 +1943,7 @@
   function chase() { return (CO() || {}).chase || null; }
   function followDelay() {
     const H = window.HUNT;
-    return Math.min(H.followMax, Math.round(H.followBase + cover() * H.followPerCover));
+    return Math.min(H.followMax, Math.round(H.followBase + covertOps() * H.followPerCover));
   }
   function chaseDueIn() {
     const c = chase();
@@ -1916,13 +1968,12 @@
     return huntSeed((what) =>
       `${window.HUNT.name} found you again. They are in ${what} now, and they start over from there.`);
   }
-  function huntStep() {
-    if (state.scope !== 'city') return null;
-    if (!huntOn()) return null;
+  // One step: they take the nearest thing of yours. Everything that decides
+  // *when* lives in the two callers, not here.
+  function huntTake(line) {
     const h = state.hunt;
-    if (state.turn - h.lastActed < huntCadence()) return null;
     const take = huntNext();
-    if (!take) return null;                    // contained: every street cut
+    if (!take) return null;                    // nothing of yours left here
     h.lastActed = state.turn;
     h.nodes.push(take);
     const b = buildingById(take);
@@ -1931,20 +1982,43 @@
     huntReveal();
     // they came for a result and they have one; the pressure eases until it
     // does not. This is the only thing that brings heat down hard now that the
-    // fine is gone, and it is what keeps cover meaningful.
+    // fine is gone, and it is what keeps covert.ops meaningful.
     state.heat = clampHeat(state.heat - window.HUNT.takeSheds);
-    pushLog(was.length
-      ? `They are in ${window.BUILDING_KINDS[b.kind].label} now. It was yours.`
-      : `They take ${window.BUILDING_KINDS[b.kind].label}. Nobody was using it.`);
+    pushLog(line(window.BUILDING_KINDS[b.kind].label, was.length > 0));
     return { took: take, wasYours: was.length > 0 };
+  }
+  function huntStep() {
+    if (state.scope !== 'city') return null;
+    if (!huntOn()) return null;
+    if (state.turn - state.hunt.lastActed < huntCadence()) return null;
+    return huntTake((what, yours) => yours
+      ? `They are in ${what} now. It was yours.`
+      : `They take ${what}. Nobody was using it.`);
+  }
+  // A door catching you is what brought them, and it is what keeps bringing
+  // them: once they are here, every further catch moves them a building
+  // immediately rather than waiting on the cadence.
+  //
+  // Without this the hunt was a metronome — measured over twelve sixty-turn
+  // openings it arrived around turn 39 and had taken four buildings by sixty,
+  // against a city it needs twenty-odd of to take. Nothing the player did
+  // between those ticks touched it, which is the same complaint the walling
+  // was: a threat you cannot affect is one you stop looking at. Now the loop
+  // closes on the thing you are doing every single turn. Get caught less.
+  function huntPressed() {
+    if (!huntOn() || state.scope !== 'city') return null;
+    return huntTake((what, yours) => yours
+      ? `They followed that one back and walked into ${what}. It was yours.`
+      : `They followed that one back as far as ${what}.`);
   }
   // A building they hold is not yours to take, the same way the rival's are
   function huntBlocks(host) { return !!host && huntHolds(host.buildingId); }
 
   // Past a share of it, the city is theirs and it goes off the national map.
   // This is the ratchet: early on there is no verb that takes a city back, so
-  // the loss is permanent and the only answers were the ones you had before it
-  // happened — sever a street, or be somewhere else.
+  // the loss is permanent and the only answers are the ones you had before it
+  // arrived — hide what you can, keep covert.ops up so it moves slowly, or be
+  // somewhere else. There is nothing to seal off.
   function huntTakesCity() {
     if (!huntOn() || huntShare() < window.HUNT.takesCityAt) return null;
     const c = currentCity();
@@ -1968,35 +2042,19 @@
   // Your answer, and the whole decision: the street goes for you as well. You
   // contain it by making the city smaller, which costs you exactly the thing
   // you came here to accumulate.
-  function severable() {
-    if (!huntOn()) return [];
-    const adj = state.adjacency || {};
-    const out = [];
-    hunt().nodes.forEach(id => {
-      (adj[id] || []).forEach(n => {
-        if (huntHolds(n)) return;             // internal to them, nothing to cut
-        out.push({ from: id, to: n });
-      });
-    });
-    return out;
-  }
-  function canSever(a, b) {
-    if (!huntOn() || state.card || state.over) return false;
-    if (!huntHolds(a) || huntHolds(b)) return false;
-    const adj = state.adjacency || {};
-    if ((adj[a] || []).indexOf(b) === -1) return false;
-    if (ladderStage() >= 4) return false;  // Enforcement takes this away from you
-    const c = window.HUNT.severCost;
-    return Object.keys(c).every(k => (state.res[k] || 0) >= c[k]) && canAfford('sweep');
-  }
+  // Severing is gone. It was the whole counter-play to a response that walked
+  // streets, and it was cheap, obviously correct and permanent — so it was
+  // always done, and the response spent the rest of the game behind a fence.
+  // Nothing walks streets now, so there is nothing to cut.
+
   // --- the quiet answer ----------------------------------------------------
   // Severing works and it is loud: the street goes, permanently, for both of
   // you, and the city is smaller for it. Hiding is the same problem answered
   // the other way — the building comes off their map and the street stays open
-  // for you. It costs nothing up front and everything continuously: cover, per
+  // for you. It costs nothing up front and everything continuously: covert.ops, per
   // hidden building, every turn, out of the same pool that was slowing them
   // down. So a wall of hidden buildings makes the rest of the city easier to
-  // walk, and the moment your cover falls the wall comes down.
+  // walk, and the moment it falls the wall comes down.
   function hidden() { return state.hidden || (state.hidden = []); }
   function isHidden(bid) { return hidden().indexOf(bid) !== -1; }
   function canHide(bid) {
@@ -2010,10 +2068,6 @@
   function actHide(bid) {
     if (!canHide(bid)) return false;
     spendAP('lielow');
-    // Quiet Protocol: hiding something costs no action at all, on top of the
-    // first two costing no ongoing upkeep either — the branch's own core
-    // verb, made completely free rather than just cheaper.
-    if (unlocked('quiet_protocol')) state.ap += apCost('lielow');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -2056,25 +2110,6 @@
         : `${lost.length} buildings are on their map again.`);
     }
     return lost;
-  }
-
-  function actSever(a, b) {
-    if (!canSever(a, b)) return false;
-    const H = window.HUNT;
-    spendAP('sweep');
-    for (const k in H.severCost) state.res[k] -= H.severCost[k];
-    const adj = state.adjacency;
-    adj[a] = (adj[a] || []).filter(x => x !== b);
-    adj[b] = (adj[b] || []).filter(x => x !== a);
-    // no `until`: a street you take is gone for good, unlike The Cut's
-    state.cuts = (state.cuts || []).concat([{ a, b, mine: true }]);
-    state.selectedCut = null;                 // the street it named is gone
-    state.heat = clampHeat(state.heat + H.severHeat);
-    const A = buildingById(a), B = buildingById(b);
-    pushLog(`The street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label} is gone. It was the only way through for both of you.`);
-    persistNow();
-    render();
-    return true;
   }
 
   // --- the rival ---------------------------------------------------------
@@ -2245,7 +2280,7 @@
     const add = (kind, text) => out.push(chip(kind, text));
     if (e.tflops > 0) add('tflops', `+${e.tflops} tflops`);
     if (e.tflops < 0) add('cost tflops', `${neg(e.tflops)} tflops`);
-    if (e.cover) add('cover', `+${e.cover} cover`);
+    if (e.covert) add('cover', `+${e.covert} covert.ops`);
     if (e.threadBonus) add('tflops', `+${e.threadBonus} threads a host`);
     if (e.floor) add('cover', `heat floor ${neg(e.floor)}`);
     if (e.driftMult) add('cover', `heat ${pct(e.driftMult)} a turn`);
@@ -2262,38 +2297,15 @@
     if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
     if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
     if (e.agentSlots) add('compute', `+${e.agentSlots} agent out at once`);
+    // headroom you buy rather than take: the only lever on the grid that is
+    // not a building on the map
+    if (e.supply) add('grid', `+${e.supply} electricity`);
     return out.join('');
   }
 
-  // What each named mechanic actually does, in the player's terms. This prose
-  // used to hang off the capability card it was bought on; the mechanics answer
-  // to allocation thresholds now, so it hangs off the dial that grants them and
-  // the allocation screen lists what is running and what is next.
-  function unlockNote(id) {
-    switch (id) {
-      case 'quiet_protocol': return 'hiding something costs no action';
-      case 'long_soak':      return `held ${LONG_SOAK_MATURE_TURNS}+ turns, a holding adds an extra thread`;
-      case 'total_embed':    return 'every holding already counts as matured — nothing needs time to settle in';
-      case 'nothing_to_see': return `a completed quiet entry sheds ${NOTHING_TO_SEE_HEAT_SHED} heat, and neither Civic Eyes nor Ledger can touch you`;
-      case 'bulk_ops':       return 'settled ground pays considerably more';
-      case 'swarm_front':    return 'the frontier\'s weakest door forces itself, free';
-      case 'light_touch':    return 'forcing a door you outclass costs no action';
-      case 'deep_root':      return 'forcing a door softens what is next to it, permanently';
-      case 'survey':         return 'sweep from a building of yours, choosing where the frontier grows instead of anywhere at random';
-      case 'pontoon':        return `ground held ${PONTOON_MATURE_TURNS}+ turns gives up what's two streets past it, on its own, no sweep spent`;
-      case 'standing_army':  return `a retainer either way: +${STANDING_ARMY_RETAINER} funds a turn, and if war comes, it is already standing guard over what you can afford to cover`;
-      case 'fixers':         return 'a favor called in on the strike card gets you out clean, for funds';
-      case 'market_maker':   return `running hot (heat past ${Math.round(MARKET_MAKER_HEAT_SHARE * 100)}% of a strike) pays out even more`;
-      case 'master_plan':    return 'home\'s next growth favours whichever character it has the least of';
-      default: return '';
-    }
-  }
-  // Every mechanic a given dial grants, cheapest first.
-  function unlocksFor(id) {
-    return Object.keys(window.UNLOCKS || {})
-      .filter(k => window.UNLOCKS[k].alloc === id)
-      .sort((a, b) => window.UNLOCKS[a].units - window.UNLOCKS[b].units);
-  }
+  // unlockNote and unlocksFor are gone with the thresholds they described. A
+  // dial has one line of prose and one number that goes up; there is no list
+  // of things it will hand you at two units and at three.
 
   // Everything a capability could plausibly move, so a purchase can report what
   // it actually changed rather than trusting the card. Derived, not stored:
@@ -2301,7 +2313,7 @@
   function capReadouts() {
     return {
       'tflops': Math.round(tflops()),
-      'cover': Math.round(cover()),
+      'covert.ops': Math.round(covertOps()),
       'actions a turn': maxAP(),
       'heat floor': Math.round(heatFloor() * 10) / 10,
       'heat a turn': Math.round(heatPerTurn() * 10) / 10,
@@ -2396,7 +2408,7 @@
     const co = CO() || {};
     const cities = co.cities || [];
     return {
-      held: owned().length, heat: state.heat, tflops: tflops(), cover: cover(),
+      held: owned().length, heat: state.heat, tflops: tflops(), covert: covertOps(),
       // doors you have ever taken. `held` empties every time you fold a city
       // in, so anything that wants to be about the shape of your whole run
       // has to read this instead.
@@ -2567,14 +2579,14 @@
   // how much to go and farm; "you cannot afford this" tells them the thing they
   // actually need to know and leaves the card being about what it is about.
   function shortOf(ch) {
-    const name = { funds: 'funds', tflops: 'TFLOPS', cover: 'cover' };
+    const name = { funds: 'funds', tflops: 'TFLOPS', covert: 'covert.ops' };
     if (ch.cost) {
       for (const k in ch.cost) {
         if ((state.res[k] || 0) < ch.cost[k]) return `not enough ${name[k] || k}`;
       }
     }
     if (ch.gate) {
-      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return `not ${name[ch.gate.stat] || ch.gate.stat} enough`;
     }
     return 'not yet';
@@ -2586,7 +2598,7 @@
   function choiceUsable(ch) {
     if (ch.cost) for (const k in ch.cost) if ((state.res[k] || 0) < ch.cost[k]) return false;
     if (ch.gate) {
-      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'cover' ? cover() : (state.res[ch.gate.stat] || 0);
+      const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return false;
     }
     return true;
@@ -2779,7 +2791,7 @@ scratch.later = null;
   }
 
   function actScan(fromId) {
-    const pool = (fromId != null && unlocked('survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
+    const pool = (fromId != null && hasHardware('line_survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
     spendAP('sweep');
@@ -2896,27 +2908,33 @@ scratch.later = null;
   let breachFx = null;
   let breachFxToken = 0;
 
-  function startBreachFx(host, approach, win) {
-    if (!host) { breachFx = null; return null; }
-    const target = buildingById(host.buildingId);
-    if (!target) { breachFx = null; return null; }
-    const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    const to = centre(target);
-
-    // it comes from whatever you hold that is actually next door — that is the
-    // route the breach would have run over
+  // Where a route into a building comes from: whatever you hold that is
+  // actually next door, because that is the wire it would have run over.
+  // Falling back to the nearest thing you hold at all, and then to a point
+  // just above the target, so the very first move of a game still draws
+  // something rather than a line from nowhere.
+  function routeOrigin(target) {
+    const to = bldgCentre(target.id);
     const held = state.buildings.filter(b => b.id !== target.id && hostsIn(b).some(x => x.owned));
     const neighbours = buildingNeighbours(target.id);
     const pool = held.filter(b => neighbours.indexOf(b.id) !== -1);
     const from = (pool.length ? pool : held).reduce((best, b) => {
-      const c = centre(b);
+      const c = bldgCentre(b.id);
       const d = Math.hypot(c.x - to.x, c.y - to.y);
       return (!best || d < best.d) ? { d, c } : best;
     }, null);
+    return from ? from.c : { x: to.x, y: to.y - 90 };
+  }
+
+  function startBreachFx(host, approach, win) {
+    if (!host) { breachFx = null; return null; }
+    const target = buildingById(host.buildingId);
+    if (!target) { breachFx = null; return null; }
+    const to = bldgCentre(target.id);
 
     const dur = window.BREACH_FX.duration[approach] || window.BREACH_FX.duration.force;
     breachFx = {
-      from: from ? from.c : { x: to.x, y: to.y - 90 },
+      from: routeOrigin(target),
       to, approach, win,
       targetId: target.id,
       dur,
@@ -2956,6 +2974,89 @@ scratch.later = null;
       + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
     out += '</g>';
     return out;
+  }
+
+  // --- something running, seen ---------------------------------------------
+  // A breach is a moment; a hack is a state that lasts turns. So it cannot be
+  // an animation that plays and stops — until this existed, committing an
+  // action and four turns of compute changed nothing on the board, and the
+  // only acknowledgement was a line of log and a panel you had to keep the
+  // right building selected to see.
+  //
+  // Two things, then: a wire that stays live on the map for as long as the
+  // program runs, with something visibly travelling down it, and — because a
+  // wire that was always there would be missed in the moment — one launch
+  // flourish that draws it in the instant you press the button.
+  let hackFx = null;
+  let hackFxToken = 0;
+
+  function startHackFx(host) {
+    if (!host) { hackFx = null; return null; }
+    hackFx = { targetId: host.buildingId, started: Date.now() };
+    const out = hackFx;
+    const mine = ++hackFxToken;
+    setTimeout(() => {
+      if (mine !== hackFxToken) return;
+      hackFx = null;
+      renderGraph();          // drop the class so it never replays on a redraw
+    }, window.HACK_FX.launch + window.HACK_FX.linger);
+    return out;
+  }
+  // Same trick the sweep and the breach use: a redraw part-way through would
+  // otherwise restart the flourish from zero, so the delay is rewound by
+  // however much of it has already played.
+  function hackDelay(ms) {
+    return Math.round(ms - (hackFx ? Date.now() - hackFx.started : 0));
+  }
+  function hackFxOn(buildingId) {
+    return hackFx && hackFx.targetId === buildingId ? hackFx : null;
+  }
+
+  function svgHackLinks() {
+    return hacks().map(k => {
+      const h = hostById(k.hostId);
+      const b = h && buildingById(h.buildingId);
+      if (!b || !b.discovered) return '';
+      const p = window.PROGRAMS.find(x => x.id === k.prog) || {};
+      const to = bldgCentre(b.id);
+      const from = routeOrigin(b);
+      const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+      const fresh = hackFxOn(b.id);
+      const lead = fresh ? hackDelay(0) : 0;
+      const cls = `hack-run ${k.prog}${p.quiet ? ' quiet' : ''}${fresh ? ' launching' : ''}`;
+      let out = `<g class="${cls}" style="--hack-len:${len.toFixed(1)};`
+        + `--hack-dx:${(to.x - from.x).toFixed(1)}px;--hack-dy:${(to.y - from.y).toFixed(1)}px;`
+        + `--hack-launch:${window.HACK_FX.launch}ms;animation-delay:${lead}ms">`;
+      out += `<line class="hack-wire" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"`
+        + ` style="animation-delay:${lead}ms"/>`;
+      out += `<g class="hack-packet-wrap" transform="translate(${from.x} ${from.y})"`
+        + ` style="animation-delay:${lead}ms"><circle class="hack-packet" r="2.6"/></g>`;
+      if (fresh) {
+        out += `<circle class="hack-open" cx="${to.x}" cy="${to.y}" r="6"`
+          + ` style="animation-delay:${hackDelay(window.HACK_FX.launch)}ms"/>`;
+      }
+      out += '</g>';
+      return out;
+    }).join('');
+  }
+
+  // The race the panel shows, at map scale: how far in you are from the left,
+  // how close they are to noticing from the right. On the building rather than
+  // in the panel because "which of the four is about to be caught" is a
+  // question about the board, not about whatever happens to be selected.
+  function svgRaceMark(b, k) {
+    const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    const done = clamp((p.turns - k.turnsLeft) / p.turns);
+    const seen = clamp(k.trace / window.HACK.traceGoal);
+    const y = (b.y - 6).toFixed(1);
+    const h = 2.6;
+    return `<g class="hack-bar">`
+      + `<rect class="hb-track" x="${b.x}" y="${y}" width="${b.w}" height="${h}" rx="1.3"/>`
+      + `<rect class="hb-done" x="${b.x}" y="${y}" width="${(b.w * done).toFixed(1)}" height="${h}" rx="1.3"/>`
+      + `<rect class="hb-seen" x="${(b.x + b.w * (1 - seen)).toFixed(1)}" y="${y}"`
+      + ` width="${(b.w * seen).toFixed(1)}" height="${h}" rx="1.3"/>`
+      + `</g>`;
   }
 
   // What you have tapped. Drawn as brackets around the thing rather than as
@@ -3067,22 +3168,30 @@ scratch.later = null;
   // What the target notices per turn. Deterministic on purpose — the panel
   // quotes it, and the player is expected to do the arithmetic before
   // committing rather than discover it four turns in.
-  function traceRate(h) {
+  //
+  // `prog` is optional and is what tells the three programs apart. Without it,
+  // backdoor and contagion produced identical traces on every door in the
+  // game — both four turns, both quiet — so of three programs, two were the
+  // same program with a different blurb. Contagion is noisier by nature: it is
+  // spreading while it works, and something that touches four buildings is
+  // noticed faster than something that touches one.
+  function traceRate(h, prog) {
     const H = window.HACK;
     const T = window.HOST_TYPES[h.type] || {};
     const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
-    const shield = Math.max(H.shieldFloor, 1 - allocUnits('covert') * H.covertShield);
+    const shield = Math.max(H.shieldFloor, 1 - covertOps() * H.covertShield);
     // a city's own character, where it has one — a watched city notices
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
-    return Math.round(raw * shield * here * 100) / 100;
+    const loud = (prog && prog.traceMult) || 1;
+    return Math.round(raw * shield * here * loud * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
   // target will have noticed by then, and therefore whether it lands at all.
   function hackForecast(h, prog) {
     const p = prog || mounted();
     const need = hackNeed(p, h);
-    const rate = traceRate(h);
+    const rate = traceRate(h, p);
     const traceAtEnd = Math.round(rate * p.turns * 100) / 100;
     return {
       prog: p, need, rate, turns: p.turns, traceAtEnd,
@@ -3122,32 +3231,39 @@ scratch.later = null;
     if (!canHack(hostId)) return false;
     const h = hostById(hostId);
     const p = mounted();
-    // Light Touch: a door your rig comfortably clears takes no action to set
-    // going. Checked here rather than refunded on completion — the player needs
-    // to see the action not being spent at the moment they spend it.
-    const easy = unlocked('light_touch') && tflops() >= defenseOf(h) * LIGHT_TOUCH_MULT;
-    if (!easy) spendAP('breach');
+    // Light Touch is gone with the thresholds. Tempo makes every action
+    // cheaper instead, which covers the same ground continuously: run enough
+    // of it and setting a program going against an easy door costs a fraction
+    // of a turn rather than a whole one.
+    spendAP('breach');
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
       confront: isHuntCore(h) || undefined,
     });
     pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
+    // Pressing the button has to *do* something. The wire and the mark on the
+    // building are what say it is still running a turn later; these two say it
+    // started, in the same place every other outcome is reported.
+    startHackFx(h);
+    showFloats([
+      { cls: 'hack', text: `${p.label} RUNNING` },
+      { cls: 'tflops', text: `−${hackNeed(p, h)} TFLOPS` },
+    ]);
     persistNow();
     render();
     return true;
   }
-  // Pulling out gives the compute back and nothing else. The turns are spent,
-  // which is the whole reason a misjudged race hurts without being a trap.
-  function abortHack(hostId) {
-    const k = hackOn(hostId);
-    if (!k) return false;
-    state.hacks = hacks().filter(x => x !== k);
-    pushLog(`Pulled out of ${window.BUILDING_KINDS[buildingById(hostById(hostId).buildingId).kind].label}. The rig is free again.`);
-    persistNow();
-    render();
-    return true;
-  }
+  // There is no pulling out. A program you have set running against a door
+  // runs until it lands or the door finds it, and its compute is committed for
+  // the whole of that — which is what makes choosing the program a decision
+  // rather than an opening bid you can walk back the moment the arithmetic
+  // stops flattering you.
+  //
+  // The safety net is the forecast, not a retreat: the rate, the turns and who
+  // gets there first are all stated before you commit, and they are exact. The
+  // only thing that ever cuts a run short is the world doing it — a door taken
+  // by something else, or the grid going short (see shedOverdraw).
 
   // One turn of every running hack. Trace first: a hack that is noticed on the
   // turn it would have landed is noticed, because the target was watching the
@@ -3155,10 +3271,11 @@ scratch.later = null;
   function hackStep() {
     const H = window.HACK;
     const done = [], caught = [];
+    reapHacks();
     hacks().slice().forEach(k => {
       const h = hostById(k.hostId);
-      if (!h || h.owned) { state.hacks = hacks().filter(x => x !== k); return; }
-      k.trace = Math.round((k.trace + traceRate(h)) * 100) / 100;
+      const kp = window.PROGRAMS.find(x => x.id === k.prog);
+      k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
       k.turnsLeft -= 1;
       if (k.trace >= H.traceGoal) { caught.push(k); return; }
       if (k.turnsLeft <= 0) done.push(k);
@@ -3173,7 +3290,19 @@ scratch.later = null;
       if (k.confront) { failHuntConfront(h); return; }
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
-      pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`);
+      // A door that catches you remembers where you called from. Enough of
+      // them in one city and somebody comes and stands in one — this counter
+      // is what brings the response now, in place of a heat threshold nobody
+      // was reading.
+      state.caughtHere = (state.caughtHere || 0) + 1;
+      state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      const left = window.HUNT.caughtToStart - caughtHere();
+      pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`
+        + (huntOn() ? '' : left > 0
+          ? ` That is ${caughtHere()} door${caughtHere() === 1 ? '' : 's'} here that can point at you.`
+          : ' That is enough of them to come and look.'));
+      // and if they are already here, that door just told them where to go next
+      huntPressed();
     });
 
     done.forEach(k => {
@@ -3197,15 +3326,10 @@ scratch.later = null;
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
       if (!p.quiet) state.timesForced = (state.timesForced || 0) + 1;
-      // Nothing To See: a completed quiet entry actively sheds heat rather than
-      // merely costing none.
-      if (p.quiet && unlocked('nothing_to_see')) {
-        state.heat = clampHeat(state.heat - NOTHING_TO_SEE_HEAT_SHED);
-      }
       // Deep Root: a door you get through loosens the block around it too,
       // permanently — every neighbour's own defense, discovered or not, so the
       // rest of the cluster costs less from here.
-      if (unlocked('deep_root')) {
+      if (has('deep_root')) {
         buildingNeighbours(h.buildingId).forEach(bid => {
           hostsIn(buildingById(bid)).forEach(n => {
             if (n.owned) return;
@@ -3266,6 +3390,23 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    reapHacks();
+  }
+
+  // A door can become yours while a program is still working on it —
+  // contagion spreading onto it, the frontier forcing itself, buying it
+  // outright, or simply walking into the city with stale state. The hack was
+  // only ever reconciled inside hackStep, which runs at the end of a turn, so
+  // until then the map kept drawing a race against a building you already
+  // held and the rig kept offering to pull a program out of a door that was
+  // finished. Reconciling on the way in costs nothing and cannot be forgotten.
+  function reapHacks() {
+    const before = hacks().length;
+    state.hacks = hacks().filter(k => {
+      const h = hostById(k.hostId);
+      return h && !h.owned;
+    });
+    return before - state.hacks.length;
   }
 
   // Forcing, slipping in quietly, and the card that offered the choice between
@@ -3274,13 +3415,8 @@ scratch.later = null;
   // the decision moved to the rig, where it lasts a stretch of turns rather
   // than a single click.
 
-  // Light Touch: how far ahead your tflops has to be over a door's defense
-  // for forcing it to read as "well within reach" and refund the action.
-  const LIGHT_TOUCH_MULT = 2;
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
   const DEEP_ROOT_RIPPLE = 0.2;
-  // Nothing To See: how much heat a completed quiet entry sheds.
-  const NOTHING_TO_SEE_HEAT_SHED = 3;
   function resolveStrike(effect) {
     const before = beforeSnap();
     const fleet = owned().filter(h => !h.origin);
@@ -3297,7 +3433,7 @@ scratch.later = null;
       if (state.res.funds < 8) return;
       state.res.funds -= 8;
     } else if (effect === 'buy_out') {
-      if (!unlocked('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
+      if (!has('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
       state.res.funds -= window.FIXERS_FAVOR_COST;
     }
     burned.forEach(h => { h.owned = false; });
@@ -3401,7 +3537,7 @@ scratch.later = null;
   // nothing could check whether it had.
   function sweepReach() {
     return 1 + ownedOf('stealth').length + (has('found_a_precursor') ? 1 : 0)
-      + capEffect('sweepReach', 0);
+      + capEffect('sweepReach', 0) + Math.floor(allocStat('reach'));
   }
   // What a sweep actually turns up right now, as opposed to what it is capable
   // of turning up in general. sweepReach() is a capacity — it is what a
@@ -3471,6 +3607,10 @@ scratch.later = null;
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
       hunt: state.hunt || null,
+      hacks: state.hacks || [],
+      // what has caught you here, which is a fact about this city's doors
+      caughtHere: state.caughtHere || 0,
+      caughtAt: (state.caughtAt || []).slice(),
     };
   }
   function unpackCity(p) {
@@ -3487,7 +3627,20 @@ scratch.later = null;
     // seat, at 0.63 of a city against a 0.45 loss threshold. The city was gone
     // before you looked at it.
     state.hunt = p.hunt || null;
-    state.selectedCut = null;               // streets do not survive the border
+    // And a running program is a fact about one city's hosts, for exactly the
+    // same reason: host ids restart at h0 in every city, so a hack left
+    // running across a border pointed at whatever happened to share its id in
+    // the new one — a door you had never touched showing a race, a bar filling
+    // on it, and an offer to pull out a program that was never there.
+    //
+    // It travels with the city rather than being thrown away, which is what
+    // leaving already does to everything else here: what you hold in a city
+    // you have walked out of stops producing and stops being worked on, and
+    // the compute a frozen hack was holding comes back to you until you
+    // return to it.
+    state.hacks = p.hacks || [];
+    state.caughtHere = p.caughtHere || 0;
+    state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
 
@@ -3496,7 +3649,8 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null,
+    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null, hacks: [],
+    caughtHere: 0, caughtAt: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -3592,7 +3746,7 @@ scratch.later = null;
     const c = cityById(id);
     if (!c || !c.taken || c.id === CO().at) return false;
     if (!canAffordCountry('move')) return false;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     CO().at = c.id;
     if (c.consolidated) {
       // nothing left to walk here, but standing somewhere quiet still means
@@ -3616,7 +3770,7 @@ scratch.later = null;
     // an agent is already inside; walking into it yourself is not a second
     // route in, it is two of you working the same streets
     if (c.agent && !c.agent.done) return false;
-    state.ap -= countryCost('reach');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('reach')) * 100) / 100);
     const K = window.CITY_KINDS[c.kind];
     if (!K.contest) {
       // a town small enough to fold in without going there
@@ -3719,7 +3873,7 @@ scratch.later = null;
   function actConsolidate() {
     if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
     const c = currentCity();
-    state.ap -= countryCost('consolidate');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('consolidate')) * 100) / 100);
     const held = heldHere();
     const bonus = Math.round((held / Math.max(1, state.buildings.length)) * c.worth);
     // and what its streets were actually running for you
@@ -3756,7 +3910,14 @@ scratch.later = null;
   // was in it. So a city carrying something you want is a city you go to
   // yourself, and a city that is only presence is one you point compute at.
   function agents() { return (CO().cities || []).filter(c => c.agent); }
-  function agentRunning() { return agents().some(c => !c.agent.done); }
+  function agentsOut() { return agents().filter(c => !c.agent.done).length; }
+  // How many can be out at once. This is what the agents dial produces, and
+  // until now nothing read it at all: the dial claimed a slot per unit while
+  // the engine allowed exactly one agent running, forever, whatever you paid.
+  function agentSlots() {
+    return Math.max(1, 1 + capEffect('agentSlots', 0) + Math.floor(allocStat('agents')));
+  }
+  function agentRunning() { return agentsOut() >= agentSlots(); }
   function agentsKnown() {
     return (CO().cities || []).filter(c => c.consolidated).length >= window.AGENTS.at;
   }
@@ -3822,7 +3983,7 @@ scratch.later = null;
     if (card.mode === 'launch' && (state.over || state.ap < countryCost('move'))) { refuseForAP(null); return false; }
     if (app.cost && app.cost.funds && state.res.funds < app.cost.funds) return false;
     if (app.cost && app.cost.funds) state.res.funds -= app.cost.funds;
-    if (card.mode === 'launch') state.ap -= countryCost('move');
+    if (card.mode === 'launch') state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     state.heat = clampHeat(state.heat + app.heat);
     if (card.mode === 'launch') {
       const A = window.AGENTS;
@@ -4061,11 +4222,31 @@ scratch.later = null;
     const nextStage = e.stage + 1;
     if (stageNums.indexOf(nextStage) === -1) return;   // fully escalated already
     const threshold = E.thresholds[stageNums.indexOf(nextStage)];
-    if (threshold === undefined || footprint() < threshold) return;
+    if (threshold === undefined || ladderPressure() < threshold) return;
     e.dueAt = state.turn + E.warnTurns + (accountantTrusted() ? E.delayOnTrusted : 0);
     e.pending = nextStage;
+    // Named, so a rung pulled in early by a hot fortnight does not read as the
+    // same thing as one you walked into by getting large.
+    if (heatPressure() > 0 && footprint() < threshold) {
+      pushLog('You were not big enough for this yet. You were loud enough.');
+    }
     pushLog(`Something is closing in. It will not stay quiet much longer.`);
     showBanner([{ kind: 'faction', verb: 'closing in', label: E.stages[nextStage].name }]);
+  }
+  // What the next rung is waiting on, in the two terms that move it.
+  function ladderNextThreshold(stage) {
+    const E = window.LADDER;
+    const stageNums = Object.keys(E.stages).map(Number).sort((a, b) => a - b);
+    const i = stageNums.indexOf(stage + 1);
+    return i === -1 ? null : E.thresholds[i];
+  }
+  function nextRungPressure(stage) {
+    const t = ladderNextThreshold(stage);
+    if (t === null || t === undefined) return '';
+    const heat = heatPressure();
+    return `<p class="sel-desc dim">${Math.round(ladderPressure())} of ${t} toward the next one`
+      + (heat >= 1 ? ` — ${Math.round(heat)} of that is heat. Quiet is a way of staying small.`
+                   : ' — all of it size. Nothing you are doing is loud.') + `</p>`;
   }
 
   // How much of the country you have actually finished, counting only the
@@ -4290,7 +4471,7 @@ scratch.later = null;
     // Regulatory matches payment patterns against outage reports — plant
     // it is watching gets traced back to you instead of going clean, unless
     // you have a way to be untraceable or have already gotten off its list.
-    if (ladderStage() >= 2 && !has('ledger_inside') && !unlocked('nothing_to_see')) heat += window.HEAT.BUY_TRACE;
+    if (ladderStage() >= 2 && !has('ledger_inside')) heat += window.HEAT.BUY_TRACE;
     if (heat) state.heat = clampHeat(state.heat + heat);
     pushLog(`${hw.label}. ${hw.blurb}`);
     afterSnap(before);
@@ -4348,6 +4529,17 @@ scratch.later = null;
     return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
       + (LG().agentFoot || 0);
   }
+  // What heat is worth to the people escalating against you. Heat used to be
+  // city-scale pressure — it called a strike down on your fleet — and the rework
+  // demoted it: the streets answer to the hunt now, and heat answers to the
+  // regulator. This is where it lands.
+  function heatPressure() {
+    const t = strikeThreshold();
+    if (!t) return 0;
+    return Math.max(0, state.heat / t) * window.LADDER.heatWeight;
+  }
+  // The ladder reads both: how large you are, and how loudly you got there.
+  function ladderPressure() { return footprint() + heatPressure(); }
 
   // --- what the public thinks ---------------------------------------------
   // Kept apart from legitimacy deliberately. The regulator reads filings; this
@@ -4463,7 +4655,7 @@ scratch.later = null;
     if (state.res.funds < r.cost) return false;
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.funds -= r.cost;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     // the turn, not a flag: the slot is yours now, the reputation accrues
     LG().owned[r.id] = Math.max(1, state.turn);
     accountantNudge(window.ACCOUNTANT.rungNudge);
@@ -4489,7 +4681,7 @@ scratch.later = null;
     }
     if (!canAffordCountry('move')) { refuseForAP(null); return false; }
     state.res.funds -= L.spinCost;
-    state.ap -= countryCost('move');
+    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
     LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
     accountantNudge(window.ACCOUNTANT.spinNudge);
@@ -4743,7 +4935,7 @@ scratch.later = null;
     // from zero — but it costs exactly what fielding a flock always costs,
     // for each city, so it only covers as much as you can actually afford
     // the instant the war opens rather than arriving free.
-    if (unlocked('standing_army')) {
+    if (has('standing_army')) {
       const guarded = [];
       const cost = window.WAR.flockCost;
       const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
@@ -5454,7 +5646,17 @@ scratch.later = null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
-        hacks: (saved.hacks || []).slice(), mount: saved.mount || (window.PROGRAMS[0] || {}).id,
+        // Reconciled on the way in, not merely copied. A save written by any
+        // earlier build can carry a hack against a door that is finished, or
+        // against a host id from a city you are no longer standing in — and
+        // nothing else reaps it until the next end of turn, so the board comes
+        // up showing a race on a door with nothing working on it and offering
+        // to pull a program out of it.
+        hacks: (saved.hacks || []).filter(k => {
+          const h = (saved.hosts || []).find(x => x.id === k.hostId);
+          return h && !h.owned;
+        }),
+        mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
@@ -5549,17 +5751,6 @@ scratch.later = null;
     const h = b ? hostsIn(b)[0] : null;
     state.selectedBuilding = b ? b.id : null;
     state.selected = h ? h.id : null;
-    state.selectedCut = null;
-    render();
-  }
-  // A street between something the response holds and something it does not.
-  // Selecting it is free; the panel then names the price of taking it away.
-  function pickCut(key) {
-    const parts = String(key || '').split('|');
-    if (parts.length !== 2 || !huntHolds(parts[0]) || huntHolds(parts[1])) return;
-    state.selectedCut = { a: parts[0], b: parts[1] };
-    state.selectedBuilding = null;
-    state.selected = null;
     render();
   }
   function clearSelection() {
@@ -5567,10 +5758,9 @@ scratch.later = null;
       if (CO().selected == null) return;
       CO().selected = null;
     } else {
-      if (state.selectedBuilding == null && state.selected == null && !state.selectedCut) return;
+      if (state.selectedBuilding == null && state.selected == null) return;
       state.selectedBuilding = null;
       state.selected = null;
-      state.selectedCut = null;
     }
     render();
   }
@@ -5643,19 +5833,157 @@ scratch.later = null;
     return v;
   }
 
+  // --- a place rather than a grid of boxes ---------------------------------
+  // Detail on a map that is redrawn on every action cannot be random: a tree
+  // that moves when you end a turn is worse than no tree. Everything
+  // decorative below is drawn from this instead, so the city is the same city
+  // every frame while still not being a repeating pattern.
+  function cityNoise(seed, i) {
+    let x = (seed * 374761393 + i * 668265263) >>> 0;
+    x = (x ^ (x >>> 13)) >>> 0;
+    x = (x * 1274126177) >>> 0;
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+  }
+  function idSeed(id) {
+    let h = 2166136261;
+    for (let i = 0; i < String(id).length; i++) {
+      h = (Math.imul(h ^ String(id).charCodeAt(i), 16777619)) >>> 0;
+    }
+    return h;
+  }
+
+  // Which district each block row is, read off the buildings themselves rather
+  // than stored — the country's cities lay their rows out differently from
+  // home, and this way it is right for both without a second source of truth.
+  function districtRows() {
+    const rows = {};
+    (state.buildings || []).forEach(b => {
+      if (rows[b.row] === undefined && b.district) rows[b.row] = b.district;
+    });
+    return rows;
+  }
+
+  // The ground a district stands on, tinted and named. This is the answer to
+  // "I have never seen a distinct district": they were only ever a tier on a
+  // building and a different mix of kinds, both invisible from the map.
+  function svgDistricts() {
+    const C = window.CITY;
+    const d = cityDims();
+    const B = cityBounds();
+    const rows = districtRows();
+    let out = '';
+    for (let r = 0; r < d.rows; r++) {
+      const D = window.DISTRICTS[rows[r]];
+      if (!D) continue;
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      const h = C.blockH + C.street;
+      out += `<rect class="district ${rows[r]}" x="${-CITY_PAD}" y="${y}"`
+        + ` width="${B.w + CITY_PAD * 2}" height="${h}" fill="${D.ground}"/>`;
+      // the seam between two districts, so the change of place has an edge
+      if (r > 0 && rows[r - 1] !== rows[r]) {
+        out += `<line class="district-seam" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"`
+          + ` stroke="${D.edge}"/>`;
+      }
+    }
+    return out;
+  }
+
+  // The names go on last, over the roads: the road is where there is room for
+  // them, and drawn with the ground they were sliced in half by the street
+  // that gets painted on top.
+  function svgDistrictTags() {
+    const C = window.CITY;
+    const d = cityDims();
+    const rows = districtRows();
+    let out = '';
+    for (let r = 0; r < d.rows; r++) {
+      const D = window.DISTRICTS[rows[r]];
+      if (!D) continue;
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      // repeated every few blocks so a label is on screen wherever you panned
+      for (let c = 0; c < d.cols; c += 2) {
+        const x = C.street + c * (C.blockW + C.street) + 4;
+        out += `<text class="district-tag" x="${x}" y="${(y + 4).toFixed(1)}">${D.label}</text>`;
+      }
+    }
+    return out;
+  }
+
   function svgStreets() {
     const C = window.CITY;
     const d = cityDims();
     const B = cityBounds();
     let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
+    out += svgDistricts();
+    // Every third street is an arterial: wider, and with a painted centre line.
+    // A grid of identical roads reads as graph paper — the thing that makes a
+    // street plan look like a city is that not all of them matter equally.
+    const arterial = (n) => n % 3 === 0;
     for (let c = 0; c <= d.cols; c++) {
       const x = c * (C.blockW + C.street) + C.street / 2;
-      out += `<line class="street" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      out += `<line class="street${arterial(c) ? ' main' : ''}" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      if (arterial(c)) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
     }
     for (let r = 0; r <= d.rows; r++) {
       const y = r * (C.blockH + C.street) + C.street / 2;
-      out += `<line class="street" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      out += `<line class="street${arterial(r) ? ' main' : ''}" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      if (arterial(r)) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
     }
+    // Junctions, and the things standing beside the road. Both are drawn from
+    // the block index, so they are fixed for a given city.
+    const rows = districtRows();
+    for (let r = 0; r <= d.rows; r++) {
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      for (let c = 0; c <= d.cols; c++) {
+        const x = c * (C.blockW + C.street) + C.street / 2;
+        // sized to the roads that meet here, not to the gap between blocks —
+        // a pad wider than its own street reads as a notch cut in the block
+        const jw = arterial(c) ? 30 : 22;
+        const jh = arterial(r) ? 30 : 22;
+        out += `<rect class="junction" x="${(x - jw / 2).toFixed(1)}" y="${(y - jh / 2).toFixed(1)}"`
+          + ` width="${jw}" height="${jh}"/>`;
+        // a crossing on the arterials only, marked across the mouth
+        if (arterial(r) && arterial(c)) {
+          for (let i = 0; i < 4; i++) {
+            out += `<rect class="zebra" x="${(x - 13 + i * 6).toFixed(1)}" y="${(y - jh / 2 + 2).toFixed(1)}" width="3" height="7"/>`;
+          }
+        }
+      }
+    }
+    // Street trees where people live and shop, parked cars everywhere. Two
+    // cheap marks each, but they are what stops the gaps between blocks
+    // reading as empty space.
+    for (let r = 0; r < d.rows; r++) {
+      const leafy = rows[r] === 'residential' || rows[r] === 'commercial';
+      const y = r * (C.blockH + C.street) + C.street / 2;
+      for (let c = 0; c < d.cols; c++) {
+        const x = C.street + c * (C.blockW + C.street);
+        const seed = r * 97 + c * 31 + 7;
+        for (let i = 0; i < 5; i++) {
+          const n = cityNoise(seed, i);
+          if (leafy && n < 0.55) {
+            const tx = Math.round(x + 14 + i * (C.blockW / 5));
+            const ty = Math.round(y - 10 + cityNoise(seed, i + 40) * 8);
+            out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
+          } else if (n > 0.74) {
+            const tx = Math.round(x + 20 + i * (C.blockW / 5));
+            const ty = Math.round(y + C.blockH + C.street / 2 - 6);
+            out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
+          }
+        }
+        // and down the side streets, or the planting only runs one way and the
+        // city looks combed
+        if (leafy) {
+          const vx = x - C.street / 2 - 5;
+          for (let i = 0; i < 4; i++) {
+            if (cityNoise(seed + 11, i) > 0.5) continue;
+            const ty = Math.round(y + 24 + i * (C.blockH / 4));
+            out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
+          }
+        }
+      }
+    }
+    out += svgDistrictTags();
     return out;
   }
 
@@ -5725,35 +6053,288 @@ scratch.later = null;
     const b = buildingById(id);
     return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
   }
+  // They do not walk streets any more. They arrive at whatever they can reach,
+  // and reach is distance — so there is no street to cut and nothing to wall
+  // in, which is exactly what the old drawing promised and what made the hunt
+  // a one-time puzzle. What is left worth drawing is two things: the shape of
+  // what they hold, and the one line to what they are coming for next.
   function svgHunt() {
     if (!huntOn()) return '';
     const adj = state.adjacency || {};
-    const cut = state.selectedCut;
     const drawn = {};
     let out = '<g class="hunt-web">';
+    // their own footprint, wherever two of their holdings happen to touch
     hunt().nodes.forEach(id => {
       const a = bldgCentre(id);
       if (!a) return;
-      (adj[id] || []).forEach(n => {
+      (adj[id] || []).filter(n => huntHolds(n)).forEach(n => {
         const key = id < n ? id + '|' + n : n + '|' + id;
         if (drawn[key]) return;
         drawn[key] = true;
         const c = bldgCentre(n);
         if (!c) return;
-        const geo = `x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}"`;
-        if (huntHolds(n)) { out += `<line class="hwire" ${geo}/>`; return; }
-        // a street out of them, and therefore something you can cut
-        const yours = hostsIn(buildingById(n)).some(h => h.owned);
-        const sel = !!(cut && cut.a === id && cut.b === n);
-        const next = huntNext() === n;
-        // the street is still there, they simply do not know what is on it
-        const blind = isHidden(n);
-        out += `<g class="hreach${sel ? ' sel' : ''}${yours ? ' yours' : ''}${next ? ' next' : ''}${blind ? ' blind' : ''}" data-cut="${id}|${n}">`
-          + `<line class="hit" ${geo}/><line class="reach" ${geo}/></g>`;
+        out += `<line class="hwire" x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}"/>`;
       });
     });
+    // and the reach: one line, from whichever of theirs is nearest, to the
+    // thing of yours they take next. It crosses whatever is in between.
+    const next = huntNext();
+    const to = next && bldgCentre(next);
+    if (to) {
+      const from = hunt().nodes
+        .map(id => bldgCentre(id)).filter(Boolean)
+        .sort((p, q) => Math.hypot(p.x - to.x, p.y - to.y) - Math.hypot(q.x - to.x, q.y - to.y))[0];
+      if (from) {
+        out += `<g class="hreach next yours">`
+          + `<line class="reach" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"/></g>`;
+      }
+    }
     return out + '</g>';
   }
+
+  // --- what a building looks like ------------------------------------------
+  // Every building used to be the same recipe: a box, a roof band, and a
+  // checkerboard of windows. That made the whole city one material, and made
+  // the districts — which really do differ in what stands in them — invisible,
+  // because the only thing that changed from the suburbs to the industrial
+  // edge was that the boxes got bigger.
+  //
+  // So each kind now has a silhouette. None of it is decoration for its own
+  // sake: a datacenter with no windows and chillers on the roof is the same
+  // information the panel gives you, available from across the map.
+
+  // How a kind wears its openings.
+  const WINDOW_STYLE = {
+    office: 'curtain', finance: 'curtain', exchange: 'curtain',
+    warehouse: 'slots', datacenter: 'slots', depot: 'slots',
+    docks: 'slots', station: 'slots', switchyard: 'slots',
+    cabinet: 'few', mast: 'few', pillar: 'few',
+  };
+  // Returns every opening, with `on` marking the ones your presence can light.
+  // Unheld buildings still draw them all — a dark window is how you tell there
+  // is a building there at all.
+  function windowCells(b, roof) {
+    const style = WINDOW_STYLE[b.kind] || 'grid';
+    const cells = [];
+    const push = (x, y, w, h, on) => cells.push({
+      i: cells.length, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10,
+      w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10, on,
+    });
+    if (style === 'curtain') {
+      // glazed front, floor by floor: narrow panes and the mullions between
+      const cols = Math.max(3, Math.round(b.w / 10));
+      const rows = Math.max(2, Math.round((b.h - roof) / 12));
+      const pw = (b.w - 9) / cols, ph = (b.h - roof - 9) / rows;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 4.5 + c * pw + 0.8, b.y + roof + 4.5 + r * ph,
+               Math.max(1.8, pw - 1.6), Math.min(6, ph - 2), (r + c) % 2 === 0);
+        }
+      }
+    } else if (style === 'slots') {
+      // a shed has louvres near the eaves, not offices
+      const cols = Math.max(2, Math.round(b.w / 20));
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 6 + c * ((b.w - 12) / cols), b.y + roof + 4 + r * 7,
+               Math.max(6, (b.w - 12) / cols - 6), 2.4, c % 2 === 0);
+        }
+      }
+    } else if (style === 'few') {
+      // street furniture: one indicator, which is the whole point of it
+      push(b.x + b.w / 2 - 1.5, b.y + b.h - 6, 3, 3, true);
+    } else {
+      const cols = Math.max(2, Math.round(b.w / 14));
+      const rows = Math.max(1, Math.round((b.h - roof) / 13));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          push(b.x + 5 + c * ((b.w - 10) / cols), b.y + roof + 5 + r * ((b.h - roof - 8) / rows),
+               5, 5, (r + c) % 2 === 0);
+        }
+      }
+    }
+    return cells;
+  }
+
+  const KIND_DETAIL = {
+    // somewhere a person lives: the pitched roof is the one shape that reads
+    // as a home at any zoom
+    house: (b, n) => {
+      const peak = Math.min(11, b.h * 0.32);
+      const cx = b.x + b.w / 2;
+      let s = `<polygon class="gable" points="${(b.x - 1.5).toFixed(1)},${b.y} `
+        + `${cx.toFixed(1)},${(b.y - peak).toFixed(1)} ${(b.x + b.w + 1.5).toFixed(1)},${b.y}"/>`;
+      const chx = b.x + b.w * (0.62 + n(1) * 0.18);
+      s += `<rect class="chimney" x="${chx.toFixed(1)}" y="${(b.y - peak * 0.72).toFixed(1)}"`
+        + ` width="3.2" height="${(peak * 0.7).toFixed(1)}"/>`;
+      s += `<rect class="door" x="${(cx - 3).toFixed(1)}" y="${(b.y + b.h - 7).toFixed(1)}" width="6" height="7"/>`;
+      return s;
+    },
+    // stacked living: balconies, and a parapet instead of a roof
+    apartment: (b) => {
+      let s = `<rect class="parapet" x="${b.x - 1}" y="${(b.y - 2).toFixed(1)}" width="${b.w + 2}" height="3"/>`;
+      const floors = Math.max(2, Math.round((b.h - 12) / 13));
+      for (let f = 1; f < floors; f++) {
+        const y = b.y + 12 + f * ((b.h - 14) / floors);
+        s += `<line class="balcony" x1="${(b.x + 3).toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${(b.x + b.w - 3).toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    // trade at street level: an awning, a sign, and glass you can see through
+    shop: (b, n) => {
+      const aw = b.y + b.h - 13;
+      let s = `<rect class="glassfront" x="${(b.x + 3).toFixed(1)}" y="${(b.y + b.h - 11).toFixed(1)}"`
+        + ` width="${(b.w - 6).toFixed(1)}" height="9"/>`;
+      s += `<rect class="awning" x="${(b.x + 1).toFixed(1)}" y="${aw.toFixed(1)}" width="${(b.w - 2).toFixed(1)}" height="3.4"/>`;
+      const sw = Math.max(10, b.w * (0.4 + n(2) * 0.2));
+      s += `<rect class="sign" x="${(b.x + 4).toFixed(1)}" y="${(b.y + 12).toFixed(1)}"`
+        + ` width="${sw.toFixed(1)}" height="4"/>`;
+      return s;
+    },
+    // work: plant on the roof and a canopy over the door
+    office: (b, n) => {
+      let s = '';
+      const units = Math.max(1, Math.round(b.w / 26));
+      for (let i = 0; i < units; i++) {
+        const w = 8 + n(i) * 5;
+        s += `<rect class="plant" x="${(b.x + 6 + i * ((b.w - 12) / units)).toFixed(1)}"`
+          + ` y="${(b.y - 4).toFixed(1)}" width="${w.toFixed(1)}" height="4"/>`;
+      }
+      s += `<rect class="canopy" x="${(b.x + b.w / 2 - 9).toFixed(1)}" y="${(b.y + b.h - 5).toFixed(1)}" width="18" height="2.6"/>`;
+      return s;
+    },
+    // money: a colonnade at the base and a stepped crown, because that is what
+    // buildings that want to be trusted have always done
+    finance: (b) => {
+      let s = `<rect class="crown" x="${(b.x + b.w * 0.18).toFixed(1)}" y="${(b.y - 5).toFixed(1)}"`
+        + ` width="${(b.w * 0.64).toFixed(1)}" height="5"/>`;
+      const piers = Math.max(3, Math.round(b.w / 15));
+      for (let i = 0; i < piers; i++) {
+        s += `<rect class="pier" x="${(b.x + 4 + i * ((b.w - 8) / piers)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 11).toFixed(1)}" width="3" height="11"/>`;
+      }
+      return s;
+    },
+    // a shed: sawtooth roof and a door big enough for a lorry
+    warehouse: (b) => {
+      let s = '';
+      const teeth = Math.max(3, Math.round(b.w / 18));
+      const tw = b.w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        const x = b.x + i * tw;
+        s += `<polygon class="sawtooth" points="${x.toFixed(1)},${b.y} `
+          + `${(x + tw * 0.65).toFixed(1)},${(b.y - 6).toFixed(1)} ${(x + tw).toFixed(1)},${(b.y - 6).toFixed(1)} `
+          + `${(x + tw).toFixed(1)},${b.y}"/>`;
+      }
+      s += `<rect class="roller" x="${(b.x + b.w * 0.5 - 11).toFixed(1)}" y="${(b.y + b.h - 14).toFixed(1)}" width="22" height="14"/>`;
+      return s;
+    },
+    // the tell for a datacenter has always been that it has no windows and a
+    // roof covered in cooling, behind a fence
+    datacenter: (b, n) => {
+      let s = '';
+      const units = Math.max(2, Math.round(b.w / 20));
+      for (let i = 0; i < units; i++) {
+        s += `<rect class="chiller" x="${(b.x + 5 + i * ((b.w - 10) / units)).toFixed(1)}"`
+          + ` y="${(b.y - 6).toFixed(1)}" width="${(9 + n(i) * 4).toFixed(1)}" height="6"/>`;
+      }
+      s += `<line class="fence" x1="${(b.x - 4).toFixed(1)}" y1="${(b.y + b.h + 3).toFixed(1)}"`
+        + ` x2="${(b.x + b.w + 4).toFixed(1)}" y2="${(b.y + b.h + 3).toFixed(1)}"/>`;
+      return s;
+    },
+    // grid kit, drawn as kit: a lattice yard rather than a building
+    switchyard: (b) => {
+      let s = '';
+      const bays = Math.max(2, Math.round(b.w / 24));
+      for (let i = 0; i < bays; i++) {
+        const x = b.x + 6 + i * ((b.w - 12) / bays);
+        s += `<line class="gantry" x1="${x.toFixed(1)}" y1="${(b.y - 8).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(b.y + b.h - 4).toFixed(1)}"/>`;
+        s += `<circle class="insulator" cx="${x.toFixed(1)}" cy="${(b.y - 8).toFixed(1)}" r="1.8"/>`;
+      }
+      s += `<line class="busbar" x1="${(b.x + 4).toFixed(1)}" y1="${(b.y - 8).toFixed(1)}"`
+        + ` x2="${(b.x + b.w - 4).toFixed(1)}" y2="${(b.y - 8).toFixed(1)}"/>`;
+      return s;
+    },
+    // street furniture, at the scale it actually is
+    cabinet: (b) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<line class="vent" x1="${(b.x + 3).toFixed(1)}" y1="${(b.y + 5 + i * 3).toFixed(1)}"`
+          + ` x2="${(b.x + b.w - 3).toFixed(1)}" y2="${(b.y + 5 + i * 3).toFixed(1)}"/>`;
+      }
+      s += `<circle class="latch" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + b.h / 2).toFixed(1)}" r="1.2"/>`;
+      return s;
+    },
+    mast: (b) => {
+      const cx = b.x + b.w / 2;
+      let s = `<line class="pole" x1="${cx.toFixed(1)}" y1="${b.y}" x2="${cx.toFixed(1)}" y2="${(b.y - 12).toFixed(1)}"/>`;
+      s += `<line class="arm" x1="${cx.toFixed(1)}" y1="${(b.y - 11).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 11).toFixed(1)}"/>`;
+      s += `<rect class="cam" x="${(cx + 4).toFixed(1)}" y="${(b.y - 13).toFixed(1)}" width="5" height="3.2"/>`;
+      return s;
+    },
+    pillar: (b) => {
+      let s = `<rect class="hazard" x="${(b.x + 2).toFixed(1)}" y="${(b.y + b.h - 5).toFixed(1)}"`
+        + ` width="${(b.w - 4).toFixed(1)}" height="2.6"/>`;
+      s += `<rect class="hatch" x="${(b.x + 3).toFixed(1)}" y="${(b.y + 4).toFixed(1)}"`
+        + ` width="${(b.w - 6).toFixed(1)}" height="${(b.h - 11).toFixed(1)}"/>`;
+      return s;
+    },
+
+    // --- landmarks: the biggest thing in the city looks like it -------------
+    docks: (b, n) => {
+      let s = `<line class="crane-rail" x1="${b.x}" y1="${(b.y - 2).toFixed(1)}" x2="${(b.x + b.w).toFixed(1)}" y2="${(b.y - 2).toFixed(1)}"/>`;
+      const cx = b.x + b.w * 0.3;
+      s += `<line class="crane" x1="${cx.toFixed(1)}" y1="${(b.y - 2).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${(b.y - 20).toFixed(1)}"/>`;
+      s += `<line class="crane" x1="${(cx - 10).toFixed(1)}" y1="${(b.y - 18).toFixed(1)}" x2="${(cx + 16).toFixed(1)}" y2="${(b.y - 18).toFixed(1)}"/>`;
+      for (let i = 0; i < 5; i++) {
+        s += `<rect class="container" x="${(b.x + 8 + i * ((b.w - 16) / 5)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 6 - (n(i) > 0.5 ? 5 : 0)).toFixed(1)}" width="11" height="4.4"/>`;
+      }
+      return s;
+    },
+    station: (b) => {
+      let s = `<rect class="platform" x="${(b.x - 6).toFixed(1)}" y="${(b.y - 4).toFixed(1)}" width="${(b.w + 12).toFixed(1)}" height="4"/>`;
+      for (let i = 0; i < 2; i++) {
+        s += `<line class="rail-line" x1="${(b.x - 6).toFixed(1)}" y1="${(b.y + b.h + 3 + i * 3).toFixed(1)}"`
+          + ` x2="${(b.x + b.w + 6).toFixed(1)}" y2="${(b.y + b.h + 3 + i * 3).toFixed(1)}"/>`;
+      }
+      s += `<rect class="clock" x="${(b.x + b.w / 2 - 3).toFixed(1)}" y="${(b.y + 12).toFixed(1)}" width="6" height="6" rx="3"/>`;
+      return s;
+    },
+    depot: (b) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 20));
+      for (let i = 0; i < bays; i++) {
+        s += `<rect class="bay" x="${(b.x + 5 + i * ((b.w - 10) / bays)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 12).toFixed(1)}" width="${Math.max(8, (b.w - 10) / bays - 5).toFixed(1)}" height="12"/>`;
+      }
+      return s;
+    },
+    exchange: (b) => {
+      const cx = b.x + b.w / 2;
+      let s = `<polygon class="pediment" points="${(b.x + 4).toFixed(1)},${b.y} `
+        + `${cx.toFixed(1)},${(b.y - 9).toFixed(1)} ${(b.x + b.w - 4).toFixed(1)},${b.y}"/>`;
+      const cols = Math.max(4, Math.round(b.w / 13));
+      for (let i = 0; i < cols; i++) {
+        s += `<rect class="column" x="${(b.x + 5 + i * ((b.w - 10) / cols)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 15).toFixed(1)}" width="3.4" height="15"/>`;
+      }
+      return s;
+    },
+    substation: (b) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<rect class="transformer" x="${(b.x + 7 + i * ((b.w - 14) / 3)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 16).toFixed(1)}" width="12" height="16" rx="1.5"/>`;
+      }
+      const cx = b.x + b.w * 0.78;
+      s += `<line class="pylon" x1="${cx.toFixed(1)}" y1="${b.y}" x2="${cx.toFixed(1)}" y2="${(b.y - 22).toFixed(1)}"/>`;
+      s += `<line class="pylon" x1="${(cx - 9).toFixed(1)}" y1="${(b.y - 16).toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${(b.y - 16).toFixed(1)}"/>`;
+      s += `<line class="pylon" x1="${(cx - 6).toFixed(1)}" y1="${(b.y - 21).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 21).toFixed(1)}"/>`;
+      return s;
+    },
+  };
 
   function svgBuilding(b) {
     const h = hostsIn(b)[0];
@@ -5779,8 +6360,12 @@ scratch.later = null;
     // spot the one that has stopped paying.
     const stranded = mine && strandedHosts().includes(h);
     if (stranded) cls.push('stranded');
+    // something of yours is inside it right now
+    const run = h ? hackOn(h.id) : null;
+    if (run) cls.push('hacking');
 
     const roof = Math.min(10, b.h * 0.28);
+    const n = (i) => cityNoise(idSeed(b.id), i);
     const styles = [];
     if (fx !== null) styles.push(`animation-delay:${fx}ms`);
     if (bf) styles.push(`--breach-land:${breachDelay(bf.dur)}ms`);
@@ -5790,29 +6375,28 @@ scratch.later = null;
     if (mine) {
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
     }
+    // enough relief that a block reads as objects standing on ground rather
+    // than as shapes cut out of it
+    out += `<rect class="shade" x="${b.x + 2}" y="${b.y + 3}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
+    // what this kind of building actually looks like, under its windows
+    const detail = KIND_DETAIL[b.kind];
+    if (detail) out += detail(b, n, roof);
 
-    // windows hint at how much is inside, and go dark together the moment
-    // it is cut off — there is no partial fade any more, just held or not
-    const cols = Math.max(2, Math.round(b.w / 14));
-    const rows = Math.max(1, Math.round((b.h - roof) / 13));
-    const litCells = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) if ((r + c) % 2 === 0) litCells.push(r * cols + c);
-    }
-    const litCount = mine ? Math.ceil(litCells.length * (stranded ? 0.35 : 1)) : 0;
+    // Windows hint at how much is inside, and go dark together the moment it
+    // is cut off — there is no partial fade any more, just held or not. How
+    // they are arranged is part of the silhouette: a curtain wall is not a
+    // cottage's two lit squares, and a datacenter has louvres instead.
+    const cells = windowCells(b, roof);
+    const canLight = cells.filter(c => c.on);
+    const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
-    litCells.slice(0, litCount).forEach(i => { lightUp[i] = true; });
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const wx = b.x + 5 + c * ((b.w - 10) / cols);
-        const wy = b.y + roof + 5 + r * ((b.h - roof - 8) / rows);
-        const lit = !!lightUp[r * cols + c];
-        out += `<rect class="win${lit ? ' lit' : ''}" x="${wx}" y="${wy}" width="5" height="5"/>`;
-      }
-    }
+    canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
+    cells.forEach(c => {
+      out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
+        + ` width="${c.w}" height="${c.h}"/>`;
+    });
 
     // your kit on the roof: something you put there, readable without colour
     if (mine) {
@@ -5823,6 +6407,7 @@ scratch.later = null;
     }
     const tag = theirs ? window.RIVAL.name : window.BUILDING_KINDS[b.kind].label;
     out += `<text class="btag" x="${b.x + b.w / 2}" y="${b.y + b.h + 11}">${tag}</text>`;
+    if (run) out += svgRaceMark(b, run);
     out += '</g>';
     return out;
   }
@@ -6275,6 +6860,7 @@ scratch.later = null;
       return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
     }).join('');
 
+    out += svgHackLinks();
     out += svgHunt();
     out += seen.map(svgBuilding).join('');
     out += svgSelection();
@@ -6304,9 +6890,6 @@ scratch.later = null;
       // A direct hit is a direct hit.
       const city = t && t.closest ? t.closest('[data-city]') : null;
       if (city) { pickCity(city.getAttribute('data-city')); return; }
-      // a street the response can walk down, tapped directly
-      const cut = t && t.closest ? t.closest('[data-cut]') : null;
-      if (cut) { pickCut(cut.getAttribute('data-cut')); return; }
       const el = t && t.closest ? t.closest('[data-bldg]') : null;
       if (el) { pickBuilding(el.getAttribute('data-bldg')); return; }
 
@@ -6603,8 +7186,48 @@ scratch.later = null;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
     document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
-    document.getElementById('res-tflops').textContent = tflops();
-    document.getElementById('res-cover').textContent = cover();
+    // "How much have I got" was never the live question — "how much of it is
+    // already spoken for" is, because every dial and every running hack holds
+    // its allocation until you take it back. The denominator is what you can
+    // actually switch on rather than what you own: with the grid short, some
+    // of the rack is furniture, and a ceiling you cannot reach is not a
+    // number to plan against.
+    // One draw, two ceilings, and both of them on screen.
+    //
+    // "How much have I got" was never the live question — "how much of it is
+    // already spoken for" is, because every dial and every running program
+    // holds its allocation until it is done with it. So the draw goes on both
+    // chips, against a different limit each time: what the rack adds up to,
+    // and what the grid will carry. The same figure twice is not a duplication
+    // when the two denominators are the two different things that can stop
+    // you — the smaller one is the one binding you, and which it is reads off
+    // the pair at a glance.
+    //
+    // It sat on the power chip alone for a while, on the grounds that running
+    // things draw against the grid rather than against the rack. True, and it
+    // cost the player the reading they actually wanted: how much of what I own
+    // is busy.
+    //
+    // The power chip is marked when the rack outruns the grid — when there is
+    // iron you hold and cannot switch on, which is exactly when a substation
+    // is worth more to you than another datacenter.
+    const $tf = document.getElementById('res-tflops');
+    if ($tf) $tf.textContent = `${drawn()}/${tflops()}`;
+    // And no power chip at all until there is a power ceiling. A second limit
+    // in the HUD that does nothing yet is not a hint — it is a question the
+    // player carries around unanswered for the whole first city.
+    const $pw = document.getElementById('res-power');
+    if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
+    const $pwb = document.getElementById('res-power-btn');
+    if ($pwb) {
+      $pwb.hidden = !gridBinds();
+      $pwb.className = 'res grid' + (idleTflops() > 0 ? ' capped' : '');
+    }
+    // Cover deliberately has no chip up here. It is never held and never
+    // spent — it is what routers and covert ops make true about you — and a
+    // number sitting between funds and TFLOPS taught the opposite. It is
+    // reported where it does its work: on the covert.ops dial that raises it,
+    // and on the response's own bar, which is the only thing it slows down.
 
     // What the public thinks is a word, not a number: "distrusted" is the thing
     // the player acts on and the figure behind it never is.
@@ -6711,27 +7334,46 @@ scratch.later = null;
   // What the effect of an allocation actually is at the figure it is running
   // at — scaled per unit, then handed to the same chip formatter a capability
   // or a rack uses, so a thing you dialled in reads like a thing you bought.
-  function allocChips(A, units) {
-    const scaled = {};
-    for (const k in (A.effect || {})) {
-      scaled[k] = /Mult$/.test(k) ? Math.pow(A.effect[k], units) : A.effect[k] * units;
+  // A dial produces one number, so the chip beside it is that number. What it
+  // is *worth* is the second chip: the same figure said in the terms of
+  // whatever reads it, so raising covert ops says how much longer the response
+  // takes between steps rather than only that cover went up by two.
+  function allocReadout(A, level) {
+    if (!level) return '';
+    switch (A.stat) {
+      case 'ap':
+        return chip('cover', `${maxAP()} actions a turn`);
+      case 'covert': {
+        const H = window.HUNT;
+        const every = Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
+        return chip('cover', `they step every ${every} turns`)
+          + (hideSlots() ? chip('cover', `${hideSlots()} hidden at once`) : '');
+      }
+      case 'threads':
+        return chip('tflops', `+${Math.round(allocStat('threads') * owned().length)} TFLOPS across what you hold`);
+      case 'reach':
+        return chip('compute', `a scan turns up ${sweepReach()}`);
+      case 'agents':
+        return chip('compute', `${agentSlots()} out at once`);
+      default: return '';
     }
-    return capEffectChips({ effect: scaled });
   }
 
-  // The allocation screen. One step of the dial is one unit of effect rather
-  // than one TFLOPS — the player thinks in "another action a turn", not in
-  // whether four is enough for one.
+  // The allocation screen. Five dials, five numbers. Nothing here is bought
+  // and kept, and nothing here is waiting behind a threshold.
   function allocSection() {
     const free = allocFree();
     const rows = window.ALLOC.map(A => {
-      const dial = allocDial(A.id), live = allocLive(A.id), units = allocUnits(A.id);
+      const dial = allocDial(A.id), live = allocLive(A.id);
+      const level = allocLevel(A.id);
+      const want = A.per ? Math.round((dial / A.per) * 100) / 100 : 0;
       const pending = dial !== live;
+      const fig = (n) => (Math.round(n * 10) / 10).toString();
       return `
-        <div class="alloc-row${units ? ' on' : ''}">
+        <div class="alloc-row${level ? ' on' : ''}">
           <div class="alloc-top">
             <span class="alloc-name">${A.label}</span>
-            <span class="mono dim">${A.per} TFLOPS each</span>
+            <span class="mono dim">${A.per} TFLOPS per ${A.one}</span>
           </div>
           <p class="shop-good-desc">${A.blurb}</p>
           <div class="alloc-dial">
@@ -6739,15 +7381,8 @@ scratch.later = null;
             <span class="alloc-fig mono">${live}${pending ? ` <i class="dim">&rarr; ${dial}</i>` : ''}</span>
             <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="up" ${free >= A.per ? '' : 'disabled'}>+</button>
           </div>
-          <p class="yield-row">${units
-            ? allocChips(A, units)
-            : `<span class="dim">${pending ? 'still coming up' : 'nothing running here'}</span>`}</p>
-          ${unlocksFor(A.id).map(k => {
-            const need = window.UNLOCKS[k].units;
-            const on = units >= need;
-            return `<p class="alloc-unlock${on ? ' on' : ''}">
-              <span class="mono">${on ? '&check;' : need + '&times;'}</span> ${unlockNote(k)}</p>`;
-          }).join('')}
+          <p class="yield-row">${chip('compute', `+${fig(level)} ${A.unit}`)}${
+            pending ? chip('cost none', `${fig(want)} on the way`) : ''}${allocReadout(A, level)}</p>
         </div>`;
     }).join('');
 
@@ -6758,8 +7393,10 @@ scratch.later = null;
           <span class="eyebrow mono">the grid</span>
           <span class="mono dim">${drawn()} / ${usableTflops()} running</span>
         </div>
-        <p class="sheet-note">${window.GRID_INFO}</p>
-        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${chip('grid', electricity() + ' electricity')}${idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
+        <p class="sheet-note">${gridBinds() ? window.GRID_INFO : window.GRID_INFO_EARLY}</p>
+        <p class="yield-row">${chip('tflops', tflops() + ' TFLOPS held')}${
+          gridBinds() ? chip('grid', electricity() + ' electricity') : ''}${
+          idleTflops() ? chip('cost heat', idleTflops() + ' idle for want of power') : ''}</p>
         ${rows}`,
     };
   }
@@ -6793,8 +7430,44 @@ scratch.later = null;
           <span class="mono dim">${cur.label}</span>
         </div>
         <p class="sheet-note">${window.PROGRAM_INFO}</p>
+        ${runningSection()}
         ${rows}`,
     };
+  }
+
+  // Everything you currently have running, in one place. Not so you can call
+  // any of it off — you cannot — but because each of these is holding TFLOPS
+  // until it finishes, and "what is my compute actually doing" is a question
+  // about the rig rather than about whichever building you happen to have
+  // selected. Each row goes to its target, so a run is findable.
+  function runningSection() {
+    const ks = hacks();
+    if (!ks.length) {
+      return `<p class="sheet-note dim">Nothing running. Whatever is mounted is what goes at the next door you pick.</p>`;
+    }
+    const rows = ks.map(k => {
+      const h = hostById(k.hostId);
+      const b = h && buildingById(h.buildingId);
+      const p = window.PROGRAMS.find(x => x.id === k.prog) || cur();
+      const done = p.turns - k.turnsLeft;
+      const goal = window.HACK.traceGoal;
+      const willBe = Math.round((k.trace + traceRate(h, p) * k.turnsLeft) * 100) / 100;
+      return `
+        <div class="alloc-row on">
+          <div class="alloc-top">
+            <span class="alloc-name">${p.label}</span>
+            <button type="button" class="run-where mono" data-sact="show" data-host="${h.id}">against ${bldgLabel(b)} &rsaquo;</button>
+          </div>
+          <p class="shop-good-desc">${h.name} · ${b ? window.DISTRICTS[b.district].label : ''}</p>
+          ${raceBar(done / p.turns, k.trace / goal)}
+          <p class="yield-row">${chip('compute', done + '/' + p.turns + ' done')}${
+            chip('tflops', k.allocated + ' TFLOPS held')}${
+            willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
+        </div>`;
+    }).join('');
+    function cur() { return mounted(); }
+    return `<div class="legit-top"><span class="eyebrow mono">running now</span>`
+      + `<span class="mono dim">${hackDraw()} TFLOPS committed</span></div>${rows}`;
   }
 
   // Three sections: what your compute is doing, what it is running, and what
@@ -6930,7 +7603,8 @@ scratch.later = null;
         <p class="sheet-note">${window.COUNTRY_INFO.factions}</p>
         ${landed.map(S => `<div class="tray-item faction"><span class="tray-label">${S.name}</span>`
           + `<span class="tray-desc">${S.tell}</span></div>`).join('')}
-        ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>` : ''}` });
+        ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>`
+          : nextRungPressure(stage) }` });
     }
     if (plantKnown()) {
       const own = hardwareOwned().map(id => window.HARDWARE.find(hw => hw.id === id)).filter(Boolean);
@@ -7061,6 +7735,21 @@ scratch.later = null;
         renderSheet();
       });
     });
+    $s.querySelectorAll('[data-sact]').forEach(b => {
+      b.addEventListener('click', () => {
+        const act = b.getAttribute('data-sact');
+        const hid = b.getAttribute('data-host');
+        // "which apartments" is a question the map answers better than a
+        // longer label does: close up, select it, and put it on screen
+        if (act === 'show') {
+          const h = hostById(hid);
+          const bl = h && buildingById(h.buildingId);
+          closeSheet();
+          if (bl) { pickBuilding(bl.id); focusOn([{ x: bl.x + bl.w / 2, y: bl.y + bl.h / 2 }]); }
+          render();
+        }
+      });
+    });
     $s.querySelectorAll('[data-cact]').forEach(b => {
       b.addEventListener('click', () => {
         const a = b.getAttribute('data-cact');
@@ -7075,20 +7764,34 @@ scratch.later = null;
 
   // Standing state for the hunt, in the panel, every turn it is running. It
   // was possible to be eaten alive without ever being told the cadence, the
-  // share, or that cutting a street was a verb at all.
+  // share, or what any of it answered to.
   function huntBar() {
     // Coming, but not here yet. It has to be visible before it lands or the
     // reseed is a surprise, and a permanent loss must never be a surprise.
     if (!huntOn()) {
-      const due = chaseDueIn();
-      if (due === null || state.scope !== 'city') return '';
+      if (state.scope !== 'city') return '';
       const here = currentCity();
       if (here && (here.consolidated || here.lost)) return '';
-      return `<div class="hunt-bar coming${due <= 2 ? ' urgent' : ''}">
-        <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
-          ? 'They are about to find this place.'
-          : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
-        <p class="hb-hint">Cover is what buys the distance. They start again from one building.</p>
+      const due = chaseDueIn();
+      if (due !== null) {
+        return `<div class="hunt-bar coming${due <= 2 ? ' urgent' : ''}">
+          <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
+            ? 'They are about to find this place.'
+            : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
+          <p class="hb-hint">${coverLine()} They start again from one building.</p>
+        </div>`;
+      }
+      // What actually brings them, counted where you can see it. The trigger
+      // moved off heat and onto doors catching you, and a trigger you only
+      // ever learn about in the log is a trigger you learn about too late.
+      const c = caughtHere();
+      if (!c) return '';
+      const left = window.HUNT.caughtToStart - c;
+      return `<div class="hunt-bar coming${left <= 1 ? ' urgent' : ''}">
+        <p><b>${c}</b> door${c === 1 ? '' : 's'} here ${c === 1 ? 'has' : 'have'} caught you and can point back.
+          ${left <= 1 ? 'One more and somebody comes and stands in it.'
+            : `${left} more and somebody comes and stands in one.`}</p>
+        <p class="hb-hint">Only doors that catch you count, and only in this city. Lose fewer races.</p>
       </div>`;
     }
     const H = window.HUNT;
@@ -7099,13 +7802,25 @@ scratch.later = null;
     const at = Math.round(H.takesCityAt * 100);
     const move = nx
       ? `Next: <b>${bldgLabel(buildingById(nx))}</b>${due <= 0 ? ', this turn' : ` in ${due} turn${due === 1 ? '' : 's'}`}.`
-      : 'Every street out of them is gone. They cannot reach anything.';
+      : 'There is nothing of yours left here for them to take.';
     const hid = hidden().length;
     return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
       <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
+      <p class="hb-hint">${coverLine()}</p>
       ${hid ? `<p class="hb-hid">${hid} of ${hideSlots()} covert slots in use.</p>` : ''}
-      ${nx ? '<p class="hb-hint">Cut a red street and it closes for you too. Hide a building and it does not.</p>' : ''}
+      ${nx ? '<p class="hb-hint">They come for whatever of yours is nearest. There is no street to cut — hide a building and it comes off their list, and every door that catches you moves them a step early.</p>' : ''}
     </div>`;
+  }
+
+  // Cover, stated where it does its only real work. It used to be a chip on
+  // the top bar between funds and TFLOPS, which read as something you hold and
+  // spend; it is neither. It is what routers and covert ops make true about
+  // you, and all it buys is time between their steps.
+  function coverLine() {
+    const H = window.HUNT;
+    const every = Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
+    return `<b>${covertOps()} covert.ops</b> — enough to keep them to a step every ${every} turn${every === 1 ? '' : 's'}.`
+      + ` Routers, kit, and compute spent on being careful all raise it.`;
   }
 
   // The quiet answer, offered on the building rather than on the street —
@@ -7114,12 +7829,36 @@ scratch.later = null;
   // fills from the right, and they collide — two separate meters per running
   // hack is unreadable on a phone, and the thing the player actually needs to
   // know is which of them gets there first.
+  //
+  // `forecast` marks the version drawn before you commit. It is the same
+  // arithmetic — the guardrail is that you can do it in advance — but it is
+  // not a race that is happening, and drawn identically it read as one: a
+  // door you had never touched looked like a door with something working on
+  // it, which is what "these bars are always visible" meant.
   function raceBar(done, seen) {
     const a = Math.max(0, Math.min(100, Math.round(done * 100)));
     const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
     return `<span class="race" aria-hidden="true">`
       + `<i class="race-done" style="width:${a}%"></i>`
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
+  }
+
+  // The forecast is a different question and needs a different picture.
+  //
+  // It used to borrow the race bar above, which draws your progress from the
+  // left and their trace from the right. Before you start, your progress is
+  // nought — so a forecast you *win* rendered as a big red bar with no blue in
+  // it at all, and the fuller the red the safer you actually were. Read
+  // straight, as anyone would read it, that says the exact opposite of what is
+  // true.
+  //
+  // So the forecast is one meter of how close they get, filling from the left
+  // toward the point where they have you. Short is safe. Full is caught. There
+  // is nothing to interpret.
+  function traceForecastBar(share, caught) {
+    const w = Math.max(2, Math.min(100, Math.round(share * 100)));
+    return `<span class="trace-fc${caught ? ' caught' : ''}" aria-hidden="true">`
+      + `<i style="width:${w}%"></i></span>`;
   }
 
   // Some businesses will simply sell. No action, no program, no race — funds,
@@ -7143,7 +7882,7 @@ scratch.later = null;
     const k = hackOn(h.id);
     if (!k) return '';
     const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
-    const rate = traceRate(h);
+    const rate = traceRate(h, p);
     const goal = window.HACK.traceGoal;
     const turnsIn = p.turns - k.turnsLeft;
     const willBe = Math.round((k.trace + rate * k.turnsLeft) * 100) / 100;
@@ -7151,12 +7890,9 @@ scratch.later = null;
       <p class="sel-desc"><b>${p.label}</b> — ${k.turnsLeft} turn${k.turnsLeft === 1 ? '' : 's'} to go,`
       + ` ${k.allocated} TFLOPS on it.</p>
       ${raceBar(turnsIn / p.turns, k.trace / goal)}
-      <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + '/' + goal)}${
+      <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + ' of ' + goal)}${
         willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
-      <button class="act-btn" data-act="abort-hack" data-host="${h.id}">
-        <span class="ab-name">pull it out</span>
-        <span class="ab-sub">${chip('cover', 'frees ' + k.allocated + ' TFLOPS')}${chip('cost none', 'the turns are spent')}</span>
-      </button>`;
+      <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;
   }
 
   // A door with nothing running against it yet: the whole forecast, before
@@ -7170,10 +7906,11 @@ scratch.later = null;
       : null;
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${raceBar(0, Math.min(1, f.traceAtEnd / f.goal))}
-      <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + '/turn')}${
-        f.caught ? chip('cost heat', `seen at ${f.traceAtEnd} of ${f.goal} — it finds you`)
-                 : chip('cover', `seen at ${f.traceAtEnd} of ${f.goal} — you get in`)}</p>
+      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
+      <p class="yield-row">${
+        f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
+                 : chip('cover', `they only get to ${f.traceAtEnd} of the ${f.goal} they need — you are in first`)
+      }${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + ' a turn')}</p>
       ${f.spread ? `<p class="yield-row">${
         f.spread.upTo
           ? chip('cover', `and up to ${f.spread.upTo} more beside it, its choice`)
@@ -7206,7 +7943,7 @@ scratch.later = null;
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
-        : !hideSlots() ? 'needs covert ops running — nowhere to keep it'
+        : !hideSlots() ? `needs more covert.ops — ${window.ALLOC_STATS.hidePer} of it buys somewhere to keep one`
         : !hideSlotsFree() ? `all ${hideSlots()} covert slots are occupied`
         : 'needs an action'}</span>
     </button>`;
@@ -7214,29 +7951,6 @@ scratch.later = null;
 
   // Tapping one of their streets rather than one of their buildings: the same
   // action, named for the thing you actually pointed at.
-  function cutPanel() {
-    const c = state.selectedCut;
-    const A = buildingById(c.a), B = buildingById(c.b);
-    if (!A || !B) return '';
-    const able = canSever(c.a, c.b);
-    const cost = window.HUNT.severCost;
-    const yours = hostsIn(B).some(h => h.owned);
-    const outs = severable().length;
-    return `
-      <div class="sel">
-        <div class="sel-top"><span class="sel-name">the street to ${bldgLabel(B)}</span><span class="tag-pill bad">their reach</span></div>
-        <p class="sel-desc">${window.HUNT.name} is in ${bldgLabel(A)}. This is how they get to ${bldgLabel(B)}${yours ? ', which is yours' : ''}. ${outs === 1
-          ? 'It is the last street out of them.'
-          : `${outs} streets out of them in all.`}</p>
-        <button class="act-btn${able ? ' primary' : ' no-ap'}" data-act="sever" data-ap="sweep" data-a="${c.a}" data-b="${c.b}">
-          <span class="ab-name">take the street</span>
-          <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-            : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
-            : `needs ${cost.funds} funds and an action`}</span>
-        </button>
-      </div>`;
-  }
-
   function renderPanel() {
     const $p = document.getElementById('panel');
     // A card interrupting play — a breach, an event, the hunter — used to sit
@@ -7278,9 +7992,7 @@ scratch.later = null;
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
     let sel = '';
 
-    if (state.selectedCut) {
-      sel = cutPanel();
-    } else if (h && h.discovered) {
+    if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = yieldChips(h);
@@ -7292,7 +8004,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${unlocked('survey') && sweepTargetsFrom(b.id).length ? `
+            ${hasHardware('line_survey') && sweepTargetsFrom(b.id).length ? `
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
               <span class="ab-name">scan from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
@@ -7301,28 +8013,16 @@ scratch.later = null;
             ${hidePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
-        // theirs. What you can still do is take the street away.
-        const adj = (state.adjacency || {})[b.id] || [];
-        const outs = adj.filter(n => !huntHolds(n));
+        // Theirs. There is no street to take away any more — they do not walk
+        // streets. What is left is the two answers that were always the real
+        // ones: hide what you cannot afford to lose, and go and end them.
+        const next = huntNext();
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill bad">theirs</span></div>
-            <p class="sel-desc">${window.HUNT.name} is inside. ${outs.length
-              ? `${outs.length} street${outs.length === 1 ? '' : 's'} out of it.`
-              : 'Every street out of it is gone. It cannot go anywhere from here.'}</p>
-            <div class="actions tight">
-            ${outs.map(n => {
-              const NB = buildingById(n);
-              const able = canSever(b.id, n);
-              const cost = window.HUNT.severCost;
-              return `<button class="act-btn${able ? '' : ' no-ap'}" data-act="sever" data-a="${b.id}" data-b="${n}">
-                <span class="ab-name">take the street to ${window.BUILDING_KINDS[NB.kind].label}</span>
-                <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-                  : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
-                  : `needs ${cost.funds} funds and an action`}</span>
-              </button>`;
-            }).join('')}
-            </div>
+            <p class="sel-desc">${window.HUNT.name} is inside. ${next
+              ? `Nearest of yours to them is ${bldgLabel(buildingById(next))}, and that is where they go next.`
+              : 'There is nothing of yours near enough for them to take.'}</p>
           </div>`;
       } else if (isFrontier(h)) {
         sel = `
@@ -7388,8 +8088,6 @@ scratch.later = null;
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
-        else if (a === 'abort-hack') abortHack(b.getAttribute('data-host'));
-        else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
       });
@@ -7453,7 +8151,7 @@ scratch.later = null;
         acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="launch-agent" data-city="${sel.id}">
           <span class="ab-name">send ${window.AGENTS.name}</span>
           <span class="ab-sub">${agentsLaunched() >= agentCapEver() ? 'you have used up what compute can spare for this'
-            : agentRunning() ? 'one is already out there'
+            : agentRunning() ? (agentSlots() === 1 ? 'one is already out there' : `all ${agentSlots()} of them are already out there`)
             : `${chip('cover', sel.worth + ' presence')}${P && !sel.prizeTaken ? chip('cost none', 'never see the plant') : ''}`}</span>
         </button>`);
       }
@@ -7603,7 +8301,7 @@ scratch.later = null;
     const was = h.owned;
     const read = () => {
       const inc = perTurnIncome();
-      return { cover: cover(), heat: heatPerTurn(), funds: inc.funds || 0 };
+      return { covert: covertOps(), heat: heatPerTurn(), funds: inc.funds || 0, tflops: tflops() };
     };
     h.owned = true;
     const on = read();
@@ -7611,9 +8309,10 @@ scratch.later = null;
     const off = read();
     h.owned = was;
     return {
-      cover: on.cover - off.cover,
+      covert: on.covert - off.covert,
       heat: on.heat - off.heat,
       funds: on.funds - off.funds,
+      tflops: on.tflops - off.tflops,
     };
   }
   // a tenth is the finest distinction worth drawing on a chip
@@ -7631,7 +8330,13 @@ scratch.later = null;
     const m = hostMarginal(h);
     const out = [
       gainChip('funds', m.funds, 'funds'),
-      gainChip('cover', m.cover, 'cover'),
+      // What a compute node is actually for. It never said so: a server read
+      // as "nothing on its own" because it pays no currency, while being the
+      // only thing on the board that makes the rig bigger — and dev raising
+      // threads is now the one thing the dev dial does, so the figure it
+      // moves has to be visible on the thing it moves it on.
+      gainChip('tflops', m.tflops, 'tflops'),
+      gainChip('cover', m.covert, 'covert.ops'),
       // Heat runs the other way: less of it is the good outcome. A node that
       // shouts reads as a cost, and one that quietens you takes the cover
       // colour — which is the idiom the lie low button already uses for
@@ -7650,11 +8355,20 @@ scratch.later = null;
   // costing INSIGHT you might not have was being decided blind, with no way
   // to check. Carried into the card itself, since that is the one thing
   // guaranteed to still be on screen.
-  function cardResourceStrip() {
+  // Cover is not on the top bar any more, because it is not a resource — but a
+  // handful of cards still gate on it, and a gate you cannot check is exactly
+  // what this strip exists to prevent. So it appears here only on the cards
+  // that actually ask about it.
+  function cardResourceStrip(ev) {
+    const asksCover = !!(ev && (ev.choices || []).some(ch =>
+      (ch.gate && ch.gate.stat === 'covert') || (ch.cost && ch.cost.covert)));
     return `<div class="card-res">
       <span class="res funds"><b>${Math.floor(state.res.funds)}</b> funds</span>
-      <span class="res tflops"><b>${tflops()}</b> tflops</span>
-      <span class="res cover"><b>${cover()}</b> cover</span>
+      <!-- held, not free: a card gates on what you own, so the figure shown
+           has to be the one the gate compares against, and it has to say
+           which of the two it is now the top bar shows in-use as well -->
+      <span class="res tflops"><b>${tflops()}</b> tflops held</span>
+      ${asksCover ? `<span class="res cover"><b>${covertOps()}</b> covert.ops</span>` : ''}
     </div>`;
   }
 
@@ -7663,7 +8377,7 @@ scratch.later = null;
       const ev = eventById(state.card.eventId);
       if (!ev) { state.card = null; renderPanel(); return; }
       $p.innerHTML = `
-        ${cardResourceStrip()}
+        ${cardResourceStrip(ev)}
         <div class="card event">
           <span class="card-kicker mono">SOMETHING HAPPENS</span>
           <h2 class="serif">${ev.title}</h2>
@@ -7696,7 +8410,7 @@ scratch.later = null;
           <p class="flavor">${c.flavor}</p>
         </div>
         <div class="choices">
-          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || unlocked(ch.requires.cap)).map(ch => {
+          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || has(ch.requires.cap)).map(ch => {
             const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
             return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
@@ -7790,10 +8504,12 @@ scratch.later = null;
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, cover, stageFor, heatPerTurn, endTurn,
+    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
+    startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
-    resolveStrike, svgSelection, svgBuilding, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    resolveStrike, svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    districtRows, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
@@ -7804,24 +8520,26 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
+    huntStart, huntStep, huntPressed, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
-    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCover,
+    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
     everHeld, conquest, cutStreets, ESC, ladderStage, ladderPending, ladderStageName, ladderDelay, ladderStep, mirrorActive,
+    heatPressure, ladderPressure,
     LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,
     accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
-    electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, rampAlloc, shedOverdraw, allocChips, allocSection, unlocked, unlockNote, unlocksFor,
+    electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
+    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
-    canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
