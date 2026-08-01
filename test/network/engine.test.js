@@ -7374,25 +7374,6 @@ test('hunt confront: being found costs heat and brings it closer, and does not e
   assert.equal(d.hackOn(core.id), null, 'the run is over either way');
 });
 
-test('hunt confront: pulling out of it costs nothing but the turns, same as any run', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  hunted(d, window);
-  const core = d.huntCoreHost();
-  s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
-  core.owned = false;
-  d.mount('backdoor');
-  s.ap = 9;
-  if (!d.startHack(core.id)) return;        // no rig for it on this board
-
-  const heat = s.heat, nodes = d.hunt().nodes.length;
-  assert.equal(d.abortHack(core.id), true);
-  assert.equal(d.hackOn(core.id), null, 'it is off the rig');
-  assert.equal(s.heat, heat, 'and walking away from it tipped nobody off');
-  assert.equal(d.hunt().nodes.length, nodes, 'the hunt is exactly where it was');
-});
-
 test('hardware: four families, three tiers apiece, each gated a rung higher', () => {
   const { window } = loadNetwork();
   // grid joined them: it was the one role with buildings on the map and
@@ -7914,7 +7895,7 @@ test('hack: sending one shows on the map the instant you send it', () => {
 // building it was against — so with several going you had to remember which
 // buildings and find them again, and the honest read from play was that a hack
 // could not be stopped at all.
-test('hack: the rig lists what is running, and every one of them can be pulled', () => {
+test('hack: the rig lists what is running, and none of it can be called off', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -7936,7 +7917,7 @@ test('hack: the rig lists what is running, and every one of them can be pulled',
     assert.ok(html.includes(`data-host="${t.id}"`),
       'every running hack is on the rig, with its own way out');
   });
-  assert.ok(html.includes('pull it out'), 'named the same as it is on the building');
+  assert.ok(!/pull it out/.test(html), 'and offers no way to call any of it off');
   assert.ok(html.includes(String(d.hackDraw())), 'and says what it is all holding');
   // two runs against the same kind of building would otherwise both read
   // "against apartments" and be impossible to tell apart
@@ -7945,11 +7926,11 @@ test('hack: the rig lists what is running, and every one of them can be pulled',
   });
   assert.ok(html.includes('data-sact="show"'), 'and each one can be gone and looked at');
 
-  // and the way out actually works from there
-  const free = d.allocFree();
-  d.abortHack(started[0].id);
-  assert.equal(d.hackOn(started[0].id), null, 'pulled');
-  assert.ok(d.allocFree() > free, 'and the compute came back');
+  // the whole reason the list exists: each of these is holding TFLOPS until
+  // it finishes, and nothing here gives any of it back early
+  assert.equal(typeof d.abortHack, 'undefined', 'there is no such verb any more');
+  const held = started.reduce((a, t) => a + d.hackOn(t.id).allocated, 0);
+  assert.equal(d.hackDraw(), held, 'every run is holding its share, and keeps it');
 });
 
 test('top bar: TFLOPS is the rack, power is the draw, and they are not the same limit', () => {
@@ -8101,6 +8082,34 @@ test('hack: a running program does not follow you across a border', () => {
   assert.equal(anyBar, false, 'and no race on any building in the place');
 });
 
+// Starting a program is a commitment. The forecast is the safety net — the
+// rate, the turns and who gets there first are all exact and all stated before
+// you press it — and there is no walking it back once it is running.
+test('hack: a run cannot be called off, by any route', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+
+  assert.equal(typeof d.abortHack, 'undefined', 'the engine has no such verb');
+  assert.ok(!/pull it out/.test(d.hackPanel(target)), 'the building offers nothing');
+  assert.ok(!/pull it out/.test(d.programSection().html), 'nor does the rig');
+  assert.ok(!INDEX_HTML.includes('abort'), 'and there is no button wired for it');
+
+  // it holds its compute for the whole of the run, and gives it back only when
+  // the run itself ends
+  const held = d.hackOn(target.id).allocated;
+  assert.equal(d.hackDraw(), held);
+  for (let i = 0; i < d.mounted().turns; i++) { s.card = null; d.endTurn({ silent: true }); }
+  assert.equal(d.hackOn(target.id), null, 'it ended on its own terms');
+  assert.equal(d.hackDraw(), 0, 'and only then was the rig free');
+});
+
 test('hack: a door that becomes yours mid-run stops being a race at once', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -8148,9 +8157,11 @@ test('hack: the mark on the map tracks the race, and goes when the hack does', (
   assert.ok(widthOf(d.svgRaceMark(b, k), 'hb-done') > 0, 'a turn in, the bar has moved');
   assert.ok(widthOf(d.svgRaceMark(b, k), 'hb-seen') > 0, 'and so has what they know');
 
-  d.abortHack(target.id);
-  assert.equal(d.svgHackLinks(), '', 'pulling out takes the wire with it');
-  assert.equal(d.svgBuilding(b).includes('hacking'), false, 'and unmarks the door');
+  // it goes when the run does, and the only thing that ends a run early is the
+  // world doing it — here, the door falling to something else
+  d.takeHost(target);
+  assert.equal(d.svgHackLinks(), '', 'the wire goes with it');
+  assert.equal(d.svgBuilding(b).includes('hacking'), false, 'and the door is unmarked');
 });
 
 test('hack: a running hack is drawn from something you actually hold', () => {
@@ -8287,34 +8298,6 @@ test('hack: covert ops is what buys the slow programs their race', () => {
   // but never all the way to invisible
   s.allocLive.covert = cov.per * 40;
   assert.ok(d.traceRate(target) > 0, 'nothing hides you completely');
-});
-
-test('hack: pulling out gives the rig back and never the turns', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; });
-  const target = s.hosts.find(h => !h.origin);
-  target.owned = false;
-  s.hosts.forEach(h => { h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-
-  d.mount('backdoor');
-  const turn = s.turn;
-  assert.equal(d.startHack(target.id), true, 'the run starts');
-  s.card = null; d.endTurn({ silent: true });
-  // a whole turn of world went past: it may have been caught, or shed for want
-  // of power if something took ground off you. Both are covered elsewhere.
-  if (!d.hackOn(target.id)) return;
-  assert.ok(d.hackOn(target.id).trace > 0, 'it has been noticed a little already');
-
-  assert.equal(d.abortHack(target.id), true);
-  assert.equal(d.hackOn(target.id), null, 'it is off the rig');
-  // hackDraw, not allocFree: a turn of world went past, and the response taking
-  // a grid building off you in that time legitimately changes the headroom
-  assert.equal(d.hackDraw(), 0, 'the compute came back');
-  assert.ok(s.turn > turn, 'the turn it took did not');
-  assert.equal(target.owned, false, 'and nothing was taken');
 });
 
 test('hack: a forecast tells the player everything before they commit', () => {
@@ -8480,7 +8463,7 @@ test('hack UI: the target panel shows the whole race before you commit', () => {
   assert.ok(!/pull it out/.test(html), 'and there is nothing to pull out of it');
 });
 
-test('hack UI: a running hack shows how far in, how close they are, and the way out', () => {
+test('hack UI: a running hack shows how far in, how close they are, and that it is committed', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -8497,7 +8480,8 @@ test('hack UI: a running hack shows how far in, how close they are, and the way 
   assert.ok(html.includes(`${k.turnsLeft} turn`), 'how long is left');
   assert.ok(html.includes(`${k.allocated} TFLOPS on it`), 'what it is holding');
   assert.ok(html.includes('seen ' + k.trace), 'how much they have noticed');
-  assert.ok(html.includes('pull it out'), 'and the way out');
+  assert.ok(!/pull it out/.test(html), 'and no way to call it off');
+  assert.ok(/until it lands or they find it/.test(html), 'it says so outright');
   assert.ok(/they get there first|you get there first/.test(html), 'with the projection stated');
 });
 

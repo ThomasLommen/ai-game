@@ -3232,17 +3232,16 @@ scratch.later = null;
     render();
     return true;
   }
-  // Pulling out gives the compute back and nothing else. The turns are spent,
-  // which is the whole reason a misjudged race hurts without being a trap.
-  function abortHack(hostId) {
-    const k = hackOn(hostId);
-    if (!k) return false;
-    state.hacks = hacks().filter(x => x !== k);
-    pushLog(`Pulled out of ${window.BUILDING_KINDS[buildingById(hostById(hostId).buildingId).kind].label}. The rig is free again.`);
-    persistNow();
-    render();
-    return true;
-  }
+  // There is no pulling out. A program you have set running against a door
+  // runs until it lands or the door finds it, and its compute is committed for
+  // the whole of that — which is what makes choosing the program a decision
+  // rather than an opening bid you can walk back the moment the arithmetic
+  // stops flattering you.
+  //
+  // The safety net is the forecast, not a retreat: the rate, the turns and who
+  // gets there first are all stated before you commit, and they are exact. The
+  // only thing that ever cuts a run short is the world doing it — a door taken
+  // by something else, or the grid going short (see shedOverdraw).
 
   // One turn of every running hack. Trace first: a hack that is noticed on the
   // turn it would have landed is noticed, because the target was watching the
@@ -7372,11 +7371,11 @@ scratch.later = null;
     };
   }
 
-  // Everything you currently have running, in one place. Pulling a hack out
-  // has always been possible, but only from the panel of the one building it
-  // is against — so with three going at once you had to remember which three
-  // and find them again on the map, and the honest read from play was that a
-  // hack could not be stopped at all. The rig knows what it is running.
+  // Everything you currently have running, in one place. Not so you can call
+  // any of it off — you cannot — but because each of these is holding TFLOPS
+  // until it finishes, and "what is my compute actually doing" is a question
+  // about the rig rather than about whichever building you happen to have
+  // selected. Each row goes to its target, so a run is findable.
   function runningSection() {
     const ks = hacks();
     if (!ks.length) {
@@ -7400,10 +7399,6 @@ scratch.later = null;
           <p class="yield-row">${chip('compute', done + '/' + p.turns + ' done')}${
             chip('tflops', k.allocated + ' TFLOPS held')}${
             willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
-          <button type="button" class="act-btn" data-sact="abort" data-host="${h.id}">
-            <span class="ab-name">pull it out</span>
-            <span class="ab-sub">${chip('cover', 'frees ' + k.allocated + ' TFLOPS')}${chip('cost none', 'the turns are spent')}</span>
-          </button>
         </div>`;
     }).join('');
     function cur() { return mounted(); }
@@ -7679,7 +7674,6 @@ scratch.later = null;
       b.addEventListener('click', () => {
         const act = b.getAttribute('data-sact');
         const hid = b.getAttribute('data-host');
-        if (act === 'abort') { abortHack(hid); renderSheet(); return; }
         // "which apartments" is a question the map answers better than a
         // longer label does: close up, select it, and put it on screen
         if (act === 'show') {
@@ -7801,10 +7795,7 @@ scratch.later = null;
       ${raceBar(turnsIn / p.turns, k.trace / goal)}
       <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + '/' + goal)}${
         willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
-      <button class="act-btn" data-act="abort-hack" data-host="${h.id}">
-        <span class="ab-name">pull it out</span>
-        <span class="ab-sub">${chip('cover', 'frees ' + k.allocated + ' TFLOPS')}${chip('cost none', 'the turns are spent')}</span>
-      </button>`;
+      <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;
   }
 
   // A door with nothing running against it yet: the whole forecast, before
@@ -8036,7 +8027,6 @@ scratch.later = null;
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
-        else if (a === 'abort-hack') abortHack(b.getAttribute('data-host'));
         else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
@@ -8487,7 +8477,7 @@ scratch.later = null;
     allocUnits, allocLevel, allocStat, apCostMult, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
-    canHack, startHack, abortHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
     runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

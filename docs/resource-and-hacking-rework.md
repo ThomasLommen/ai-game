@@ -83,7 +83,7 @@ Force → **Hack**. "Move on it" → **target**. One global program mount slot.
   for the duration, checked at **completion**.
 - Costs **no resources**. The cost is compute-turns and heat.
 - **Faster = more heat.**
-- A running hack is **visible and interruptible.**
+- A running hack is **visible, and cannot be called off.**
 
 | program | TFLOPS | turns | heat | exposure |
 | --- | --- | --- | --- | --- |
@@ -134,8 +134,11 @@ Three guardrails, or it turns nasty:
 1. **Deterministic and previewed.** "Traces at 3/turn, your hack needs 4 turns" —
    the arithmetic has to be doable before committing. Random failure after a
    four-turn investment is infuriating, not tense.
-2. **Abortable.** Pulling a running hack recovers the compute, not the turns.
-   Otherwise one misjudgement is a four-turn punishment with no agency.
+2. ~~**Abortable.**~~ **Overruled in playtesting — see below.** A run cannot
+   be called off. Guardrail 1 carries the whole load instead: the rate, the
+   turns and who gets there first are all exact and all stated before you
+   commit, so a four-turn run is a decision made with the arithmetic in front
+   of you rather than a bid you can walk back.
 3. **One bar, not two.** Progress fills from the left, trace from the right, and
    they collide. Two meters per running hack is unreadable on a phone.
 
@@ -370,13 +373,20 @@ folding them; the cap is what stops stealth erasing the floor outright.
 
 ## Two things play found
 
-**A hack could not be stopped.** It could — `abortHack` has existed since phase
-3 — but only from the panel of the one building it was running against. With
-three going at once you had to remember which three buildings and find them
-again on the map, so the honest read from playing it was that starting a hack
-was a commitment you could not take back. The rig tab now lists everything
-running, with its race, what it is holding, a way to jump to the target, and
-its own **pull it out**. The button on the building stays where it was.
+**A hack cannot be stopped, and that is the rule.** I got this backwards
+first: read as a bug report, built a listing to make calling one off *easier*,
+and was told plainly that starting a hack is meant to be a commitment. So
+`abortHack` is gone, along with both buttons. Guardrail 2 above is struck out.
+
+What survives is the part that was worth having: the rig tab lists everything
+running — its race, what it is holding, the host by name so two runs against
+apartments are not the same line, and a tap to go and look at the target. Not
+so you can call any of it off, but because each of these is holding TFLOPS
+until it finishes, and *what is my compute actually doing* is a question about
+the rig rather than about whichever building happens to be selected.
+
+The only things that ever cut a run short are the world doing it: a door taken
+by something else, or the grid going short.
 
 **TFLOPS only ever said what you owned.** "How much have I got" was never the
 live question — every dial and every running program holds its allocation
