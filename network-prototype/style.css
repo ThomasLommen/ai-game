@@ -139,22 +139,25 @@ body {
 #res-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 5px;
   margin-top: 12px;
 }
 #res-row.compact { margin-top: 4px; gap: 5px; }
+/* Five entries on a 390-wide phone measured 494px against 358 available. The
+   row is tighter than it was, and "public standing" is now "public" — the tier
+   word beside it does the rest of the work. */
 .res {
   font: inherit;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--ink-dim);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 5px 11px;
+  padding: 5px 8px;
 }
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
-.res b { font-size: 13px; }
+.res b { font-size: 12.5px; }
 .res.compute b { color: var(--compute); }
 .res.funds b { color: var(--funds); }
 .res.tflops b { color: var(--tflops); }
@@ -1844,7 +1847,10 @@ footer .build { opacity: .55; font-size: 10px; }
    something other people decide about you, so it sits apart — hard right,
    and named, because a bare word like "distrusted" next to two numbers does
    not say whose opinion it is. */
-.res.standing { margin-left: auto; }
+/* The pair, not the chip, is what gets pushed right — so the two of them wrap
+   together or not at all, and public standing never ends up alone on a line
+   under three numbers. */
+.res-pair { display: inline-flex; gap: 5px; margin-left: auto; }
 .res.standing b { font-size: 12.5px; letter-spacing: .02em; }
 .res-tag {
   font-size: 10px; letter-spacing: .08em; color: var(--muted);

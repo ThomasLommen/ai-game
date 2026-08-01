@@ -7997,8 +7997,16 @@ test('cover: it is not a resource, and says what it is where it does its work', 
   const row = INDEX_HTML.slice(INDEX_HTML.indexOf('id="res-row"'), INDEX_HTML.indexOf('id="info-strip"'));
   assert.ok(row.lastIndexOf('data-stat="standing"') > row.lastIndexOf('data-stat="legit"'),
     'public standing is the last chip in the row');
-  assert.ok(/public standing<\/span>/.test(row),
+  assert.ok(/<span class="res-tag">public<\/span>/.test(row),
     'and says whose opinion it is, not just the word');
+  // The two standing axes are one group, so when the row runs out of width
+  // they wrap together. Public standing alone under three number chips is
+  // what read as an accident.
+  const pair = row.slice(row.indexOf('res-standing-pair'));
+  assert.ok(pair.indexOf('data-stat="legit"') > 0 && pair.indexOf('data-stat="standing"') > 0,
+    'both of them are inside the pair');
+  assert.ok(row.indexOf('res-standing-pair') > row.lastIndexOf('data-stat="power"'),
+    'and the pair comes after everything you actually hold');
 
   // it is on the dial that raises it
   d.state.hosts.forEach(h => { h.owned = true; });
