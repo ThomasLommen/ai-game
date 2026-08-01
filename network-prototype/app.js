@@ -7143,18 +7143,27 @@ scratch.later = null;
     // actually switch on rather than what you own: with the grid short, some
     // of the rack is furniture, and a ceiling you cannot reach is not a
     // number to plan against.
-    // Two chips, because there are two limits and they are not the same one.
-    // TFLOPS is what the rack adds up to — capacity you own, raised by taking
-    // ground. Power is what you can run at once, and the draw belongs on it
-    // rather than on TFLOPS because what is running draws against the grid,
-    // not against the rack. Putting the draw on both would print the same
-    // number twice under two names.
+    // One draw, two ceilings, and both of them on screen.
+    //
+    // "How much have I got" was never the live question — "how much of it is
+    // already spoken for" is, because every dial and every running program
+    // holds its allocation until it is done with it. So the draw goes on both
+    // chips, against a different limit each time: what the rack adds up to,
+    // and what the grid will carry. The same figure twice is not a duplication
+    // when the two denominators are the two different things that can stop
+    // you — the smaller one is the one binding you, and which it is reads off
+    // the pair at a glance.
+    //
+    // It sat on the power chip alone for a while, on the grounds that running
+    // things draw against the grid rather than against the rack. True, and it
+    // cost the player the reading they actually wanted: how much of what I own
+    // is busy.
     //
     // The power chip is marked when the rack outruns the grid — when there is
     // iron you hold and cannot switch on, which is exactly when a substation
     // is worth more to you than another datacenter.
     const $tf = document.getElementById('res-tflops');
-    if ($tf) $tf.textContent = tflops();
+    if ($tf) $tf.textContent = `${drawn()}/${tflops()}`;
     const $pw = document.getElementById('res-power');
     if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
     const $pwb = document.getElementById('res-power-btn');

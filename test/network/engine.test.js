@@ -7933,7 +7933,7 @@ test('hack: the rig lists what is running, and none of it can be called off', ()
   assert.equal(d.hackDraw(), held, 'every run is holding its share, and keeps it');
 });
 
-test('top bar: TFLOPS is the rack, power is the draw, and they are not the same limit', () => {
+test('top bar: one draw, two ceilings, and both of them on screen', () => {
   const { window, document } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -7942,25 +7942,26 @@ test('top bar: TFLOPS is the rack, power is the draw, and they are not the same 
   d.setAlloc('covert', 3);
   d.render();
 
-  const rack = () => document.getElementById('res-tflops').textContent;
-  const power = () => document.getElementById('res-power').textContent;
-  assert.equal(Number(rack()), d.tflops(), 'the rack chip is what you own, whole');
+  const rack = () => String(document.getElementById('res-tflops').textContent);
+  const power = () => String(document.getElementById('res-power').textContent);
+  assert.equal(rack(), d.drawn() + '/' + d.tflops(),
+    'what is committed, against what the rack adds up to');
   assert.equal(power(), d.drawn() + '/' + d.electricity(),
-    'and the draw is against the grid, which is what it actually draws against');
+    'and the same draw against what the grid will carry');
 
-  // committing more moves the draw and leaves both ceilings alone
-  const rackWas = d.tflops(), gridWas = d.electricity();
-  const drawWas = d.drawn();
+  // committing more moves the draw on both, and neither ceiling
+  const gridWas = d.electricity(), drawWas = d.drawn();
   d.setAlloc('dev', d.allocDial('dev') + window.ALLOC.find(a => a.id === 'dev').per);
   d.render();
   assert.ok(d.drawn() > drawWas, 'the dial took capacity');
-  assert.equal(power(), d.drawn() + '/' + d.electricity(), 'and the chip says so at once');
-  assert.equal(d.tflops(), rackWas, 'without changing what the rack adds up to');
-  assert.equal(d.electricity(), gridWas, 'or what the grid will carry');
+  assert.equal(rack(), d.drawn() + '/' + d.tflops(), 'the rack chip says so at once');
+  assert.equal(power(), d.drawn() + '/' + d.electricity(), 'and so does the power chip');
+  assert.equal(d.electricity(), gridWas, 'without moving what the grid will carry');
 
-  // the same number is never printed twice under two names
-  // the stub keeps whatever was assigned, and a bare number is assigned here
-  assert.ok(!String(rack()).includes('/'), 'the rack does not also carry the draw');
+  // the two denominators are the two different things that can stop you, and
+  // the smaller of them is the one actually binding
+  assert.equal(d.usableTflops(), Math.min(d.tflops(), d.electricity()),
+    'which is what usable means');
 });
 
 test('top bar: power goes bright exactly when the rack has outrun the grid', () => {
