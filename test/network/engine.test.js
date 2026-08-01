@@ -8048,6 +8048,34 @@ test('cover: it is not a resource, and says what it is where it does its work', 
 // its id in the new city — and a running hack had the same hole: walk into the
 // next city and some door you had never touched was showing a race, with a bar
 // filling on it and an offer to pull out a program that was never there.
+// A save written by an earlier build can carry a hack against a door that is
+// already finished. Nothing else reaps it until the next end of turn, so the
+// board comes up showing a race with nothing working on it.
+test('hack: a save never restores a program running against a door you hold', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const target = s.hosts.find(h => !h.origin);
+  target.owned = false;
+  d.mount('backdoor');
+  assert.equal(d.startHack(target.id), true);
+
+  // the door falls to something else, and the save is written the way an
+  // older build would have written it: the run still on the books
+  const raw = d.serialize();
+  raw.hosts.find(h => h.id === target.id).owned = true;
+  raw.hacks = [{ hostId: target.id, prog: 'backdoor', allocated: 2, turnsLeft: 3, trace: 1, startedTurn: 1 }];
+  // and one against a host that is not on this board at all
+  raw.hacks.push({ hostId: 'h9999', prog: 'backdoor', allocated: 2, turnsLeft: 3, trace: 1, startedTurn: 1 });
+
+  const back = d.deserialize(JSON.parse(JSON.stringify(raw)));
+  assert.ok(back, 'the save still loads');
+  assert.equal(back.hacks.length, 0,
+    'neither survives the load — one door is finished, the other is not here');
+});
+
 test('hack: a running program does not follow you across a border', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

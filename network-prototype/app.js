@@ -5581,7 +5581,17 @@ scratch.later = null;
       return {
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
-        hacks: (saved.hacks || []).slice(), mount: saved.mount || (window.PROGRAMS[0] || {}).id,
+        // Reconciled on the way in, not merely copied. A save written by any
+        // earlier build can carry a hack against a door that is finished, or
+        // against a host id from a city you are no longer standing in — and
+        // nothing else reaps it until the next end of turn, so the board comes
+        // up showing a race on a door with nothing working on it and offering
+        // to pull a program out of it.
+        hacks: (saved.hacks || []).filter(k => {
+          const h = (saved.hosts || []).find(x => x.id === k.hostId);
+          return h && !h.owned;
+        }),
+        mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
