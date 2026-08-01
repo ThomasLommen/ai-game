@@ -2440,55 +2440,27 @@ test('allocation: partial allocation pays partially', () => {
   assert.equal(window.UNLOCKS, undefined, 'there are no thresholds any more');
 });
 
-test('tempo: it buys actions and makes every one of them cheaper', () => {
+test('tempo: it buys whole actions, and never a fraction of one', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   s.hosts.forEach(h => { h.owned = true; });
 
   ungrant(d);
-  const budget0 = d.maxAP(), cost0 = d.apCost('breach');
+  const budget0 = d.maxAP();
   setDial(window, d, 'ap', 3);
-  const budget3 = d.maxAP(), cost3 = d.apCost('breach');
+  const budget3 = d.maxAP();
 
   assert.ok(budget3 > budget0, 'more actions in a turn');
-  assert.ok(cost3 < cost0, 'and every one of them costs less');
-  // which is where "forcing a door you outclass costs no action" and "hiding
-  // costs no action" went: the same idea, continuously, with no threshold
-  assert.ok(cost3 > 0, 'without ever quite reaching free');
-  assert.ok(d.apCostMult() >= window.AP.minCostMult, 'the discount has a floor');
+  assert.ok(Number.isInteger(budget3), `the budget is a whole number: ${budget3}`);
+  assert.ok(Number.isInteger(d.apCost('breach')), 'and so is what an action costs');
+  assert.ok(Number.isInteger(d.countryCost('move')), 'at either scale');
 
-  // and the two of them compound: at tempo you get more turns out of a turn
-  const runs = (budget, cost) => Math.floor((budget + 0.001) / cost);
-  assert.ok(runs(budget3, cost3) > runs(budget0, cost0),
-    `tempo should buy more doors a turn: ${runs(budget0, cost0)} -> ${runs(budget3, cost3)}`);
-});
-
-test('tempo: the country scale feels it too', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  d.state.hosts.forEach(h => { h.owned = true; });
-  ungrant(d);
-  const plain = d.countryCost('move');
-  setDial(window, d, 'ap', 3);
-  assert.ok(d.countryCost('move') < plain,
-    'the one place a dial that makes you faster did not make you faster');
-});
-
-test('tempo: a partial budget is a real state, and it refuses what it cannot cover', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  setDial(window, d, 'ap', 2);
-
-  s.ap = d.apCost('breach') * 1.5;
-  assert.equal(d.canAfford('breach'), true, 'one and a half covers one');
-  assert.equal(d.spendAP('breach'), true);
-  assert.ok(s.ap > 0, 'and leaves a real remainder rather than rounding it away');
-  assert.equal(d.canAfford('breach'), false, 'which is not enough for another');
-  assert.equal(d.spendAP('breach'), false, 'and it is refused rather than going negative');
+  // it briefly bought fractions of an action too, which made the budget a real
+  // number — two-thirds of an action left is not a state anyone should have to
+  // hold in their head, and a row of pips has to be countable
+  setDial(window, d, 'ap', 2.5);
+  assert.ok(Number.isInteger(d.maxAP()), 'a part-paid dial still buys whole actions');
 });
 
 test('agents: the dial is what decides how many can be out at once', () => {
@@ -6791,7 +6763,7 @@ test('terms: a gain is never dressed as a cost', () => {
   const ap = window.ALLOC.find(a => a.id === 'ap');
   setDial(window, d, 'ap', 2);
   const chips = d.allocReadout(ap, d.allocLevel('ap'));
-  assert.ok(/cheaper/.test(chips), 'tempo does not say what it does to an action');
+  assert.ok(/actions a turn/.test(chips), 'tempo does not say what it does to a turn');
   window.ALLOC.forEach(A => {
     setDial(window, d, A.id, 2);
     assert.ok(!/yield cost/.test(d.allocReadout(A, d.allocLevel(A.id))),
@@ -8094,6 +8066,66 @@ test('hack: a running program does not follow you across a border', () => {
 // Starting a program is a commitment. The forecast is the safety net — the
 // rate, the turns and who gets there first are all exact and all stated before
 // you press it — and there is no walking it back once it is running.
+// Measured before this change: across 215 doors in real play all three
+// programs got in 100% of the time and none was ever caught, so the mount was
+// chosen once and never thought about again.
+test('programs: no one of them is the answer to every door', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const probe = s.hosts.find(h => !h.origin);
+
+  const at = (type, def) => {
+    probe.type = type; probe.defense = def; probe.owned = false;
+    const out = {};
+    window.PROGRAMS.forEach(p => { out[p.id] = d.hackForecast(probe, p); });
+    probe.owned = true;
+    return out;
+  };
+
+  // something soft: every program gets in, so the cheapest wins
+  const soft = at('consumer', 4);
+  Object.keys(soft).forEach(k => assert.equal(soft[k].caught, false, `${k} should manage a home PC`));
+
+  // something hard: only the loud one survives, and it wants a lot of rack
+  const hard = at('datacenter', 29);
+  assert.equal(hard.brute.caught, false, 'hammer outruns anything');
+  assert.equal(hard.backdoor.caught, true, 'a slow program is found on a datacenter');
+  assert.equal(hard.contagion.caught, true, 'and so is the spreading one');
+  assert.ok(hard.brute.need > hard.backdoor.need * 2,
+    'hammer pays for it in peak draw, which is its only real cost');
+
+  // and the two quiet ones are not the same program with a different blurb:
+  // contagion is touching four buildings, so it is noticed sooner
+  const mid = at('server', 11);
+  assert.ok(mid.contagion.traceAtEnd > mid.backdoor.traceAtEnd,
+    'contagion is the loudest of the quiet ones');
+  assert.ok(mid.contagion.need < mid.backdoor.need, 'and the cheapest of them');
+});
+
+test('programs: covert.ops is what opens a hard door to a slow program', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; });
+  const probe = s.hosts.find(h => !h.origin);
+  probe.type = 'corporate'; probe.defense = 17; probe.owned = false;
+  const back = window.PROGRAMS.find(p => p.id === 'backdoor');
+
+  ungrant(d);
+  assert.equal(d.hackForecast(probe, back).caught, true, 'bare, the door finds it');
+  const cov = window.ALLOC.find(a => a.id === 'covert');
+  let live = 0;
+  while (d.hackForecast(probe, back).caught && live < cov.per * 200) {
+    live += cov.per;
+    s.allocLive.covert = live; s.alloc.covert = live;
+  }
+  assert.equal(d.hackForecast(probe, back).caught, false,
+    'enough of it and the same door is quietly takeable');
+});
+
 test('hack: a run cannot be called off, by any route', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

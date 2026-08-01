@@ -611,13 +611,7 @@ footer .build { opacity: .55; font-size: 10px; }
   transition: background .2s, border-color .2s;
 }
 .ap-pips .pip.on { background: var(--item); border-color: var(--item); }
-/* Tempo makes actions cost fractions, so the budget is a real number and the
-   last of it is often a part of one. Half a dot is a truer answer than
-   rounding it up into a promise or down out of sight. */
-.ap-pips .pip.part {
-  border-color: var(--item);
-  background: linear-gradient(to right, var(--item) 50%, transparent 50%);
-}
+
 
 #turn-row { display: flex; gap: 8px; margin-top: 10px; }
 .caps-btn, .end-turn-btn {

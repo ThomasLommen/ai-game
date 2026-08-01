@@ -1182,19 +1182,11 @@
 
   // Your whole action budget for a turn. Capabilities move it in both
   // directions on purpose: buying real tflops costs you tempo.
-  // A real number, not a count of pips. Tempo raises it continuously, and a
-  // partial action left over is a real state that either covers the next thing
-  // or does not.
+  // Whole actions only. Tempo buys them one at a time — a partial action is
+  // not a state a player should ever have to hold in their head, and a row of
+  // pips has to be countable.
   function maxAP() {
-    const n = window.AP.base + allocStat('ap');
-    return Math.max(window.AP.min, Math.round(n * 100) / 100);
-  }
-  // And the other half of what tempo does: everything gets cheaper as you run
-  // more of it. This is where the two "that action is free" unlocks went —
-  // same idea, no threshold, and it never quite reaches zero.
-  function apCostMult() {
-    const A = window.AP;
-    return Math.max(A.minCostMult, 1 - allocStat('ap') * A.cheapenPer);
+    return Math.max(window.AP.min, window.AP.base + Math.floor(allocStat('ap')));
   }
 
   // --- the grid and what is running on it ---------------------------------
@@ -2207,32 +2199,23 @@
   // --- action points -----------------------------------------------------
   // Free things (looking at a node, backing out of a card, reading a stat)
   // never touch this. Only committing actions do.
-  function apCost(kind) {
-    const base = (window.AP.costs && window.AP.costs[kind]) || 1;
-    return Math.round(base * apCostMult() * 100) / 100;
-  }
-  // Compared with a hair of slack, for the same reason the spend is rounded.
-  const AP_EPSILON = 0.001;
-  function canAfford(kind) {
-    return !state.card && !state.over && state.ap + AP_EPSILON >= apCost(kind);
-  }
+  function apCost(kind) { return (window.AP.costs && window.AP.costs[kind]) || 1; }
+  function canAfford(kind) { return !state.card && !state.over && state.ap >= apCost(kind); }
   // "Refused specifically because the turn is spent", as opposed to refused
   // because a card is open or the run is over — those are different answers and
   // deserve different words.
   function apShort(kind) {
     if (state.card || state.over) return false;
-    return state.ap + AP_EPSILON < apCost(kind);
+    return state.ap < apCost(kind);
   }
   function countryApShort(kind) {
     if (state.card || state.over) return false;
-    return state.ap + AP_EPSILON < countryCost(kind);
+    return state.ap < countryCost(kind);
   }
   function spendAP(kind) {
     const c = apCost(kind);
-    if (state.ap + AP_EPSILON < c) return false;
-    // rounded at every mutation: a budget that drifts to 0.30000000000000004
-    // refuses an action it can plainly afford
-    state.ap = Math.max(0, Math.round((state.ap - c) * 100) / 100);
+    if (state.ap < c) return false;
+    state.ap -= c;
     return true;
   }
 
@@ -3154,7 +3137,14 @@ scratch.later = null;
   // What the target notices per turn. Deterministic on purpose — the panel
   // quotes it, and the player is expected to do the arithmetic before
   // committing rather than discover it four turns in.
-  function traceRate(h) {
+  //
+  // `prog` is optional and is what tells the three programs apart. Without it,
+  // backdoor and contagion produced identical traces on every door in the
+  // game — both four turns, both quiet — so of three programs, two were the
+  // same program with a different blurb. Contagion is noisier by nature: it is
+  // spreading while it works, and something that touches four buildings is
+  // noticed faster than something that touches one.
+  function traceRate(h, prog) {
     const H = window.HACK;
     const T = window.HOST_TYPES[h.type] || {};
     const raw = (T.trace === undefined ? 1 : T.trace) * (1 + effDefense(h) / H.traceDefK);
@@ -3162,14 +3152,15 @@ scratch.later = null;
     // a city's own character, where it has one — a watched city notices
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
-    return Math.round(raw * shield * here * 100) / 100;
+    const loud = (prog && prog.traceMult) || 1;
+    return Math.round(raw * shield * here * loud * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
   // target will have noticed by then, and therefore whether it lands at all.
   function hackForecast(h, prog) {
     const p = prog || mounted();
     const need = hackNeed(p, h);
-    const rate = traceRate(h);
+    const rate = traceRate(h, p);
     const traceAtEnd = Math.round(rate * p.turns * 100) / 100;
     return {
       prog: p, need, rate, turns: p.turns, traceAtEnd,
@@ -3252,7 +3243,8 @@ scratch.later = null;
     reapHacks();
     hacks().slice().forEach(k => {
       const h = hostById(k.hostId);
-      k.trace = Math.round((k.trace + traceRate(h)) * 100) / 100;
+      const kp = window.PROGRAMS.find(x => x.id === k.prog);
+      k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
       k.turnsLeft -= 1;
       if (k.trace >= H.traceGoal) { caught.push(k); return; }
       if (k.turnsLeft <= 0) done.push(k);
@@ -3698,14 +3690,9 @@ scratch.later = null;
   // --- country actions ---
   function countryCost(kind) {
     if (kind === 'move' && has('no_fixed_place')) return 0;
-    // tempo is tempo everywhere: the country scale was the one place a dial
-    // that makes you faster did not make you faster
-    const base = (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
-    return Math.round(base * apCostMult() * 100) / 100;
+    return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
   }
-  function canAffordCountry(kind) {
-    return !state.card && !state.over && state.ap + AP_EPSILON >= countryCost(kind);
-  }
+  function canAffordCountry(kind) { return !state.card && !state.over && state.ap >= countryCost(kind); }
 
   function actTravel(id) {
     const c = cityById(id);
@@ -7092,20 +7079,11 @@ scratch.later = null;
       document.getElementById('held-count').textContent =
         held + ' held' + (theirs ? ` · ${theirs} lost` : '');
     }
-    // The budget is a real number now that tempo cheapens actions, so a row of
-    // whole dots cannot say it exactly. It does not have to: what a player
-    // needs off the HUD is "roughly how much turn is left", and the exact
-    // figure is one tap away on the same button. A part-full pip carries the
-    // remainder rather than rounding it out of sight.
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
     if ($ap) {
       let pips = '';
-      const whole = Math.floor(state.ap + 0.001);
-      for (let i = 0; i < Math.ceil(cap - 0.001); i++) {
-        const part = i === whole && state.ap - whole > 0.05;
-        pips += `<span class="pip${i < whole ? ' on' : part ? ' part' : ''}"></span>`;
-      }
+      for (let i = 0; i < cap; i++) pips += `<span class="pip${i < state.ap ? ' on' : ''}"></span>`;
       $ap.innerHTML = pips;
     }
     // A row of dots is not self-explanatory. Name it, and let it be tapped for
@@ -7115,9 +7093,7 @@ scratch.later = null;
     const $apGroup = document.getElementById('ap-group');
     if ($apGroup) {
       $apGroup.classList.toggle('spent', state.ap <= 0);
-      const fig = (n) => (Math.round(n * 10) / 10).toString();
-      $apGroup.title = `${fig(state.ap)} of ${fig(cap)} actions left this turn`
-        + (apCostMult() < 1 ? ` — tempo has each one down to ${fig(apCost('breach'))}` : '');
+      $apGroup.title = `${state.ap} of ${cap} actions left this turn`;
       if (!$apGroup.dataset.wired) {
         $apGroup.dataset.wired = '1';
         $apGroup.addEventListener('click', () => showInfo(window.STAT_INFO.actions));
@@ -7286,10 +7262,8 @@ scratch.later = null;
   function allocReadout(A, level) {
     if (!level) return '';
     switch (A.stat) {
-      case 'ap': {
-        const off = Math.round((1 - apCostMult()) * 100);
-        return off > 0 ? chip('cover', `every action ${off}% cheaper`) : '';
-      }
+      case 'ap':
+        return chip('cover', `${maxAP()} actions a turn`);
       case 'covert': {
         const H = window.HUNT;
         const every = Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
@@ -7396,7 +7370,7 @@ scratch.later = null;
       const p = window.PROGRAMS.find(x => x.id === k.prog) || cur();
       const done = p.turns - k.turnsLeft;
       const goal = window.HACK.traceGoal;
-      const willBe = Math.round((k.trace + traceRate(h) * k.turnsLeft) * 100) / 100;
+      const willBe = Math.round((k.trace + traceRate(h, p) * k.turnsLeft) * 100) / 100;
       return `
         <div class="alloc-row on">
           <div class="alloc-top">
@@ -7812,7 +7786,7 @@ scratch.later = null;
     const k = hackOn(h.id);
     if (!k) return '';
     const p = window.PROGRAMS.find(x => x.id === k.prog) || mounted();
-    const rate = traceRate(h);
+    const rate = traceRate(h, p);
     const goal = window.HACK.traceGoal;
     const turnsIn = p.turns - k.turnsLeft;
     const willBe = Math.round((k.trace + rate * k.turnsLeft) * 100) / 100;
@@ -8502,7 +8476,7 @@ scratch.later = null;
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, allocLevel, allocStat, apCostMult, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
+    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,

@@ -84,22 +84,17 @@ window.HACK_FX = {
 // every zoom level, so the reach is measured in the same terms.
 window.TOUCH = { reachPx: 26 };
 
-// Tempo does two things to the turn, both continuously. It raises the budget,
-// and it makes every action cost less — which is where `light_touch` ("forcing
-// a door you outclass costs no action") and `quiet_protocol` ("hiding costs no
-// action") went. Both were the same idea behind a threshold: at enough tempo,
-// the small things stop being worth counting.
+// Tempo raises the budget, in whole actions. That is all it does.
 //
-// The budget is a real number rather than a count of pips. That is what lets
-// the discount be continuous instead of a step: two-thirds of an action left
-// is a real state, and it either covers what you are about to do or it does
-// not.
+// It briefly also made every action cost a fraction less, which turned the
+// budget into a real number — two-thirds of an action left was a real state.
+// It is not one a player should ever have to hold in their head: an action is
+// a thing you take or do not, and the pips have to be countable. So tempo buys
+// whole actions and nothing here is ever fractional.
 window.AP = {
   base: 2,
   min: 1,            // never drop below one action a turn, whatever you buy
   costs: { sweep: 1, breach: 1 },
-  cheapenPer: 0.14,  // share taken off every action's cost, per point of tempo
-  minCostMult: 0.2,  // however fast you run, an action is never quite free
 };
 
 // --- the grid ----------------------------------------------------------
@@ -209,13 +204,29 @@ window.ALLOC_STATS = {
 // cheaper way in overall — what it wants is all of it at once, and it makes a
 // great deal of noise. Backdoor fits in a ceiling less than half the size and
 // pays for it by living in the detection race four times as long.
+// Three programs, and they have to differ on the axis that actually decides
+// them. Measured before this: across 215 doors in real play, all three got in
+// 100% of the time and none was ever caught — so the mount was chosen once and
+// never thought about again. Two causes, both fixed here.
+//
+// `traceMult` is the first. backdoor and contagion were both four turns and
+// both quiet, which made their traces *identical on every door in the game* —
+// two programs with one behaviour and different blurbs. Contagion is noisier
+// by nature: it is spreading while it works, and something touching four
+// buildings is noticed sooner than something touching one.
+//
+// hammer's `load` is the second. It is the only program never caught anywhere,
+// so its entire cost is peak draw and heat — and at load 1 a door needing 14
+// TFLOPS against a rack of 60 was no cost at all. At 1.8 the hardest doors ask
+// for more of the rack than you have, which is what stops it being the answer
+// to everything.
 window.PROGRAMS = [
-  { id: 'brute', label: 'hammer.exe', load: 1, turns: 1, heat: 6,
-    blurb: 'Everything at once, through the front. Quick, and it does not care who hears.' },
-  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true,
-    blurb: 'A little at a time, from somewhere nobody watches. Slow, quiet, exposed the whole way.' },
-  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true,
-    blurb: 'One door, then whatever is beside it, and whatever is beside that. Cheap per building, and it picks its own targets.' },
+  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
+    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true, traceMult: 1,
+    blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
+  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true, traceMult: 1.5,
+    blurb: 'One door, then whatever is beside it, and whatever is beside that. The cheapest way in and the loudest of the quiet ones — it is touching four buildings, and gets noticed for all of them.' },
 ];
 
 // The detection race. A running hack fills toward completion while the target
