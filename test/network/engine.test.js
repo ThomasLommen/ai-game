@@ -671,29 +671,6 @@ test('lying low cannot drive heat below the floor', () => {
   assert.ok(s.heat >= d.heatFloor() - 0.001, `heat ${s.heat} fell below the floor ${d.heatFloor()}`);
 });
 
-test('crossing the threshold is permanent, and costs nothing until the hunt can exist', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  assert.ok(!s.everCrossed, 'nothing crossed yet');
-  s.heat = window.HEAT.STRIKE + 1;
-  d.endTurn();
-  assert.equal(s.everCrossed, true, 'crossing is remembered');
-  assert.equal(s.card, null, 'there is no strike card any more');
-  assert.equal(d.huntOn(), false, 'not enough held yet for the hunt to exist');
-
-  // heat drops back under the threshold entirely
-  s.heat = 0;
-  d.endTurn();
-  assert.equal(s.everCrossed, true, 'still remembered, even back under the line');
-  assert.equal(d.huntOn(), false, 'still nothing to seed it on');
-
-  // now it is owed the moment there is enough held, whatever heat has done
-  s.hosts.slice(0, window.HUNT.minHeld).forEach(h => { h.owned = true; h.discovered = true; });
-  d.endTurn();
-  assert.equal(d.huntOn(), true, 'the hunt arrives late, on the debt already owed');
-});
-
 test('strike branches differ: ride burns a share, shed drops the loud ones, cover pays', () => {
   const HEAT = loadNetwork().window.HEAT;
   function primed(effect) {
@@ -1772,6 +1749,60 @@ test('ladder: trust with the Accountant buys the next stage more time', () => {
   assert.equal(trustedDueAt - plainDueAt, L.delayOnTrusted, 'trusted, the same rung takes longer to land');
 });
 
+// --- what heat is for, now that it does not call anybody down on you --------
+// The strike card is gone and the hunt answers to doors, not to heat. This is
+// the one job heat has left, and it is a country-scale one: how loudly you got
+// where you are, read by the people escalating against you.
+test('heat: it is what the regulator reads, and it pulls the next rung nearer', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+
+  s.heat = 0;
+  const cold = d.ladderPressure();
+  assert.equal(Math.round(cold * 100), Math.round(d.footprint() * 100),
+    'cold, pressure is size and nothing else');
+  assert.equal(d.heatPressure(), 0, 'and heat is worth nothing');
+
+  s.heat = d.strikeThreshold();
+  assert.ok(Math.abs(d.heatPressure() - window.LADDER.heatWeight) < 0.001,
+    'at the line, heat is worth exactly its weight');
+  assert.ok(d.ladderPressure() > cold, 'and running hot moves you up the ladder');
+});
+
+test('heat: however loud you are, noise alone never escalates you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // nothing built, nothing held, nothing bought — and heat pinned at its ceiling
+  s.country.presence = 0;
+  s.heat = d.strikeThreshold() * window.HEAT.MAX_OVER;
+  assert.ok(d.ladderPressure() < window.LADDER.thresholds[0],
+    `${Math.round(d.ladderPressure())} of noise cleared the first rung on its own`);
+  d.ladderStep();
+  assert.equal(d.ladderPending(), null, 'somebody escalated against an empty operation');
+});
+
+test('heat: loud gets you there before big would have', () => {
+  const { window } = loadNetwork();
+  const quiet = loadNetwork().window.__netDebug;
+  const d = window.__netDebug;
+  // sized just under the first rung: quiet, this is nobody's problem
+  const under = () => {
+    const L = window.LEGIT;
+    return (window.LADDER.thresholds[0] - 1) / L.footPerPresence;
+  };
+  quiet.state.country.presence = under();
+  quiet.state.heat = 0;
+  quiet.ladderStep();
+  assert.equal(quiet.ladderPending(), null, 'quiet at that size, and they came anyway');
+
+  d.state.country.presence = under();
+  d.state.heat = d.strikeThreshold();
+  d.ladderStep();
+  assert.equal(d.ladderPending(), 2, 'loud at the same size, and nobody noticed');
+});
+
 test('ladder: a countdown already running lands on schedule even if footprint falls back after', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -2774,32 +2805,136 @@ test('horizon: a lost city still shows, marked the way the country map marks it'
 // the holdings you release in full, voluntarily, every time you fold a city
 // in. Crossing the threshold now starts something instead.
 
+// The response arrives because doors here have caught you, not because a meter
+// crossed a line. Heat has nothing to do with it any more.
 function hunted(d, window, held) {
   const s = d.state;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
   s.hosts.slice(0, held === undefined ? 20 : held).forEach(h => { h.owned = true; });
   s.res.funds = 900;
-  s.heat = d.strikeThreshold() + 1;
-  s.everCrossed = true; // heat/hunt rework: crossing is what huntStart() now requires
+  s.caughtHere = window.HUNT.caughtToStart;
+  // and it seats itself at a door that caught you, so name one that is not
+  // yours — otherwise the seat is a building you hold and the test board is a
+  // building short of what it asked for
+  const theirs = s.buildings.find(b => !d.buildingHeld(b));
+  s.caughtAt = theirs ? [theirs.id] : [];
   return d.huntStart();
 }
 
-test('hunt: crossing the threshold starts something instead of fining you', () => {
+test('hunt: getting caught is what brings it, not being hot', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   assert.equal(d.huntOn(), false, 'nothing is after you yet');
 
-  // it will not arrive before you have anything worth taking
-  s.heat = d.strikeThreshold() + 1;
+  // A network large enough to be worth taking, run as hot as heat can go, and
+  // never once caught: heat is the regulator's business now and it does not
+  // put anybody on your street.
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  s.heat = d.strikeThreshold() * window.HEAT.MAX_OVER;
   s.everCrossed = true;
-  assert.equal(d.huntStart(), null, 'not against a network this small');
+  assert.equal(d.huntStart(), null, 'heat alone brought them');
 
-  hunted(d, window);
+  // one short of the count still brings nobody
+  s.caughtHere = window.HUNT.caughtToStart - 1;
+  assert.equal(d.huntStart(), null, 'they came a door early');
+
+  s.caughtHere = window.HUNT.caughtToStart;
+  s.heat = 0;                              // and stone cold is no protection
+  assert.ok(d.huntStart(), 'caught enough times, and nobody came');
   assert.equal(d.huntOn(), true, 'now it has an address');
   assert.equal(d.hunt().nodes.length, 1, 'one building, to begin with');
   assert.equal(s.card, null, 'and it is not a card you dismiss');
+});
+
+test('hunt: it seats itself at the door that caught you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  s.caughtHere = window.HUNT.caughtToStart;
+  // the last one to catch you, not the first
+  const theirs = s.buildings.filter(b => !d.buildingHeld(b)).slice(0, 3).map(b => b.id);
+  assert.ok(theirs.length >= 2, 'the board has doors you do not hold');
+  s.caughtAt = theirs;
+  d.huntStart();
+  assert.equal(d.hunt().nodes[0], theirs[theirs.length - 1],
+    'it came in somewhere it had never been');
+});
+
+test('hunt: there is no wall, because there is no street', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  const seat = d.hunt().nodes[0];
+
+  // Cut it off completely: nothing you hold shares a street with anything they
+  // hold, or with anything that does. Under the old street-walking model this
+  // was the whole counter-play and it ended the hunt for the rest of the game.
+  const adj = s.adjacency || {};
+  Object.keys(adj).forEach(id => { adj[id] = []; });
+  assert.equal((adj[seat] || []).length, 0, 'their seat has no streets at all');
+
+  assert.ok(d.huntNext(), 'sealed off, they had nothing to come for');
+  const grew = [];
+  for (let t = 0; t < d.huntCadence() * 4 + 4; t++) {
+    s.turn += 1;
+    const r = d.huntStep();
+    if (r) grew.push(r.took);
+  }
+  assert.ok(grew.length >= 2, `walled in, they still took ${grew.length}`);
+});
+
+test('hunt: getting caught again moves them, cadence or no cadence', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  hunted(d, window);
+  const at = d.hunt().nodes.length;
+  s.turn += 1;
+  assert.equal(d.huntStep(), null, 'the cadence has not come round');
+
+  const r = d.huntPressed();
+  assert.ok(r && r.took, 'a door caught you and they did not move');
+  assert.equal(d.hunt().nodes.length, at + 1, 'they took one');
+
+  // and it is the same rule about what they take
+  assert.equal(d.huntFrontier().indexOf(r.took), -1, 'it is theirs now');
+  assert.equal(d.huntNext() !== r.took, true, 'and they have named the next one');
+});
+
+test('hunt: it cannot be pressed into a city it is not in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(d.huntPressed(), null, 'they moved before they had arrived');
+});
+
+test('hunt: it comes for what is nearest, so distance is the only cover', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  hunted(d, window);
+  const next = d.huntNext();
+  const reach = d.huntReach(next);
+  d.huntFrontier().forEach(id => {
+    assert.ok(d.huntReach(id) >= reach - 1e-9,
+      `${id} is closer than the thing they said they were coming for`);
+  });
+});
+
+test('hunt: hiding is what takes something off their list', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  hunted(d, window);
+  const next = d.huntNext();
+  d.state.hidden = [next];
+  assert.notEqual(d.huntNext(), next, 'hidden, and still on the list');
+  assert.equal(d.huntFrontier().indexOf(next), -1, 'and still on the frontier');
 });
 
 test('hunt: it takes what is yours, which the rival never did', () => {
@@ -2833,35 +2968,6 @@ test('hunt: you can always see what it will take next', () => {
   assert.ok(r && r.took === next, `it took ${r && r.took}, having shown ${next}`);
 });
 
-test('hunt: cutting the streets contains it, and costs you the streets', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  hunted(d, window);
-  for (let t = 0; t < 12; t++) { s.turn += 1; d.huntStep(); }
-  const held = d.hunt().nodes.length;
-
-  const streetsBefore = Object.keys(s.adjacency).reduce((a, k) => a + s.adjacency[k].length, 0);
-  let cuts = 0;
-  for (let i = 0; i < 40; i++) {
-    const e = d.severable().find(x => d.canSever(x.from, x.to));
-    if (!e) break;
-    s.ap = 9;
-    if (!d.actSever(e.from, e.to)) break;
-    cuts++;
-  }
-  assert.ok(cuts > 0, 'there was something to cut');
-  assert.equal(d.severable().length, 0, 'and now there is no way out of it');
-
-  for (let t = 0; t < 30; t++) { s.turn += 1; d.huntStep(); }
-  assert.equal(d.hunt().nodes.length, held, 'thirty turns later it has not moved');
-
-  // and the city is smaller for it — that is the price
-  const streetsAfter = Object.keys(s.adjacency).reduce((a, k) => a + s.adjacency[k].length, 0);
-  assert.ok(streetsAfter < streetsBefore, 'the streets went for you as well');
-  assert.equal(s.cuts.length, cuts, 'and it is recorded on the map');
-});
-
 test('hunt: cover is what makes it slow, which is what cover is for', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -2883,10 +2989,11 @@ test('hunt: a city it takes enough of is gone for good', () => {
   const d = window.__netDebug;
   const s = d.state;
   const city = d.currentCity();
-  hunted(d, window);
+  // it takes what you hold, so it has to have plenty to work through
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  hunted(d, window, 0);
   let lost = null;
-  // loop bound scales with the board: the home base is now bigger than a
-  // fixed 300-turn creep assumed, and the hunt only takes a share of it per turn
   for (let t = 0; t < s.buildings.length * 20 && !lost; t++) { s.turn += 1; d.huntStep(); lost = d.huntTakesCity(); }
   assert.ok(lost, 'it can finish a city');
   assert.equal(d.cityLost(city), true, 'and the city is marked lost');
@@ -2905,8 +3012,7 @@ test('hunt: what it holds and what it can reach is on the map, swept or not', ()
   s.hosts.forEach(h => { if (!h.owned) h.discovered = false; });
   s.buildings.forEach(b => { b.discovered = d.hostsIn(b).some(x => x.owned); });
   s.res.funds = 900;
-  s.heat = d.strikeThreshold() + 1;
-  s.everCrossed = true;
+  s.caughtHere = window.HUNT.caughtToStart;
   d.huntStart();
 
   const dark = () => d.huntFrontier().filter(id => !d.buildingById(id).discovered).length;
@@ -2917,78 +3023,7 @@ test('hunt: what it holds and what it can reach is on the map, swept or not', ()
     'everything it holds is drawn');
 });
 
-test('hunt: it has a web of its own, and every strand of it is a street you can take', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  hunted(d, window);
-  for (let t = 0; t < 12; t++) { s.turn += 1; d.huntStep(); }
-  const svg = d.svgHunt();
-
-  // solid between what it holds, dashed down every street out of it
-  const wires = (svg.match(/class="hwire"/g) || []).length;
-  const reach = (svg.match(/data-cut="/g) || []).length;
-  assert.ok(wires > 0, 'it is drawn as a network, not a scatter of red boxes');
-  assert.equal(reach, d.severable().length,
-    'every street out of it is drawn, and only those');
-
-  // and the drawn strand is the thing the verb takes
-  const key = svg.match(/data-cut="([^"]+)"/)[1].split('|');
-  assert.equal(d.huntHolds(key[0]), true, 'a strand starts inside them');
-  assert.equal(d.huntHolds(key[1]), false, 'and ends outside');
-  assert.equal(d.canSever(key[0], key[1]), true, 'and it is severable');
-});
-
-test('hunt: tapping a street is how you cut it', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  hunted(d, window);
-  for (let t = 0; t < 8; t++) { s.turn += 1; d.huntStep(); }
-  const e = d.severable().find(x => d.canSever(x.from, x.to));
-  assert.ok(e, 'there is a street to point at');
-
-  d.pickCut(e.from + '|' + e.to);
-  assert.deepEqual([s.selectedCut.a, s.selectedCut.b], [e.from, e.to], 'the tap selects it');
-  assert.equal(s.selectedBuilding, null, 'and not a building instead');
-
-  // a street that is not theirs is not a thing you can point at
-  d.pickCut(e.to + '|' + e.from);
-  assert.deepEqual([s.selectedCut.a, s.selectedCut.b], [e.from, e.to], 'backwards is refused');
-
-  s.ap = 9;
-  assert.equal(d.actSever(e.from, e.to), true, 'and the selection can be spent');
-  assert.equal(s.selectedCut, null, 'the street it named no longer exists');
-});
-
-test('hunt: a street you take stays taken, whatever The Cut is doing', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  hunted(d, window);
-  for (let t = 0; t < 8; t++) { s.turn += 1; d.huntStep(); }
-  const e = d.severable().find(x => d.canSever(x.from, x.to));
-  s.ap = 9;
-  d.actSever(e.from, e.to);
-  assert.equal(s.cuts.length, 1, 'it is on the record');
-
-  // The Cut's own cuts heal on a timer; running that timer must not quietly
-  // drop yours off the list with them
-  const other = Object.keys(s.adjacency).find(k => k !== e.from && (s.adjacency[k] || []).length);
-  s.cuts.push({ a: other, b: s.adjacency[other][0], until: s.turn + 1 });
-  s.turn += 5;
-  d.repairStreets();
-  assert.equal(s.cuts.length, 1, 'theirs healed, yours did not');
-  assert.equal(s.cuts[0].mine, true, 'and the one left is yours');
-  assert.equal((s.adjacency[e.from] || []).indexOf(e.to), -1, 'the street is still gone');
-});
-
-// The quiet answer. Severing is loud, permanent and symmetrical: the street
-// goes for both of you. Hiding takes a building off their map and leaves the
-// street open for you — and charges you cover, per building, every turn, out
-// of the same pool that was slowing them down.
-
-test('hide: a hidden building is one they will not walk onto', () => {
+test('hide: a hidden building is one they cannot reach for', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -3005,10 +3040,10 @@ test('hide: a hidden building is one they will not walk onto', () => {
 
   assert.equal(d.huntFrontier().indexOf(target), -1, 'it is off their frontier');
   assert.notEqual(d.huntNext(), target, 'and it is not what they take next');
-  // the difference from cutting: the street is untouched
-  assert.ok((s.adjacency[target] || []).length > 0, 'the street is still there');
-  assert.equal(d.severable().some(e => e.to === target), true,
-    'you could still cut it instead, and that choice is the point');
+  // and it is the only answer left, now that nothing walks streets: the
+  // building comes off their map, the street is beside the point
+  assert.equal(typeof d.severable, 'undefined', 'there is no street to cut instead');
+  assert.ok((s.adjacency[target] || []).length > 0, 'the street is untouched');
 });
 
 test('hide: it occupies a covert slot and does not drain the cover slowing them down', () => {
@@ -3228,7 +3263,9 @@ test('hunt: it belongs to the city it is in, not to you', () => {
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
-  for (let t = 0; t < 6; t++) { s.turn += 1; d.huntStep(); }
+  // covert.ops slows their cadence, and this board holds enough routers to slow
+  // it well past a fixed six turns — so run against the cadence, not a number
+  for (let t = 0; t < d.huntCadence() * 2 + 2; t++) { s.turn += 1; d.huntStep(); }
   const wasHolding = d.hunt().nodes.slice();
   assert.ok(wasHolding.length > 1, 'it is running and has spread');
 
@@ -7928,6 +7965,13 @@ test('grid: there is no power ceiling until there is a country', () => {
     if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
   }
   assert.equal(d.countryUnlocked(), false, 'still short of the goal');
+  // The interesting case is a rack that has outrun the grid. Whether a
+  // generated city hands you one at goal-1 is a coin flip — measured, 59
+  // TFLOPS against 61 of grid on some seeds — so put it beyond doubt rather
+  // than letting the point of the test depend on the roll.
+  while (d.tflops() <= d.electricity()) {
+    d.owned().forEach(h => { h.threads += 1; });
+  }
   assert.ok(d.tflops() > d.electricity(),
     `the rack has outrun what the grid would carry: ${d.tflops()} vs ${d.electricity()}`);
   assert.equal(d.usableTflops(), d.tflops(), 'and every bit of it is still usable');

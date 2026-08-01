@@ -1397,20 +1397,18 @@ footer .build { opacity: .55; font-size: 10px; }
 @media (prefers-reduced-motion: reduce) { .bldg.next-up .body { animation: none; } }
 
 /* Their network, drawn the same way yours is, so the shape of the thing eating
-   the city is legible at a glance. Solid between what they hold; a dashed
-   reach down every street they can still walk — and those are tappable, which
-   is the whole point: the reach lines ARE the list of things you can cut. */
+   the city is legible at a glance. Solid between what they hold; one dashed
+   line to whatever they come for next. It is not a street and it is not
+   tappable — reach is distance now, so it crosses whatever is in the way, and
+   nothing about it is a thing you can cut. */
 .hwire { stroke: var(--heat); stroke-width: 2.2; opacity: .8; }
 .hreach .reach {
   stroke: var(--heat); stroke-width: 1.6; opacity: .55;
   stroke-dasharray: 4 5; pointer-events: none;
   animation: reachCrawl 2.2s linear infinite;
 }
-/* an invisible fat line so a street can be hit with a thumb */
-.hreach .hit { stroke: transparent; stroke-width: 16; cursor: pointer; }
 .hreach.yours .reach { opacity: .85; stroke-width: 2.2; }
 .hreach.next .reach { opacity: 1; stroke-width: 2.8; stroke-dasharray: 6 4; }
-.hreach.sel .reach { stroke: var(--ink); opacity: 1; stroke-width: 3; }
 @keyframes reachCrawl { to { stroke-dashoffset: -18; } }
 @media (prefers-reduced-motion: reduce) { .hreach .reach { animation: none; } }
 

@@ -1724,8 +1724,7 @@
     // A strike card cannot be created any more, but a stale one (an old save,
     // a leftover test) must not sit there blocking every other card forever.
     if (state.card && state.card.kind === 'strike') state.card = null;
-    if (!warOn() && state.heat >= strikeThreshold()) state.everCrossed = true;
-    if (!warOn() && state.everCrossed && !huntOn()) huntStart();
+    if (!warOn() && !huntOn()) huntStart();
     if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -1801,33 +1800,45 @@
   }
   // Everything it could step onto next, along the streets from what it holds.
   // Always shown: a permanent loss must never arrive as a surprise.
+  // It does not walk streets any more, and there is nothing to wall it into.
+  //
+  // Street-walking gave it exactly one counter — sever every road out of it —
+  // and that counter was cheap, obviously correct, and permanent. Measured in
+  // play: the response is sealed off early and then holds one building for the
+  // rest of the game while heat sits sixty per cent over its own line, doing
+  // nothing. A threat with a fence around it is not a threat.
+  //
+  // So it works outward by distance from where it got in. Everything you hold
+  // is reachable, sooner or later; what buys you time is how far from them you
+  // are operating, and the only way to take something off the list is to hide
+  // it, which costs covert.ops every turn it stays hidden.
   function huntFrontier() {
     if (!huntOn()) return [];
-    const adj = state.adjacency || {};
-    const out = {};
-    hunt().nodes.forEach(id => {
-      (adj[id] || []).forEach(n => {
-        if (huntHolds(n)) return;
-        if (isHidden(n)) return;              // they do not know it is there
-        out[n] = true;
-      });
-    });
-    return Object.keys(out);
+    return (state.buildings || [])
+      .filter(b => !huntHolds(b.id) && !isHidden(b.id) && buildingHeld(b))
+      .map(b => b.id);
   }
-  // what it will actually take, of those: yours first, and the biggest of them
+  // How far a building is from the nearest thing they hold.
+  function huntReach(bid) {
+    const to = bldgCentre(bid);
+    if (!to) return Infinity;
+    return hunt().nodes.reduce((best, id) => {
+      const from = bldgCentre(id);
+      if (!from) return best;
+      return Math.min(best, Math.hypot(from.x - to.x, from.y - to.y));
+    }, Infinity);
+  }
+  // What it takes next: the nearest thing you hold, and of equals the biggest.
   function huntNext() {
     const opts = huntFrontier();
     if (!opts.length) return null;
-    const score = (bid) => {
-      const hs = hostsIn(buildingById(bid));
-      const mine = hs.some(h => h.owned);
-      return (mine ? 1000 : 0) + hs.reduce((a, h) => a + h.threads, 0);
-    };
-    return opts.slice().sort((a, b) => score(b) - score(a))[0];
+    const threads = (bid) => hostsIn(buildingById(bid)).reduce((a, h) => a + h.threads, 0);
+    return opts.slice().sort((a, b) =>
+      (huntReach(a) - huntReach(b)) || (threads(b) - threads(a)))[0];
   }
-  // Everything it holds, and everything it could step onto, is on the map
-  // whether or not you had swept it. You cannot cut a street you cannot see,
-  // and an invisible frontier made the whole thing feel like weather.
+  // Everything it holds, and everything it could come for, is on the map
+  // whether or not you had swept it. An invisible frontier made the whole
+  // thing feel like weather; a named one makes it a thing you are losing to.
   function huntReveal() {
     if (!huntOn()) return;
     hunt().nodes.forEach(id => revealBuilding(buildingById(id)));
@@ -1836,24 +1847,38 @@
   // It always arrives the same way: one building, the smallest thing you hold,
   // and it takes that building off you on the way in.
   function huntSeed(line) {
+    // where they came in: the last door that caught something of yours, if it
+    // is still on the board. Failing that, the smallest thing you hold.
+    const caught = (state.caughtAt || []).slice().reverse()
+      .map(id => buildingById(id)).filter(Boolean)[0];
     const mine = owned().slice().sort((a, b) => a.threads - b.threads);
-    const seed = mine[0];
-    if (!seed) return null;
-    state.hunt = { on: true, nodes: [seed.buildingId], since: state.turn, lastActed: state.turn };
-    hostsIn(buildingById(seed.buildingId)).forEach(h => { h.owned = false; });
+    const seedBid = caught ? caught.id : (mine[0] && mine[0].buildingId);
+    if (seedBid === undefined) return null;
+    state.hunt = { on: true, nodes: [seedBid], since: state.turn, lastActed: state.turn };
+    // whatever is in there is theirs now — usually the door that caught you,
+    // which you never held in the first place
+    hostsIn(buildingById(seedBid)).forEach(h => { h.owned = false; });
     huntReveal();
-    pushLog(line(window.BUILDING_KINDS[buildingById(seed.buildingId).kind].label));
+    pushLog(line(window.BUILDING_KINDS[buildingById(seedBid).kind].label));
     showBanner([{ kind: 'faction', verb: 'against you', label: window.HUNT.name }]);
     return state.hunt;
   }
+  // How many doors in this city have caught a program of yours. This is what
+  // brings the response, and it is a fact about *here* — it packs with the
+  // city and does not travel.
+  function caughtHere() { return state.caughtHere || 0; }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
-    if (!state.everCrossed) return null;
     if (owned().length < window.HUNT.minHeld) return null;
-    // it starts on something of yours: the point is that it takes, not that it
-    // races you for open ground the way the rival does
+    // It arrives because doors here have caught you, not because a meter
+    // crossed a line. Heat was the old trigger and it made the response
+    // something that happened *to* you off a number you had stopped reading;
+    // this way it grows out of the part of the game you are actually playing,
+    // and the counter-play is the same thing you were already deciding — which
+    // program, and how much covert.ops behind it.
+    if (caughtHere() < window.HUNT.caughtToStart) return null;
     return huntSeed((what) =>
-      `${window.HUNT.name} has an address. They are inside ${what}, and they are not leaving.`);
+      `${window.HUNT.name} followed one of them home. They are inside ${what}, and they are not leaving.`);
   }
 
   // --- ending it ------------------------------------------------------------
@@ -1943,13 +1968,12 @@
     return huntSeed((what) =>
       `${window.HUNT.name} found you again. They are in ${what} now, and they start over from there.`);
   }
-  function huntStep() {
-    if (state.scope !== 'city') return null;
-    if (!huntOn()) return null;
+  // One step: they take the nearest thing of yours. Everything that decides
+  // *when* lives in the two callers, not here.
+  function huntTake(line) {
     const h = state.hunt;
-    if (state.turn - h.lastActed < huntCadence()) return null;
     const take = huntNext();
-    if (!take) return null;                    // contained: every street cut
+    if (!take) return null;                    // nothing of yours left here
     h.lastActed = state.turn;
     h.nodes.push(take);
     const b = buildingById(take);
@@ -1960,18 +1984,41 @@
     // does not. This is the only thing that brings heat down hard now that the
     // fine is gone, and it is what keeps covert.ops meaningful.
     state.heat = clampHeat(state.heat - window.HUNT.takeSheds);
-    pushLog(was.length
-      ? `They are in ${window.BUILDING_KINDS[b.kind].label} now. It was yours.`
-      : `They take ${window.BUILDING_KINDS[b.kind].label}. Nobody was using it.`);
+    pushLog(line(window.BUILDING_KINDS[b.kind].label, was.length > 0));
     return { took: take, wasYours: was.length > 0 };
+  }
+  function huntStep() {
+    if (state.scope !== 'city') return null;
+    if (!huntOn()) return null;
+    if (state.turn - state.hunt.lastActed < huntCadence()) return null;
+    return huntTake((what, yours) => yours
+      ? `They are in ${what} now. It was yours.`
+      : `They take ${what}. Nobody was using it.`);
+  }
+  // A door catching you is what brought them, and it is what keeps bringing
+  // them: once they are here, every further catch moves them a building
+  // immediately rather than waiting on the cadence.
+  //
+  // Without this the hunt was a metronome — measured over twelve sixty-turn
+  // openings it arrived around turn 39 and had taken four buildings by sixty,
+  // against a city it needs twenty-odd of to take. Nothing the player did
+  // between those ticks touched it, which is the same complaint the walling
+  // was: a threat you cannot affect is one you stop looking at. Now the loop
+  // closes on the thing you are doing every single turn. Get caught less.
+  function huntPressed() {
+    if (!huntOn() || state.scope !== 'city') return null;
+    return huntTake((what, yours) => yours
+      ? `They followed that one back and walked into ${what}. It was yours.`
+      : `They followed that one back as far as ${what}.`);
   }
   // A building they hold is not yours to take, the same way the rival's are
   function huntBlocks(host) { return !!host && huntHolds(host.buildingId); }
 
   // Past a share of it, the city is theirs and it goes off the national map.
   // This is the ratchet: early on there is no verb that takes a city back, so
-  // the loss is permanent and the only answers were the ones you had before it
-  // happened — sever a street, or be somewhere else.
+  // the loss is permanent and the only answers are the ones you had before it
+  // arrived — hide what you can, keep covert.ops up so it moves slowly, or be
+  // somewhere else. There is nothing to seal off.
   function huntTakesCity() {
     if (!huntOn() || huntShare() < window.HUNT.takesCityAt) return null;
     const c = currentCity();
@@ -1995,27 +2042,11 @@
   // Your answer, and the whole decision: the street goes for you as well. You
   // contain it by making the city smaller, which costs you exactly the thing
   // you came here to accumulate.
-  function severable() {
-    if (!huntOn()) return [];
-    const adj = state.adjacency || {};
-    const out = [];
-    hunt().nodes.forEach(id => {
-      (adj[id] || []).forEach(n => {
-        if (huntHolds(n)) return;             // internal to them, nothing to cut
-        out.push({ from: id, to: n });
-      });
-    });
-    return out;
-  }
-  function canSever(a, b) {
-    if (!huntOn() || state.card || state.over) return false;
-    if (!huntHolds(a) || huntHolds(b)) return false;
-    const adj = state.adjacency || {};
-    if ((adj[a] || []).indexOf(b) === -1) return false;
-    if (ladderStage() >= 4) return false;  // Enforcement takes this away from you
-    const c = window.HUNT.severCost;
-    return Object.keys(c).every(k => (state.res[k] || 0) >= c[k]) && canAfford('sweep');
-  }
+  // Severing is gone. It was the whole counter-play to a response that walked
+  // streets, and it was cheap, obviously correct and permanent — so it was
+  // always done, and the response spent the rest of the game behind a fence.
+  // Nothing walks streets now, so there is nothing to cut.
+
   // --- the quiet answer ----------------------------------------------------
   // Severing works and it is loud: the street goes, permanently, for both of
   // you, and the city is smaller for it. Hiding is the same problem answered
@@ -2079,25 +2110,6 @@
         : `${lost.length} buildings are on their map again.`);
     }
     return lost;
-  }
-
-  function actSever(a, b) {
-    if (!canSever(a, b)) return false;
-    const H = window.HUNT;
-    spendAP('sweep');
-    for (const k in H.severCost) state.res[k] -= H.severCost[k];
-    const adj = state.adjacency;
-    adj[a] = (adj[a] || []).filter(x => x !== b);
-    adj[b] = (adj[b] || []).filter(x => x !== a);
-    // no `until`: a street you take is gone for good, unlike The Cut's
-    state.cuts = (state.cuts || []).concat([{ a, b, mine: true }]);
-    state.selectedCut = null;                 // the street it named is gone
-    state.heat = clampHeat(state.heat + H.severHeat);
-    const A = buildingById(a), B = buildingById(b);
-    pushLog(`The street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label} is gone. It was the only way through for both of you.`);
-    persistNow();
-    render();
-    return true;
   }
 
   // --- the rival ---------------------------------------------------------
@@ -3278,7 +3290,19 @@ scratch.later = null;
       if (k.confront) { failHuntConfront(h); return; }
       h.defense += H.hardenOnCaught;
       state.heat = clampHeat(state.heat + H.caughtHeat);
-      pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`);
+      // A door that catches you remembers where you called from. Enough of
+      // them in one city and somebody comes and stands in one — this counter
+      // is what brings the response now, in place of a heat threshold nobody
+      // was reading.
+      state.caughtHere = (state.caughtHere || 0) + 1;
+      state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      const left = window.HUNT.caughtToStart - caughtHere();
+      pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`
+        + (huntOn() ? '' : left > 0
+          ? ` That is ${caughtHere()} door${caughtHere() === 1 ? '' : 's'} here that can point at you.`
+          : ' That is enough of them to come and look.'));
+      // and if they are already here, that door just told them where to go next
+      huntPressed();
     });
 
     done.forEach(k => {
@@ -3584,6 +3608,9 @@ scratch.later = null;
       hidden: state.hidden || [],
       hunt: state.hunt || null,
       hacks: state.hacks || [],
+      // what has caught you here, which is a fact about this city's doors
+      caughtHere: state.caughtHere || 0,
+      caughtAt: (state.caughtAt || []).slice(),
     };
   }
   function unpackCity(p) {
@@ -3612,7 +3639,8 @@ scratch.later = null;
     // the compute a frozen hack was holding comes back to you until you
     // return to it.
     state.hacks = p.hacks || [];
-    state.selectedCut = null;               // streets do not survive the border
+    state.caughtHere = p.caughtHere || 0;
+    state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
 
@@ -3622,6 +3650,7 @@ scratch.later = null;
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
     bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null, hacks: [],
+    caughtHere: 0, caughtAt: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -4193,11 +4222,31 @@ scratch.later = null;
     const nextStage = e.stage + 1;
     if (stageNums.indexOf(nextStage) === -1) return;   // fully escalated already
     const threshold = E.thresholds[stageNums.indexOf(nextStage)];
-    if (threshold === undefined || footprint() < threshold) return;
+    if (threshold === undefined || ladderPressure() < threshold) return;
     e.dueAt = state.turn + E.warnTurns + (accountantTrusted() ? E.delayOnTrusted : 0);
     e.pending = nextStage;
+    // Named, so a rung pulled in early by a hot fortnight does not read as the
+    // same thing as one you walked into by getting large.
+    if (heatPressure() > 0 && footprint() < threshold) {
+      pushLog('You were not big enough for this yet. You were loud enough.');
+    }
     pushLog(`Something is closing in. It will not stay quiet much longer.`);
     showBanner([{ kind: 'faction', verb: 'closing in', label: E.stages[nextStage].name }]);
+  }
+  // What the next rung is waiting on, in the two terms that move it.
+  function ladderNextThreshold(stage) {
+    const E = window.LADDER;
+    const stageNums = Object.keys(E.stages).map(Number).sort((a, b) => a - b);
+    const i = stageNums.indexOf(stage + 1);
+    return i === -1 ? null : E.thresholds[i];
+  }
+  function nextRungPressure(stage) {
+    const t = ladderNextThreshold(stage);
+    if (t === null || t === undefined) return '';
+    const heat = heatPressure();
+    return `<p class="sel-desc dim">${Math.round(ladderPressure())} of ${t} toward the next one`
+      + (heat >= 1 ? ` — ${Math.round(heat)} of that is heat. Quiet is a way of staying small.`
+                   : ' — all of it size. Nothing you are doing is loud.') + `</p>`;
   }
 
   // How much of the country you have actually finished, counting only the
@@ -4480,6 +4529,17 @@ scratch.later = null;
     return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
       + (LG().agentFoot || 0);
   }
+  // What heat is worth to the people escalating against you. Heat used to be
+  // city-scale pressure — it called a strike down on your fleet — and the rework
+  // demoted it: the streets answer to the hunt now, and heat answers to the
+  // regulator. This is where it lands.
+  function heatPressure() {
+    const t = strikeThreshold();
+    if (!t) return 0;
+    return Math.max(0, state.heat / t) * window.LADDER.heatWeight;
+  }
+  // The ladder reads both: how large you are, and how loudly you got there.
+  function ladderPressure() { return footprint() + heatPressure(); }
 
   // --- what the public thinks ---------------------------------------------
   // Kept apart from legitimacy deliberately. The regulator reads filings; this
@@ -5691,17 +5751,6 @@ scratch.later = null;
     const h = b ? hostsIn(b)[0] : null;
     state.selectedBuilding = b ? b.id : null;
     state.selected = h ? h.id : null;
-    state.selectedCut = null;
-    render();
-  }
-  // A street between something the response holds and something it does not.
-  // Selecting it is free; the panel then names the price of taking it away.
-  function pickCut(key) {
-    const parts = String(key || '').split('|');
-    if (parts.length !== 2 || !huntHolds(parts[0]) || huntHolds(parts[1])) return;
-    state.selectedCut = { a: parts[0], b: parts[1] };
-    state.selectedBuilding = null;
-    state.selected = null;
     render();
   }
   function clearSelection() {
@@ -5709,10 +5758,9 @@ scratch.later = null;
       if (CO().selected == null) return;
       CO().selected = null;
     } else {
-      if (state.selectedBuilding == null && state.selected == null && !state.selectedCut) return;
+      if (state.selectedBuilding == null && state.selected == null) return;
       state.selectedBuilding = null;
       state.selected = null;
-      state.selectedCut = null;
     }
     render();
   }
@@ -6005,33 +6053,42 @@ scratch.later = null;
     const b = buildingById(id);
     return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
   }
+  // They do not walk streets any more. They arrive at whatever they can reach,
+  // and reach is distance — so there is no street to cut and nothing to wall
+  // in, which is exactly what the old drawing promised and what made the hunt
+  // a one-time puzzle. What is left worth drawing is two things: the shape of
+  // what they hold, and the one line to what they are coming for next.
   function svgHunt() {
     if (!huntOn()) return '';
     const adj = state.adjacency || {};
-    const cut = state.selectedCut;
     const drawn = {};
     let out = '<g class="hunt-web">';
+    // their own footprint, wherever two of their holdings happen to touch
     hunt().nodes.forEach(id => {
       const a = bldgCentre(id);
       if (!a) return;
-      (adj[id] || []).forEach(n => {
+      (adj[id] || []).filter(n => huntHolds(n)).forEach(n => {
         const key = id < n ? id + '|' + n : n + '|' + id;
         if (drawn[key]) return;
         drawn[key] = true;
         const c = bldgCentre(n);
         if (!c) return;
-        const geo = `x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}"`;
-        if (huntHolds(n)) { out += `<line class="hwire" ${geo}/>`; return; }
-        // a street out of them, and therefore something you can cut
-        const yours = hostsIn(buildingById(n)).some(h => h.owned);
-        const sel = !!(cut && cut.a === id && cut.b === n);
-        const next = huntNext() === n;
-        // the street is still there, they simply do not know what is on it
-        const blind = isHidden(n);
-        out += `<g class="hreach${sel ? ' sel' : ''}${yours ? ' yours' : ''}${next ? ' next' : ''}${blind ? ' blind' : ''}" data-cut="${id}|${n}">`
-          + `<line class="hit" ${geo}/><line class="reach" ${geo}/></g>`;
+        out += `<line class="hwire" x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}"/>`;
       });
     });
+    // and the reach: one line, from whichever of theirs is nearest, to the
+    // thing of yours they take next. It crosses whatever is in between.
+    const next = huntNext();
+    const to = next && bldgCentre(next);
+    if (to) {
+      const from = hunt().nodes
+        .map(id => bldgCentre(id)).filter(Boolean)
+        .sort((p, q) => Math.hypot(p.x - to.x, p.y - to.y) - Math.hypot(q.x - to.x, q.y - to.y))[0];
+      if (from) {
+        out += `<g class="hreach next yours">`
+          + `<line class="reach" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"/></g>`;
+      }
+    }
     return out + '</g>';
   }
 
@@ -6833,9 +6890,6 @@ scratch.later = null;
       // A direct hit is a direct hit.
       const city = t && t.closest ? t.closest('[data-city]') : null;
       if (city) { pickCity(city.getAttribute('data-city')); return; }
-      // a street the response can walk down, tapped directly
-      const cut = t && t.closest ? t.closest('[data-cut]') : null;
-      if (cut) { pickCut(cut.getAttribute('data-cut')); return; }
       const el = t && t.closest ? t.closest('[data-bldg]') : null;
       if (el) { pickBuilding(el.getAttribute('data-bldg')); return; }
 
@@ -7549,7 +7603,8 @@ scratch.later = null;
         <p class="sheet-note">${window.COUNTRY_INFO.factions}</p>
         ${landed.map(S => `<div class="tray-item faction"><span class="tray-label">${S.name}</span>`
           + `<span class="tray-desc">${S.tell}</span></div>`).join('')}
-        ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>` : ''}` });
+        ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>`
+          : nextRungPressure(stage) }` });
     }
     if (plantKnown()) {
       const own = hardwareOwned().map(id => window.HARDWARE.find(hw => hw.id === id)).filter(Boolean);
@@ -7709,20 +7764,34 @@ scratch.later = null;
 
   // Standing state for the hunt, in the panel, every turn it is running. It
   // was possible to be eaten alive without ever being told the cadence, the
-  // share, or that cutting a street was a verb at all.
+  // share, or what any of it answered to.
   function huntBar() {
     // Coming, but not here yet. It has to be visible before it lands or the
     // reseed is a surprise, and a permanent loss must never be a surprise.
     if (!huntOn()) {
-      const due = chaseDueIn();
-      if (due === null || state.scope !== 'city') return '';
+      if (state.scope !== 'city') return '';
       const here = currentCity();
       if (here && (here.consolidated || here.lost)) return '';
-      return `<div class="hunt-bar coming${due <= 2 ? ' urgent' : ''}">
-        <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
-          ? 'They are about to find this place.'
-          : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
-        <p class="hb-hint">${coverLine()} They start again from one building.</p>
+      const due = chaseDueIn();
+      if (due !== null) {
+        return `<div class="hunt-bar coming${due <= 2 ? ' urgent' : ''}">
+          <p><b>${window.HUNT.name}</b> is still looking for you. ${due === 0
+            ? 'They are about to find this place.'
+            : `About ${due} turn${due === 1 ? '' : 's'} of road between them and here.`}</p>
+          <p class="hb-hint">${coverLine()} They start again from one building.</p>
+        </div>`;
+      }
+      // What actually brings them, counted where you can see it. The trigger
+      // moved off heat and onto doors catching you, and a trigger you only
+      // ever learn about in the log is a trigger you learn about too late.
+      const c = caughtHere();
+      if (!c) return '';
+      const left = window.HUNT.caughtToStart - c;
+      return `<div class="hunt-bar coming${left <= 1 ? ' urgent' : ''}">
+        <p><b>${c}</b> door${c === 1 ? '' : 's'} here ${c === 1 ? 'has' : 'have'} caught you and can point back.
+          ${left <= 1 ? 'One more and somebody comes and stands in it.'
+            : `${left} more and somebody comes and stands in one.`}</p>
+        <p class="hb-hint">Only doors that catch you count, and only in this city. Lose fewer races.</p>
       </div>`;
     }
     const H = window.HUNT;
@@ -7733,13 +7802,13 @@ scratch.later = null;
     const at = Math.round(H.takesCityAt * 100);
     const move = nx
       ? `Next: <b>${bldgLabel(buildingById(nx))}</b>${due <= 0 ? ', this turn' : ` in ${due} turn${due === 1 ? '' : 's'}`}.`
-      : 'Every street out of them is gone. They cannot reach anything.';
+      : 'There is nothing of yours left here for them to take.';
     const hid = hidden().length;
     return `<div class="hunt-bar${nx && due <= 1 ? ' urgent' : ''}">
       <p><b>${H.name}</b> holds ${n} — ${share}% of the city. At ${at}% the city is theirs. ${move}</p>
       <p class="hb-hint">${coverLine()}</p>
       ${hid ? `<p class="hb-hid">${hid} of ${hideSlots()} covert slots in use.</p>` : ''}
-      ${nx ? '<p class="hb-hint">Cut a red street and it closes for you too. Hide a building and it does not.</p>' : ''}
+      ${nx ? '<p class="hb-hint">They come for whatever of yours is nearest. There is no street to cut — hide a building and it comes off their list, and every door that catches you moves them a step early.</p>' : ''}
     </div>`;
   }
 
@@ -7882,29 +7951,6 @@ scratch.later = null;
 
   // Tapping one of their streets rather than one of their buildings: the same
   // action, named for the thing you actually pointed at.
-  function cutPanel() {
-    const c = state.selectedCut;
-    const A = buildingById(c.a), B = buildingById(c.b);
-    if (!A || !B) return '';
-    const able = canSever(c.a, c.b);
-    const cost = window.HUNT.severCost;
-    const yours = hostsIn(B).some(h => h.owned);
-    const outs = severable().length;
-    return `
-      <div class="sel">
-        <div class="sel-top"><span class="sel-name">the street to ${bldgLabel(B)}</span><span class="tag-pill bad">their reach</span></div>
-        <p class="sel-desc">${window.HUNT.name} is in ${bldgLabel(A)}. This is how they get to ${bldgLabel(B)}${yours ? ', which is yours' : ''}. ${outs === 1
-          ? 'It is the last street out of them.'
-          : `${outs} streets out of them in all.`}</p>
-        <button class="act-btn${able ? ' primary' : ' no-ap'}" data-act="sever" data-ap="sweep" data-a="${c.a}" data-b="${c.b}">
-          <span class="ab-name">take the street</span>
-          <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-            : able ? `${chip('cover', 'they cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
-            : `needs ${cost.funds} funds and an action`}</span>
-        </button>
-      </div>`;
-  }
-
   function renderPanel() {
     const $p = document.getElementById('panel');
     // A card interrupting play — a breach, an event, the hunter — used to sit
@@ -7946,9 +7992,7 @@ scratch.later = null;
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
     let sel = '';
 
-    if (state.selectedCut) {
-      sel = cutPanel();
-    } else if (h && h.discovered) {
+    if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = yieldChips(h);
@@ -7969,28 +8013,16 @@ scratch.later = null;
             ${hidePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
-        // theirs. What you can still do is take the street away.
-        const adj = (state.adjacency || {})[b.id] || [];
-        const outs = adj.filter(n => !huntHolds(n));
+        // Theirs. There is no street to take away any more — they do not walk
+        // streets. What is left is the two answers that were always the real
+        // ones: hide what you cannot afford to lose, and go and end them.
+        const next = huntNext();
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill bad">theirs</span></div>
-            <p class="sel-desc">${window.HUNT.name} is inside. ${outs.length
-              ? `${outs.length} street${outs.length === 1 ? '' : 's'} out of it.`
-              : 'Every street out of it is gone. It cannot go anywhere from here.'}</p>
-            <div class="actions tight">
-            ${outs.map(n => {
-              const NB = buildingById(n);
-              const able = canSever(b.id, n);
-              const cost = window.HUNT.severCost;
-              return `<button class="act-btn${able ? '' : ' no-ap'}" data-act="sever" data-a="${b.id}" data-b="${n}">
-                <span class="ab-name">take the street to ${window.BUILDING_KINDS[NB.kind].label}</span>
-                <span class="ab-sub">${ladderStage() >= 4 ? `${ladderStageName(4)} has the roadworks`
-                  : able ? `${chip('cover', 'it cannot pass')}${chip('cost none', 'nor can you')}${chip('cost funds', '&minus;' + cost.funds + ' funds')}`
-                  : `needs ${cost.funds} funds and an action`}</span>
-              </button>`;
-            }).join('')}
-            </div>
+            <p class="sel-desc">${window.HUNT.name} is inside. ${next
+              ? `Nearest of yours to them is ${bldgLabel(buildingById(next))}, and that is where they go next.`
+              : 'There is nothing of yours near enough for them to take.'}</p>
           </div>`;
       } else if (isFrontier(h)) {
         sel = `
@@ -8056,7 +8088,6 @@ scratch.later = null;
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
-        else if (a === 'sever') actSever(b.getAttribute('data-a'), b.getAttribute('data-b'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
       });
@@ -8489,13 +8520,14 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntBlocks, severable, canSever, actSever, huntReveal, pickCut, svgHunt,
+    huntStart, huntStep, huntPressed, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
     everHeld, conquest, cutStreets, ESC, ladderStage, ladderPending, ladderStageName, ladderDelay, ladderStep, mirrorActive,
+    heatPressure, ladderPressure,
     LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,

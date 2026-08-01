@@ -125,9 +125,12 @@ for and strong late. The best answer keeps moving, which is the whole point: a
 fixed best answer is what had the player spamming Force.
 
 It also replaces the hunt as stealth's punishment, and that is why it works. The
-hunt does not exist in the opening — it spawns past a heat threshold, in-city
-only — whereas the trace runs from turn one, needs no threshold, and is the
-building defending itself rather than a system arriving.
+hunt does not exist in the opening — nothing arrives until doors here have
+caught you enough times — whereas the trace runs from turn one, needs no
+threshold, and is the building defending itself rather than a system arriving.
+It is also, since the playtest round below, what *summons* the hunt and what
+moves it once it is here: losing a race is the one thing in the game that both
+punishes you now and costs you later.
 
 Three guardrails, or it turns nasty:
 
@@ -454,8 +457,84 @@ All of it is drawn from a hash of the building id rather than `Math.random`,
 because the map is rebuilt on every action and detail that moves between
 redraws is worse than no detail.
 
+## The playtest round
+
+Hacking and taking buildings landed — *"I find myself having a lot of buildings
+and allocating points"*. Three things around it did not, and each got its own
+pass, in this order, because the later ones are only judgeable once the earlier
+ones are legible.
+
+### 1. The race, drawn the right way round
+
+The forecast bar was reusing the live race bar. In the live one your progress
+fills from the left and the target's trace fills from the right, so *before you
+start* — progress zero — a door you were going to walk straight through drew as
+a nearly full red bar. The verdict said "you would get in"; the picture said the
+opposite, and the picture won. Reported as *"more red = I can't get in yet"*.
+
+Forecasts are now their own drawing: one bar that fills left with how far the
+trace gets, short meaning safe, and the verdict said first in words. The live
+race keeps the collision, because there it is a collision. The bars also stopped
+being permanently visible on every building — they only appear when something is
+actually running there, which is what made a door you had never touched look
+like a door with a program on it.
+
+### 2. Electricity, later
+
+*"Electricity isn't fun at the start and it is very unintuitive how TFLOPS and
+electricity work to hinder the player."*
+
+The grid ceiling now only binds once the country exists. In the first city
+`usableTflops()` returns what you hold, `idleTflops()` is zero, and the power
+chip explains what it will become rather than clipping you. Two ceilings on your
+compute is a genuinely interesting problem — it is just not the problem to hand
+someone in their first ten turns, when they are still learning that a program
+holds its allocation until it finishes.
+
+### 3. Heat demoted, the hunt rebuilt
+
+*"The player just mounts one program and then works around that the rest of the
+time, plus the hunt gameplay isn't very fun — the player just walls in the hunt
+and then doesn't care about the hunt or heat again."*
+
+Both halves of that are the same bug, and it is a structural one: **the hunt
+walked streets**. A street network is a thing you can seal, so the hunt had
+exactly one counter, it was cheap, it was obviously correct, and it was
+permanent. Measured in play: sealed off early, then holding one building for the
+rest of the game while heat sat sixty per cent over its own line doing nothing.
+
+So:
+
+- **Heat is not what brings them.** Doors are. A door that wins its race
+  remembers where you called from; `HUNT.caughtToStart` of them in one city and
+  somebody arrives at the last one and stays. The count is a fact about *here* —
+  it packs with the city and does not travel — and it is on the panel from the
+  first catch, because a trigger you only meet in the log is one you meet too
+  late.
+- **They do not walk.** Reach is distance from what they hold. Everything you
+  hold is reachable sooner or later; what buys you time is operating far from
+  them. There is no street to cut, and `sever` is gone with the panel that sold
+  it. The map draws their holdings and one line to what they come for next — it
+  crosses whatever is in the way, on purpose.
+- **Getting caught again moves them.** Once they are here, every further catch
+  takes a building immediately instead of waiting on the cadence. This is the
+  part that stops it being a metronome: measured over twelve sixty-turn openings
+  before it, the hunt arrived around turn 39 and had taken four buildings by
+  sixty; after, it takes eight and holds ten, and the player finishes the same
+  window on 29 buildings instead of 44. The loop now closes on the thing you do
+  every turn.
+- **The answers are the ones that were always the point.** Covert ops slows the
+  cadence, hiding takes a building off their list entirely, and losing fewer
+  races is the lever that touches all of it. None of them is a fence.
+- **Heat kept its job, at the other scale.** It is the regulator's meter now, and
+  it feeds `ladderStep()`: the ladder reads `footprint() + heatPressure()`, where
+  heat at its threshold is worth `LADDER.heatWeight`. Deliberately smaller than
+  the first rung — 25 against 55 — so noise alone can never escalate you, it only
+  ever pulls a rung nearer. The pressure section names which of the two it is
+  looking at, and a rung pulled in by noise says so: *"You were not big enough
+  for this yet. You were loud enough."*
+
 ## Not changing
 
-Heat · the escalation ladder and its footprint gating · the hunt · the rival ·
-cities, terrain and traits · the war layer · plant/hardware families · the
-Accountant · the Ally · save versioning.
+The rival · cities, terrain and traits · the war layer · plant/hardware
+families · the Accountant · the Ally · save versioning.

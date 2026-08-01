@@ -183,6 +183,16 @@ window.CITY_NAMES = {
 //                   currently counting down this much closer instead
 window.LADDER = {
   thresholds: [55, 90, 130, 180],
+  // Heat is the regulator's attention, and this is the only thing it does at
+  // country scale. The strike card is gone and the hunt no longer answers to
+  // heat, so without this heat drove nothing but card payloads.
+  //
+  // It is weighted against the *threshold*, not against raw heat: heat at the
+  // line contributes this much, and HEAT.MAX_OVER caps the contribution at
+  // 1.6x it. Deliberately smaller than the first rung — running permanently
+  // hot with no footprint at all cannot escalate you (40 < 55). It only ever
+  // pulls a rung nearer, which is what "they noticed you sooner" should mean.
+  heatWeight: 25,
   warnTurns: 5,
   delayOnTrusted: 3,
   rushOnCaught: 6,
@@ -597,20 +607,26 @@ window.HARDWARE = [
 // could do was a smaller version of something you do to yourself and call
 // winning.
 //
-// So crossing the threshold no longer fines you. It starts something. It takes
-// a building of yours inside the city you are standing in, garrisons it, and
-// walks along the streets from there. What it holds, you do not.
+// So heat no longer fines you, and it is no longer what brings them either.
+// Doors that catch you are. Get caught enough times in one city and something
+// arrives at the last door that caught you, garrisons it, and comes for the
+// rest of what you hold there. What it holds, you do not.
+//
+// It does not walk streets. That was the whole problem with the first version:
+// a street network is a thing you can wall in, so the hunt was one puzzle
+// solved once and then ignored for the rest of the game. Reach is distance now
+// — it crosses whatever is in the way — so there is nothing to seal, and the
+// only answers are the ones that were always the point: be quiet enough that
+// it moves slowly, hide what matters, get caught less, or be somewhere else.
 //
 // The important part is that it does not go away when you leave. A city it
 // takes enough of is lost off the national map for good — early on you have no
-// way to take one back, so every loss is permanent and the only answers are
-// spatial: sever the street it would have walked down, and accept that the
-// street is gone for you too. Later, when there are flocks, the cities it
-// holds are exactly what a flock knows how to attack, and the ratchet lets go.
+// way to take one back, so every loss is permanent. Later, when there are
+// flocks, the cities it holds are exactly what a flock knows how to attack,
+// and the ratchet lets go.
 window.HUNT = {
   name: 'the response',
-  // it does not arrive before you have anything to lose, or before there is a
-  // street network worth cutting
+  // it does not arrive before you have anything to lose
   minHeld: 8,
   // turns between moves. It slows down as your cover rises: cover is what
   // makes you hard to follow, and until now its only job in the whole engine
@@ -633,9 +649,11 @@ window.HUNT = {
   // what it takes off you when it moves onto something you hold
   // (it takes the building; what that costs you is felt elsewhere)
   takesCityAt: 0.45,       // share of a city it holds before the city is lost
-  // severing a street: loud, and it is gone for you as well
-  severCost: { funds: 6 },
-  severHeat: 4,
+  // Doors here that have caught a program of yours before anybody comes to
+  // look. This replaced a heat threshold: heat was a meter the player stopped
+  // reading, so the response arriving off it felt like weather. Getting caught
+  // is something you did, in a place, for a reason you can point at.
+  caughtToStart: 3,
   // Hiding a building: the quiet answer to the same problem. The street stays
   // open for you — that is the entire difference — but you pay for it every
   // turn out of the same cover that was slowing them down, so a wall of hidden
