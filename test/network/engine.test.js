@@ -8459,15 +8459,30 @@ test('hack UI: the target panel shows the whole race before you commit', () => {
   const html = d.targetPanel(target);
   assert.ok(html.includes(d.mounted().label), 'it names what is mounted');
   assert.ok(html.includes(`${f.need} TFLOPS`), 'what it will tie up');
-  assert.ok(html.includes(`would notice ${f.rate}/turn`), 'how fast it is noticed');
-  assert.ok(html.includes(`${f.traceAtEnd} of ${f.goal}`), 'and where that lands by the end');
-  assert.ok(html.includes('race'), 'with the race drawn, not only described');
-  // the verdict is stated, either way round
-  assert.ok(/would find you|would get in/.test(html), 'and it says outright whether this works');
-  // but in the conditional throughout, and drawn hollow — this is arithmetic
-  // about a door you have not touched, and it used to be worded and drawn
-  // exactly like a race already under way
-  assert.ok(html.includes('race forecast'), 'the bar reads as a forecast, not a report');
+  assert.ok(html.includes(`notices ${f.rate} a turn`), 'how fast it is noticed');
+  assert.ok(html.includes(String(f.goal)), 'and what they need to have you');
+  // The verdict leads, in words that cannot be read backwards. The old copy
+  // put a quantity of noticing first — "would be seen at 4.32 of 7" — and a
+  // player reasonably read the number as the bad news and the verdict as
+  // contradicting it.
+  assert.ok(/it finds you|you are in first/.test(html),
+    'and it says outright whether this works, before quoting any arithmetic');
+  const verdict = html.indexOf('it finds you') >= 0 ? html.indexOf('it finds you') : html.indexOf('you are in first');
+  assert.ok(verdict < html.indexOf('TFLOPS held'), 'the verdict comes before the detail');
+
+  // and the bar answers the same question the same way round: how close do
+  // they get. Borrowing the live race bar meant a forecast you *win* drew as
+  // a big red bar with no blue in it, because your progress is nought before
+  // you start — the fuller the red, the safer you actually were.
+  assert.ok(html.includes('trace-fc'), 'the forecast has its own meter');
+  assert.ok(!/class="race"/.test(html), 'and does not borrow the live one');
+  const m = /<span class="trace-fc([^"]*)"[^>]*><i style="width:(\d+)%/.exec(html);
+  assert.ok(m, `the meter is drawn: ${html.slice(0, 200)}`);
+  const filled = Number(m[2]);
+  const caughtClass = /caught/.test(m[1]);
+  assert.equal(caughtClass, f.caught, 'red exactly when they get there first');
+  assert.ok(filled <= 100);
+  if (!f.caught) assert.ok(filled < 100, 'and short of the end when you get in');
   assert.ok(!/\bdone<\/span>/.test(html), 'nothing claims progress on a hack that has not started');
   assert.ok(!/pull it out/.test(html), 'and there is nothing to pull out of it');
 });
@@ -8488,7 +8503,7 @@ test('hack UI: a running hack shows how far in, how close they are, and that it 
   const k = d.hackOn(target.id);
   assert.ok(html.includes(`${k.turnsLeft} turn`), 'how long is left');
   assert.ok(html.includes(`${k.allocated} TFLOPS on it`), 'what it is holding');
-  assert.ok(html.includes('seen ' + k.trace), 'how much they have noticed');
+  assert.ok(html.includes('seen ' + k.trace + ' of'), 'how much they have noticed, of how much they need');
   assert.ok(!/pull it out/.test(html), 'and no way to call it off');
   assert.ok(/until it lands or they find it/.test(html), 'it says so outright');
   assert.ok(/they get there first|you get there first/.test(html), 'with the projection stated');

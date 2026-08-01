@@ -7765,12 +7765,30 @@ scratch.later = null;
   // not a race that is happening, and drawn identically it read as one: a
   // door you had never touched looked like a door with something working on
   // it, which is what "these bars are always visible" meant.
-  function raceBar(done, seen, forecast) {
+  function raceBar(done, seen) {
     const a = Math.max(0, Math.min(100, Math.round(done * 100)));
     const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
-    return `<span class="race${forecast ? ' forecast' : ''}" aria-hidden="true">`
+    return `<span class="race" aria-hidden="true">`
       + `<i class="race-done" style="width:${a}%"></i>`
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
+  }
+
+  // The forecast is a different question and needs a different picture.
+  //
+  // It used to borrow the race bar above, which draws your progress from the
+  // left and their trace from the right. Before you start, your progress is
+  // nought — so a forecast you *win* rendered as a big red bar with no blue in
+  // it at all, and the fuller the red the safer you actually were. Read
+  // straight, as anyone would read it, that says the exact opposite of what is
+  // true.
+  //
+  // So the forecast is one meter of how close they get, filling from the left
+  // toward the point where they have you. Short is safe. Full is caught. There
+  // is nothing to interpret.
+  function traceForecastBar(share, caught) {
+    const w = Math.max(2, Math.min(100, Math.round(share * 100)));
+    return `<span class="trace-fc${caught ? ' caught' : ''}" aria-hidden="true">`
+      + `<i style="width:${w}%"></i></span>`;
   }
 
   // Some businesses will simply sell. No action, no program, no race — funds,
@@ -7802,7 +7820,7 @@ scratch.later = null;
       <p class="sel-desc"><b>${p.label}</b> — ${k.turnsLeft} turn${k.turnsLeft === 1 ? '' : 's'} to go,`
       + ` ${k.allocated} TFLOPS on it.</p>
       ${raceBar(turnsIn / p.turns, k.trace / goal)}
-      <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + '/' + goal)}${
+      <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + ' of ' + goal)}${
         willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
       <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;
   }
@@ -7818,10 +7836,11 @@ scratch.later = null;
       : null;
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${raceBar(0, Math.min(1, f.traceAtEnd / f.goal), true)}
-      <p class="yield-row">${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'would notice ' + f.rate + '/turn')}${
-        f.caught ? chip('cost heat', `would be seen at ${f.traceAtEnd} of ${f.goal} — it would find you`)
-                 : chip('cover', `would be seen at ${f.traceAtEnd} of ${f.goal} — you would get in`)}</p>
+      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
+      <p class="yield-row">${
+        f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
+                 : chip('cover', `they only get to ${f.traceAtEnd} of the ${f.goal} they need — you are in first`)
+      }${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + ' a turn')}</p>
       ${f.spread ? `<p class="yield-row">${
         f.spread.upTo
           ? chip('cover', `and up to ${f.spread.upTo} more beside it, its choice`)
@@ -8487,7 +8506,7 @@ scratch.later = null;
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
     canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
-    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks,
+    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
     warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
