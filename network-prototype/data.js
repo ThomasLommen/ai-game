@@ -396,6 +396,39 @@ window.CITY = {
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
   perBlock: [2, 4],    // buildings in a block
+
+  // --- the irregular part -------------------------------------------------
+  // The block grid used to be exact: every block the same size, every street
+  // the same width, and every building centred in one cell of a fixed 2x2. The
+  // measurement that killed it: across 104 buildings there were *two* distinct
+  // x-offsets, and the nearest-neighbour gap had a minimum of 82.0 against a
+  // median of 82.8. A city where every building is the same distance from its
+  // neighbour is not a city, it is graph paper.
+  //
+  // So the blocks vary in size, the streets vary in width, and buildings are
+  // thrown into a block rather than slotted into it.
+  blockVary: 0.34,     // block sizes swing this much either side of the base
+  streetVary: 0.45,    // and so do the roads between them
+  arterialEvery: 3,    // every third road is a main one...
+  arterialMult: 1.75,  // ...and that much wider
+  gapMin: 13,          // clear air any two buildings keep between them
+  edgeInset: 7,        // and between a building and the road
+  // How hard buildings pull toward the street rather than sitting mid-block.
+  // Frontage is most of what makes a block read as built rather than sprinkled:
+  // at 0 the scatter looks like confetti, at 1 every block is a hollow ring.
+  frontage: 0.6,
+  scatterTries: 26,    // darts thrown per building before giving up on it
+  // Scatter alone still reads as sprinkled. What makes a block look *built* is
+  // that buildings share a frontage: a run of them along the same edge, lined
+  // up on the street, touching or nearly. So some edges get a terrace laid
+  // down first and the darts fill in whatever is left behind it.
+  terraceChance: 0.55, // chance an edge of a block is terraced at all
+  terraceRun: [2, 5],  // how many stand shoulder to shoulder in one
+  terraceGap: [1, 6],  // and how much air between them — small, or it is a row of sheds
+  // Districts are areas, not rows. The gradient still runs across the map so
+  // the difficulty progression survives, but the boundary between one district
+  // and the next wobbles, so they come out as blobs with irregular edges.
+  districtBlur: 0.34,
   // Districts by block row, suburbs nearest the origin. Six rows against four
   // districts used to be written as a four-entry list and wrapped, which put a
   // second lot of suburbs and high street *past* the industrial edge — so the

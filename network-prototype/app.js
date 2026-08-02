@@ -35,6 +35,209 @@
     return out;
   }
 
+  // --- the street plan ----------------------------------------------------
+  // The blocks and the roads between them, as explicit geometry rather than
+  // arithmetic on one block size. Everything that draws the ground reads this,
+  // which is what lets the plan be irregular at all: while `blockW` and
+  // `street` were the only two numbers in existence, every road was the same
+  // road and every block was the same block.
+  //
+  // The layout travels with the city — it is generated once and packed with it
+  // — because a street that moved between two renders would be worse than a
+  // street that was always straight.
+  function makeLayout(cols, rows) {
+    const C = window.CITY;
+    const arterial = (n) => n % C.arterialEvery === 0;
+    const swing = (base, vary) => Math.round(base * (1 + (Math.random() * 2 - 1) * vary));
+    const roadAt = (n) => Math.max(18, swing(C.street * (arterial(n) ? C.arterialMult : 1), C.streetVary));
+
+    const colW = [], rowH = [], vRoad = [], hRoad = [];
+    for (let c = 0; c <= cols; c++) vRoad.push(roadAt(c));
+    for (let r = 0; r <= rows; r++) hRoad.push(roadAt(r));
+    for (let c = 0; c < cols; c++) colW.push(Math.max(90, swing(C.blockW, C.blockVary)));
+    for (let r = 0; r < rows; r++) rowH.push(Math.max(80, swing(C.blockH, C.blockVary)));
+
+    // running totals: xs[n] is the centre line of road n, blocks sit between
+    const xs = [], ys = [], blocks = [];
+    let x = vRoad[0] / 2;
+    const blockX = [];
+    for (let c = 0; c < cols; c++) {
+      xs.push(Math.round(x));
+      blockX.push(Math.round(x + vRoad[c] / 2));
+      x += vRoad[c] / 2 + colW[c] + vRoad[c + 1] / 2;
+    }
+    xs.push(Math.round(x));
+    let y = hRoad[0] / 2;
+    const blockY = [];
+    for (let r = 0; r < rows; r++) {
+      ys.push(Math.round(y));
+      blockY.push(Math.round(y + hRoad[r] / 2));
+      y += hRoad[r] / 2 + rowH[r] + hRoad[r + 1] / 2;
+    }
+    ys.push(Math.round(y));
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        blocks.push({
+          row: r, col: c, i: r * cols + c,
+          x: blockX[c], y: blockY[r], w: colW[c], h: rowH[r],
+        });
+      }
+    }
+    return {
+      cols, rows, blocks,
+      xs, ys, vRoad, hRoad,
+      w: Math.round(x + vRoad[cols] / 2),
+      h: Math.round(y + hRoad[rows] / 2),
+    };
+  }
+
+  // A layout for a city generated before layouts existed, or for anything that
+  // asks for bounds without one. Exactly the old arithmetic, so an old save
+  // draws precisely as it always did rather than shifting under the player.
+  function regularLayout(cols, rows) {
+    const C = window.CITY;
+    const blocks = [], xs = [], ys = [];
+    for (let c = 0; c <= cols; c++) xs.push(c * (C.blockW + C.street) + C.street / 2);
+    for (let r = 0; r <= rows; r++) ys.push(r * (C.blockH + C.street) + C.street / 2);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        blocks.push({
+          row: r, col: c, i: r * cols + c,
+          x: C.street + c * (C.blockW + C.street), y: C.street + r * (C.blockH + C.street),
+          w: C.blockW, h: C.blockH,
+        });
+      }
+    }
+    return {
+      cols, rows, blocks, xs, ys,
+      vRoad: xs.map(() => C.street), hRoad: ys.map(() => C.street),
+      w: C.street + cols * (C.blockW + C.street),
+      h: C.street + rows * (C.blockH + C.street),
+    };
+  }
+
+  // Which district a block is in. Districts used to be rows, which is why they
+  // read as stripes: the gradient across the map is real and worth keeping —
+  // suburbs near where you woke up, the industrial edge furthest off — but a
+  // boundary that is a straight horizontal line is the one thing no city has.
+  //
+  // The wobble is three sine terms of the block's own position, so it is smooth
+  // in space: neighbouring blocks agree, and the districts come out as blobs
+  // with ragged edges rather than salt and pepper.
+  const DISTRICT_KEYS = ['residential', 'commercial', 'business', 'industrial'];
+  // `regionTier` undefined means the home city, which spans all four — it is
+  // the one you learn the whole vocabulary in. A city out in the country gets
+  // a window of two or three around its tier, which is what makes the north
+  // read as somewhere else rather than as home with bigger numbers.
+  function districtSpan(regionTier) {
+    if (regionTier === undefined || regionTier === null) return [0, DISTRICT_KEYS.length - 1];
+    return [
+      Math.max(0, Math.min(DISTRICT_KEYS.length - 1, regionTier - 1)),
+      Math.min(DISTRICT_KEYS.length - 1, regionTier + 1),
+    ];
+  }
+  function districtFor(block, layout, regionTier, wob) {
+    const C = window.CITY;
+    const span = districtSpan(regionTier);
+    const lo = span[0], hi = span[1];
+    const cx = block.x + block.w / 2, cy = block.y + block.h / 2;
+    const n = Math.sin(cx / 205 + wob[0]) * 0.5
+            + Math.sin(cy / 310 + wob[1]) * 0.3
+            + Math.sin((cx + cy * 0.7) / 145 + wob[2]) * 0.2;
+    const t = Math.max(0, Math.min(1, cy / Math.max(1, layout.h) + n * C.districtBlur));
+    return DISTRICT_KEYS[Math.round(lo + (hi - lo) * t)];
+  }
+
+  // Buildings thrown into a block rather than slotted into it.
+  //
+  // Darts, not cells: pick a kind, pick a size from its own range, pick a spot,
+  // and keep it only if it clears everything already standing and is not on the
+  // water. `frontage` pulls the spot toward whichever edge of the block is
+  // nearest, because buildings face the road — that, more than the jitter, is
+  // what makes a block read as built rather than sprinkled.
+  function scatterBlock(block, kinds, bands, opts) {
+    const C = window.CITY;
+    const o = opts || {};
+    const placed = [];
+    const want = Math.max(1, Math.round(
+      (block.w * block.h) / (C.blockW * C.blockH) * rndInt(C.perBlock[0], C.perBlock[1])
+    ) + (o.denser || 0));
+
+    const fits = (x, y, w, h) =>
+      x >= block.x + C.edgeInset && y >= block.y + C.edgeInset &&
+      x + w <= block.x + block.w - C.edgeInset && y + h <= block.y + block.h - C.edgeInset &&
+      !(bands && bands.some(band => rectOnBand(band, x, y, w, h))) &&
+      placed.every(p =>
+        x + w + C.gapMin <= p.x || p.x + p.w + C.gapMin <= x ||
+        y + h + C.gapMin <= p.y || p.y + p.h + C.gapMin <= y);
+
+    // A terrace: a run of buildings shoulder to shoulder along one edge, all
+    // squared onto the same street line. This is most of what separates a city
+    // block from a handful of boxes in a field — the eye reads the shared
+    // frontage as a street long before it reads any individual roof.
+    if (Math.random() < C.terraceChance) {
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const horiz = side === 'n' || side === 's';
+      const run = rndInt(C.terraceRun[0], C.terraceRun[1]);
+      // one depth for the whole terrace, so the backs line up as well as the fronts
+      const lead = window.BUILDING_KINDS[pick(kinds)];
+      const depth = lead ? rndInt(lead[horiz ? 'h' : 'w'][0], lead[horiz ? 'h' : 'w'][1]) : 0;
+      // A terrace is a run of buildings of the same depth, so only kinds that
+      // are naturally that deep may join it. Without this the lead's depth was
+      // forced onto everything behind it and a street cabinet came out the
+      // size of an apartment block — the row lined up, and every proportion
+      // in it was a lie.
+      const sameDepth = kinds.filter(k => {
+        const K = window.BUILDING_KINDS[k];
+        const r = K && K[horiz ? 'h' : 'w'];
+        return r && depth >= r[0] && depth <= r[1];
+      });
+      let along = (horiz ? block.x : block.y) + C.edgeInset + Math.random() * 18;
+      for (let i = 0; i < run && depth && sameDepth.length; i++) {
+        const kind = pick(sameDepth);
+        const K = window.BUILDING_KINDS[kind];
+        if (!K) continue;
+        const span = rndInt(K[horiz ? 'w' : 'h'][0], K[horiz ? 'w' : 'h'][1]);
+        const w = horiz ? span : depth;
+        const h = horiz ? depth : span;
+        const x = horiz ? Math.round(along)
+          : (side === 'w' ? block.x + C.edgeInset : block.x + block.w - C.edgeInset - w);
+        const y = horiz ? (side === 'n' ? block.y + C.edgeInset : block.y + block.h - C.edgeInset - h)
+          : Math.round(along);
+        if (!fits(x, y, w, h)) break;   // ran off the end of the block, or into the water
+        placed.push({ kind, x, y, w, h });
+        along += span + rndInt(C.terraceGap[0], C.terraceGap[1]);
+      }
+    }
+
+    for (let n = 0; n < want; n++) {
+      const kind = pick(kinds);
+      const K = window.BUILDING_KINDS[kind];
+      if (!K) continue;
+      const w = Math.min(rndInt(K.w[0], K.w[1]), block.w - C.edgeInset * 2);
+      const h = Math.min(rndInt(K.h[0], K.h[1]), block.h - C.edgeInset * 2);
+      if (w < 8 || h < 8) continue;
+      const spanX = Math.max(0, block.w - w - C.edgeInset * 2);
+      const spanY = Math.max(0, block.h - h - C.edgeInset * 2);
+
+      let put = null;
+      for (let t = 0; t < C.scatterTries && !put; t++) {
+        let fx = Math.random(), fy = Math.random();
+        // pull to the nearer edge on one axis, so it fronts a street
+        if (Math.random() < C.frontage) {
+          if (Math.random() < 0.5) fx = fx < 0.5 ? fx * 0.35 : 1 - (1 - fx) * 0.35;
+          else fy = fy < 0.5 ? fy * 0.35 : 1 - (1 - fy) * 0.35;
+        }
+        const x = Math.round(block.x + C.edgeInset + spanX * fx);
+        const y = Math.round(block.y + C.edgeInset + spanY * fy);
+        if (fits(x, y, w, h)) put = { kind, x, y, w, h };
+      }
+      if (put) placed.push(put);
+    }
+    return placed;
+  }
+
   // --- terrain -----------------------------------------------------------
   // A band of water, rail or open ground cutting the city, with a small number
   // of crossings. Everything downstream of this treats a band as a wall: no
@@ -113,59 +316,47 @@
     const rows = o.rows || C.rows;
     const regionTier = o.regionTier || 0;
     const regionId = o.regionId || 'home';
+    // what span of districts this city runs across — home is all four
+    const tierSpan = o.regionTier === undefined ? undefined : regionTier;
     // Difficulty rides the district inside a city and the region between them.
     // The region term is the heavier of the two on purpose: a datacenter in the
     // north has to still be a wall to something that has taken four regions.
     const regionBump = regionTier * 9;
     // what kind of city this is, if it is any kind in particular
     const TR = (o.trait && window.CITY_TRAITS[o.trait]) || {};
-    const rowDistricts = o.rowDistricts
-      || (o.regionTier === undefined ? C.rowDistricts : districtBand(regionTier, rows));
     const buildings = [];
     const hosts = [];
     const links = [];
     let bid = 0, hid = 0;
 
-    const mapW = C.street + cols * (C.blockW + C.street);
-    const mapH = C.street + rows * (C.blockH + C.street);
-    const bands = makeBands(regionId, mapW, mapH, o.extraCrossings || 0);
+    const layout = makeLayout(cols, rows);
+    // the three phases of the district wobble, fixed for this city
+    const wob = [Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3];
+    const bands = makeBands(regionId, layout.w, layout.h, o.extraCrossings || 0);
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const districtKey = rowDistricts[row % rowDistricts.length];
-        const D = window.DISTRICTS[districtKey];
-        const bx = C.street + col * (C.blockW + C.street);
-        const by = C.street + row * (C.blockH + C.street);
+    // Districts are areas now, so a caller that hands us rows (an old save
+    // being regenerated, a test pinning a mix) still gets what it asked for:
+    // the row it names wins over the gradient.
+    const rowDistricts = o.rowDistricts || null;
 
-        // subdivide the block into a small grid and drop a building in some cells
-        const cells = [];
-        const cw = C.blockW / 2, ch = C.blockH / 2;
-        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
-        shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
-
-        for (let i = 0; i < Math.min(n, cells.length); i++) {
-          const cell = cells[i];
-          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
-          const K = window.BUILDING_KINDS[kind];
-          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
-          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
-          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
-          const by2 = Math.round(cell.y + (cell.h - h) / 2);
-          // nothing stands on the water, the line or the moor
-          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
-          const b = {
-            id: 'b' + (bid++),
-            kind, district: districtKey, tier: D.tier,
-            block: row * cols + col, row, col,
-            x: bx2, y: by2, w, h,
-            hostIds: [],
-            discovered: false,
-          };
-          buildings.push(b);
-        }
-      }
-    }
+    layout.blocks.forEach(block => {
+      const districtKey = rowDistricts
+        ? rowDistricts[block.row % rowDistricts.length]
+        : districtFor(block, layout, tierSpan, wob);
+      const D = window.DISTRICTS[districtKey];
+      block.district = districtKey;
+      const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+      scatterBlock(block, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
+        buildings.push({
+          id: 'b' + (bid++),
+          kind: put.kind, district: districtKey, tier: D.tier,
+          block: block.i, row: block.row, col: block.col,
+          x: put.x, y: put.y, w: put.w, h: put.h,
+          hostIds: [],
+          discovered: false,
+        });
+      });
+    });
 
     // Landmarks. The reason to fight for a crossing rather than route around
     // it: the biggest thing in the city is always up against the terrain.
@@ -252,7 +443,13 @@
     // block pair produced a spaghetti of long lines that buried the city.
     const hostOf = (b) => hosts[byId[b.hostId]];
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    const MAX_LINK = 165;
+    // 165 while every block was the same size and every building sat 82px from
+    // its neighbour. Once the plan went irregular some pairs landed further
+    // apart than that and the mean degree fell 3.32 -> 2.89 — a thinner
+    // frontier, which is fewer options a turn, which is a balance change
+    // nobody asked for. Measured back to 3.13 at 178, with no isolated
+    // building and one connected component on every board.
+    const MAX_LINK = 178;
     const CROSSING_LINK = 340;   // a wire over a bridge reaches further
     const NEIGHBOURS = 3;
     const seenPair = {};
@@ -454,7 +651,8 @@
     seat.ring = 0;
     seat.origin = true;
 
-    return { buildings, hosts, links, adjacency, bands, originId: seat.id, dims: { cols, rows } };
+    return { buildings, hosts, links, adjacency, bands, layout, wob,
+             originId: seat.id, dims: { cols, rows } };
   }
 
   // Home base pivot, step 1b: the map grows live, in place, appended past the
@@ -493,12 +691,40 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
+  // Extend the street plan by a batch of rows, using the same irregular
+  // machinery the city was generated with. The existing roads and blocks are
+  // untouched — a street that moved because the map grew past it would be the
+  // one thing worse than a straight street.
+  function extendLayout(L, rows) {
+    const C = window.CITY;
+    const swing = (base, vary) => Math.round(base * (1 + (Math.random() * 2 - 1) * vary));
+    const wide = () => Math.random() < 1 / C.arterialEvery;
+    let y = L.ys[L.ys.length - 1];
+    for (let r = 0; r < rows; r++) {
+      const rowH = Math.max(80, swing(C.blockH, C.blockVary));
+      const road = Math.max(18, swing(C.street * (wide() ? C.arterialMult : 1), C.streetVary));
+      const blockY = Math.round(y + L.hRoad[L.hRoad.length - 1] / 2);
+      for (let c = 0; c < L.cols; c++) {
+        const blk = L.blocks.find(b => b.col === c && b.row === L.rows - 1) || L.blocks[c];
+        L.blocks.push({
+          row: L.rows + r, col: c, i: (L.rows + r) * L.cols + c,
+          x: blk.x, y: blockY, w: blk.w, h: rowH,
+        });
+      }
+      y = blockY + rowH + road / 2;
+      L.hRoad.push(road);
+      L.ys.push(Math.round(y));
+    }
+    L.rows += rows;
+    L.h = Math.round(y + L.hRoad[L.hRoad.length - 1] / 2);
+    return L;
+  }
+
   function growHomeBase() {
     const C = window.CITY;
     const dims = state.dims || { cols: C.cols, rows: C.rows };
     const cols = dims.cols;
     const startRow = dims.rows;
-    const rowDistricts = C.rowDistricts;
     const bands = state.bands || [];
     const traitId = pickBatchTrait(0, state.lastGrowthTrait);
     const TR = (traitId && window.CITY_TRAITS[traitId]) || {};
@@ -506,38 +732,28 @@
     let nextBidNum = 1 + (state.buildings || []).reduce((m, b) => Math.max(m, parseInt(b.id.slice(1), 10)), -1);
     let nextHidNum = 1 + (state.hosts || []).reduce((m, h) => Math.max(m, parseInt(h.id.slice(1), 10)), -1);
 
+    // grow the plan, then fill only the blocks that appeared
+    const L = state.layout || (state.layout = regularLayout(dims.cols, dims.rows));
+    extendLayout(L, HOME_GROWTH_ROWS);
+    const wob = state.wob || (state.wob = [0, 0, 0]);
+
     const newBuildings = [];
-    for (let row = startRow; row < startRow + HOME_GROWTH_ROWS; row++) {
-      for (let col = 0; col < cols; col++) {
-        const districtKey = rowDistricts[row % rowDistricts.length];
-        const D = window.DISTRICTS[districtKey];
-        const bx = C.street + col * (C.blockW + C.street);
-        const by = C.street + row * (C.blockH + C.street);
-        const cells = [];
-        const cw = C.blockW / 2, ch = C.blockH / 2;
-        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
-        shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
-        for (let i = 0; i < Math.min(n, cells.length); i++) {
-          const cell = cells[i];
-          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
-          const K = window.BUILDING_KINDS[kind];
-          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
-          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
-          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
-          const by2 = Math.round(cell.y + (cell.h - h) / 2);
-          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
-          newBuildings.push({
-            id: 'b' + (nextBidNum++),
-            kind, district: districtKey, tier: D.tier, trait: traitId || undefined,
-            block: row * cols + col, row, col,
-            x: bx2, y: by2, w, h,
-            hostIds: [],
-            discovered: false,
-          });
-        }
-      }
-    }
+    L.blocks.filter(blk => blk.row >= startRow).forEach(blk => {
+      const districtKey = districtFor(blk, L, undefined, wob);
+      const D = window.DISTRICTS[districtKey];
+      blk.district = districtKey;
+      const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+      scatterBlock(blk, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
+        newBuildings.push({
+          id: 'b' + (nextBidNum++),
+          kind: put.kind, district: districtKey, tier: D.tier, trait: traitId || undefined,
+          block: blk.i, row: blk.row, col: blk.col,
+          x: put.x, y: put.y, w: put.w, h: put.h,
+          hostIds: [],
+          discovered: false,
+        });
+      });
+    });
 
     if (newBuildings.length) {
       state.lastGrowthTrait = traitId;
@@ -1093,6 +1309,8 @@
       country,
       cityId: country.homeId,
       dims: g.dims,
+      layout: g.layout,
+      wob: g.wob,
       region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
@@ -3455,7 +3673,11 @@ scratch.later = null;
   function packCity() {
     return {
       buildings: state.buildings, hosts: state.hosts, links: state.links,
-      adjacency: state.adjacency, bands: state.bands, dims: state.dims, rival: state.rival,
+      adjacency: state.adjacency, bands: state.bands, dims: state.dims,
+      // the street plan is part of the city, not of the session: a road that
+      // moved when you walked back into a place would be worse than a straight one
+      layout: state.layout, wob: state.wob,
+      rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
       hunt: state.hunt || null,
@@ -3468,6 +3690,7 @@ scratch.later = null;
   function unpackCity(p) {
     state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
     state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
+    state.layout = p.layout || null; state.wob = p.wob || [0, 0, 0];
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
@@ -3501,7 +3724,8 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null, hacks: [],
+    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0],
+    hidden: [], hunt: null, hacks: [],
     caughtHere: 0, caughtAt: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
@@ -3542,7 +3766,8 @@ scratch.later = null;
         trait: c.trait,
         extraCrossings: capEffect('extraCrossings', 0),
       });
-      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
+      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency,
+                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob });
       const seat0 = state.hosts.find(h => h.owned);
       if (seat0) seat0.heldSince = state.turn;
     }
@@ -5493,7 +5718,8 @@ scratch.later = null;
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       everCrossed: !!state.everCrossed,
-      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
+      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
+      layout: state.layout, wob: state.wob, region: state.region, homeGrowth: state.homeGrowth || 0,
       lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
@@ -5524,6 +5750,8 @@ scratch.later = null;
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
+        // a save from before the street plan existed draws on the old exact grid
+        layout: saved.layout || null, wob: saved.wob || [0, 0, 0],
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
         lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
       };
@@ -5548,13 +5776,17 @@ scratch.later = null;
     return (state && state.dims) || { cols: window.CITY.cols, rows: window.CITY.rows };
   }
 
-  function cityBounds() {
-    const C = window.CITY;
+  // The street plan this city was generated with. A city made before layouts
+  // existed — or an empty one — falls back to the exact grid it was drawn on,
+  // so nothing shifts under a save.
+  function cityLayout() {
+    if (state && state.layout) return state.layout;
     const d = cityDims();
-    return {
-      w: C.street + d.cols * (C.blockW + C.street),
-      h: C.street + d.rows * (C.blockH + C.street),
-    };
+    return regularLayout(d.cols, d.rows);
+  }
+  function cityBounds() {
+    const L = cityLayout();
+    return { w: L.w, h: L.h };
   }
 
   // The view is a window onto a map far bigger than the screen, so it pans and
@@ -5709,137 +5941,150 @@ scratch.later = null;
     return h;
   }
 
-  // Which district each block row is, read off the buildings themselves rather
-  // than stored — the country's cities lay their rows out differently from
-  // home, and this way it is right for both without a second source of truth.
-  function districtRows() {
-    const rows = {};
+  // Which district a block is, read off the buildings standing in it rather
+  // than stored twice. Districts are areas rather than rows now, so this is
+  // per block: a row can run through three of them.
+  function districtBlocks() {
+    const by = {};
     (state.buildings || []).forEach(b => {
-      if (rows[b.row] === undefined && b.district) rows[b.row] = b.district;
+      if (by[b.block] === undefined && b.district) by[b.block] = b.district;
     });
-    return rows;
+    return by;
   }
 
   // The ground a district stands on, tinted and named. This is the answer to
   // "I have never seen a distinct district": they were only ever a tier on a
   // building and a different mix of kinds, both invisible from the map.
+  //
+  // Drawn per block rather than as a stripe across the map. A district is a
+  // patch of blocks now, with a ragged edge, so the tint has to follow the
+  // blocks — and the seam is drawn only where two *different* districts meet,
+  // which is what gives the patch an outline without drawing one.
   function svgDistricts() {
-    const C = window.CITY;
-    const d = cityDims();
-    const B = cityBounds();
-    const rows = districtRows();
+    const L = cityLayout();
+    const by = districtBlocks();
+    const at = {};
+    L.blocks.forEach(b => { at[b.row + ',' + b.col] = by[b.i]; });
     let out = '';
-    for (let r = 0; r < d.rows; r++) {
-      const D = window.DISTRICTS[rows[r]];
-      if (!D) continue;
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      const h = C.blockH + C.street;
-      out += `<rect class="district ${rows[r]}" x="${-CITY_PAD}" y="${y}"`
-        + ` width="${B.w + CITY_PAD * 2}" height="${h}" fill="${D.ground}"/>`;
-      // the seam between two districts, so the change of place has an edge
-      if (r > 0 && rows[r - 1] !== rows[r]) {
-        out += `<line class="district-seam" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"`
-          + ` stroke="${D.edge}"/>`;
+    L.blocks.forEach((blk, i) => {
+      const key = by[blk.i];
+      const D = window.DISTRICTS[key];
+      if (!D) return;
+      // the tint runs out to the middle of the surrounding roads, so the
+      // ground is continuous and only the road is drawn on top of it
+      const x = blk.x - L.vRoad[blk.col] / 2;
+      const y = blk.y - L.hRoad[blk.row] / 2;
+      const w = blk.w + L.vRoad[blk.col] / 2 + L.vRoad[blk.col + 1] / 2;
+      const h = blk.h + L.hRoad[blk.row] / 2 + L.hRoad[blk.row + 1] / 2;
+      out += `<rect class="district ${key}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${D.ground}"/>`;
+      const north = at[(blk.row - 1) + ',' + blk.col];
+      const west = at[blk.row + ',' + (blk.col - 1)];
+      if (north && north !== key) {
+        out += `<line class="district-seam" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${(x + w).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${D.edge}"/>`;
       }
-    }
+      if (west && west !== key) {
+        out += `<line class="district-seam" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${x.toFixed(1)}" y2="${(y + h).toFixed(1)}" stroke="${D.edge}"/>`;
+      }
+    });
     return out;
   }
 
   // The names go on last, over the roads: the road is where there is room for
-  // them, and drawn with the ground they were sliced in half by the street
-  // that gets painted on top.
+  // them. One per patch of district rather than one per row — with districts
+  // as blobs, a label on every block row would name the same place five times
+  // down the same street.
   function svgDistrictTags() {
-    const C = window.CITY;
-    const d = cityDims();
-    const rows = districtRows();
+    const L = cityLayout();
+    const by = districtBlocks();
     let out = '';
-    for (let r = 0; r < d.rows; r++) {
-      const D = window.DISTRICTS[rows[r]];
-      if (!D) continue;
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      // repeated every few blocks so a label is on screen wherever you panned
-      for (let c = 0; c < d.cols; c += 2) {
-        const x = C.street + c * (C.blockW + C.street) + 4;
-        out += `<text class="district-tag" x="${x}" y="${(y + 4).toFixed(1)}">${D.label}</text>`;
-      }
-    }
+    L.blocks.forEach(blk => {
+      const key = by[blk.i];
+      const D = window.DISTRICTS[key];
+      if (!D) return;
+      // label a block only when the one above and the one to its left are
+      // something else — that is the top-left corner of a patch
+      const north = L.blocks.find(o => o.row === blk.row - 1 && o.col === blk.col);
+      const west = L.blocks.find(o => o.row === blk.row && o.col === blk.col - 1);
+      if (north && by[north.i] === key) return;
+      if (west && by[west.i] === key) return;
+      const x = blk.x + 4;
+      const y = blk.y - L.hRoad[blk.row] / 2 + 4;
+      out += `<text class="district-tag" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${D.label}</text>`;
+    });
     return out;
   }
 
   function svgStreets() {
-    const C = window.CITY;
-    const d = cityDims();
+    const L = cityLayout();
     const B = cityBounds();
     let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
     out += svgDistricts();
-    // Every third street is an arterial: wider, and with a painted centre line.
-    // A grid of identical roads reads as graph paper — the thing that makes a
-    // street plan look like a city is that not all of them matter equally.
-    const arterial = (n) => n % 3 === 0;
-    for (let c = 0; c <= d.cols; c++) {
-      const x = c * (C.blockW + C.street) + C.street / 2;
-      out += `<line class="street${arterial(c) ? ' main' : ''}" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
-      if (arterial(c)) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
-    }
-    for (let r = 0; r <= d.rows; r++) {
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      out += `<line class="street${arterial(r) ? ' main' : ''}" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
-      if (arterial(r)) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
-    }
-    // Junctions, and the things standing beside the road. Both are drawn from
-    // the block index, so they are fixed for a given city.
-    const rows = districtRows();
-    for (let r = 0; r <= d.rows; r++) {
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      for (let c = 0; c <= d.cols; c++) {
-        const x = c * (C.blockW + C.street) + C.street / 2;
-        // sized to the roads that meet here, not to the gap between blocks —
-        // a pad wider than its own street reads as a notch cut in the block
-        const jw = arterial(c) ? 30 : 22;
-        const jh = arterial(r) ? 30 : 22;
+    // Roads are drawn at their own width now rather than one width for all of
+    // them, so "arterial" is a fact about the plan rather than a rule about
+    // every third index. A grid of identical roads reads as graph paper.
+    const C = window.CITY;
+    const wide = (px) => px > C.street * 1.2;
+    L.xs.forEach((x, c) => {
+      const main = wide(L.vRoad[c]);
+      out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.vRoad[c]}"`
+        + ` x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      if (main) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+    });
+    L.ys.forEach((y, r) => {
+      const main = wide(L.hRoad[r]);
+      out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.hRoad[r]}"`
+        + ` x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      if (main) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+    });
+    // Junctions, sized to the two roads that actually meet there.
+    L.ys.forEach((y, r) => {
+      L.xs.forEach((x, c) => {
+        const jw = Math.round(L.vRoad[c] * 0.66);
+        const jh = Math.round(L.hRoad[r] * 0.66);
         out += `<rect class="junction" x="${(x - jw / 2).toFixed(1)}" y="${(y - jh / 2).toFixed(1)}"`
           + ` width="${jw}" height="${jh}"/>`;
-        // a crossing on the arterials only, marked across the mouth
-        if (arterial(r) && arterial(c)) {
+        if (wide(L.vRoad[c]) && wide(L.hRoad[r])) {
           for (let i = 0; i < 4; i++) {
             out += `<rect class="zebra" x="${(x - 13 + i * 6).toFixed(1)}" y="${(y - jh / 2 + 2).toFixed(1)}" width="3" height="7"/>`;
           }
         }
-      }
-    }
+      });
+    });
     // Street trees where people live and shop, parked cars everywhere. Two
     // cheap marks each, but they are what stops the gaps between blocks
-    // reading as empty space.
-    for (let r = 0; r < d.rows; r++) {
-      const leafy = rows[r] === 'residential' || rows[r] === 'commercial';
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      for (let c = 0; c < d.cols; c++) {
-        const x = C.street + c * (C.blockW + C.street);
-        const seed = r * 97 + c * 31 + 7;
-        for (let i = 0; i < 5; i++) {
-          const n = cityNoise(seed, i);
-          if (leafy && n < 0.55) {
-            const tx = Math.round(x + 14 + i * (C.blockW / 5));
-            const ty = Math.round(y - 10 + cityNoise(seed, i + 40) * 8);
-            out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
-          } else if (n > 0.74) {
-            const tx = Math.round(x + 20 + i * (C.blockW / 5));
-            const ty = Math.round(y + C.blockH + C.street / 2 - 6);
-            out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
-          }
-        }
-        // and down the side streets, or the planting only runs one way and the
-        // city looks combed
-        if (leafy) {
-          const vx = x - C.street / 2 - 5;
-          for (let i = 0; i < 4; i++) {
-            if (cityNoise(seed + 11, i) > 0.5) continue;
-            const ty = Math.round(y + 24 + i * (C.blockH / 4));
-            out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
-          }
+    // reading as empty space. Positions come off the block, so they move with
+    // it and stay put between renders.
+    const by = districtBlocks();
+    L.blocks.forEach(blk => {
+      const key = by[blk.i];
+      const leafy = key === 'residential' || key === 'commercial';
+      const seed = blk.row * 97 + blk.col * 31 + 7;
+      const n = Math.max(3, Math.round(blk.w / 40));
+      for (let i = 0; i < n; i++) {
+        const r0 = cityNoise(seed, i);
+        if (leafy && r0 < 0.55) {
+          const tx = Math.round(blk.x + 14 + i * (blk.w / n));
+          const ty = Math.round(blk.y - L.hRoad[blk.row] / 2 + 4 + cityNoise(seed, i + 40) * 8);
+          out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
+        } else if (r0 > 0.74) {
+          const tx = Math.round(blk.x + 20 + i * (blk.w / n));
+          const ty = Math.round(blk.y + blk.h + L.hRoad[blk.row + 1] / 2 - 6);
+          out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
         }
       }
-    }
+      if (leafy) {
+        const vx = blk.x - L.vRoad[blk.col] / 2 - 5;
+        const m = Math.max(3, Math.round(blk.h / 45));
+        for (let i = 0; i < m; i++) {
+          if (cityNoise(seed + 11, i) > 0.5) continue;
+          const ty = Math.round(blk.y + 24 + i * (blk.h / m));
+          out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
+        }
+      }
+    });
     out += svgDistrictTags();
     return out;
   }
@@ -8348,7 +8593,7 @@ scratch.later = null;
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
-    districtRows, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    districtBlocks, cityLayout, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,

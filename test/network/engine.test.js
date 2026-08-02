@@ -4296,11 +4296,109 @@ test('city: districts run outward in one direction and never double back', () =>
   assert.equal(rows[0], 0, 'and you wake up in the softest of them');
 });
 
+// --- a plan rather than graph paper ---------------------------------------
+// Measured on the old generator: across 104 buildings there were *two* distinct
+// x-offsets, and the nearest-neighbour gap ran 82.0 minimum against an 82.8
+// median. Every building the same distance from its neighbour is not a city.
+// These pin the shape of the fix, and the invariants the graph cannot lose.
+
+test('city: the street plan is irregular, and it is the same plan every render', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+
+  const widths = new Set(L.blocks.map(b => b.w));
+  const heights = new Set(L.blocks.map(b => b.h));
+  assert.ok(widths.size > 1, `every block is ${[...widths][0]} wide`);
+  assert.ok(heights.size > 1, 'and every block is the same height');
+  assert.ok(new Set(L.vRoad).size > 1, 'and every road is the same width');
+
+  // the plan travels with the city rather than being rolled per render
+  assert.equal(d.cityLayout(), L, 'the plan is the city, not the frame');
+  const packed = d.packCity();
+  assert.ok(packed.layout, 'a city you walk out of keeps its streets');
+  assert.equal(packed.layout.blocks.length, L.blocks.length);
+});
+
+test('city: buildings are thrown into a block, not slotted into it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const bs = d.state.buildings;
+
+  const centres = bs.map(b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 }));
+  const nearest = centres.map(a =>
+    Math.min(...centres.filter(c => c !== a).map(c => Math.hypot(a.x - c.x, a.y - c.y))));
+  const sorted = nearest.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
+  // the old generator had min === median to within a pixel
+  assert.ok(sorted[0] < med * 0.8,
+    `spacing is uniform: min ${sorted[0].toFixed(1)} against median ${med.toFixed(1)}`);
+
+  const xs = new Set(bs.map(b => Math.round((b.x + b.w / 2) / 5)));
+  assert.ok(xs.size > bs.length / 4, `only ${xs.size} distinct positions across ${bs.length} buildings`);
+
+  // and nothing overlaps anything, however hard it was thrown
+  bs.forEach(a => bs.forEach(b => {
+    if (a === b) return;
+    const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+    assert.ok(apart, `${a.id} and ${b.id} are standing in each other`);
+  }));
+});
+
+test('city: the graph survives the plan going irregular', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // The whole game runs on this graph: the frontier, what a scan turns up, and
+  // the response's reach. Moving the buildings is a balance change, and these
+  // are the two things it may never do.
+  for (let i = 0; i < 6; i++) {
+    const c = d.makeCity({ cols: 5, rows: 5, regionTier: i % 5 });
+    const adj = c.adjacency || {};
+    const degs = c.buildings.map(b => (adj[b.id] || []).length);
+    assert.equal(degs.filter(k => k === 0).length, 0, 'a building nothing can reach is a building nobody can take');
+
+    const seen = {}; let comps = 0;
+    c.buildings.forEach(b => {
+      if (seen[b.id]) return;
+      comps++;
+      const q = [b.id]; seen[b.id] = true;
+      while (q.length) {
+        const cur = q.pop();
+        (adj[cur] || []).forEach(x => { if (!seen[x]) { seen[x] = true; q.push(x); } });
+      }
+    });
+    assert.equal(comps, 1, `the city came out in ${comps} pieces`);
+
+    const mean = degs.reduce((a, b) => a + b, 0) / degs.length;
+    assert.ok(mean > 2.6 && mean < 4, `mean degree ${mean.toFixed(2)} is not the game we tuned`);
+  }
+});
+
+test('city: districts are areas, not stripes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const by = d.districtBlocks();
+  const L = d.cityLayout();
+
+  // a row that runs through more than one district is the whole point: while
+  // districts were rows, the boundary was a straight line across the map
+  const rowsWithTwo = [];
+  for (let r = 0; r < L.rows; r++) {
+    const here = new Set(L.blocks.filter(b => b.row === r).map(b => by[b.i]).filter(Boolean));
+    if (here.size > 1) rowsWithTwo.push(r);
+  }
+  assert.ok(rowsWithTwo.length > 0, 'every row is exactly one district — they are still stripes');
+
+  // and home still spans all four, because it is where you learn them
+  const present = new Set(Object.values(by));
+  assert.equal(present.size, 4, `home shows ${present.size} kinds of place, not 4`);
+});
+
 test('city: the map says which district you are standing in', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const rows = d.districtRows();
-  const present = [...new Set(Object.values(rows))];
+  const by = d.districtBlocks();
+  const present = [...new Set(Object.values(by))];
   assert.ok(present.length > 1, 'a city is more than one kind of place');
 
   const svg = d.svgStreets();

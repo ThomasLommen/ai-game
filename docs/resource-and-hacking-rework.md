@@ -457,6 +457,52 @@ All of it is drawn from a hash of the building id rather than `Math.random`,
 because the map is rebuilt on every action and detail that moves between
 redraws is worse than no detail.
 
+### The plan underneath it, which was graph paper
+
+The silhouettes landed and the placement did not, and the measurement says why.
+Across 104 buildings the old generator used **two distinct x-offsets**, and the
+nearest-neighbour gap ran a **minimum of 82.0 against a median of 82.8**. Every
+block was the same size, every road the same width, and every building was
+centred in one cell of a fixed 2×2. Buildings already varied 24× in area — 240
+to 5,780 px² — so what read as uniform was never the buildings, it was the
+lattice and the air around them.
+
+So the plan is explicit geometry now (`makeLayout`), generated once and packed
+with the city, and everything that draws the ground reads it:
+
+- **Blocks and roads vary.** Block sizes swing ±34%, road widths ±45%, and an
+  arterial is a fact about the plan rather than every third index.
+- **Buildings are thrown into a block, not slotted into it** (`scatterBlock`) —
+  darts with a minimum gap, biased toward the nearest edge so they front the
+  street.
+- **Terraces.** Some edges get a run of buildings shoulder to shoulder on one
+  frontage first, and the darts fill in behind. This is most of what separates a
+  city block from boxes in a field. Only kinds naturally of the run's depth may
+  join one, or the lead's depth gets forced onto everything behind it and a
+  street cabinet comes out the size of an apartment block.
+- **Districts are areas, not rows.** The gradient across the map survives — it
+  is what makes the north somewhere else — but the boundary wobbles on three
+  sine terms of position, so districts come out as blobs with ragged edges and a
+  single row can run through three of them. Home still spans all four.
+
+Measured before and after, over twelve generated cities:
+
+| | before | after |
+| --- | --- | --- |
+| distinct x-offsets | 2 | 24 |
+| nearest gap, min / median | 82.0 / 82.8 | 45.8 / 78.5 |
+| mean degree | 3.32 | 3.24 |
+| isolated buildings | 0 | 0 |
+| connected components | 1 | 1 |
+
+The graph is the point of the last three rows. Adjacency is built from distance
+between building centres, so moving them changes the frontier, what a scan turns
+up, camera vision and the response's reach — this is a balance change wearing a
+visual one. Mean degree fell to 2.89 on the first pass, which is a thinner
+frontier and fewer options a turn; `MAX_LINK` went 165 → 178 to put it back.
+Zero isolated buildings and one connected component are invariants, not
+observations: a building nothing can reach is a building nobody can take.
+
 ## The playtest round
 
 Hacking and taking buildings landed — *"I find myself having a lot of buildings
