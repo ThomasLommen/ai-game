@@ -1596,9 +1596,9 @@
     takeHost(h);
     state.timesForced = (state.timesForced || 0) + 1;
     cameraVision();
-    // unattended, and loud about it: the noise hammer.exe makes when you do it
-    const loud = window.PROGRAMS.find(x => !x.quiet) || window.PROGRAMS[0];
-    state.heat = clampHeat(state.heat + (loud.heat || 0));
+    // unattended, and it costs what a run costs — there is one program now, so
+    // there is no louder one to charge it at
+    state.heat = clampHeat(state.heat + (mounted().heat || 0));
     pushLog(`The frontier forces itself: ${window.BUILDING_KINDS[best.kind].label} took itself in, unattended.`);
     return h;
   }
@@ -3117,18 +3117,11 @@ scratch.later = null;
   // own trace to the finish. That race is what stops the slow programs being
   // strictly better than the fast one: turns used to be free.
 
+  // There is one program, so there is nothing to mount. mounted() stays
+  // because everything downstream asks what is running, and a second program
+  // would put the choice back here rather than anywhere else.
   function programs() { return window.PROGRAMS; }
-  function mounted() {
-    const id = state.mount || (window.PROGRAMS[0] || {}).id;
-    return window.PROGRAMS.find(p => p.id === id) || window.PROGRAMS[0];
-  }
-  function mount(id) {
-    if (!window.PROGRAMS.some(p => p.id === id)) return false;
-    state.mount = id;
-    persistNow();
-    render();
-    return true;
-  }
+  function mounted() { return window.PROGRAMS[0]; }
   function hacks() { return state.hacks || (state.hacks = []); }
   function hackOn(hostId) { return hacks().find(k => k.hostId === hostId) || null; }
   function hackDraw() { return hacks().reduce((a, k) => a + k.allocated, 0); }
@@ -3138,7 +3131,11 @@ scratch.later = null;
   // in — unless you have gotten off their list — so the loud way in gets more
   // expensive once they have landed, which is the rung's whole bite.
   function hackHeat(p) {
-    const adjusted = !p.quiet && ladderStage() >= 4 && !has('unlisted');
+    // Enforcement used to charge only the loud program, and there is no loud
+    // program now — so the surcharge would have been a stage of the ladder
+    // that lands doing nothing. It charges the run, whichever run it is. That
+    // is what Enforcement means: getting in costs you more, full stop.
+    const adjusted = ladderStage() >= 4 && !has('unlisted');
     return Math.max(0, (p.heat || 0) + capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0));
   }
   function hackNeed(prog, h) {
@@ -3177,24 +3174,7 @@ scratch.later = null;
       goal: window.HACK.traceGoal,
       caught: traceAtEnd >= window.HACK.traceGoal,
       affordable: allocFree() >= need,
-      spread: spreadForecast(h, p, need),
     };
-  }
-  // Where contagion would go next, as far as it can be known in advance. "Up
-  // to", not a promise: it picks its own targets, the board moves while it
-  // works, and the whole character of the program is that you do not choose.
-  // But the player should not be committing four turns to the interesting half
-  // of a program with none of it stated.
-  function spreadForecast(h, p, allocated) {
-    if (!p.spread) return null;
-    const room = Math.max(0, p.spread - 1);
-    let carries = 0, holds = 0;
-    buildingNeighbours(h.buildingId).forEach(id => {
-      const t = hostsIn(buildingById(id))[0];
-      if (!t || t.owned) return;
-      if (allocated >= hackNeed(p, t)) carries++; else holds++;
-    });
-    return { room, carries, holds, upTo: Math.min(carries, room) };
   }
   function canHack(hostId) {
     const h = hostById(hostId);
@@ -3304,7 +3284,9 @@ scratch.later = null;
       // The Adjusters count doors kicked in, not doors opened — cumulative and
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
-      if (!p.quiet) state.timesForced = (state.timesForced || 0) + 1;
+      // Every door you get into is a door you got into. The counter used to
+      // split loud from quiet, and there is only one way in now.
+      state.timesForced = (state.timesForced || 0) + 1;
       // Deep Root: a door you get through loosens the block around it too,
       // permanently — every neighbour's own defense, discovered or not, so the
       // rest of the cluster costs less from here.
@@ -3321,44 +3303,8 @@ scratch.later = null;
       if (opened.length) startSweepFx(opened);
       showBanner([{ kind: 'host', verb: 'took', label: h.name }]);
       pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is yours. ${p.label} is off the rig.`);
-      if (p.spread) spreadFrom(h, k, p);
     });
     return { done: done.length, caught: caught.length };
-  }
-
-  // Contagion, the moment it lands: the same rig is still running, and it
-  // reaches whatever is beside the door it just came through.
-  //
-  // You do not choose the targets — that is the whole character of it. What is
-  // next door might be a router or it might be a finance floor, and the rig is
-  // sized for the door it was pointed at, so anything harder than that simply
-  // does not take. It will happily walk onto ground the rival or the response
-  // is holding, which is the one thing no other program does.
-  function spreadFrom(from, k, p) {
-    const room = Math.max(0, (p.spread || 1) - 1);
-    if (!room) return [];
-    const took = [], missed = [];
-    buildingNeighbours(from.buildingId).forEach(id => {
-      if (took.length >= room) return;
-      const t = hostsIn(buildingById(id))[0];
-      if (!t || t.owned) return;
-      if (k.allocated < hackNeed(p, t)) { missed.push(t); return; }
-      took.push(t);
-    });
-    took.forEach(t => {
-      const bid = t.buildingId;
-      // taken off whoever was holding it, rather than politely skipped
-      if (state.rival) state.rival.buildings = rivalHeld().filter(x => x !== bid);
-      if (state.hunt) state.hunt.nodes = (state.hunt.nodes || []).filter(x => x !== bid);
-      takeHost(t);
-    });
-    if (took.length) {
-      pushLog(`It did not stop there: ${took.map(t => window.BUILDING_KINDS[buildingById(t.buildingId).kind].label).join(', ')} went with it.`);
-    }
-    if (missed.length) {
-      pushLog(`${missed.length} door${missed.length === 1 ? '' : 's'} beside it held — too hard for what was running.`);
-    }
-    return took;
   }
 
   // Taking a host, however it happened — hacks, the frontier forcing itself,
@@ -5539,7 +5485,7 @@ scratch.later = null;
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
-      hacks: state.hacks || [], mount: state.mount || null,
+      hacks: state.hacks || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
@@ -7328,37 +7274,31 @@ scratch.later = null;
     };
   }
 
-  // What is on the rig. One slot, so this is a posture rather than a per-door
-  // choice — it sits beside allocation because it is the same kind of decision:
-  // something you set, live with for a stretch, and change when the board does.
+  // The rig: what is running, and what the thing that runs is. There is one
+  // program, so this stopped being a choice and became a readout — which is
+  // the honest shape for it. If a second program ever earns its place, the
+  // choice goes back here, because this is where a decision you live with for
+  // a stretch belongs.
   function programSection() {
-    const cur = mounted();
-    const rows = window.PROGRAMS.map(p => {
-      const on = p.id === cur.id;
-      return `
-        <div class="alloc-row${on ? ' on' : ''}">
+    const p = mounted();
+    return {
+      id: 'programs', label: 'the rig', done: false,
+      html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">the rig</span>
+          <span class="mono dim">${p.label}</span>
+        </div>
+        <p class="sheet-note">${window.PROGRAM_INFO}</p>
+        ${runningSection()}
+        <div class="alloc-row on">
           <div class="alloc-top">
             <span class="alloc-name">${p.label}</span>
             <span class="mono dim">${p.turns} turn${p.turns === 1 ? '' : 's'}</span>
           </div>
           <p class="shop-good-desc">${p.blurb}</p>
           <p class="yield-row">${chip('compute', Math.round(p.load * 100) + '% of the door, running')}${
-            heatChip(p.heat)}${p.quiet ? chip('cover', 'quiet') : ''}${
-            p.spread ? chip('cover', 'reaches ' + p.spread + ' buildings') : ''}</p>
-          ${on ? '<p class="alloc-unlock on"><span class="mono">&check;</span> mounted</p>'
-               : `<button type="button" class="act-btn" data-prog="${p.id}"><span class="ab-name">mount ${p.label}</span></button>`}
-        </div>`;
-    }).join('');
-    return {
-      id: 'programs', label: 'programs', done: false,
-      html: `
-        <div class="legit-top">
-          <span class="eyebrow mono">the rig</span>
-          <span class="mono dim">${cur.label}</span>
-        </div>
-        <p class="sheet-note">${window.PROGRAM_INFO}</p>
-        ${runningSection()}
-        ${rows}`,
+            heatChip(p.heat)}${p.quiet ? chip('cover', 'quiet') : ''}</p>
+        </div>`,
     };
   }
 
@@ -7370,7 +7310,7 @@ scratch.later = null;
   function runningSection() {
     const ks = hacks();
     if (!ks.length) {
-      return `<p class="sheet-note dim">Nothing running. Whatever is mounted is what goes at the next door you pick.</p>`;
+      return `<p class="sheet-note dim">Nothing running. Every TFLOP you hold is free.</p>`;
     }
     const rows = ks.map(k => {
       const h = hostById(k.hostId);
@@ -7649,9 +7589,6 @@ scratch.later = null;
       b.addEventListener('click', () => { sheetSection = b.getAttribute('data-section'); renderSheet(); });
     });
     // One tap is one unit of effect, up or down
-    $s.querySelectorAll('[data-prog]').forEach(b => {
-      b.addEventListener('click', () => { mount(b.getAttribute('data-prog')); renderSheet(); });
-    });
     $s.querySelectorAll('[data-alloc]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => {
         const id = b.getAttribute('data-alloc');
@@ -8439,8 +8376,8 @@ scratch.later = null;
     electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
-    programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
-    canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    programs, mounted, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
+    canHack, startHack, hackStep, takeHost, targetPanel, hackPanel, raceBar, programSection,
     runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,

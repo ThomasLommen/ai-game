@@ -592,8 +592,40 @@ detection race, it would delete it — and with it the hunt's trigger
 (`caughtHere`, which would never increment), covert ops' shield, and
 `hardenOnCaught`. Four systems removed while believing two were.
 
-Deferred, and if it happens the survivor is **backdoor**: the one where the race
-resolves both ways.
+So the survivor is **backdoor**: the one where the race resolves both ways.
+
+Two further measurements settled it. A hammer-only run took **1 building in 40
+turns** and spent **38 of them with nothing it could afford to touch** — needing
+1.8x a door's defense in TFLOPS, it is not merely uninteresting alone, it is
+unplayable. Backdoor-only finishes the same 40 turns on 34 buildings against 32
+with all three, so nothing about the pace depends on the other two existing.
+
+### The other two programs
+
+Gone: `hammer.exe`, `contagion.exe`, and with them the mount verb (`mount()`,
+`state.mount`, the mount buttons, the saved choice), the whole spread system
+(`spreadFrom`, `spreadForecast`, the spread chips and forecast line), and
+`traceMult`, which only ever distinguished contagion from backdoor. The rig
+section stays, as a readout rather than a choice — which is the honest shape for
+it, and where the choice goes back if a second program earns its place.
+
+Two rungs of the ladder had payloads keyed to a *loud* program, and there is no
+loud program now. Rather than let them land doing nothing:
+
+- **Enforcement's surcharge charges the run, whichever run it is.** Getting in
+  costs more once they are counting — full stop. `unlisted` keeps its job.
+- **`timesForced` counts every door you get into.** It used to split loud from
+  quiet, which is a distinction with nothing on the other side of it.
+
+One more card went with them: `rig_long_run` gated on `!s.rig.quiet`, so with a
+quiet-only rig it could never be drawn.
+
+What the loop is now: pick a door, and the only question is whether your covert
+ops is high enough that four turns of exposure beat its trace. Worth naming
+plainly — the bot measurements show a player who always takes the *easiest*
+reachable door meets the race almost never (the hunt arrived in 3 of 10 runs,
+against 7 of 10 with three programs). The race bites when the easy doors run
+out, not before.
 
 ## Not changing
 

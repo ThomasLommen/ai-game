@@ -1480,24 +1480,24 @@ test('ladder: every stage past the baseline says something different, in a fixed
   }
 });
 
-test('the adjusters: enough doors kicked in wakes them, and the loud way costs more', () => {
+test('the adjusters: getting in costs more once enforcement lands', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const loud = window.PROGRAMS.find(p => !p.quiet);
-  const quiet = window.PROGRAMS.find(p => p.quiet);
+  const p = d.mounted();
 
   assert.equal(d.ladderStage() >= 4, false, 'nobody is counting yet');
-  const before = d.hackHeat(loud);
-  const quietBefore = d.hackHeat(quiet);
+  const before = d.hackHeat(p);
 
   wake(d, 'adjusters');
   assert.equal(d.ladderStage() >= 4, true, 'enforcement has landed');
-  assert.ok(d.hackHeat(loud) > before, 'and hammer.exe costs more heat now');
-  assert.equal(d.hackHeat(quiet), quietBefore, 'while the quiet ones are not what they count');
+  // It used to charge only the loud program. There is one program now, so a
+  // surcharge that skipped quiet runs would be a ladder rung that lands doing
+  // nothing at all.
+  assert.ok(d.hackHeat(p) > before, `getting in should cost more: ${before} -> ${d.hackHeat(p)}`);
 
   s.tags.add('unlisted');
-  assert.equal(d.hackHeat(loud), before, 'off their list, it costs what it always did');
+  assert.equal(d.hackHeat(p), before, 'off their list, it costs what it always did');
 });
 
 
@@ -3269,10 +3269,9 @@ test('traits: a watched city notices everything faster', () => {
   c.trait = 'sprawl';
   assert.equal(d.traceRate(h), plain, 'the rule belongs to the place');
 
-  // it closes nothing: every program is still on the rig, it is just a worse
-  // city to be slow in
+  // it closes nothing: it is just a worse city to be slow in
   c.trait = 'watched';
-  window.PROGRAMS.forEach(p => assert.equal(d.mount(p.id), true, `${p.id} is still mountable`));
+  assert.ok(d.traceRate(h, d.mounted()) > 0, 'the run still runs, it is just watched');
 });
 
 test('traits: no trait can leave a city you cannot finish', () => {
@@ -3994,10 +3993,9 @@ test('breach fx: the take happens in state, whatever is drawn', () => {
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
   if (!target) return;
 
-  d.mount('brute');
   s.ap = 6;
   assert.equal(d.startHack(target.id), true);
-  d.hackStep();
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
   assert.equal(target.owned, true, 'the building is yours the moment the run lands');
   assert.equal(d.serialize().breachFx, undefined, 'the animation is never serialized');
@@ -7248,7 +7246,6 @@ test('hunt confront: landing on the core ends the hunt and reclaims only the add
   s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
   core.owned = false;
 
-  d.mount('brute');
   s.ap = 9;
   assert.equal(d.startHack(core.id), true, 'the run starts');
   assert.equal(d.hackOn(core.id).confront, true, 'and it knows what it is going at');
@@ -7274,7 +7271,6 @@ test('hunt confront: being found costs heat and brings it closer, and does not e
   s.allocLive = {}; s.alloc = {};          // no covert ops to hide behind
 
   // a slow program against the hardest door on the board loses the race
-  d.mount('backdoor');
   const f = d.hackForecast(core, d.mounted());
   if (!f.caught) return;                    // an unusually soft core; covered above
   const heat = s.heat, before = d.hunt().lastActed;
@@ -7731,18 +7727,31 @@ function openTarget(d) {
   return s.hosts.filter(h => !h.owned && d.isFrontier(h))[0];
 }
 
-test('hack: a program is a posture, mounted once, not chosen per door', () => {
+test('hack: there is one way in, and nothing to pick between at the door', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  assert.ok(window.PROGRAMS.length >= 3, 'three ways in');
-  assert.ok(d.mounted(), 'something is always mounted');
-  window.PROGRAMS.forEach(p => {
-    assert.equal(d.mount(p.id), true, `${p.id} can be mounted`);
-    assert.equal(d.mounted().id, p.id);
-    assert.ok(p.blurb && p.blurb.length > 20, `${p.id} says what it is`);
-    assert.ok(p.load > 0 && p.turns >= 1, `${p.id} has a real load and duration`);
-  });
-  assert.equal(d.mount('nonsense.exe'), false, 'and nothing else is');
+  assert.equal(window.PROGRAMS.length, 1, 'one program');
+  const p = d.mounted();
+  assert.ok(p, 'and it is always what is running');
+  assert.ok(p.blurb && p.blurb.length > 20, 'it says what it is');
+  assert.ok(p.load > 0 && p.turns >= 1, 'and has a real load and duration');
+  // nothing to mount means no mounting verb at all
+  assert.equal(typeof d.mount, 'undefined', 'no program is chosen, so nothing chooses one');
+  assert.equal(d.serialize().mount, undefined, 'and a save carries no choice either');
+});
+
+test('hack: the one program is one the race can actually beat', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const p = d.mounted();
+  // The whole reason backdoor survived and hammer did not. A program that
+  // finishes before the target ever accrues a turn of trace makes the race,
+  // the hunt's trigger, covert ops' shield and door hardening all unreachable.
+  const goal = window.HACK.traceGoal;
+  const worst = s.hosts.reduce((a, h) => Math.max(a, d.traceRate(h, p) * p.turns), 0);
+  assert.ok(worst >= goal,
+    `no door on this board could ever win the race: worst trace ${worst.toFixed(2)} of ${goal}`);
 });
 
 test('hack: starting one takes compute and an action, and holds the compute', () => {
@@ -7755,7 +7764,6 @@ test('hack: starting one takes compute and an action, and holds the compute', ()
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
 
-  d.mount('backdoor');
   const need = d.hackNeed(d.mounted(), target);
   const free = d.allocFree(), ap = s.ap;
   assert.equal(d.canHack(target.id), true, 'there is room and an action for it');
@@ -7789,7 +7797,6 @@ test('hack: sending one shows on the map the instant you send it', () => {
   // can be read the way the browser would read it
   const realTimeout = window.setTimeout;
   window.setTimeout = () => 0;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   const wire = d.svgHackLinks();
   window.setTimeout = realTimeout;
@@ -7822,7 +7829,6 @@ test('hack: the rig lists what is running, and none of it can be called off', ()
 
   const targets = s.hosts.filter(h => !h.origin).slice(0, 3);
   targets.forEach(t => { t.owned = false; });
-  d.mount('backdoor');
   s.ap = 9;
   const started = targets.filter(t => d.startHack(t.id));
   assert.ok(started.length >= 2, 'two doors going at once');
@@ -8026,7 +8032,6 @@ test('hack: a save never restores a program running against a door you hold', ()
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   // the door falls to something else, and the save is written the way an
@@ -8051,7 +8056,6 @@ test('hack: a running program does not follow you across a border', () => {
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   s.ap = 9;
   assert.equal(d.startHack(target.id), true);
   const startedOn = target.id;
@@ -8094,41 +8098,6 @@ test('programs: the one mounted before you choose is one the opening can run', (
     'the default program fits on the opening rack');
 });
 
-test('programs: no one of them is the answer to every door', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  const probe = s.hosts.find(h => !h.origin);
-
-  const at = (type, def) => {
-    probe.type = type; probe.defense = def; probe.owned = false;
-    const out = {};
-    window.PROGRAMS.forEach(p => { out[p.id] = d.hackForecast(probe, p); });
-    probe.owned = true;
-    return out;
-  };
-
-  // something soft: every program gets in, so the cheapest wins
-  const soft = at('consumer', 4);
-  Object.keys(soft).forEach(k => assert.equal(soft[k].caught, false, `${k} should manage a home PC`));
-
-  // something hard: only the loud one survives, and it wants a lot of rack
-  const hard = at('datacenter', 29);
-  assert.equal(hard.brute.caught, false, 'hammer outruns anything');
-  assert.equal(hard.backdoor.caught, true, 'a slow program is found on a datacenter');
-  assert.equal(hard.contagion.caught, true, 'and so is the spreading one');
-  assert.ok(hard.brute.need > hard.backdoor.need * 2,
-    'hammer pays for it in peak draw, which is its only real cost');
-
-  // and the two quiet ones are not the same program with a different blurb:
-  // contagion is touching four buildings, so it is noticed sooner
-  const mid = at('server', 11);
-  assert.ok(mid.contagion.traceAtEnd > mid.backdoor.traceAtEnd,
-    'contagion is the loudest of the quiet ones');
-  assert.ok(mid.contagion.need < mid.backdoor.need, 'and the cheapest of them');
-});
 
 test('programs: covert.ops is what opens a hard door to a slow program', () => {
   const { window } = loadNetwork();
@@ -8159,7 +8128,6 @@ test('hack: a run cannot be called off, by any route', () => {
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   assert.equal(typeof d.abortHack, 'undefined', 'the engine has no such verb');
@@ -8184,7 +8152,6 @@ test('hack: a door that becomes yours mid-run stops being a race at once', () =>
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   assert.ok(d.hackOn(target.id), 'something is working on it');
   assert.ok(d.svgHackLinks().includes('hack-wire'), 'and the map says so');
@@ -8210,7 +8177,6 @@ test('hack: the mark on the map tracks the race, and goes when the hack does', (
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   const b = d.buildingById(target.buildingId);
@@ -8271,7 +8237,6 @@ test('hack: it lands when the work finishes, and the compute comes back', () => 
   });
   if (!target) return;                          // no quiet, reachable door on this board
 
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true, 'the hack started');
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
@@ -8296,7 +8261,6 @@ test('hack: the target traces you, and a hack that loses the race fails and hard
   target.defense = 18;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
-  d.mount('backdoor');
   ungrant(d);
 
   const f = d.hackForecast(target, d.mounted());
@@ -8313,25 +8277,6 @@ test('hack: the target traces you, and a hack that loses the race fails and hard
   assert.ok(s.heat > heat, 'and somebody is looking');
 });
 
-test('hack: brute outruns a trace that backdoor loses to — the answer is not fixed', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = s.hosts.find(h => !h.origin);
-  target.type = 'corporate';
-  target.defense = 18;
-  ungrant(d);
-
-  const slow = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
-  const fast = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'brute'));
-  assert.ok(slow.caught && !fast.caught, 'fast gets in where slow is found');
-  // and pays for it the other way: a bigger rig at once, and much more noise
-  assert.ok(fast.need > slow.need, 'brute wants more running at once');
-  assert.ok(fast.prog.heat > slow.prog.heat, 'and makes far more noise doing it');
-  // while slow is the cheaper thing to fit into a small ceiling
-  assert.ok(slow.need * slow.turns > fast.need * fast.turns,
-    'and is the less efficient way in overall, which is the trade');
-});
 
 test('hack: covert ops is what buys the slow programs their race', () => {
   const { window } = loadNetwork();
@@ -8393,7 +8338,6 @@ test('hack: running hacks draw against the same ceiling as everything else', () 
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
 
-  d.mount('backdoor');
   const drawnBefore = d.drawn();
   d.startHack(target.id);
   assert.equal(d.drawn(), drawnBefore + d.hackDraw(), 'a hack is part of what is running');
@@ -8414,93 +8358,17 @@ test('hack: hacks survive a save, mid-race', () => {
   target.owned = false;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
-  d.mount('contagion');
   d.startHack(target.id);
   s.card = null; d.endTurn({ silent: true });
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
-  assert.equal(round.mount, 'contagion', 'what you had mounted');
-  assert.equal(round.hacks.length, 1, 'and what it was working on');
+  assert.equal(round.hacks.length, 1, 'what it was working on');
   assert.equal(round.hacks[0].hostId, target.id);
   assert.ok(round.hacks[0].trace > 0, 'with how far it had been noticed');
 });
 
-test('contagion: it lands on more than the door you pointed it at, and picks them itself', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
 
-  // a soft door with soft neighbours, so the rig is big enough for them too
-  const seed = s.hosts.find(h => !h.origin
-    && d.buildingNeighbours(h.buildingId).length >= 3);
-  assert.ok(seed, 'somewhere with several neighbours');
-  seed.owned = false;
-  // a quiet door, so the seed survives its own four turns in the race — and
-  // soft, since the rig is sized for it and that same rig is what has to carry
-  // into whatever is next door
-  seed.type = 'consumer';
-  seed.defense = 8;
-  // all but one neighbour freed up as somewhere to spread to — the one left
-  // held is what makes the seed a frontier at all, and without it there is
-  // nothing to launch from
-  const all = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  const nbrs = all.slice(1);
-  nbrs.forEach(n => { n.owned = false; n.defense = 2; });
-  assert.ok(all[0].owned, 'and something of yours to reach from');
 
-  d.mount('contagion');
-  assert.equal(d.startHack(seed.id), true);
-  // hackStep directly rather than whole turns: with the board this full, four
-  // turns of world is violent enough to take ground off you mid-run and shed
-  // the hack for want of power, which is real behaviour but not this claim
-  for (let i = 0; i < P.turns; i++) d.hackStep();
-
-  assert.equal(seed.owned, true, 'the door it was pointed at opened');
-  const spread = nbrs.filter(n => n.owned).length;
-  assert.ok(spread > 0, 'and it did not stop there');
-  assert.ok(spread <= P.spread - 1, `never more than the program says (${spread})`);
-});
-
-test('contagion: a neighbour harder than the rig simply holds', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
-  const nbrs = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  nbrs.forEach(n => { n.owned = false; n.defense = 999; });
-
-  // a rig sized for a soft door cannot carry into a hard one
-  const took = d.spreadFrom(seed, { allocated: 1 }, P);
-  assert.equal(took.length, 0, 'nothing beside it gave');
-  assert.ok(s.log.some(l => /held/.test(l.text)), 'and the player is told why');
-});
-
-test('contagion: it will walk onto ground the rival is holding, which nothing else does', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
-  const victim = d.hostsIn(d.buildingById(d.buildingNeighbours(seed.buildingId)[0]))[0];
-  assert.ok(victim, 'there is something next door');
-  victim.owned = false;
-  victim.defense = 1;
-
-  s.rival = s.rival || { awake: true, buildings: [], lastActed: 0, seen: true };
-  s.rival.buildings = [victim.buildingId];
-  assert.equal(d.rivalHolds(victim.buildingId), true, 'the rival has it to begin with');
-
-  const took = d.spreadFrom(seed, { allocated: 50 }, P);
-  assert.ok(took.indexOf(victim) !== -1, 'contagion took it anyway');
-  assert.equal(d.rivalHolds(victim.buildingId), false, 'and it is not theirs any more');
-  assert.equal(victim.owned, true, 'it is yours');
-});
 
 test('hack UI: the target panel shows the whole race before you commit', () => {
   const { window } = loadNetwork();
@@ -8511,7 +8379,6 @@ test('hack UI: the target panel shows the whole race before you commit', () => {
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
   assert.ok(target, 'a door to look at');
 
-  d.mount('backdoor');
   const f = d.hackForecast(target, d.mounted());
   const html = d.targetPanel(target);
   assert.ok(html.includes(d.mounted().label), 'it names what is mounted');
@@ -8551,7 +8418,6 @@ test('hack UI: a running hack shows how far in, how close they are, and that it 
   s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   s.card = null; d.endTurn({ silent: true });
   if (!d.hackOn(target.id)) return;             // caught on a fast target; covered elsewhere
@@ -8578,74 +8444,20 @@ test('hack UI: the race bar is one bar, and the two halves never overrun it', ()
   });
 });
 
-test('hack UI: the rig is a section of its own, and mounting from it takes', () => {
+test('hack UI: the rig is a section of its own, and it is a readout now', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const sec = d.programSection();
   assert.equal(sec.id, 'programs');
-  window.PROGRAMS.forEach(p => {
-    assert.ok(sec.html.includes(p.label), `${p.id} is on the rig screen`);
-    assert.ok(sec.html.includes(p.blurb), `${p.id} says what it is`);
-  });
-  assert.ok(sec.html.includes('mounted'), 'and one of them is marked as running');
-
-  d.mount('contagion');
-  const after = d.programSection();
-  assert.ok(after.html.includes('reaches ' + window.PROGRAMS.find(p => p.id === 'contagion').spread + ' buildings'),
-    'contagion advertises that it does not stop at one');
+  const p = d.mounted();
+  assert.ok(sec.html.includes(p.label), 'it names what is running');
+  assert.ok(sec.html.includes(p.blurb), 'and says what it is');
+  // one program, so there is nothing to offer and nothing to press
+  assert.ok(!/data-prog=/.test(sec.html), 'nothing offers to mount anything');
+  assert.ok(!/reaches \d+ buildings/.test(sec.html), 'and nothing claims to spread');
 });
 
-test('hack UI: contagion states where it might go next, without promising', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
 
-  const seed = s.hosts.find(h => {
-    if (h.origin || d.buildingNeighbours(h.buildingId).length < 3) return false;
-    h.owned = false;
-    const ok = d.isFrontier(h);
-    if (!ok) h.owned = true;
-    return ok;
-  });
-  assert.ok(seed, 'a door with neighbours');
-  seed.type = 'consumer'; seed.defense = 8;
-  const all = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  const open = all.slice(1);
-  open.forEach(n => { n.owned = false; n.defense = 2; });
-
-  d.mount('contagion');
-  const f = d.hackForecast(seed, d.mounted());
-  assert.ok(f.spread, 'a spreading program forecasts its spread');
-  assert.ok(f.spread.upTo > 0, 'it can see somewhere to go');
-  assert.ok(f.spread.upTo <= P.spread - 1, 'and never claims more than the program allows');
-
-  const html = d.targetPanel(seed);
-  assert.ok(html.includes(`up to ${f.spread.upTo} more beside it`), 'the panel says how many');
-  assert.ok(html.includes('its choice'), 'and that the choosing is not yours');
-
-  // a neighbour too hard for the rig is reported as such, not quietly counted
-  open.forEach(n => { n.defense = 999; });
-  const hard = d.hackForecast(seed, d.mounted());
-  assert.equal(hard.spread.upTo, 0, 'nothing it could carry into');
-  assert.equal(hard.spread.holds, open.length, 'and it knows why');
-  assert.ok(d.targetPanel(seed).includes('too hard to carry into'), 'which the panel states');
-});
-
-test('hack UI: a program that does not spread says nothing about spreading', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  const t = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
-  d.mount('brute');
-  assert.equal(d.hackForecast(t, d.mounted()).spread, null, 'brute has no spread to forecast');
-  assert.ok(!/beside it/.test(d.targetPanel(t)), 'and the panel does not mention any');
-});
 
 // --- what forcing used to do, hacking does now ----------------------------
 
@@ -8680,7 +8492,6 @@ test('parity: Deep Root loosens the block around a door you get through', () => 
   const before = nbrs.map(n => n.defense);
 
   grantTag(d, 'deep_root');
-  d.mount('backdoor');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
   assert.equal(t.owned, true, 'the door opened');
@@ -8689,25 +8500,25 @@ test('parity: Deep Root loosens the block around a door you get through', () => 
     'and what is next to it is softer than it was');
 });
 
-test('parity: the Adjusters count doors kicked in, not doors opened quietly', () => {
+test('parity: the Adjusters count every door you get into', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const t = hackTarget(d, { type: 'consumer', defense: 6 });
   assert.ok(t, 'a door');
 
+  // The counter used to split loud from quiet. There is one way in now, so
+  // the split was a distinction with nothing on the other side of it.
   s.timesForced = 0;
-  d.mount('backdoor');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
-  assert.equal(s.timesForced, 0, 'slipping in is not kicking a door in');
+  assert.equal(s.timesForced, 1, 'a door you got into is a door you got into');
 
   const t2 = hackTarget(d, { type: 'consumer', defense: 4 });
   if (!t2) return;
-  d.mount('brute');
   assert.equal(d.startHack(t2.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
-  assert.equal(s.timesForced, 1, 'hammer.exe is what they are counting');
+  assert.equal(s.timesForced, 2, 'and so is the next one');
 });
 
 test('parity: a hack that lands runs the same effects a forced door did', () => {
@@ -8716,7 +8527,6 @@ test('parity: a hack that lands runs the same effects a forced door did', () => 
   const s = d.state;
   const t = hackTarget(d, { type: 'consumer', defense: 6 });
   assert.ok(t, 'a door');
-  d.mount('brute');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
@@ -8762,7 +8572,6 @@ test('standing: being found inside something wrecks the name and leaves the pape
   const t = hackTarget(d, { type: 'corporate', defense: 22 });
   assert.ok(t, 'a door that notices quickly');
   ungrant(d);
-  d.mount('backdoor');
   const f = d.hackForecast(t, d.mounted());
   if (!f.caught) return;                        // covered by the race tests
 
@@ -8824,10 +8633,9 @@ test('buy: taking a business by force is quietly noticed by its trade', () => {
   const t = hackTarget(d, { type: 'till', defense: 6 });
   assert.ok(t, 'a business to take');
   const pub = d.pubStanding();
-  d.mount('brute');
   s.ap = 9;
   assert.equal(d.startHack(t.id), true);
-  d.hackStep();
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
   assert.equal(t.owned, true, 'taken');
   assert.ok(d.pubStanding() < pub, 'and its trade noticed who took it');
 });
@@ -9174,7 +8982,6 @@ test('deck: the machine is on the event context, both halves of it', () => {
   assert.equal(c.grid.power, d.electricity());
   assert.equal(c.grid.idle, d.idleTflops());
   assert.equal(c.rig.mounted, d.mounted().id);
-  d.mount('backdoor');
   assert.equal(d.eventContext().rig.mounted, 'backdoor', 'it follows the rig');
 });
 
@@ -9211,7 +9018,6 @@ test('deck: being traced is remembered, so the aftermath can be a card', () => {
   const t = hackTarget(d, { type: 'corporate', defense: 22 });
   if (!t) return;
   ungrant(d);
-  d.mount('backdoor');
   if (!d.hackForecast(t, d.mounted()).caught) return;
   s.ap = 9;
   assert.equal(d.startHack(t.id), true);

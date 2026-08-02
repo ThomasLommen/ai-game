@@ -230,20 +230,32 @@ window.ALLOC_STATS = {
 // than exist — measured, a run that started on hammer took 1 to 4 buildings in
 // thirty turns against 22 for one that started on backdoor. You start careful
 // and reach for the hammer, rather than starting with a tool you cannot lift.
+// One program. It was three, and the three were a real decision — but the
+// decision was made once, at the rig, and then not revisited for the rest of
+// the game. Stripping back to the smallest thing that still works is the point
+// of this pass; programs come back one at a time, and only once there is a
+// reason for the second one that the first one cannot cover.
+//
+// backdoor is the survivor rather than hammer, and that was measured, not
+// taste. hammer finishes in one turn, which means the target's trace never
+// gets a turn to accrue: across eight generated cities, every host, 0.0% of
+// doors could ever catch it, worst-case trace 5.40 against a goal of 7. Keeping
+// it would have deleted the detection race, and with the race the hunt's
+// trigger, covert ops' shield and door hardening. It is also simply
+// unplayable alone — needing 1.8x a door's defense in TFLOPS, a hammer-only
+// run took 1 building in 40 turns and spent 38 of them with nothing it could
+// afford to touch. backdoor's race resolves both ways: 30.2% of doors would
+// catch it, and covert ops is what moves that number.
 window.PROGRAMS = [
-  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true, traceMult: 1,
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true,
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
-  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
-    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
-  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true, traceMult: 1.5,
-    blurb: 'One door, then whatever is beside it, and whatever is beside that. The cheapest way in and the loudest of the quiet ones — it is touching four buildings, and gets noticed for all of them.' },
 ];
 
 // The detection race. A running hack fills toward completion while the target
 // fills toward noticing, and whichever lands first wins. Every figure is shown
 // before committing: losing a four-turn hack to arithmetic the player was not
 // allowed to do is not tension, it is a bad surprise.
-window.PROGRAM_INFO = 'One slot. Whatever is mounted is what runs against every door you go at, so pick it for the stretch ahead rather than for the building in front of you. A door notices you at its own rate while you work — fast programs finish before that matters, slow ones need covert ops to survive the wait.';
+window.PROGRAM_INFO = 'One program, run against every door you go at. It works slowly and it is exposed the whole time: the door notices you at its own rate while it runs, and if it gets there first the run fails and the door hardens for good. Covert ops is what slows the noticing, so which doors are worth going at is a question about covert ops, not about compute.';
 
 window.HACK = {
   traceGoal: 7,        // trace a target accumulates before it has you
@@ -2152,17 +2164,6 @@ window.EVENTS.push(
       { text: 'Change how you work, thoroughly', apply: (s) => { s.heat -= 10; s.tags.add('clean_room'); s.pub = 2; } },
       { text: 'Buy the logs before anyone reads them', cost: { funds: 40 }, apply: (s) => { s.heat -= 6; s.exposure = 0.8; } },
       { text: 'Let them have it and go louder', apply: (s) => { s.tags.add('known_capable'); s.pub = -5; } },
-    ],
-  },
-  {
-    id: 'rig_long_run',
-    cond: (s) => s.rig && s.rig.running >= 1 && !s.rig.quiet,
-    title: 'It Is Making A Great Deal Of Noise',
-    flavor: 'Whatever is mounted is going through the front of something, at volume, and it has been doing it for long enough that people have started to time it.',
-    choices: [
-      { text: 'Let it finish', apply: (s) => { s.heat += 4; } },
-      { text: 'Throttle it back and take longer', apply: (s) => { s.heat -= 6; s.gridCut = { amount: 3, turns: 3 }; } },
-      { text: 'Make the noise somebody else\'s', cost: { funds: 30 }, apply: (s) => { s.heat -= 12; s.pub = -4; } },
     ],
   },
 );
