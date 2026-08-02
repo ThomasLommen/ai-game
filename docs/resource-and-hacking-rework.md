@@ -495,6 +495,41 @@ Measured before and after, over twelve generated cities:
 | isolated buildings | 0 | 0 |
 | connected components | 1 | 1 |
 
+### Room for more of it
+
+The map is rebuilt on every action, and the grill said that was the constraint
+on adding detail. Measured, at 113 buildings: 2,977 SVG nodes, 199 KB of markup,
+19.6 ms a render on a desktop against a 16.6 ms frame. What the measurement got
+*wrong* is where the cost is.
+
+| layer | nodes | bytes | ms to write |
+| --- | --- | --- | --- |
+| ground — roads, district tint, terrain, verge | 386 | 28 KB | 1.4 |
+| live — the buildings | 2,867 | 188 KB | 12.2 |
+
+The ground is nearly free and the buildings are the render. Two changes:
+
+- **The ground is its own `<g>`, written once per city.** Caching the string
+  alone saved only building it — assigning `innerHTML` on the whole svg
+  re-parses everything however cached the text was. Rebuilt only when something
+  that could move it moves: walking into another city, the home base growing, a
+  new crossing laid over a band.
+- **A building too small to read is not drawn in detail.** Below about 26 screen
+  pixels the silhouette, the roof furniture and the windows are work spent on
+  something nobody can resolve. Zoomed out, a render goes 19.6 ms → 6.2 ms.
+  What it *is* survives every zoom — body, tag, glow, aerial — because that is
+  the map still being readable.
+
+The consequence for props: they belong on the ground layer, which costs 1.4 ms
+and only rebuilds when the city does. Three hundred of them is affordable in a
+way three hundred more buildings would not be.
+
+Still on the table and not done: culling buildings outside the viewport. Worth
+roughly another 2× when zoomed in, but panning writes only the viewBox and never
+re-renders — deliberately, because rebuilding the map DOM per pointer event is
+what made dragging feel like wading — so culling needs a margin and a re-render
+when the view leaves it. A bigger change than it looks.
+
 The graph is the point of the last three rows. Adjacency is built from distance
 between building centres, so moving them changes the frontier, what a scan turns
 up, camera vision and the response's reach — this is a balance change wearing a

@@ -3688,6 +3688,9 @@ scratch.later = null;
     };
   }
   function unpackCity(p) {
+    // a different city is a different ground, and the key alone would not
+    // notice two cities that happen to be the same size
+    dropGroundCache();
     state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
     state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
     state.layout = p.layout || null; state.wob = p.wob || [0, 0, 0];
@@ -6482,15 +6485,22 @@ scratch.later = null;
     out += `<rect class="shade" x="${b.x + 2}" y="${b.y + 3}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
-    // what this kind of building actually looks like, under its windows
-    const detail = KIND_DETAIL[b.kind];
+    // Detail costs what detail costs, and none of it is visible below a
+    // certain size on screen. Measured at 113 buildings: the ground layer is
+    // 386 nodes and 1.4ms, the buildings are 2,867 and 12.2ms — so the roofs,
+    // the chimneys and the windows *are* the render. Zoomed out far enough
+    // that a house is eight pixels wide, every one of those marks is work
+    // spent on something nobody can resolve.
+    const px = b.w / Math.max(0.0001, mapUnitsPerPx());
+    const fine = px >= 26;
+    const detail = fine ? KIND_DETAIL[b.kind] : null;
     if (detail) out += detail(b, n, roof);
 
     // Windows hint at how much is inside, and go dark together the moment it
     // is cut off — there is no partial fade any more, just held or not. How
     // they are arranged is part of the silhouette: a curtain wall is not a
     // cottage's two lit squares, and a datacenter has louvres instead.
-    const cells = windowCells(b, roof);
+    const cells = fine ? windowCells(b, roof) : [];
     const canLight = cells.filter(c => c.on);
     const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
@@ -6500,7 +6510,9 @@ scratch.later = null;
         + ` width="${c.w}" height="${c.h}"/>`;
     });
 
-    // your kit on the roof: something you put there, readable without colour
+    // your kit on the roof: something you put there, readable without colour.
+    // Held is the one thing that has to read at every zoom, so the aerial and
+    // the glow survive the cull that takes the windows.
     if (mine) {
       const ax = b.x + b.w - 6.5;
       const ay = b.y + 1;
@@ -6798,6 +6810,9 @@ scratch.later = null;
     }));
     out += CO().cities.filter(c => c.known).map(svgCity).join('');
     out += svgForces();
+    // The country has no cached ground of its own, and it draws over the
+    // city's — so the split is torn down here and rebuilt on the way back in.
+    groundEl = null;
     $svg.innerHTML = out;
     wireMap($svg);
   }
@@ -6937,6 +6952,52 @@ scratch.later = null;
     return out;
   }
 
+  // The ground — roads, district tint, terrain, and everything standing on the
+  // verge — does not change from one action to the next, and it is most of the
+  // map by weight. Measured at 104 buildings: 2,598 SVG nodes and a 170 KB
+  // string rebuilt on *every* render, 17.3ms a frame on a desktop, and a phone
+  // is several times slower than that. Redrawing a tree because you ended a
+  // turn is work nobody asked for, and it is the reason there was never room
+  // for more of them.
+  //
+  // So it is built once per city and reused until something that could actually
+  // move it moves: walking into another city, the home base growing, or a new
+  // crossing being laid over a band.
+  let groundCache = null;
+  function groundKey() {
+    const L = cityLayout();
+    const gaps = (state.bands || []).reduce((a, b) => a + (b.gaps || []).length, 0);
+    return [state.cityId, L.cols, L.rows, (state.buildings || []).length,
+            (state.bands || []).length, gaps].join('|');
+  }
+  function svgGround() {
+    const key = groundKey();
+    if (groundCache && groundCache.key === key) return groundCache.html;
+    groundCache = { key, html: svgStreets() + svgBands() };
+    return groundCache.html;
+  }
+  // For anything that changes the ground in a way the key cannot see.
+  function dropGroundCache() { groundCache = null; groundEl = null; }
+
+  // Caching the *string* only saved the building of it. The cost that actually
+  // dominates is the parse: assigning innerHTML on the whole svg re-parses the
+  // ground every frame however cached the text was. So the ground gets its own
+  // <g>, written only when it changes, and the live layer gets another that is
+  // rewritten every render. Delegated tapping is unaffected — the listener is
+  // on the svg, above both.
+  let groundEl = null;
+  function mapLayers($svg) {
+    let ground = $svg.querySelector('g.map-ground');
+    let live = $svg.querySelector('g.map-live');
+    if (!ground || !live) {
+      $svg.innerHTML = '<g class="map-ground"></g><g class="map-live"></g>';
+      ground = $svg.querySelector('g.map-ground');
+      live = $svg.querySelector('g.map-live');
+      groundEl = null;
+    }
+    return { ground, live };
+  }
+
   function renderGraph() {
     const $svg = document.getElementById('graph');
     if (!$svg) return;
@@ -6951,7 +7012,11 @@ scratch.later = null;
     const seenIds = {};
     seen.forEach(b => { seenIds[b.id] = true; });
 
-    let out = svgStreets() + svgBands() + svgHorizon();
+    const layers = mapLayers($svg);
+    const ground = svgGround();
+    if (groundEl !== ground) { layers.ground.innerHTML = ground; groundEl = ground; }
+
+    let out = svgHorizon();
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
@@ -6969,7 +7034,7 @@ scratch.later = null;
     out += svgBreach();
     out += svgSweep();
 
-    $svg.innerHTML = out;
+    layers.live.innerHTML = out;
     wireMap($svg);
   }
 
@@ -8593,7 +8658,7 @@ scratch.later = null;
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
-    districtBlocks, cityLayout, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    districtBlocks, cityLayout, svgGround, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
