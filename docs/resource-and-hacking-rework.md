@@ -524,6 +524,53 @@ The consequence for props: they belong on the ground layer, which costs 1.4 ms
 and only rebuilds when the city does. Three hundred of them is affordable in a
 way three hundred more buildings would not be.
 
+### Things that are not doors
+
+The map contained nothing but buildings you can hack, which is a diagram of a
+city rather than a city — and the giveaway was that the gaps between blocks read
+as empty rather than as anywhere.
+
+About 280 props now stand in a home city: trees, hedges, benches, lamps, bins,
+planters, market stalls, food stands, news stands, kiosks, bike racks, bollards,
+fountains, sculptures, playgrounds, car parks, container stacks, pallets, tanks,
+pylons, scrub and spoil. What stands where comes off the district, so the
+industrial edge has no playgrounds in it and the suburbs have no container
+stacks. They are generated with the city and packed with it — a bench that moved
+when you ended a turn would be worse than no bench — and they draw on the ground
+layer, which is why ~700 extra nodes cost about 2 ms once per city.
+
+**Open blocks.** Roughly one block in seven has nothing built on it: a park in
+the suburbs, a square on the high street, a plaza in the business park, a yard on
+the industrial edge, each with its own tint and a path across it. This is the
+strongest mark the scenery makes, because it is the only one with a shape of its
+own, and it is what stops the plan reading as wall-to-wall blocks.
+
+Chosen by ranking every block against the city's seed rather than rolling per
+block, for two reasons and the second is the one that bit: a roll is unbounded,
+so an unlucky city could open half its blocks and lose the graph — and
+`Math.random() < chance` is *always* true under a test that pins random to zero,
+which emptied the entire city. There is a hard ceiling of 22% either way.
+
+Two rules keep the scenery from eating what it decorates, and both are enforced
+in the stylesheet rather than by care:
+
+- **No stroke, ever.** An outline on this map means something you can take. The
+  rule is `.props * { stroke: none }`, and a test reads the stylesheet for it.
+- **No pointer events, ever.** `.props { pointer-events: none }`, so a tap can
+  never land on scenery — not on the shape and not through the nearest-target
+  fallback.
+
+And nothing decorative duplicates something real. A station, a depot, a dock and
+a substation are buildings you can take, so there is no scenery version of any of
+them; a test asserts no prop id collides with a building kind. Water is terrain
+and terrain blocks adjacency, so the only ponds are ornamental and sit inside a
+park, where nothing was going to be wired across anyway.
+
+One bug worth recording because only a player would have caught it: props were
+scattered before landmarks were placed, and placing a landmark *grows* the
+building it lands on — so a tree ended up standing inside a substation. Scenery
+goes last now.
+
 Still on the table and not done: culling buildings outside the viewport. Worth
 roughly another 2× when zoomed in, but panning writes only the viewBox and never
 re-renders — deliberately, because rebuilding the map DOM per pointer event is

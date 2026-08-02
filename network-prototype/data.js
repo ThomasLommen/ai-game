@@ -350,6 +350,88 @@ window.DISTRICTS = {
                  kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
 };
 
+// --- what else is standing there ------------------------------------------
+// Everything on the map used to be a door. A city where the only objects are
+// the ones you can hack is a diagram of a city, and the giveaway was that the
+// gaps between blocks read as empty rather than as anywhere.
+//
+// Two rules keep this from eating the map it decorates:
+//
+//  1. Nothing here is ever interactive, and nothing here looks like something
+//     that is. Props draw with no outline and below the contrast of even an
+//     undiscovered building, they live on the cached ground layer, and they
+//     take no pointer events. If a shape on this map has a stroke around it,
+//     it is a door.
+//  2. Nothing here duplicates a real thing. A station, a depot, a dock and a
+//     substation are buildings you can take, so there is no decorative one of
+//     any of them — a fake station beside a real one is a lie the player pays
+//     for. Water is terrain, and terrain blocks adjacency, so the ponds here
+//     are ornamental and sit *inside* a park where nothing was going to be
+//     wired across anyway.
+//
+// `w`/`h` are drawn footprints; `pad` is how much clear air the prop wants
+// around it before it will stand somewhere.
+window.PROPS = {
+  tree:      { w: [7, 12],  h: [7, 12],  pad: 3 },
+  bush:      { w: [5, 8],   h: [5, 8],   pad: 2 },
+  hedge:     { w: [22, 46], h: [4, 6],   pad: 3 },
+  bench:     { w: [9, 12],  h: [3, 4],   pad: 3 },
+  bin:       { w: [4, 5],   h: [4, 5],   pad: 2 },
+  lamp:      { w: [2, 3],   h: [10, 14], pad: 3 },
+  planter:   { w: [10, 16], h: [6, 9],   pad: 3 },
+  stall:     { w: [14, 20], h: [9, 12],  pad: 4 },
+  foodstand: { w: [11, 15], h: [8, 11],  pad: 4 },
+  newsstand: { w: [8, 11],  h: [7, 9],   pad: 4 },
+  kiosk:     { w: [9, 13],  h: [9, 12],  pad: 4 },
+  bikerack:  { w: [12, 18], h: [4, 5],   pad: 3 },
+  bollards:  { w: [14, 24], h: [3, 3],   pad: 2 },
+  fountain:  { w: [14, 20], h: [14, 20], pad: 5 },
+  sculpture: { w: [8, 12],  h: [12, 18], pad: 5 },
+  pond:      { w: [26, 44], h: [18, 30], pad: 6 },
+  play:      { w: [18, 26], h: [14, 20], pad: 5 },
+  carpark:   { w: [26, 44], h: [18, 26], pad: 4 },
+  containers:{ w: [22, 40], h: [14, 22], pad: 4 },
+  pallets:   { w: [12, 20], h: [10, 15], pad: 3 },
+  tank:      { w: [16, 24], h: [16, 24], pad: 5 },
+  pylon:     { w: [14, 20], h: [22, 30], pad: 6 },
+  scrub:     { w: [10, 18], h: [8, 14],  pad: 2 },
+  spoil:     { w: [18, 30], h: [8, 14],  pad: 3 },
+};
+
+// What stands where. Weighted by repetition, the same way building kinds are.
+window.DISTRICT_PROPS = {
+  residential: ['tree', 'tree', 'tree', 'bush', 'bush', 'hedge', 'bench', 'lamp', 'bin', 'play', 'carpark'],
+  commercial:  ['stall', 'foodstand', 'newsstand', 'kiosk', 'bench', 'planter', 'lamp', 'bin', 'bollards', 'tree', 'bikerack'],
+  business:    ['planter', 'planter', 'sculpture', 'fountain', 'bikerack', 'bollards', 'lamp', 'tree', 'carpark'],
+  industrial:  ['containers', 'pallets', 'tank', 'pylon', 'scrub', 'scrub', 'spoil', 'carpark'],
+};
+
+// Sometimes a block has nothing in it, and that is the strongest thing on the
+// map: a park in the suburbs, a square on the high street, a plaza in the
+// business park, a yard on the industrial edge. It is also what stops the plan
+// reading as wall-to-wall blocks — a city has holes in it.
+//
+// Held down deliberately low. Every open block is buildings that do not exist,
+// and buildings are the game: measured, the graph loses about one point of
+// mean degree for every extra fifteen per cent of open ground.
+window.OPEN_BLOCKS = {
+  residential: { chance: 0.16, kind: 'park',   props: ['tree', 'tree', 'tree', 'tree', 'bush', 'bush', 'bench', 'pond', 'play', 'hedge'] },
+  commercial:  { chance: 0.13, kind: 'square', props: ['stall', 'stall', 'foodstand', 'newsstand', 'bench', 'planter', 'tree', 'lamp'] },
+  business:    { chance: 0.12, kind: 'plaza',  props: ['fountain', 'sculpture', 'planter', 'planter', 'bench', 'tree', 'bollards'] },
+  industrial:  { chance: 0.14, kind: 'yard',   props: ['containers', 'containers', 'pallets', 'tank', 'spoil', 'scrub'] },
+};
+
+// How densely the leftovers get filled. Props are cheap — they live on the
+// ground layer, which is 386 nodes and 1.4ms against the buildings' 2,867 and
+// 12.2ms — but a block packed edge to edge stops reading as a block.
+window.PROP_FILL = {
+  perBlock: [3, 7],     // darts thrown into the gaps of an ordinary block
+  perOpen: [9, 16],     // and into an open one, which is nothing but gaps
+  verge: [1, 3],        // and along the road outside it
+  tries: 14,
+  clearOfBuilding: 6,   // air a prop keeps off a building it is not part of
+};
+
 // One building, one host. Interiors made every building a chore — several
 // near-identical breaches for the same patch of street — so a building is now
 // a single thing you either hold or do not. Its kind says what it is.

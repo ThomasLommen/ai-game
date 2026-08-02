@@ -8,6 +8,11 @@ const path = require('node:path');
 // on the page" cannot be asked of it. Read the page.
 const INDEX_HTML = fs.readFileSync(
   path.join(__dirname, '..', '..', 'network-prototype', 'index.html'), 'utf8');
+// Same reason: some rules — a prop taking no pointer events, a prop never
+// getting a stroke — are only true because the stylesheet says so, and the
+// stub has no cascade to ask.
+const STYLE_CSS = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'network-prototype', 'style.css'), 'utf8');
 
 // Spend the turn's budget on sweeps, and return how many actually happened.
 // An action that cannot proceed (nothing left to scan, no actions) silently
@@ -4421,6 +4426,119 @@ test('city: the map says which district you are standing in', () => {
   // the names go on after the roads, or the road paints over them
   assert.ok(svg.lastIndexOf('district-tag') > svg.lastIndexOf('class="street'),
     'and the names are drawn over the streets, not under them');
+});
+
+// --- what else is standing there ------------------------------------------
+// The map used to contain nothing but doors, which is a diagram of a city
+// rather than a city. These pin the two rules that keep the scenery from
+// eating the thing it decorates.
+
+test('props: the city is full of things that are not doors', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const props = d.state.props || [];
+  assert.ok(props.length > 40, `only ${props.length} things standing that are not buildings`);
+
+  const kinds = new Set(props.map(p => p.kind));
+  assert.ok(kinds.size >= 8, `only ${kinds.size} kinds of thing`);
+  kinds.forEach(k => {
+    assert.ok(window.PROPS[k], `${k} has no size`);
+    assert.ok(d.PROP_ART[k], `${k} has nothing to draw it`);
+  });
+
+  // and they are the city's, not the session's
+  assert.deepEqual(d.packCity().props.length, props.length, 'a city you walk out of keeps its benches');
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal((back.props || []).length, props.length, 'and a save keeps them too');
+});
+
+test('props: nothing decorative can be mistaken for a door, or tapped like one', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const svg = d.svgProps();
+
+  // an outline on this map means something you can take
+  assert.ok(!/stroke=/.test(svg), 'a prop is drawing itself an outline');
+  // and nothing addressable can be hanging off one
+  assert.ok(!/data-bldg/.test(svg), 'a prop is carrying a building id');
+  assert.ok(!/data-[a-z]+=/.test(svg), 'a prop is carrying a handle of some kind');
+
+  // the rules that make it true are in the stylesheet, not in good intentions
+  assert.ok(/\.props\s*\{[^}]*pointer-events:\s*none/.test(STYLE_CSS),
+    'the props group still takes pointer events');
+  assert.ok(/\.props \*\s*\{[^}]*stroke:\s*none/.test(STYLE_CSS),
+    'nothing stops a prop being given a stroke');
+
+  // and none of them is a copy of something real: a fake station beside a real
+  // one is a lie the player pays for
+  const real = Object.keys(window.BUILDING_KINDS);
+  Object.keys(window.PROPS).forEach(k => {
+    assert.equal(real.indexOf(k), -1, `${k} is both scenery and a building`);
+  });
+});
+
+test('props: what stands there depends on where there is', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const by = d.districtBlocks();
+  const props = d.state.props || [];
+
+  const blockAt = (p) => L.blocks.find(b =>
+    p.x + p.w > b.x - 30 && p.x < b.x + b.w + 30 &&
+    p.y + p.h > b.y - 30 && p.y < b.y + b.h + 30);
+
+  const seen = {};
+  props.forEach(p => {
+    const b = blockAt(p);
+    if (!b) return;
+    const k = b.district || by[b.i];
+    (seen[k] = seen[k] || new Set()).add(p.kind);
+  });
+  const kinds = Object.keys(seen);
+  assert.ok(kinds.length > 1, 'every district got the same scenery');
+  // the industrial edge does not have playgrounds in it
+  kinds.forEach(k => {
+    const allowed = new Set((window.DISTRICT_PROPS[k] || [])
+      .concat((window.OPEN_BLOCKS[k] || {}).props || []));
+    // verge props can spill one block over, so this is about the bulk of them
+    const wrong = [...seen[k]].filter(x => !allowed.has(x)).length;
+    assert.ok(wrong <= 3, `${k} is full of things that do not belong there: ${wrong}`);
+  });
+});
+
+test('props: a block with nothing built on it is a place, not a gap', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const open = L.blocks.filter(b => b.open);
+  assert.ok(open.length > 0, 'the whole city is wall-to-wall blocks');
+
+  // nothing is built on one, which is the entire point of it
+  open.forEach(b => {
+    const on = d.state.buildings.filter(x =>
+      x.x >= b.x && x.x < b.x + b.w && x.y >= b.y && x.y < b.y + b.h);
+    assert.equal(on.length, 0, `something got built on the ${b.openKind}`);
+    assert.ok(b.openKind, 'and it is some particular kind of open ground');
+  });
+
+  const svg = d.svgOpenBlocks();
+  open.forEach(b => assert.ok(svg.includes(`open-ground ${b.openKind}`), `the ${b.openKind} is not drawn`));
+
+  // and it costs buildings, so it must not cost so many that the graph goes
+  const degs = d.state.buildings.map(b => (d.state.adjacency[b.id] || []).length);
+  assert.equal(degs.filter(k => k === 0).length, 0, 'open ground stranded a building');
+});
+
+test('props: nothing decorative stands on a building', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  (d.state.props || []).forEach(p => {
+    d.state.buildings.forEach(b => {
+      const apart = p.x + p.w <= b.x || b.x + b.w <= p.x || p.y + p.h <= b.y || b.y + b.h <= p.y;
+      assert.ok(apart, `a ${p.kind} is standing inside ${b.kind} ${b.id}`);
+    });
+  });
 });
 
 test('map: the ground is built once and the buildings are what cost', () => {

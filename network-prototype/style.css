@@ -766,6 +766,53 @@ footer .build { opacity: .55; font-size: 10px; }
 .street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
 .street.main { stroke: #202a26; stroke-width: 30; }
 .street-line { stroke: #2b3a34; stroke-width: 1; stroke-dasharray: 8 12; opacity: .55; }
+/* --- props ---------------------------------------------------------------
+   Everything standing on the map that is not a door. Two rules hold the whole
+   thing together and they are enforced here rather than by care:
+
+     * no stroke, ever. An outline on this map means something you can take,
+       and a prop that borrows one starts competing with the buildings for the
+       player's attention. Every prop below is fill-only.
+     * no pointer events, ever. The group takes none, so a tap can never land
+       on scenery — not on the shape and not on the nearest-target fallback.
+
+   They also sit below the dimmest undiscovered building in contrast, which is
+   what stops a city full of trees from burying the four buildings you can
+   actually reach this turn. */
+.props { pointer-events: none; }
+.props * { stroke: none; }
+.pr-leaf   { fill: #16301e; opacity: .9; }
+.pr-leaf.hi{ fill: #1b3b25; opacity: .7; }
+.pr-trunk  { fill: #241d16; opacity: .9; }
+.pr-scrub  { fill: #1d2a1c; opacity: .7; }
+.pr-wood   { fill: #2a221a; opacity: .85; }
+.pr-metal  { fill: #232d2f; opacity: .85; }
+.pr-metal.hi { fill: #2b383a; opacity: .8; }
+.pr-stone  { fill: #262a2c; opacity: .85; }
+.pr-canopy { fill: #2c2320; opacity: .9; }
+.pr-paper  { fill: #33342c; opacity: .8; }
+.pr-lit    { fill: #4a4326; opacity: .85; }
+.pr-water  { fill: #12262e; opacity: .9; }
+.pr-water.hi { fill: #1a3540; opacity: .7; }
+.pr-sand   { fill: #2a2419; opacity: .7; }
+.pr-tarmac { fill: #1b1f1e; opacity: .9; }
+.pr-car    { fill: #262f2c; opacity: .85; }
+.pr-crate  { fill: #262521; opacity: .9; }
+.pr-crate.c1 { fill: #2b2320; }
+.pr-crate.c2 { fill: #21282a; }
+.pr-lattice{ fill: #232a2c; opacity: .55; }
+.pr-spoil  { fill: #23201a; opacity: .8; }
+
+/* A block with nothing built on it. The strongest mark props make, because it
+   is the only one with a shape of its own — and the reason the plan stops
+   reading as wall-to-wall blocks. */
+.open-ground { pointer-events: none; }
+.open-ground.park   { fill: #0f1a12; }
+.open-ground.square { fill: #14171a; }
+.open-ground.plaza  { fill: #141621; }
+.open-ground.yard   { fill: #16130e; }
+.open-path { fill: none; stroke: #1e2622; stroke-width: 5; opacity: .8; pointer-events: none; }
+
 .junction { fill: #202a26; opacity: .7; }
 .zebra { fill: #33423b; opacity: .55; }
 .tree { fill: #17301f; opacity: .85; }

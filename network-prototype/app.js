@@ -35,6 +35,80 @@
     return out;
   }
 
+  // --- what else is standing there ----------------------------------------
+  // Props fill what the buildings left over, and the verge outside. Generated
+  // once with the city and packed with it — a bench that moved when you ended a
+  // turn would be worse than no bench, and the whole reason this is affordable
+  // is that it draws on the ground layer, which is written once per city.
+  function scatterProps(block, districtKey, bands, buildings, open) {
+    const F = window.PROP_FILL;
+    const pool = open
+      ? (window.OPEN_BLOCKS[districtKey] || {}).props || []
+      : window.DISTRICT_PROPS[districtKey] || [];
+    if (!pool.length) return [];
+
+    const out = [];
+    const mine = buildings.filter(b =>
+      b.x < block.x + block.w && b.x + b.w > block.x &&
+      b.y < block.y + block.h && b.y + b.h > block.y);
+
+    const room = (x, y, w, h, pad) =>
+      !(bands && bands.some(band => rectOnBand(band, x, y, w, h))) &&
+      mine.every(b =>
+        x + w + F.clearOfBuilding <= b.x || b.x + b.w + F.clearOfBuilding <= x ||
+        y + h + F.clearOfBuilding <= b.y || b.y + b.h + F.clearOfBuilding <= y) &&
+      out.every(p =>
+        x + w + pad <= p.x || p.x + p.w + pad <= x ||
+        y + h + pad <= p.y || p.y + p.h + pad <= y);
+
+    const want = open ? rndInt(F.perOpen[0], F.perOpen[1]) : rndInt(F.perBlock[0], F.perBlock[1]);
+    for (let n = 0; n < want; n++) {
+      const kind = pick(pool);
+      const P = window.PROPS[kind];
+      if (!P) continue;
+      const w = rndInt(P.w[0], P.w[1]);
+      const h = rndInt(P.h[0], P.h[1]);
+      for (let t = 0; t < F.tries; t++) {
+        const x = Math.round(block.x + 2 + Math.random() * Math.max(0, block.w - w - 4));
+        const y = Math.round(block.y + 2 + Math.random() * Math.max(0, block.h - h - 4));
+        if (room(x, y, w, h, P.pad)) { out.push({ kind, x, y, w, h }); break; }
+      }
+    }
+    return out;
+  }
+
+  // The verge: the strip of road-side outside a block. Lamps and bins and the
+  // odd tree go here rather than inside, because that is where they are in a
+  // city and because it is the gap between blocks that used to read as empty.
+  function scatterVerge(block, districtKey, layout, bands) {
+    const F = window.PROP_FILL;
+    const pool = (window.DISTRICT_PROPS[districtKey] || [])
+      .filter(k => ['tree', 'bush', 'lamp', 'bin', 'bench', 'bollards', 'newsstand', 'planter', 'scrub'].indexOf(k) !== -1);
+    if (!pool.length) return [];
+    const out = [];
+    const n = rndInt(F.verge[0], F.verge[1]);
+    for (let i = 0; i < n; i++) {
+      const kind = pick(pool);
+      const P = window.PROPS[kind];
+      if (!P) continue;
+      const w = rndInt(P.w[0], P.w[1]);
+      const h = rndInt(P.h[0], P.h[1]);
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const road = (side === 'n' || side === 's') ? layout.hRoad[block.row + (side === 's' ? 1 : 0)]
+                                                 : layout.vRoad[block.col + (side === 'e' ? 1 : 0)];
+      if (road < w + 8 || road < h + 8) continue;    // no room on that road
+      let x, y;
+      if (side === 'n') { x = block.x + Math.random() * (block.w - w); y = block.y - road / 2 + 3; }
+      else if (side === 's') { x = block.x + Math.random() * (block.w - w); y = block.y + block.h + road / 2 - h - 3; }
+      else if (side === 'w') { x = block.x - road / 2 + 3; y = block.y + Math.random() * (block.h - h); }
+      else { x = block.x + block.w + road / 2 - w - 3; y = block.y + Math.random() * (block.h - h); }
+      x = Math.round(x); y = Math.round(y);
+      if (bands && bands.some(band => rectOnBand(band, x, y, w, h))) continue;
+      out.push({ kind, x, y, w, h });
+    }
+    return out;
+  }
+
   // --- the street plan ----------------------------------------------------
   // The blocks and the roads between them, as explicit geometry rather than
   // arithmetic on one block size. Everything that draws the ground reads this,
@@ -147,6 +221,36 @@
             + Math.sin((cx + cy * 0.7) / 145 + wob[2]) * 0.2;
     const t = Math.max(0, Math.min(1, cy / Math.max(1, layout.h) + n * C.districtBlur));
     return DISTRICT_KEYS[Math.round(lo + (hi - lo) * t)];
+  }
+
+  // Which blocks have nothing built on them: a park in the suburbs, a square on
+  // the high street, a plaza in the business park, a yard on the industrial
+  // edge. It is the strongest mark the scenery makes, because it is the only
+  // one with a shape of its own, and it is what stops the plan reading as
+  // wall-to-wall blocks.
+  //
+  // Chosen by ranking every block against the city's own seed rather than by
+  // rolling per block. Two reasons, and the second is the one that bit: a roll
+  // is unbounded, so an unlucky city could open half its blocks and lose the
+  // graph — and `Math.random() < chance` is *always* true under a test that
+  // pins random to zero, which emptied the whole city.
+  function markOpenBlocks(layout, seed) {
+    const scored = layout.blocks
+      .map((b, i) => {
+        const OB = window.OPEN_BLOCKS[b.district];
+        return OB ? { b, OB, r: cityNoise(seed, i * 7 + 3) / Math.max(0.01, OB.chance) } : null;
+      })
+      .filter(Boolean)
+      .sort((p, q) => p.r - q.r);
+    // the mean chance across the blocks that exist, as a count, so however the
+    // districts fell there is a fixed ceiling on how much of the city is holes
+    const mean = scored.reduce((a, x) => a + x.OB.chance, 0) / Math.max(1, scored.length);
+    const want = Math.min(Math.round(layout.blocks.length * mean),
+                          Math.floor(layout.blocks.length * 0.22));
+    scored.slice(0, Math.max(0, want)).forEach(({ b, OB }) => {
+      b.open = true;
+      b.openKind = OB.kind;
+    });
   }
 
   // Buildings thrown into a block rather than slotted into it.
@@ -332,6 +436,8 @@
     const layout = makeLayout(cols, rows);
     // the three phases of the district wobble, fixed for this city
     const wob = [Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3];
+    const seed = Math.floor(Math.random() * 1e9) + 1;
+    layout.seed = seed;
     const bands = makeBands(regionId, layout.w, layout.h, o.extraCrossings || 0);
 
     // Districts are areas now, so a caller that hands us rows (an old save
@@ -339,23 +445,30 @@
     // the row it names wins over the gradient.
     const rowDistricts = o.rowDistricts || null;
 
+    const props = [];
     layout.blocks.forEach(block => {
-      const districtKey = rowDistricts
+      block.district = rowDistricts
         ? rowDistricts[block.row % rowDistricts.length]
         : districtFor(block, layout, tierSpan, wob);
+    });
+    markOpenBlocks(layout, seed);
+
+    layout.blocks.forEach(block => {
+      const districtKey = block.district;
       const D = window.DISTRICTS[districtKey];
-      block.district = districtKey;
-      const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
-      scatterBlock(block, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
-        buildings.push({
-          id: 'b' + (bid++),
-          kind: put.kind, district: districtKey, tier: D.tier,
-          block: block.i, row: block.row, col: block.col,
-          x: put.x, y: put.y, w: put.w, h: put.h,
-          hostIds: [],
-          discovered: false,
+      if (!block.open) {
+        const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+        scatterBlock(block, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
+          buildings.push({
+            id: 'b' + (bid++),
+            kind: put.kind, district: districtKey, tier: D.tier,
+            block: block.i, row: block.row, col: block.col,
+            x: put.x, y: put.y, w: put.w, h: put.h,
+            hostIds: [],
+            discovered: false,
+          });
         });
-      });
+      }
     });
 
     // Landmarks. The reason to fight for a crossing rather than route around
@@ -401,6 +514,16 @@
         }
       });
     })();
+
+    // Scenery last, and after the landmarks in particular: placing a landmark
+    // grows the building it lands on, so anything scattered before that was
+    // clear of it and then was not. Measured as a tree standing inside a
+    // substation, which is exactly the kind of thing a player notices and
+    // nothing else would have caught.
+    layout.blocks.forEach(block => {
+      props.push(...scatterProps(block, block.district, bands, buildings, block.open));
+      props.push(...scatterVerge(block, block.district, layout, bands));
+    });
 
     // one building, one host — the building is the thing you take
     buildings.forEach(b => {
@@ -651,7 +774,7 @@
     seat.ring = 0;
     seat.origin = true;
 
-    return { buildings, hosts, links, adjacency, bands, layout, wob,
+    return { buildings, hosts, links, adjacency, bands, layout, wob, props,
              originId: seat.id, dims: { cols, rows } };
   }
 
@@ -737,16 +860,20 @@
     extendLayout(L, HOME_GROWTH_ROWS);
     const wob = state.wob || (state.wob = [0, 0, 0]);
 
+    const fresh = L.blocks.filter(blk => blk.row >= startRow);
+    fresh.forEach(blk => { blk.district = districtFor(blk, L, undefined, wob); });
+    // rank only the new rows, against the same seed the city was laid out with
+    markOpenBlocks({ blocks: fresh }, L.seed || 1);
+
     const newBuildings = [];
-    L.blocks.filter(blk => blk.row >= startRow).forEach(blk => {
-      const districtKey = districtFor(blk, L, undefined, wob);
-      const D = window.DISTRICTS[districtKey];
-      blk.district = districtKey;
-      const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+    fresh.forEach(blk => {
+      if (blk.open) return;
+      const D = window.DISTRICTS[blk.district];
+      const kinds = (TR.kinds && TR.kinds[blk.district]) || D.kinds;
       scatterBlock(blk, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
         newBuildings.push({
           id: 'b' + (nextBidNum++),
-          kind: put.kind, district: districtKey, tier: D.tier, trait: traitId || undefined,
+          kind: put.kind, district: blk.district, tier: D.tier, trait: traitId || undefined,
           block: blk.i, row: blk.row, col: blk.col,
           x: put.x, y: put.y, w: put.w, h: put.h,
           hostIds: [],
@@ -754,6 +881,10 @@
         });
       });
     });
+    // and the scenery the new ground came with
+    state.props = (state.props || []).concat(fresh.flatMap(blk =>
+      scatterProps(blk, blk.district, bands, newBuildings, blk.open)
+        .concat(scatterVerge(blk, blk.district, L, bands))));
 
     if (newBuildings.length) {
       state.lastGrowthTrait = traitId;
@@ -1311,6 +1442,7 @@
       dims: g.dims,
       layout: g.layout,
       wob: g.wob,
+      props: g.props,
       region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
@@ -3676,7 +3808,7 @@ scratch.later = null;
       adjacency: state.adjacency, bands: state.bands, dims: state.dims,
       // the street plan is part of the city, not of the session: a road that
       // moved when you walked back into a place would be worse than a straight one
-      layout: state.layout, wob: state.wob,
+      layout: state.layout, wob: state.wob, props: state.props,
       rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
@@ -3694,6 +3826,7 @@ scratch.later = null;
     state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
     state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
     state.layout = p.layout || null; state.wob = p.wob || [0, 0, 0];
+    state.props = p.props || [];
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
@@ -3727,7 +3860,7 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0],
+    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [],
     hidden: [], hunt: null, hacks: [],
     caughtHere: 0, caughtAt: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
@@ -3770,7 +3903,7 @@ scratch.later = null;
         extraCrossings: capEffect('extraCrossings', 0),
       });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency,
-                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob });
+                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob, props: g.props });
       const seat0 = state.hosts.find(h => h.owned);
       if (seat0) seat0.heldSince = state.turn;
     }
@@ -5722,7 +5855,7 @@ scratch.later = null;
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
-      layout: state.layout, wob: state.wob, region: state.region, homeGrowth: state.homeGrowth || 0,
+      layout: state.layout, wob: state.wob, props: state.props, region: state.region, homeGrowth: state.homeGrowth || 0,
       lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
@@ -5754,7 +5887,7 @@ scratch.later = null;
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
         // a save from before the street plan existed draws on the old exact grid
-        layout: saved.layout || null, wob: saved.wob || [0, 0, 0],
+        layout: saved.layout || null, wob: saved.wob || [0, 0, 0], props: saved.props || [],
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
         lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
       };
@@ -6259,6 +6392,135 @@ scratch.later = null;
       }
     }
     return cells;
+  }
+
+  // --- props, drawn ---------------------------------------------------------
+  // Every one of these is a couple of marks and no stroke. That is the rule
+  // that keeps the map readable: an outline means a door. They also never
+  // carry a `data-` attribute, so no tap can ever land on one.
+  const PROP_ART = {
+    tree: (p, n) => {
+      const cx = p.x + p.w / 2, r = p.w / 2;
+      return `<rect class="pr-trunk" x="${(cx - 0.9).toFixed(1)}" y="${(p.y + p.h * 0.6).toFixed(1)}" width="1.8" height="${(p.h * 0.4).toFixed(1)}"/>`
+        + `<circle class="pr-leaf" cx="${cx.toFixed(1)}" cy="${(p.y + r * 0.95).toFixed(1)}" r="${r.toFixed(1)}"/>`
+        + `<circle class="pr-leaf hi" cx="${(cx - r * 0.3).toFixed(1)}" cy="${(p.y + r * 0.7).toFixed(1)}" r="${(r * 0.55).toFixed(1)}"/>`;
+    },
+    bush: (p) => `<ellipse class="pr-leaf" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}"`
+      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h / 2).toFixed(1)}"/>`,
+    hedge: (p) => `<rect class="pr-leaf" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="2"/>`,
+    scrub: (p, n) => {
+      let s = '';
+      for (let i = 0; i < 4; i++) {
+        s += `<circle class="pr-scrub" cx="${(p.x + n(i) * p.w).toFixed(1)}" cy="${(p.y + n(i + 9) * p.h).toFixed(1)}" r="${(1.6 + n(i + 3) * 2).toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    bench: (p) => `<rect class="pr-wood" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1"/>`,
+    bin: (p) => `<rect class="pr-metal" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1"/>`,
+    lamp: (p) => `<rect class="pr-metal" x="${(p.x + p.w / 2 - 0.7).toFixed(1)}" y="${p.y}" width="1.4" height="${p.h}"/>`
+      + `<circle class="pr-lit" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${p.y}" r="2.1"/>`,
+    planter: (p) => `<rect class="pr-stone" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`
+      + `<ellipse class="pr-leaf" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h * 0.35).toFixed(1)}" rx="${(p.w * 0.34).toFixed(1)}" ry="${(p.h * 0.3).toFixed(1)}"/>`,
+    bollards: (p) => {
+      let s = '';
+      for (let x = p.x; x < p.x + p.w; x += 5) s += `<rect class="pr-metal" x="${x.toFixed(1)}" y="${p.y}" width="2" height="3"/>`;
+      return s;
+    },
+    bikerack: (p) => {
+      let s = `<rect class="pr-metal" x="${p.x}" y="${(p.y + p.h - 1).toFixed(1)}" width="${p.w}" height="1"/>`;
+      for (let x = p.x + 2; x < p.x + p.w; x += 4) s += `<rect class="pr-metal" x="${x.toFixed(1)}" y="${p.y}" width="1" height="${p.h}"/>`;
+      return s;
+    },
+    // A stall is a canopy and a counter. Deliberately soft-edged: it must not
+    // read as a shopfront, which is a door you can take.
+    stall: (p, n) => `<rect class="pr-canopy" x="${p.x}" y="${p.y}" width="${p.w}" height="${(p.h * 0.45).toFixed(1)}" rx="1.5"/>`
+      + `<rect class="pr-wood" x="${(p.x + 1).toFixed(1)}" y="${(p.y + p.h * 0.55).toFixed(1)}" width="${(p.w - 2).toFixed(1)}" height="${(p.h * 0.45).toFixed(1)}" rx="1"/>`,
+    foodstand: (p) => `<rect class="pr-canopy" x="${p.x}" y="${p.y}" width="${p.w}" height="${(p.h * 0.4).toFixed(1)}" rx="1.5"/>`
+      + `<rect class="pr-metal" x="${(p.x + 2).toFixed(1)}" y="${(p.y + p.h * 0.5).toFixed(1)}" width="${(p.w - 4).toFixed(1)}" height="${(p.h * 0.5).toFixed(1)}" rx="1"/>`
+      + `<circle class="pr-lit" cx="${(p.x + p.w - 2.5).toFixed(1)}" cy="${(p.y + p.h * 0.62).toFixed(1)}" r="1.3"/>`,
+    newsstand: (p) => `<rect class="pr-wood" x="${p.x}" y="${(p.y + p.h * 0.3).toFixed(1)}" width="${p.w}" height="${(p.h * 0.7).toFixed(1)}" rx="1"/>`
+      + `<rect class="pr-paper" x="${(p.x + 1).toFixed(1)}" y="${p.y}" width="${(p.w - 2).toFixed(1)}" height="${(p.h * 0.34).toFixed(1)}" rx="0.6"/>`,
+    kiosk: (p) => `<rect class="pr-wood" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`
+      + `<rect class="pr-lit" x="${(p.x + 1.5).toFixed(1)}" y="${(p.y + 2).toFixed(1)}" width="${(p.w - 3).toFixed(1)}" height="${(p.h * 0.33).toFixed(1)}" rx="0.6"/>`,
+    fountain: (p) => `<circle class="pr-water" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w / 2).toFixed(1)}"/>`
+      + `<circle class="pr-stone" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w * 0.16).toFixed(1)}"/>`,
+    pond: (p) => `<ellipse class="pr-water" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}"`
+      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h / 2).toFixed(1)}"/>`
+      + `<ellipse class="pr-water hi" cx="${(p.x + p.w * 0.38).toFixed(1)}" cy="${(p.y + p.h * 0.36).toFixed(1)}" rx="${(p.w * 0.18).toFixed(1)}" ry="${(p.h * 0.12).toFixed(1)}"/>`,
+    sculpture: (p) => `<rect class="pr-stone" x="${(p.x + p.w * 0.25).toFixed(1)}" y="${(p.y + p.h * 0.72).toFixed(1)}" width="${(p.w * 0.5).toFixed(1)}" height="${(p.h * 0.28).toFixed(1)}"/>`
+      + `<polygon class="pr-stone" points="${(p.x + p.w / 2).toFixed(1)},${p.y} ${(p.x + p.w).toFixed(1)},${(p.y + p.h * 0.72).toFixed(1)} ${p.x},${(p.y + p.h * 0.72).toFixed(1)}"/>`,
+    play: (p, n) => {
+      let s = `<rect class="pr-sand" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="3"/>`;
+      s += `<rect class="pr-metal" x="${(p.x + p.w * 0.2).toFixed(1)}" y="${(p.y + p.h * 0.25).toFixed(1)}" width="${(p.w * 0.35).toFixed(1)}" height="1.4"/>`;
+      s += `<circle class="pr-lit" cx="${(p.x + p.w * 0.72).toFixed(1)}" cy="${(p.y + p.h * 0.6).toFixed(1)}" r="2.4"/>`;
+      return s;
+    },
+    carpark: (p, n) => {
+      let s = `<rect class="pr-tarmac" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`;
+      for (let i = 0; i < Math.floor(p.w / 9); i++) {
+        if (n(i) < 0.35) continue;
+        s += `<rect class="pr-car" x="${(p.x + 2 + i * 9).toFixed(1)}" y="${(p.y + 3 + n(i + 20) * (p.h - 10)).toFixed(1)}" width="6" height="3.5" rx="1"/>`;
+      }
+      return s;
+    },
+    containers: (p, n) => {
+      let s = '';
+      const rows = Math.max(1, Math.floor(p.h / 7));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < Math.floor(p.w / 11); c++) {
+          if (n(r * 5 + c) < 0.25) continue;
+          s += `<rect class="pr-crate c${(r + c) % 3}" x="${(p.x + c * 11).toFixed(1)}" y="${(p.y + r * 7).toFixed(1)}" width="10" height="6" rx="0.8"/>`;
+        }
+      }
+      return s;
+    },
+    pallets: (p, n) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<rect class="pr-wood" x="${(p.x + n(i) * (p.w - 8)).toFixed(1)}" y="${(p.y + i * (p.h / 3)).toFixed(1)}" width="8" height="${(p.h / 3.6).toFixed(1)}" rx="0.6"/>`;
+      }
+      return s;
+    },
+    tank: (p) => `<circle class="pr-metal" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w / 2).toFixed(1)}"/>`
+      + `<circle class="pr-metal hi" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w * 0.3).toFixed(1)}"/>`,
+    pylon: (p) => {
+      const cx = p.x + p.w / 2;
+      return `<polygon class="pr-lattice" points="${cx.toFixed(1)},${p.y} ${(p.x + p.w).toFixed(1)},${(p.y + p.h).toFixed(1)} ${p.x},${(p.y + p.h).toFixed(1)}"/>`
+        + `<rect class="pr-lattice" x="${(cx - p.w * 0.42).toFixed(1)}" y="${(p.y + p.h * 0.34).toFixed(1)}" width="${(p.w * 0.84).toFixed(1)}" height="1.4"/>`;
+    },
+    spoil: (p) => `<ellipse class="pr-spoil" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h * 0.7).toFixed(1)}"`
+      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h * 0.4).toFixed(1)}"/>`,
+  };
+
+  // Open ground: the park, square, plaza or yard a block turns into when there
+  // is nothing built on it. Drawn under its props as one tinted patch.
+  function svgOpenBlocks() {
+    const L = cityLayout();
+    let out = '';
+    L.blocks.filter(b => b.open).forEach(b => {
+      out += `<rect class="open-ground ${b.openKind || 'park'}" x="${b.x}" y="${b.y}"`
+        + ` width="${b.w}" height="${b.h}" rx="6"/>`;
+      // a path across it, so it reads as somewhere people walk rather than a
+      // rectangle of a different colour
+      if (b.openKind === 'park' || b.openKind === 'square' || b.openKind === 'plaza') {
+        const my = (b.y + b.h * 0.55).toFixed(1);
+        out += `<path class="open-path" d="M${b.x} ${my} Q ${(b.x + b.w * 0.4).toFixed(1)} ${(b.y + b.h * 0.3).toFixed(1)}`
+          + ` ${(b.x + b.w).toFixed(1)} ${(b.y + b.h * 0.62).toFixed(1)}"/>`;
+      }
+    });
+    return out;
+  }
+
+  function svgProps() {
+    const props = state.props || [];
+    if (!props.length) return '';
+    let out = '<g class="props">';
+    props.forEach((p, i) => {
+      const art = PROP_ART[p.kind];
+      if (!art) return;
+      out += art(p, (k) => cityNoise(p.x * 31 + p.y * 17 + i, k));
+    });
+    return out + '</g>';
   }
 
   const KIND_DETAIL = {
@@ -6968,12 +7230,12 @@ scratch.later = null;
     const L = cityLayout();
     const gaps = (state.bands || []).reduce((a, b) => a + (b.gaps || []).length, 0);
     return [state.cityId, L.cols, L.rows, (state.buildings || []).length,
-            (state.bands || []).length, gaps].join('|');
+            (state.props || []).length, (state.bands || []).length, gaps].join('|');
   }
   function svgGround() {
     const key = groundKey();
     if (groundCache && groundCache.key === key) return groundCache.html;
-    groundCache = { key, html: svgStreets() + svgBands() };
+    groundCache = { key, html: svgStreets() + svgOpenBlocks() + svgProps() + svgBands() };
     return groundCache.html;
   }
   // For anything that changes the ground in a way the key cannot see.
@@ -8658,7 +8920,7 @@ scratch.later = null;
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
-    districtBlocks, cityLayout, svgGround, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    districtBlocks, cityLayout, svgGround, svgProps, svgOpenBlocks, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
