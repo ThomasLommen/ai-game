@@ -204,8 +204,8 @@ window.LADDER = {
     },
     3: {
       name: 'Public',
-      tell: 'lying low no longer sheds heat — they know to look at exactly the places that go quiet',
-      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones being used.',
+      tell: 'you can no longer hide a building from the response — they know to look at exactly the places that go quiet, and everything you were hiding comes back onto their map',
+      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones going quiet.',
     },
     4: {
       name: 'Enforcement',
@@ -628,14 +628,14 @@ window.HUNT = {
   name: 'the response',
   // it does not arrive before you have anything to lose
   minHeld: 8,
-  // turns between moves. It slows down as your cover rises: cover is what
-  // makes you hard to follow, and until now its only job in the whole engine
-  // was gating one door type.
+  // Turns between moves, and covert ops is the only input. Heat used to
+  // override this and pin them to a fixed fast tick whenever you were over the
+  // line, which meant the cadence was usually decided by a meter the city
+  // scale no longer even shows. One input, one lever.
   everyBase: 6,
   perCover: 0.22,          // turns added per point of covert.ops
   everyMax: 14,
-  // and speeds up while you are over the line
-  hotEvery: 3,
+
   // A strike used to drop heat to a quarter of the threshold — it was the only
   // thing in the game that ever brought the meter down hard, and replacing it
   // left every profile sitting permanently over the line at a mean of 34 to

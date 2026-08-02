@@ -409,21 +409,15 @@ window.HOST_NAMES = {
 
 // Trace/strike model, ported from src/core/network.js.
 window.HEAT = {
-  STRIKE: 40,           // trace at which the hunter strikes
-  STRIKE_FRACTION: 0.33, // share of the fleet burned
-  STRIKE_DROP: 0.25,    // trace falls to STRIKE * this afterwards
+  // The line, still. Nothing strikes at it any more — the strike is gone — but
+  // it is the scale everything else is said in: heatPressure() reads heat as a
+  // share of it, and the floor and the drift both climb against it.
+  STRIKE: 40,
   PER_HOST: 0.35,       // a sprawling network is inherently loud, per turn
   IOT_COVER: 0.8,       // each router launders traffic, per turn
-  LIE_LOW: 5,           // heat removed by spending a turn dark, at least
   // The pressure scales with the campaign — the floor, the drift and the
-  // threshold all climb with presence. Flat shedding tools do not, so by the
-  // last region a turn spent dark could not keep pace with a turn's drift and
-  // every profile sat permanently over the line at 63-74 strikes a game.
-  // These are shares of the current threshold, so the levers grow with it.
-  LIE_LOW_SHARE: 0.14,
-  STRIKE_COOLDOWN: 9,   // turns before the hunter can strike again
+  // threshold all climb with presence.
   MAX_OVER: 1.6,        // heat cannot climb past this multiple of the threshold
-  DEEP_STRIKE: 1.25,    // over the threshold, each strike takes proportionally more
   // How much of your loud footprint stealth can hide. Without a ceiling,
   // cameras zeroed the floor entirely and the pressure system went decorative
   // in 72.5% of measured games.
@@ -455,7 +449,6 @@ window.HEAT = {
   // None of these push a stage back down. They make living with it survivable,
   // which is the point: the ladder never reverses, so the only real lever left
   // is ladderDelay() — everything here is coping with a stage already landed.
-  ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
   BUY_TRACE: 8,        // Regulatory: plant it is watching gets traced instead of going clean
   FORCE_TRACE: 8,      // Enforcement: a door it is watching costs this much more to force
@@ -481,23 +474,6 @@ window.STAGES = [
 // of ways in became a table with one row that already exists in PROGRAMS.
 
 // --- the hunter --------------------------------------------------------
-// What calling in a favor costs — read here and in resolveStrike(), so the
-// card and the engine can never disagree about the number.
-window.FIXERS_FAVOR_COST = 20;
-window.STRIKE_CARD = {
-  title: 'They Have a Name for It Now',
-  flavor: 'A CERT advisory describes your traffic pattern. Not a guess anymore — a signature.',
-  choices: [
-    { text: 'Go dark, drop the loud nodes', effect: 'shed_loud', desc: 'lose your noisiest holdings' },
-    { text: 'Ride it out', effect: 'ride', desc: 'lose a third of the fleet, at random' },
-    { text: 'Burn cover to protect the fleet', effect: 'burn_cover', requires: { res: 'funds', amount: 8 }, desc: 'spend INSIGHT 8' },
-    // Fixers only: a way out of this card that costs nothing but funds,
-    // full stop — not a discount on one of the above, an option nobody
-    // without the capability even sees on the card at all.
-    { text: 'Call in a favor', effect: 'buy_out', requires: { res: 'funds', amount: window.FIXERS_FAVOR_COST, cap: 'fixers' }, desc: `spend FUNDS ${window.FIXERS_FAVOR_COST} — nothing lost` },
-  ],
-};
-
 // --- what things do ----------------------------------------------------
 // Every stat and button gets a plain-language explanation, surfaced on tap.
 // Nothing here is flavour: if the player can't say what a number does, the
@@ -546,7 +522,6 @@ window.STAT_INFO = {
 window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more.',
-  lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
 };
 
 // --- tags --------------------------------------------------------------
@@ -565,7 +540,6 @@ window.TAG_INFO = {
   hunted:         { label: 'hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
   found_a_precursor: { label: 'precursor.found', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one rung of the ladder ---
-  rota_contact:   { label: 'rota.contact',  desc: 'you know which hours nobody covers — lying low still sheds half' },
   unlisted:       { label: 'unlisted',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
   ledger_inside:  { label: 'ledger.inside',  desc: 'your accounts are not what Ledger compares against — plant you pay for stops getting traced' },
   blind_spot:     { label: 'blind.spot', desc: 'a corner the camera audit never reached — your stealth still covers you' },
@@ -579,7 +553,6 @@ window.TAG_INFO = {
   // is for and what a slider is not.
   deep_root:      { label: 'deep.root',   desc: 'whatever you get into softens what is next to it, permanently' },
   swarm_front:    { label: 'swarm.front', desc: 'the weakest door on your frontier gives way on its own each turn, free' },
-  fixers:         { label: 'fixers',      desc: 'people who owe you — when the hunter comes there is a call you can make' },
   standing_army:  { label: 'standing.orders', desc: 'a retainer paid either way: funds every turn, and something already on guard if war comes' },
   master_plan:    { label: 'master.plan',  desc: "you know the shape of the place — home's next growth fills in whatever it has least of" },
 };
@@ -733,17 +706,6 @@ window.EVENTS = [
     choices: [
       { text: 'Let it keep happening', cost: { funds: 18 }, apply: (s) => { s.tags.add('swarm_front'); } },
       { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
-    ],
-  },
-  {
-    id: 'people_who_owe_you', once: true,
-    cond: (s) => s.heat > 18 && s.res.funds >= 20,
-    title: 'A Number You Have Not Used',
-    flavor: 'Somewhere in what you have taken there is a list of people who were paid to make problems go away, and were never asked to. The arrangement never formally ended.',
-    choices: [
-      { text: 'Keep it current', cost: { funds: 20 }, apply: (s) => { s.tags.add('fixers'); } },
-      { text: 'Sell the list on', apply: (s) => { s.res.funds += 16; s.heat += 5; } },
-      { text: 'Burn it', apply: (s) => { s.heat -= 5; } },
     ],
   },
   {
@@ -1202,37 +1164,41 @@ window.EVENTS = [
   // landed feel.
   // ======================================================================
 
-  // --- stage 3, Public: going dark stops shedding heat --------------------
+  // --- stage 3, Public: you can no longer hide a building -----------------
+  // These used to be about lying low, which is gone with the heat meter it
+  // moved. The stage itself is unchanged and still has a real bite — it takes
+  // hiding off you, which is the response's one counter — so its cards say
+  // that instead. None of them hands the tool back: that is the rule about
+  // this ladder, and the only thing on offer is what you do with the loss.
   {
     id: 'qh_warning', once: true,
     cond: (s) => s.escalation.pending === 3,
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [
-      { text: 'Read the whole rota', cost: { funds: 6 }, apply: (s) => { s.tags.add('rota_contact'); } },
+      { text: 'Bring everything back into the open before they do', apply: (s) => { s.pub = 3; } },
       { text: 'Get loud somewhere else instead', apply: (s) => { s.heat += 5; s.res.funds += 12; } },
       { text: 'Nothing. It is a noticeboard', apply: (s) => {} },
     ],
   },
   {
     id: 'qh_bite',
-    cond: (s) => s.escalation.stage >= 3 && s.heat >= 16 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 8,
     title: 'The Wrong Kind of Still',
-    flavor: 'You went dark for a week and it made things worse. They are not looking for activity any more. They are looking for the places where activity stopped.',
+    flavor: 'The places you had gone quiet are the first places anybody looked. They are not watching for activity any more. They are watching for where it stopped.',
     choices: [
       { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.funds += 10; s.heat += 8; } },
-      { text: 'Buy a week of ordinary-looking traffic', cost: { funds: 14 }, apply: (s) => { s.heat -= 12; } },
-      { text: 'Find whoever keeps the rota', gate: { stat: 'covert', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
+      { text: 'Buy a week of ordinary-looking traffic over the top of it', cost: { funds: 8 }, apply: (s) => { s.pub = 4; } },
     ],
   },
   {
     id: 'qh_counter',
-    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 10 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 10,
     title: 'Nobody Covers Thursday',
-    flavor: 'Six months of a volunteer rota, and the same two-hour gap every week that nobody ever filled in.',
+    flavor: 'Six months of a volunteer rota and the same two-hour gap every week that nobody ever filled in. It is not a way back in. It is two hours.',
     choices: [
-      { text: 'Take the gap', cost: { funds: 10 }, apply: (s) => { s.tags.add('rota_contact'); } },
-      { text: 'Sell the gap to somebody else', apply: (s) => { s.res.funds += 18; s.heat += 4; } },
+      { text: 'Take the gap and move what matters in daylight', cost: { funds: 10 }, apply: (s) => { s.pub = 5; } },
+      { text: 'Sell the gap to somebody else who needs it', apply: (s) => { s.res.funds += 18; s.heat += 4; } },
     ],
   },
 

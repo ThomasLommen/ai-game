@@ -210,7 +210,7 @@ test('frontier: you can reach the next building along, and nothing further', () 
   }
 });
 
-test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
+test('heat: sprawl raises it, routers launder it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -224,10 +224,6 @@ test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
   const routers = s.hosts.filter(h => h.type === 'iot').slice(0, 3);
   routers.forEach(h => { h.owned = true; });
   assert.ok(d.heatPerTurn() < noisy, 'routers cut the per-turn heat');
-
-  s.heat = 20;
-  d.actLieLow();
-  assert.ok(s.heat < 20, 'lying low reduces heat');
 });
 
 test('breach: a lone impossibly hard door with nothing left to sweep is not a dead end', () => {
@@ -525,7 +521,7 @@ test('every stat and action shown to the player has an explanation', () => {
   ['funds', 'tflops', 'covert', 'power', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
-  ['sweep', 'lielow'].forEach(k => {
+  ['sweep'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
 });
@@ -596,18 +592,6 @@ test('production is once per turn, not once per action', () => {
   assert.ok(s.res.funds > start, 'the turn boundary is what pays');
 });
 
-test('lying low costs the entire turn, not one action of it', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
-  s.heat = 20;
-  const turn = s.turn;
-
-  d.actLieLow();
-  assert.equal(s.turn, turn + 1, 'going dark ends the turn there and then');
-  assert.ok(s.heat < 20, 'and it did cut heat');
-});
 
 test('persistence: the budget and the tooling survive a round trip', () => {
   const { window } = loadNetwork();
@@ -620,23 +604,6 @@ test('persistence: the budget and the tooling survive a round trip', () => {
   assert.equal(round.upgrades, 3);
 });
 
-test('lying low earns nothing — hiding costs you the turn', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  // a modest holding: one building is one host now, so forty of them is an
-  // empire whose sprawl outruns the lie-low lever entirely
-  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
-  // sprawl sets a floor under heat, so start clearly above it or there is
-  // nothing for lying low to shed
-  const start = d.heatFloor() + 20;
-  s.heat = start;
-  const before = s.res.funds;
-
-  for (let i = 0; i < 10; i++) { s.card = null; d.actLieLow(); }
-  assert.equal(s.res.funds, before, 'ten turns dark produced nothing');
-  assert.ok(s.heat < start, 'but it did cut heat');
-});
 
 test('heat has a floor that scales with holdings, so a sprawl cannot hide', () => {
   const { window } = loadNetwork();
@@ -658,54 +625,7 @@ test('heat has a floor that scales with holdings, so a sprawl cannot hide', () =
   assert.ok(d.heatFloor() < loudFloor, 'and a dark relay lowers it further');
 });
 
-test('lying low cannot drive heat below the floor', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.filter(h => h.role !== 'stealth').slice(0, 12).forEach(h => { h.owned = true; });
-  const floor = d.heatFloor();
-  assert.ok(floor > 0, 'test needs a real floor to be meaningful');
 
-  s.heat = floor + 20;
-  for (let i = 0; i < 40; i++) { s.card = null; d.actLieLow(); }
-  assert.ok(s.heat >= d.heatFloor() - 0.001, `heat ${s.heat} fell below the floor ${d.heatFloor()}`);
-});
-
-test('strike branches differ: ride burns a share, shed drops the loud ones, cover pays', () => {
-  const HEAT = loadNetwork().window.HEAT;
-  function primed(effect) {
-    const { window } = loadNetwork();
-    const d = window.__netDebug;
-    const s = d.state;
-    s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
-    s.res.funds = 40;
-    s.heat = HEAT.STRIKE + 2;
-    s.card = { kind: 'strike' };
-    const before = d.owned().length;
-    d.resolveStrike(effect);
-    return { before, after: d.owned().length, heat: s.heat, floor: d.heatFloor(),
-             funds: s.res.funds, strikes: s.strikes };
-  }
-
-  const ride = primed('ride');
-  assert.ok(ride.after < ride.before, 'riding it out costs you bodies');
-
-  const cover = primed('burn_cover');
-  assert.equal(cover.after, cover.before, 'paying protects the whole fleet');
-  assert.equal(cover.funds, 32, 'and costs 8 funds');
-
-  const shed = primed('shed_loud');
-  assert.ok(shed.after <= shed.before, 'shedding drops the noisy holdings');
-
-  for (const r of [ride, cover, shed]) {
-    assert.equal(r.strikes, 1);
-    // heat falls as far as the rules allow. Holding most of the city can put
-    // the floor above the strike line — permanently hunted is a real state,
-    // not a bug — so the claim is "it dropped to the floor", not "below 40".
-    const lowest = Math.max(r.floor, HEAT.STRIKE * HEAT.STRIKE_DROP);
-    assert.ok(r.heat <= lowest + 0.001, `heat ${r.heat} did not fall to ${lowest}`);
-  }
-});
 
 test('nothing is ever reclaimed by The Cut, stranded or not', () => {
   const { window } = loadNetwork();
@@ -1580,33 +1500,6 @@ test('the adjusters: enough doors kicked in wakes them, and the loud way costs m
   assert.equal(d.hackHeat(loud), before, 'off their list, it costs what it always did');
 });
 
-test('the quiet hours: going dark stops shedding heat, and the turn is still gone', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
-
-  // The world turn has its own drift, which can be negative all on its own.
-  // The claim is about the shed, so measure the same board twice and compare
-  // the difference rather than the sign.
-  const start = d.heatFloor() + 25;
-  s.heat = start;
-  s.ap = 2; s.card = null;
-  d.actLieLow();
-  const openShed = start - s.heat;
-  assert.ok(openShed > 0, 'normally lying low buys heat down');
-
-  wake(d, 'quiet_hours');
-  s.heat = start;
-  s.ap = 2; s.card = null;
-  const turnBefore = s.turn;
-  d.actLieLow();
-  const watchedShed = start - s.heat;
-
-  assert.ok(Math.abs((openShed - watchedShed) - d.lieLowShed()) < 1e-6,
-    `watched, the ${d.lieLowShed().toFixed(1)} it normally sheds is gone (shed ${openShed} vs ${watchedShed})`);
-  assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
-});
 
 test('civic eyes: your own cameras stop covering you and start reporting', () => {
   const { window } = loadNetwork();
@@ -2211,25 +2104,28 @@ test('deck: working around a stage never gives the tool back', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  hunted(d, window);
+  const mine = d.owned().find(h => !d.huntHolds(h.buildingId));
+  assert.equal(d.canHide(mine.buildingId), true, 'hiding is a thing you can do first');
+
   wake(d, 'quiet_hours');
+  assert.equal(d.ladderStage() >= 3, true, 'they are up there now');
+  assert.equal(d.canHide(mine.buildingId), false, 'and hiding is gone');
 
-  s.tags.add('rota_contact');
-  assert.equal(d.ladderStage() >= 3, true, 'they are still up there');
-
-  const start = d.heatFloor() + 25;
-  s.heat = start; s.ap = 2; s.card = null;
-  d.actLieLow();
-  const withContact = start - s.heat;
-
-  s.tags.delete('rota_contact');
-  s.heat = start; s.ap = 2; s.card = null;
-  d.actLieLow();
-  const without = start - s.heat;
-
-  assert.ok(withContact > without, 'a name on the rota buys you something');
-  assert.ok(Math.abs((withContact - without) - d.lieLowShed() * window.HEAT.ROTA_SHARE) < 1e-6,
-    'but only a share of what the tool used to do');
+  // Public's own cards are the only place this stage is discussed, and not one
+  // of them may hand hiding back — the ladder never reverses, so the offer is
+  // always what you do about the loss, never an undo.
+  const theirs = window.EVENTS.filter(e => e.id.startsWith('qh_'));
+  assert.ok(theirs.length >= 3, `Public only has ${theirs.length} cards of its own`);
+  theirs.forEach(ev => ev.choices.forEach(ch => {
+    d.state.hidden = [];
+    ch.apply(Object.assign({ tags: new Set(), res: { funds: 99 }, heat: 10 }, {}));
+    assert.equal(d.canHide(mine.buildingId), false,
+      `"${ch.text}" gave the tool back`);
+  }));
 });
 
 // --- terrain -------------------------------------------------------------
@@ -2539,7 +2435,7 @@ test('covert.ops: one number, and everything quiet reads it', () => {
 test('the rules that left the dials are all still reachable, from their new homes', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const moved = ['deep_root', 'swarm_front', 'fixers', 'standing_army', 'master_plan'];
+  const moved = ['deep_root', 'swarm_front', 'standing_army', 'master_plan'];
   const deck = JSON.stringify(window.EVENTS.map(e => String(e.choices.map(c => String(c.apply)))));
   moved.forEach(t => {
     assert.ok(window.TAG_INFO[t], `${t} has nothing to describe it`);
@@ -2979,9 +2875,11 @@ test('hunt: cover is what makes it slow, which is what cover is for', () => {
   assert.ok(d.covertOps() > 1, 'they buy cover');
   assert.ok(d.huntCadence() > bare,
     `cover should slow it: ${bare} turns bare, ${d.huntCadence()} with cover`);
-  // and being over the line makes it move at its fastest
-  s.heat = d.strikeThreshold() + 1;
-  assert.equal(d.huntCadence(), window.HUNT.hotEvery, 'hot, it comes on quickly');
+  // and heat is not an input any more: the cadence is covert ops and nothing
+  // else, so running hot cannot take the lever away from you
+  const withCover = d.huntCadence();
+  s.heat = d.strikeThreshold() * window.HEAT.MAX_OVER;
+  assert.equal(d.huntCadence(), withCover, 'heat still decides how fast they move');
 });
 
 test('hunt: a city it takes enough of is gone for good', () => {
@@ -6925,26 +6823,6 @@ test('caps: Standing Army pays a retainer either way, and funds a real war-open 
   assert.equal(s.res.funds, 0, 'and it actually spent the going rate, not given free');
 });
 
-test('caps: Fixers unlocks an escape hatch on the strike card nobody else has', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.card = { kind: 'strike' };
-  ungrant(d);
-  d.render();
-  let html = window.document.getElementById('panel').innerHTML;
-  assert.ok(!html.includes('Call in a favor'), 'the option does not even show without Fixers');
-
-  grantTag(d, 'fixers');
-  s.res.funds = window.FIXERS_FAVOR_COST;
-  d.render();
-  html = window.document.getElementById('panel').innerHTML;
-  assert.ok(html.includes('Call in a favor'), 'and it does with Fixers');
-
-  const before = s.res.funds;
-  d.resolveStrike('buy_out');
-  assert.equal(s.res.funds, before - window.FIXERS_FAVOR_COST, 'and using it actually spends the cost');
-});
 
 test('home base: growHomeBase appends new ground without breaking what is already there', () => {
   const { window } = loadNetwork();
@@ -7192,20 +7070,48 @@ test('home base: growth trait survives a save/load round trip', () => {
 
 // --- heat/hunt rework: the alarm, and ending the hunt for good -------------
 
-test('alarm: shows only once the hunt exists, on top of the heat bar, not instead of it', () => {
+test('alarm: shows only once the hunt exists, and it is what the row is for now', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const s = d.state;
   const $alarm = window.document.getElementById('alarm-row');
-  const $fill = window.document.getElementById('heat-fill');
+  const $heat = window.document.getElementById('heat-row');
   d.render();
   assert.equal($alarm.hidden, true, 'nothing to alarm about yet');
-  assert.notEqual($fill.style.width, undefined, 'the heat bar itself is still there');
+  assert.equal($heat.hidden, true, 'heat is not a city-scale number any more');
 
   hunted(d, window);
   d.render();
   assert.equal($alarm.hidden, false, 'it shows once the hunt is real');
-  assert.ok($fill.style.width, 'and the bar underneath is still rendered alongside it');
+  assert.equal($heat.hidden, true, 'and it did not bring the heat bar back with it');
+});
+
+test('heat: the city never shows it, and the country always does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $heat = window.document.getElementById('heat-row');
+  d.state.heat = d.strikeThreshold();
+  d.render();
+  assert.equal($heat.hidden, true, 'the streets are quoting a number they do not read');
+
+  holdToGoal(d);                 // the country does not open before the city is yours
+  d.setScope('country');
+  d.render();
+  assert.equal($heat.hidden, false, 'and the country hides the one thing heat still does');
+  const text = window.document.getElementById('heat-text').textContent;
+  assert.ok(/NOTICED/.test(text), `it should say what it now is, not what it once cost: "${text}"`);
+  assert.ok(/pressure/.test(window.document.getElementById('heat-drift').textContent),
+    'and say what it is worth on the ladder');
+});
+
+test('heat: nothing at city scale quotes it as a price', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const loud = window.PROGRAMS.find(p => p.heat > 0);
+  assert.ok(loud, 'some program is still noisy');
+  const sec = d.capSections().find(x => x.id === 'programs');
+  assert.ok(sec, 'the programs section is where a program is mounted');
+  assert.ok(!/heat/i.test(sec.html),
+    'a price the player cannot see the meter for is not a price');
 });
 
 // The stub setTimeout in load-network.js fires synchronously, which drains

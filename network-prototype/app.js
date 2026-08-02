@@ -1116,11 +1116,9 @@
       links: g.links,
       selected: null,
       selectedBuilding: null,
-      card: null,      // { kind:'breach'|'strike', hostId? }
+      card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
-      strikes: 0,
-      lastStrikeTurn: -99,
       cuts: [],
       lastCutTurn: -99,
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
@@ -1785,12 +1783,12 @@
     const all = (state.buildings || []).length;
     return all ? (hunt() ? hunt().nodes.length : 0) / all : 0;
   }
-  // How long between its moves. Cover is what makes you hard to follow — this
-  // is the first thing in the game that gives covert.ops a job beyond gating one
-  // door, and it is why a stealth holding is worth taking.
+  // How long between its moves. Cover is what makes you hard to follow, and it
+  // is now the only thing that does — heat used to override this and pin them
+  // to their fastest tick, which meant a number the player could not do
+  // anything about was deciding how fast they were being eaten. One input.
   function huntCadence() {
     const H = window.HUNT;
-    if (state.heat >= strikeThreshold()) return H.hotEvery;
     return Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
   }
   function huntDueIn() {
@@ -2063,11 +2061,11 @@
     const b = buildingById(bid);
     if (!b || !buildingHeld(b)) return false;         // only what is yours
     if (ladderStage() >= 3) return false;          // Public watches the quiet
-    return hideSlotsFree() > 0 && canAfford('lielow');
+    return hideSlotsFree() > 0 && canAfford('hide');
   }
   function actHide(bid) {
     if (!canHide(bid)) return false;
-    spendAP('lielow');
+    spendAP('hide');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -3108,29 +3106,10 @@ scratch.later = null;
     return out;
   }
 
-  // Going dark is the whole turn, not one action of it — that is the cost.
-  function actLieLow() {
-    if (state.card || state.over || state.ap <= 0) return;
-    const before = beforeSnap();
-    state.ap = 0;
-    // Public watches for absence. Past that stage, going dark buys you
-    // nothing — the turn is spent and the heat stays exactly where it was.
-    // A name inside the rota gets you a window they are not watching: not the
-    // tool back, but not nothing either.
-    const watched = ladderStage() >= 3;
-    const shed = watched
-      ? (has('rota_contact') ? lieLowShed() * window.HEAT.ROTA_SHARE : 0)
-      : lieLowShed();
-    if (shed) state.heat = clampHeat(state.heat - shed);
-    afterSnap(before);
-    pushLog(watched
-      ? (has('rota_contact')
-          ? 'You go quiet in the window nobody is covering.'
-          : 'You go quiet. Somebody notices the quiet.')
-      : 'You go quiet for a while. Nothing earns while you are dark.');
-    endTurn({ silent: true }); // going dark means going dark -- no production
-    render();
-  }
+  // Lying low is gone. It spent a whole turn to move one number, and that
+  // number is no longer something the city scale reads or shows — so the button
+  // was a turn traded for nothing you could see. Its AP key survives because
+  // hiding a building still uses it.
 
   // --- hacking -------------------------------------------------------------
   // A hack is not resolved the moment you commit to it. It occupies compute for
@@ -3417,57 +3396,11 @@ scratch.later = null;
 
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
   const DEEP_ROOT_RIPPLE = 0.2;
-  function resolveStrike(effect) {
-    const before = beforeSnap();
-    const fleet = owned().filter(h => !h.origin);
-    let burned = [];
-    if (effect === 'shed_loud') {
-      burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);
-    } else if (effect === 'ride') {
-      const over = Math.max(1, state.heat / strikeThreshold());
-      const share = Math.min(0.75, window.HEAT.STRIKE_FRACTION * Math.pow(over, window.HEAT.DEEP_STRIKE));
-      const n = Math.ceil(fleet.length * share);
-      const shuffled = fleet.slice().sort(() => Math.random() - 0.5);
-      burned = shuffled.slice(0, n);
-    } else if (effect === 'burn_cover') {
-      if (state.res.funds < 8) return;
-      state.res.funds -= 8;
-    } else if (effect === 'buy_out') {
-      if (!has('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
-      state.res.funds -= window.FIXERS_FAVOR_COST;
-    }
-    burned.forEach(h => { h.owned = false; });
-    // At national scale the streets are not where you live. A strike that only
-    // ever burned held hosts left a 400-presence operation standing at country
-    // scope completely untouchable, and managing heat stopped paying for
-    // anything: measured, a profile that ignored heat entirely and took 73
-    // strikes finished level with one that kept it down and took 36.
-    // Only when there is nothing on the streets for them to burn. That is the
-    // hole this closes: standing at country scope behind a pile of presence
-    // used to make you untouchable. It is not an extra tax on every strike —
-    // applied to all of them it took cities back faster than any profile could
-    // take them, and the campaign stopped moving.
-    const retaken = (effect !== 'burn_cover' && owned().length === 0) ? takeBackACity() : null;
-    state.heat = clampHeat(strikeThreshold() * window.HEAT.STRIKE_DROP);
-    state.strikes += 1;
-    state.lastStrikeTurn = state.turn;
-    state.card = null;
-    pushLog(burned.length ? `The hunter burned ${burned.length} bod${burned.length === 1 ? 'y' : 'ies'}.` : 'You bought your way out of the sweep.');
-    if (retaken) {
-      pushLog(`They took ${retaken.name} back off you. −${retaken.worth} presence.`);
-      showBanner([{ kind: 'faction', verb: 'taken back', label: retaken.name }]);
-    }
-    afterSnap(before);
-    // Losing the streets you were standing in is not losing everything once
-    // there is a country: presence is held nationally, and a half-taken city
-    // elsewhere is still yours. You are only finished when there is nothing
-    // anywhere — which at country scope is never true of a strike alone.
-    if (!owned().length && !ruined()) state.over = false;
-    if (ruined()) state.over = true;
-    checkStage();
-    persistNow();
-    render();
-  }
+// The strike is gone. It was the last thing heat did to you at city scale,
+  // and it had already stopped being reachable — no strike card can be created
+  // any more — so all that was left of it was a card definition, a tag you
+  // could buy whose only payload was one of its options, and a hundred lines
+  // that nothing called. Heat's whole job is upstairs now: see heatPressure().
 
   function pushLog(text) {
     state.log.unshift({ turn: state.turn, text });
@@ -3526,12 +3459,6 @@ scratch.later = null;
     return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
   }
 
-  // How much a turn spent dark, or a wash of money, is actually worth right
-  // now. Both scale with the threshold so the levers keep pace with the
-  // pressure instead of falling behind it.
-  function lieLowShed() {
-    return Math.max(window.HEAT.LIE_LOW, strikeThreshold() * window.HEAT.LIE_LOW_SHARE);
-  }
   // How many buildings a sweep turns up. Extracted for the same reason as the
   // rest of these: a capability claiming to widen it, and until this existed
   // nothing could check whether it had.
@@ -3553,27 +3480,6 @@ scratch.later = null;
     if (owned().length) return false;
     if ((CO().presence || 0) > 0) return false;
     return !(CO().cities || []).some(c => c.taken && !c.consolidated && c.snapshot);
-  }
-
-  // What a strike costs a national operation: they walk back into the last
-  // city you folded in. It becomes ground you have to take again — the map
-  // still knows it, but it is not yours and it is not paying.
-  function takeBackACity() {
-    const done = (CO().cities || []).filter(c => c.consolidated && c.kind !== 'home');
-    if (!done.length) return null;
-    // the newest one — the deepest, the one you are least able to go back for
-    const target = done[done.length - 1];
-    target.consolidated = false;
-    target.taken = false;
-    target.snapshot = null;
-    // exactly what it granted, or a city could be farmed by losing and
-    // retaking it: refunding only `worth` leaked the depth bonus every cycle
-    // and one profile reached 1838 presence off ten cities.
-    CO().presence = Math.max(0, CO().presence - (target.granted || target.worth));
-    target.granted = 0;
-    if (CO().at === target.id) CO().at = CO().homeId;
-    if (state.cityId === target.id) { unpackCity(EMPTY_CITY()); state.cityId = null; }
-    return target;
   }
 
   function presenceYield() {
@@ -5571,7 +5477,12 @@ scratch.later = null;
     const num = (v) => (Math.round(v * 10) / 10).toString();
     if (dc) parts.push({ cls: 'funds', text: `FUNDS ${dc > 0 ? '+' : ''}${num(dc)}` });
     if (dp) parts.push({ cls: 'tflops', text: `TFLOPS ${dp > 0 ? '+' : ''}${dp}` });
-    if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
+    // Heat is a country-scale number now, so it is reported at country scale.
+    // Floating "HEAT +8" over a city street was the last thing still teaching
+    // that heat is something the streets answer to.
+    if (state.scope !== 'city' && Math.abs(dh) >= 0.5) {
+      parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
+    }
     if (dHeld) parts.push({ cls: 'held', text: `HELD ${dHeld > 0 ? '+' : ''}${dHeld}` });
     showFloats(parts, opts && opts.world);
   }
@@ -5632,7 +5543,7 @@ scratch.later = null;
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log,
-      lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
+      lastStage: state.lastStage, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       everCrossed: !!state.everCrossed,
@@ -5660,7 +5571,7 @@ scratch.later = null;
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [],
-        lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
+        lastStage: saved.lastStage, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
         everCrossed: !!saved.everCrossed,
@@ -7287,7 +7198,7 @@ scratch.later = null;
       const staging = stagingCities().length;
       const total = Math.max(1, (w.mobilised || []).length + staging);
       const done = Math.max(0, total - staging);
-      if (heatEl) heatEl.classList.add('at-war');
+      if (heatEl) { heatEl.classList.add('at-war'); heatEl.hidden = false; }
       fill.style.width = Math.min(100, (done / total) * 100) + '%';
       fill.className = 'heat-fill war';
       if ($floor) $floor.style.display = 'none';
@@ -7301,16 +7212,31 @@ scratch.later = null;
     }
     if (heatEl) heatEl.classList.remove('at-war');
 
-    // Heat/hunt rework: an addition on top of the bar, not a replacement —
-    // the number underneath still drives huntCadence()'s fast-vs-slow tick,
-    // so it has to stay legible even once the hunt exists.
     const $alarm = document.getElementById('alarm-row');
     if ($alarm) $alarm.hidden = !huntOn();
+
+    // Heat is not a city-scale number any more. Nothing down here reads it —
+    // the response answers to covert ops and to doors catching you, the strike
+    // is gone, and lying low went with it — so a bar counting toward a line
+    // that no longer means anything was teaching a rule the game had stopped
+    // having. It still accrues, and it still decides how fast the ladder comes
+    // for you: that is a country-scale fact, and it is stated at country scale.
+    // See heatPressure() and the pressure section.
+    if (state.scope === 'city') {
+      if (heatEl) heatEl.hidden = true;
+      return;
+    }
+    if (heatEl) heatEl.hidden = false;
 
     const pct = Math.max(0, Math.min(100, (state.heat / strikeThreshold()) * 100));
     fill.style.width = pct + '%';
     fill.className = 'heat-fill' + (pct > 75 ? ' hot' : pct > 45 ? ' warm' : '');
-    document.getElementById('heat-text').textContent = `HEAT ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
+    // Said in what it now buys them, not in what it once cost you: this is the
+    // regulator's attention, and the only thing it does is bring the next rung
+    // sooner. The raw figure stays because the floor marker sits on the same
+    // scale, but the label names the consequence.
+    document.getElementById('heat-text').textContent =
+      `NOTICED ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
     const floorPct = Math.max(0, Math.min(100, (heatFloor() / strikeThreshold()) * 100));
     if ($floor) {
       $floor.style.left = floorPct + '%';
@@ -7318,7 +7244,8 @@ scratch.later = null;
       $floor.title = 'you cannot get below this while you hold this much';
     }
     const drift = heatPerTurn();
-    document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
+    document.getElementById('heat-drift').textContent =
+      `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn · +${Math.round(heatPressure())} pressure`;
   }
 
   // Re-render after a purchase, in place. This used to call openSheet with no
@@ -7416,7 +7343,7 @@ scratch.later = null;
           </div>
           <p class="shop-good-desc">${p.blurb}</p>
           <p class="yield-row">${chip('compute', Math.round(p.load * 100) + '% of the door, running')}${
-            p.heat ? chip('cost heat', '+' + p.heat + ' heat') : chip('cover', 'quiet')}${
+            heatChip(p.heat)}${p.quiet ? chip('cover', 'quiet') : ''}${
             p.spread ? chip('cover', 'reaches ' + p.spread + ' buildings') : ''}</p>
           ${on ? '<p class="alloc-unlock on"><span class="mono">&check;</span> mounted</p>'
                : `<button type="button" class="act-btn" data-prog="${p.id}"><span class="ab-name">mount ${p.label}</span></button>`}
@@ -7631,7 +7558,7 @@ scratch.later = null;
               <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-hw="${hw.id}">
                 <span class="ab-name">buy ${hw.label}</span>
                 <span class="ab-sub">${afford
-                  ? `${chip('cost funds', '&minus;' + hw.cost + ' funds')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
+                  ? `${chip('cost funds', '&minus;' + hw.cost + ' funds')}${heatChip(hw.heat)}`
                   : `needs ${hw.cost} funds`}</span>
               </button>`;
           }).join('')}` : ''}` });
@@ -7939,7 +7866,7 @@ scratch.later = null;
     const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
     if (!touching) return '';
     const able = canHide(b.id);
-    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
+    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="hide" data-bid="${b.id}">
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
@@ -8057,15 +7984,7 @@ scratch.later = null;
             ? 'no actions left'
             : sweepBlocked() === 'nothing'
             ? 'nothing adjacent left'
-            : `${chip('compute', 'turns up ' + sweepFound())}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
-        </button>
-        <button class="act-btn ${ladderStage() >= 3 ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
-          <span class="ab-name">lie low</span>
-          <span class="ab-sub">${apShort('lielow')
-            ? 'no actions left'
-            : ladderStage() >= 3
-            ? `${ladderStageName(3)} is watching the quiet`
-            : `${chip('cover', 'heat &minus;' + Math.round(lieLowShed()))}${chip('cost none', '&minus;1 turn')}`}</span>
+            : chip('compute', 'turns up ' + sweepFound())}</span>
         </button>
       </div>
     `;
@@ -8083,7 +8002,6 @@ scratch.later = null;
         const a = b.getAttribute('data-act');
         if (a === 'scan') actScan();
         else if (a === 'scanfrom') actScan(b.getAttribute('data-bid'));
-        else if (a === 'lielow') actLieLow();
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
@@ -8359,6 +8277,14 @@ scratch.later = null;
   // handful of cards still gate on it, and a gate you cannot check is exactly
   // what this strip exists to prevent. So it appears here only on the cards
   // that actually ask about it.
+  // Heat is only visible at country scale now, so nothing may quote it as a
+  // price where the player cannot see the meter it is charged against. One
+  // gate rather than a scope check at every call site.
+  function heatChip(n, label) {
+    if (!n || state.scope === 'city') return '';
+    return chip('cost heat', label || ('+' + n + ' heat'));
+  }
+
   function cardResourceStrip(ev) {
     const asksCover = !!(ev && (ev.choices || []).some(ch =>
       (ch.gate && ch.gate.stat === 'covert') || (ch.cost && ch.cost.covert)));
@@ -8396,30 +8322,6 @@ scratch.later = null;
         </div>`;
       $p.querySelectorAll('[data-choice]:not([disabled])').forEach(b => {
         b.addEventListener('click', () => resolveEvent(parseInt(b.getAttribute('data-choice'), 10)));
-      });
-      return;
-    }
-
-    if (state.card.kind === 'strike') {
-      const c = window.STRIKE_CARD;
-      $p.innerHTML = `
-        ${cardResourceStrip()}
-        <div class="card strike">
-          <span class="card-kicker mono">THE HUNTER</span>
-          <h2 class="serif">${c.title}</h2>
-          <p class="flavor">${c.flavor}</p>
-        </div>
-        <div class="choices">
-          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || has(ch.requires.cap)).map(ch => {
-            const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
-            return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
-              <span class="ctext">${ch.text}</span>
-              <span class="cnote">${ch.desc}</span>
-            </button>`;
-          }).join('')}
-        </div>`;
-      $p.querySelectorAll('[data-eff]:not([disabled])').forEach(b => {
-        b.addEventListener('click', () => resolveStrike(b.getAttribute('data-eff')));
       });
       return;
     }
@@ -8505,12 +8407,12 @@ scratch.later = null;
   window.__netState = state;
   window.__netDebug = {
     makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
-    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
+    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
-    resolveStrike, svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
     districtRows, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     zoomTarget, perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
@@ -8518,7 +8420,7 @@ scratch.later = null;
     huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
-    presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
+    presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,

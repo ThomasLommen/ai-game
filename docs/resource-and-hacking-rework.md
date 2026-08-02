@@ -534,6 +534,67 @@ So:
   looking at, and a rung pulled in by noise says so: *"You were not big enough
   for this yet. You were loud enough."*
 
+## Subtracting, one thing at a time
+
+A change of method, and it is the player's: *strip out whatever looks redundant
+until the core loop either holds up on its own or does not, and only then add
+things back — one at a time, dialled in until it fits.* Everything below is a
+removal. Nothing here replaces what it takes out.
+
+### Heat leaves the city
+
+Heat's readers had already been reduced to almost nothing by the round above:
+the strike could no longer be created, and the hunt had stopped answering to it.
+What was left at city scale was a bar counting toward a line that no longer meant
+anything, plus a button whose whole job was moving it.
+
+Gone:
+
+- **The heat row, at city scope.** It renders at country scope only, where the
+  one thing heat still does is legible: it is labelled `NOTICED` now, and the
+  drift line says what it is worth on the ladder.
+- **Lie low.** A whole turn traded for a number the city no longer shows.
+- **`hotEvery`.** Being over the line used to override the hunt's cadence and pin
+  it to a fixed fast tick. Covert ops is now the only input — one lever, and it
+  is one the player actually holds.
+- **The strike, and everything hanging off it.** `resolveStrike`, `STRIKE_CARD`,
+  `takeBackACity`, four `HEAT.STRIKE_*` constants, and the `fixers` tag — an
+  earnable tag costing 20 funds whose only payload was one option on a card that
+  could not be created.
+- **`rota_contact`**, whose only payload was a lie-low modifier.
+- **Every heat chip below country scope**, through one `heatChip()` gate: a
+  price may not be quoted where the meter it is charged against is invisible.
+
+Kept, deliberately: heat still *accrues*. Hacking, scanning, sprawl and cards all
+move it, and `heatPressure()` still feeds the escalation ladder. It is a
+country-scale record of how loudly you got where you are, and it is met at
+country scale.
+
+The ladder's Public stage lost its subject — its bite was "lying low no longer
+sheds heat" — so it says what it actually still does, which is take *hiding* away
+from you. Its three cards were rewritten to that, without inventing a mechanic:
+none of them hands the tool back, which is the rule about this ladder.
+
+### Measured before touching the programs
+
+The other proposed cut was down to one program, keeping `hammer.exe`. Measured
+across eight generated cities, every host, against a trace goal of 7:
+
+| program | turns | doors that would catch you | worst trace at end |
+| --- | --- | --- | --- |
+| hammer.exe | 1 | **0.0%** | 5.40 |
+| backdoor.exe | 4 | 30.2% | 21.60 |
+| contagion.exe | 4 | 30.2% | 21.60 |
+
+Hammer needs about 260 effective defense before it can lose a race; region
+medians run 5 / 15 / 33 / 47 / 66. So keeping only hammer would not simplify the
+detection race, it would delete it — and with it the hunt's trigger
+(`caughtHere`, which would never increment), covert ops' shield, and
+`hardenOnCaught`. Four systems removed while believing two were.
+
+Deferred, and if it happens the survivor is **backdoor**: the one where the race
+resolves both ways.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
