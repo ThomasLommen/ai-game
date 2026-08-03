@@ -48,9 +48,10 @@
     if (!pool.length) return [];
 
     const out = [];
-    const mine = buildings.filter(b =>
-      b.x < block.x + block.w && b.x + b.w > block.x &&
-      b.y < block.y + block.h && b.y + b.h > block.y);
+    // Every building, not the ones nominally in this block. A landmark is
+    // moved and grown after the fact and routinely overhangs the block it came
+    // from, and a margin big enough to be safe is most of the map anyway.
+    const mine = buildings;
 
     const room = (x, y, w, h, pad) =>
       !(bands && bands.some(band => rectOnBand(band, x, y, w, h))) &&
@@ -77,10 +78,77 @@
     return out;
   }
 
+  // Street furniture, on the pavement where it belongs. A camera mast, a street
+  // cabinet and a feeder pillar are not on a plot — the data has called them
+  // street furniture since they were written — and yet the block scatter was
+  // treating them like houses, which is how 22 cabinets across six cities ended
+  // up marooned in the middle of a lot.
+  //
+  // They keep the block's row and column so adjacency is unchanged in kind: a
+  // verge is between two blocks, and `blocksAdjacent` already lets one street
+  // be crossed. What does change is how *many* things are within reach of them,
+  // which is measured rather than assumed.
+  function scatterFurniture(block, kinds, layout, bands, taken) {
+    const C = window.CITY;
+    const pool = kinds.filter(k => C.furniture[k]);
+    if (!pool.length) return [];
+    const out = [];
+    // Two at most. Street furniture was about a quarter of every board when it
+    // lived on the plots, and it has to stay about a quarter now that it lives
+    // on the pavement — it is the cheap stealth kit, and how much cover the
+    // city offers is a balance number, not a decoration.
+    const n = rndInt(0, 2);
+    for (let i = 0; i < n; i++) {
+      const kind = pick(pool);
+      const K = window.BUILDING_KINDS[kind];
+      if (!K) continue;
+      const w = rndInt(K.w[0], K.w[1]);
+      const h = rndInt(K.h[0], K.h[1]);
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const horiz = side === 'n' || side === 's';
+      const road = horiz ? layout.hRoad[block.row + (side === 's' ? 1 : 0)]
+                         : layout.vRoad[block.col + (side === 'e' ? 1 : 0)];
+      // it stands on the kerb, not in the carriageway
+      if (road < (horiz ? h : w) + 10) continue;
+      let x, y;
+      if (side === 'n') { x = block.x + Math.random() * (block.w - w); y = block.y - road / 2 + 4; }
+      else if (side === 's') { x = block.x + Math.random() * (block.w - w); y = block.y + block.h + road / 2 - h - 4; }
+      else if (side === 'w') { x = block.x - road / 2 + 4; y = block.y + Math.random() * (block.h - h); }
+      else { x = block.x + block.w + road / 2 - w - 4; y = block.y + Math.random() * (block.h - h); }
+      x = Math.round(x); y = Math.round(y);
+      if (bands && bands.some(band => rectOnBand(band, x, y, w, h))) continue;
+      const clear = taken.concat(out).every(o =>
+        x + w + 6 <= o.x || o.x + o.w + 6 <= x || y + h + 6 <= o.y || o.y + o.h + 6 <= y);
+      if (clear) out.push({ kind, x, y, w, h, verge: true });
+    }
+    return out;
+  }
+
+  // A path from a back plot's door out to the nearest kerb. Only the handful of
+  // buildings too big to take any frontage get one — measured at 2% of them,
+  // and all offices, finance floors and the industrial giants. A building with
+  // no way to reach it is the thing this whole pass is about.
+  function pathsFor(block, layout, placed) {
+    const C = window.CITY;
+    const out = [];
+    placed.filter(b => b.back).forEach(b => {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      const gaps = [
+        { d: b.y - block.y, to: { x: cx, y: block.y - layout.hRoad[block.row] / 2 } },
+        { d: (block.y + block.h) - (b.y + b.h), to: { x: cx, y: block.y + block.h + layout.hRoad[block.row + 1] / 2 } },
+        { d: b.x - block.x, to: { x: block.x - layout.vRoad[block.col] / 2, y: cy } },
+        { d: (block.x + block.w) - (b.x + b.w), to: { x: block.x + block.w + layout.vRoad[block.col + 1] / 2, y: cy } },
+      ].sort((p, q) => p.d - q.d);
+      const near = gaps[0];
+      out.push({ x1: Math.round(cx), y1: Math.round(cy), x2: Math.round(near.to.x), y2: Math.round(near.to.y) });
+    });
+    return out;
+  }
+
   // The verge: the strip of road-side outside a block. Lamps and bins and the
   // odd tree go here rather than inside, because that is where they are in a
   // city and because it is the gap between blocks that used to read as empty.
-  function scatterVerge(block, districtKey, layout, bands) {
+  function scatterVerge(block, districtKey, layout, bands, buildings) {
     const F = window.PROP_FILL;
     const pool = (window.DISTRICT_PROPS[districtKey] || [])
       .filter(k => ['tree', 'bush', 'lamp', 'bin', 'bench', 'bollards', 'newsstand', 'planter', 'scrub'].indexOf(k) !== -1);
@@ -104,6 +172,13 @@
       else { x = block.x + block.w + road / 2 - w - 3; y = block.y + Math.random() * (block.h - h); }
       x = Math.round(x); y = Math.round(y);
       if (bands && bands.some(band => rectOnBand(band, x, y, w, h))) continue;
+      // the verge is where the street furniture lives too, and a bench inside a
+      // camera mast is the same bug as a tree inside a substation
+      const clear = (buildings || []).every(b =>
+        x + w + 3 <= b.x || b.x + b.w + 3 <= x || y + h + 3 <= b.y || b.y + b.h + 3 <= y)
+        && out.every(o =>
+        x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+      if (!clear) continue;
       out.push({ kind, x, y, w, h });
     }
     return out;
@@ -119,17 +194,34 @@
   // The layout travels with the city — it is generated once and packed with it
   // — because a street that moved between two renders would be worse than a
   // street that was always straight.
-  function makeLayout(cols, rows) {
+  function makeLayout(cols, rows, tierSpan, wob) {
     const C = window.CITY;
     const arterial = (n) => n % C.arterialEvery === 0;
     const swing = (base, vary) => Math.round(base * (1 + (Math.random() * 2 - 1) * vary));
     const roadAt = (n) => Math.max(18, swing(C.street * (arterial(n) ? C.arterialMult : 1), C.streetVary));
 
+    // Districts first, on the normalised grid, because a block's size depends
+    // on which district it is in — a datacenter is 159 wide at its median and
+    // will not stand on a suburban plot. Rows and columns take the *largest*
+    // scale of any block in them: the roads have to stay straight, and a jagged
+    // street plan is a much bigger change than this one.
+    const dist = [];
+    for (let r = 0; r < rows; r++) {
+      dist.push([]);
+      for (let c = 0; c < cols; c++) {
+        dist[r].push(districtAt((c + 0.5) / cols, (r + 0.5) / rows, tierSpan, wob || [0, 0, 0]));
+      }
+    }
+    const scaleOf = (k) => (window.DISTRICT_BLOCK || {})[k] || 1;
+    const colScale = [], rowScale = [];
+    for (let c = 0; c < cols; c++) colScale.push(Math.max(...dist.map(row => scaleOf(row[c]))));
+    for (let r = 0; r < rows; r++) rowScale.push(Math.max(...dist[r].map(scaleOf)));
+
     const colW = [], rowH = [], vRoad = [], hRoad = [];
     for (let c = 0; c <= cols; c++) vRoad.push(roadAt(c));
     for (let r = 0; r <= rows; r++) hRoad.push(roadAt(r));
-    for (let c = 0; c < cols; c++) colW.push(Math.max(90, swing(C.blockW, C.blockVary)));
-    for (let r = 0; r < rows; r++) rowH.push(Math.max(80, swing(C.blockH, C.blockVary)));
+    for (let c = 0; c < cols; c++) colW.push(Math.max(90, swing(C.blockW * colScale[c], C.blockVary)));
+    for (let r = 0; r < rows; r++) rowH.push(Math.max(80, swing(C.blockH * rowScale[r], C.blockVary)));
 
     // running totals: xs[n] is the centre line of road n, blocks sit between
     const xs = [], ys = [], blocks = [];
@@ -155,6 +247,7 @@
         blocks.push({
           row: r, col: c, i: r * cols + c,
           x: blockX[c], y: blockY[r], w: colW[c], h: rowH[r],
+          district: dist[r][c],
         });
       }
     }
@@ -211,16 +304,24 @@
       Math.min(DISTRICT_KEYS.length - 1, regionTier + 1),
     ];
   }
-  function districtFor(block, layout, regionTier, wob) {
+  // Taken on the *normalised* grid rather than on pixels, because the layout
+  // now has to know its districts before it can size its blocks — the blocks
+  // grow with the district standing on them, so pixel positions do not exist
+  // yet at the moment this is asked.
+  function districtAt(fx, fy, regionTier, wob) {
     const C = window.CITY;
     const span = districtSpan(regionTier);
     const lo = span[0], hi = span[1];
-    const cx = block.x + block.w / 2, cy = block.y + block.h / 2;
-    const n = Math.sin(cx / 205 + wob[0]) * 0.5
-            + Math.sin(cy / 310 + wob[1]) * 0.3
-            + Math.sin((cx + cy * 0.7) / 145 + wob[2]) * 0.2;
-    const t = Math.max(0, Math.min(1, cy / Math.max(1, layout.h) + n * C.districtBlur));
+    const n = Math.sin(fx * 6.1 + wob[0]) * 0.5
+            + Math.sin(fy * 4.4 + wob[1]) * 0.3
+            + Math.sin((fx + fy * 0.7) * 8.3 + wob[2]) * 0.2;
+    const t = Math.max(0, Math.min(1, fy + n * C.districtBlur));
     return DISTRICT_KEYS[Math.round(lo + (hi - lo) * t)];
+  }
+  function districtFor(block, layout, regionTier, wob) {
+    return districtAt((block.x + block.w / 2) / Math.max(1, layout.w),
+                      (block.y + block.h / 2) / Math.max(1, layout.h),
+                      regionTier, wob);
   }
 
   // Which blocks have nothing built on them: a park in the suburbs, a square on
@@ -264,8 +365,25 @@
     const C = window.CITY;
     const o = opts || {};
     const placed = [];
+    // How many to ask for: how many things of *this district's* typical size
+    // fit on this much ground. Neither of the obvious formulas works. Plain
+    // area put 203 buildings on a board that used to hold 98, because the map
+    // grew when the blocks did. Dividing by the district's nominal scale was
+    // worse and backwards — a row and a column take the largest scale in them,
+    // so a suburban block sitting in an industrial column is *big*, and
+    // dividing by 0.82 squared made it denser rather than sparser.
+    //
+    // Typical size is the honest denominator, and it falls straight out of the
+    // kinds the district builds: one datacenter takes the room of twenty
+    // houses because it is twenty times the house.
+    const typical = kinds.reduce((a, k) => {
+      const K = window.BUILDING_KINDS[k];
+      if (!K) return a;
+      return a + ((K.w[0] + K.w[1]) / 2) * ((K.h[0] + K.h[1]) / 2);
+    }, 0) / Math.max(1, kinds.length);
     const want = Math.max(1, Math.round(
-      (block.w * block.h) / (C.blockW * C.blockH) * rndInt(C.perBlock[0], C.perBlock[1])
+      (block.w * block.h) / Math.max(1, typical) / C.plotShare
+        * (rndInt(C.perBlock[0], C.perBlock[1]) / 3)
     ) + (o.denser || 0));
 
     const fits = (x, y, w, h) =>
@@ -315,6 +433,20 @@
       }
     }
 
+    // The rest take a frontage on one of the four sides, squared onto it.
+    // Every side is tried before anything goes behind, because a building that
+    // is not on a road makes no sense from either an infrastructure or an
+    // architecture point of view — and the old scatter left 16% of them
+    // marooned in the middle of a lot with no way to reach them.
+    const SIDES = ['n', 's', 'e', 'w'];
+    const onSide = (side, w, h) => {
+      const inset = C.edgeInset;
+      if (side === 'n') return { x: null, y: block.y + inset };
+      if (side === 's') return { x: null, y: block.y + block.h - inset - h };
+      if (side === 'w') return { x: block.x + inset, y: null };
+      return { x: block.x + block.w - inset - w, y: null };
+    };
+
     for (let n = 0; n < want; n++) {
       const kind = pick(kinds);
       const K = window.BUILDING_KINDS[kind];
@@ -322,20 +454,34 @@
       const w = Math.min(rndInt(K.w[0], K.w[1]), block.w - C.edgeInset * 2);
       const h = Math.min(rndInt(K.h[0], K.h[1]), block.h - C.edgeInset * 2);
       if (w < 8 || h < 8) continue;
-      const spanX = Math.max(0, block.w - w - C.edgeInset * 2);
-      const spanY = Math.max(0, block.h - h - C.edgeInset * 2);
 
       let put = null;
-      for (let t = 0; t < C.scatterTries && !put; t++) {
-        let fx = Math.random(), fy = Math.random();
-        // pull to the nearer edge on one axis, so it fronts a street
-        if (Math.random() < C.frontage) {
-          if (Math.random() < 0.5) fx = fx < 0.5 ? fx * 0.35 : 1 - (1 - fx) * 0.35;
-          else fy = fy < 0.5 ? fy * 0.35 : 1 - (1 - fy) * 0.35;
+      // front a street, trying the sides in a shuffled order so no block ends
+      // up filling clockwise
+      const sides = shuffleArr(SIDES.slice());
+      for (const side of sides) {
+        if (put) break;
+        const anchor = onSide(side, w, h);
+        const horiz = anchor.x === null;
+        const lo = horiz ? block.x + C.edgeInset : block.y + C.edgeInset;
+        const span = Math.max(0, (horiz ? block.w : block.h) - (horiz ? w : h) - C.edgeInset * 2);
+        for (let t = 0; t < C.scatterTries && !put; t++) {
+          const along = Math.round(lo + span * Math.random());
+          const x = horiz ? along : anchor.x;
+          const y = horiz ? anchor.y : along;
+          if (fits(x, y, w, h)) put = { kind, x, y, w, h, front: side };
         }
-        const x = Math.round(block.x + C.edgeInset + spanX * fx);
-        const y = Math.round(block.y + C.edgeInset + spanY * fy);
-        if (fits(x, y, w, h)) put = { kind, x, y, w, h };
+      }
+      // Nothing left on any frontage. It goes behind, and it gets a path out
+      // to the nearest kerb — which is what a back plot has in a real place.
+      if (!put && C.backRows) {
+        const spanX = Math.max(0, block.w - w - C.edgeInset * 2);
+        const spanY = Math.max(0, block.h - h - C.edgeInset * 2);
+        for (let t = 0; t < C.scatterTries && !put; t++) {
+          const x = Math.round(block.x + C.edgeInset + spanX * Math.random());
+          const y = Math.round(block.y + C.edgeInset + spanY * Math.random());
+          if (fits(x, y, w, h)) put = { kind, x, y, w, h, back: true };
+        }
       }
       if (put) placed.push(put);
     }
@@ -433,9 +579,9 @@
     const links = [];
     let bid = 0, hid = 0;
 
-    const layout = makeLayout(cols, rows);
     // the three phases of the district wobble, fixed for this city
     const wob = [Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3];
+    const layout = makeLayout(cols, rows, o.regionTier === undefined ? undefined : (o.regionTier || 0), wob);
     const seed = Math.floor(Math.random() * 1e9) + 1;
     layout.seed = seed;
     const bands = makeBands(regionId, layout.w, layout.h, o.extraCrossings || 0);
@@ -446,19 +592,26 @@
     const rowDistricts = o.rowDistricts || null;
 
     const props = [];
-    layout.blocks.forEach(block => {
-      block.district = rowDistricts
-        ? rowDistricts[block.row % rowDistricts.length]
-        : districtFor(block, layout, tierSpan, wob);
-    });
+    const paths = [];
+    // the layout already assigned them; a caller that names rows outright
+    // (an old save being regenerated, a test pinning a mix) still wins
+    if (rowDistricts) {
+      layout.blocks.forEach(block => {
+        block.district = rowDistricts[block.row % rowDistricts.length];
+      });
+    }
     markOpenBlocks(layout, seed);
 
     layout.blocks.forEach(block => {
       const districtKey = block.district;
       const D = window.DISTRICTS[districtKey];
+      const allKinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+      const plotKinds = allKinds.filter(k => !window.CITY.furniture[k]);
       if (!block.open) {
-        const kinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
-        scatterBlock(block, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
+        const kinds = plotKinds.length ? plotKinds : allKinds;
+        const laid = scatterBlock(block, kinds, bands, { denser: TR.denser || 0 });
+        paths.push(...pathsFor(block, layout, laid));
+        laid.forEach(put => {
           buildings.push({
             id: 'b' + (bid++),
             kind: put.kind, district: districtKey, tier: D.tier,
@@ -469,6 +622,18 @@
           });
         });
       }
+      // and the street furniture, out on the pavement where it belongs
+      scatterFurniture(block, allKinds, layout, bands, buildings).forEach(put => {
+        buildings.push({
+          id: 'b' + (bid++),
+          kind: put.kind, district: districtKey, tier: D.tier,
+          block: block.i, row: block.row, col: block.col,
+          verge: true,
+          x: put.x, y: put.y, w: put.w, h: put.h,
+          hostIds: [],
+          discovered: false,
+        });
+      });
     });
 
     // Landmarks. The reason to fight for a crossing rather than route around
@@ -501,17 +666,39 @@
         b.kind = kind;
         b.landmark = true;
         const want = { w: rndInt(K.w[0], K.w[1]), h: rndInt(K.h[0], K.h[1]) };
-        // grow it, but never onto the terrain it sits beside
+        // Grow it, but never onto the terrain it sits beside. It used to shrink
+        // by 12% up to twelve times, which is down to a quarter of its size —
+        // fine while a landmark was 78 wide, absurd once one is 175, and it
+        // showed up as a container dock with a median footprint of 936 and a
+        // minimum of 168. A landmark that has to become a shed to fit is not a
+        // landmark: slide it off the band first, and only then give a little.
         const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-        let nw = want.w, nh = want.h;
-        let nx = Math.round(cx - nw / 2), ny = Math.round(cy - nh / 2);
-        for (let guard = 0; guard < 12 && bands.some(band => rectOnBand(band, nx, ny, nw, nh)); guard++) {
-          nw = Math.round(nw * 0.88); nh = Math.round(nh * 0.88);
-          nx = Math.round(cx - nw / 2); ny = Math.round(cy - nh / 2);
+        // Clear of the terrain *and* of everything already standing. It only
+        // ever checked the terrain, which was survivable while a landmark grew
+        // by a few units and is not now that it can grow to 160 wide and slide
+        // half a block looking for room: measured as two buildings standing
+        // inside each other, and as a tree inside a substation.
+        const clear = (x, y, w, h) => !bands.some(band => rectOnBand(band, x, y, w, h))
+          && buildings.every(o => o === b ||
+            x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+        let put = null;
+        for (let shrink = 0; shrink < 4 && !put; shrink++) {
+          const k = Math.pow(0.9, shrink);           // never below 0.73 of intended
+          const nw = Math.round(want.w * k), nh = Math.round(want.h * k);
+          // straight on, then stepped off the band in each direction in turn
+          // and it does not wander: three steps either way, so a landmark stays
+          // recognisably on the block it was promoted from
+          const tries = [[0, 0]];
+          for (let d = 1; d <= 3; d++) {
+            tries.push([0, -d * nh * 0.3], [0, d * nh * 0.3],
+                       [-d * nw * 0.3, 0], [d * nw * 0.3, 0]);
+          }
+          for (const [dx, dy] of tries) {
+            const nx = Math.round(cx + dx - nw / 2), ny = Math.round(cy + dy - nh / 2);
+            if (clear(nx, ny, nw, nh)) { put = { x: nx, y: ny, w: nw, h: nh }; break; }
+          }
         }
-        if (!bands.some(band => rectOnBand(band, nx, ny, nw, nh))) {
-          b.x = nx; b.y = ny; b.w = nw; b.h = nh;
-        }
+        if (put) { b.x = put.x; b.y = put.y; b.w = put.w; b.h = put.h; }
       });
     })();
 
@@ -522,7 +709,7 @@
     // nothing else would have caught.
     layout.blocks.forEach(block => {
       props.push(...scatterProps(block, block.district, bands, buildings, block.open));
-      props.push(...scatterVerge(block, block.district, layout, bands));
+      props.push(...scatterVerge(block, block.district, layout, bands, buildings));
     });
 
     // one building, one host — the building is the thing you take
@@ -566,14 +753,22 @@
     // block pair produced a spaghetti of long lines that buried the city.
     const hostOf = (b) => hosts[byId[b.hostId]];
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    // 165 while every block was the same size and every building sat 82px from
-    // its neighbour. Once the plan went irregular some pairs landed further
-    // apart than that and the mean degree fell 3.32 -> 2.89 — a thinner
-    // frontier, which is fewer options a turn, which is a balance change
-    // nobody asked for. Measured back to 3.13 at 178, with no isolated
-    // building and one connected component on every board.
-    const MAX_LINK = 178;
-    const CROSSING_LINK = 340;   // a wire over a bridge reaches further
+    // Tuned twice, and each time for the same reason: this is a distance
+    // between building *centres*, so anything that moves the buildings apart
+    // thins the graph, and a thinner graph is fewer options a turn.
+    //
+    //   165  the original, while every block was the same size and every
+    //        building sat exactly 82 from its neighbour
+    //   178  after the plan went irregular (mean degree had fallen to 2.89)
+    //   270  after the size ladder was spread out. Blocks grow with their
+    //        district so a datacenter has somewhere to stand, which makes the
+    //        map about 1.8x the area it was, which put mean degree at 2.57.
+    //
+    // Measured at 270: mean 3.15, no isolated building, one component on every
+    // board, and 6% of links crossing terrain — so the crossings are still
+    // chokepoints rather than a formality.
+    const MAX_LINK = 270;
+    const CROSSING_LINK = 470;   // and a wire over a bridge still reaches further
     const NEIGHBOURS = 3;
     const seenPair = {};
     const adjacency = {};
@@ -633,16 +828,28 @@
         });
         if (comp <= 1) return;
 
-        // the closest pair that is separated *only* by terrain
-        let best = null;
+        // The closest pair separated *only* by terrain. The radius used to be a
+        // hard CROSSING_LINK * 1.2, which was fine while buildings were small
+        // and started stranding pockets in the north once a datacenter was 159
+        // wide and the nearest pair across the water was further apart than
+        // that. A pocket with no crossing cannot be stitched either — the
+        // stitcher refuses to tunnel under a river — so the two passes handed
+        // the problem to each other and the city came out in pieces.
+        //
+        // So: prefer a pair within reach, and if there is none, take the
+        // closest pair at any distance. A crossing has to exist somewhere, or
+        // there is a part of the city nobody can ever get to.
+        let best = null, far = null;
         buildings.forEach(a => buildings.forEach(b => {
           if (compOf[a.id] === compOf[b.id]) return;
           const ca = centreOf(a), cb = centreOf(b);
           const d = Math.hypot(ca.x - cb.x, ca.y - cb.y);
-          if (d > CROSSING_LINK * 1.2) return;
           if (!segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return;
+          if (!far || d < far.d) far = { d, a, b, ca, cb };
+          if (d > CROSSING_LINK * 1.2) return;
           if (!best || d < best.d) best = { d, a, b, ca, cb };
         }));
+        best = best || far;
         if (!best) return;   // separated by distance, not terrain — stitching handles it
 
         // Put the crossing where the wire actually crosses, and make it wide
@@ -725,6 +932,70 @@
       }
     })();
 
+    // Whatever is still unreachable does not exist. Two passes above try to
+    // wire every pocket in — a crossing where terrain is the problem, a stitch
+    // where distance is — and between them they get all but a couple of
+    // buildings on a hard board. What is left is a building with no way in at
+    // all, which is not content, it is a hole: it cannot be scanned, cannot be
+    // taken, and counts against the share of the city you need to hold.
+    //
+    // Deleting it is the only version of this that is a guarantee rather than a
+    // tuning. Measured, it costs 1-2 buildings on a northern board and nothing
+    // at all on most.
+    (function dropUnreachable() {
+      const compOf = {};
+      const size = [];
+      let comp = 0;
+      buildings.forEach(b => {
+        if (compOf[b.id] !== undefined) return;
+        const stack = [b.id];
+        compOf[b.id] = comp;
+        let n = 0;
+        while (stack.length) {
+          const cur = stack.pop();
+          n++;
+          (adjacency[cur] || []).forEach(x => {
+            if (compOf[x] === undefined) { compOf[x] = comp; stack.push(x); }
+          });
+        }
+        size.push(n);
+        comp++;
+      });
+      if (comp <= 1) return;
+      const keep = size.indexOf(Math.max(...size));
+      const gone = {};
+      buildings.filter(b => compOf[b.id] !== keep).forEach(b => { gone[b.id] = true; });
+      if (!Object.keys(gone).length) return;
+
+      // The host and the link list go with it. `links` holds *indices* into
+      // hosts, so the hosts cannot simply be spliced — the whole array is
+      // rebuilt and every link remapped, or every wire on the map points at
+      // the wrong building.
+      const goneHosts = {};
+      buildings.forEach(b => {
+        if (!gone[b.id]) return;
+        (b.hostIds || []).forEach(h => { goneHosts[h] = true; });
+        if (b.hostId) goneHosts[b.hostId] = true;
+      });
+      const kept = hosts.filter(h => !goneHosts[h.id]);
+      const newIndex = {};
+      kept.forEach((h, i) => { newIndex[h.id] = i; });
+      const remapped = links
+        .map(([a, c]) => [hosts[a], hosts[c]])
+        .filter(([ha, hc]) => ha && hc && !goneHosts[ha.id] && !goneHosts[hc.id])
+        .map(([ha, hc]) => [newIndex[ha.id], newIndex[hc.id]]);
+      hosts.length = 0; kept.forEach(h => hosts.push(h));
+      links.length = 0; remapped.forEach(l => links.push(l));
+      Object.keys(byId).forEach(k => { delete byId[k]; });
+      hosts.forEach((h, i) => { byId[h.id] = i; });
+
+      for (let i = buildings.length - 1; i >= 0; i--) if (gone[buildings[i].id]) buildings.splice(i, 1);
+      Object.keys(adjacency).forEach(id => {
+        if (gone[id]) { delete adjacency[id]; return; }
+        adjacency[id] = adjacency[id].filter(x => !gone[x]);
+      });
+    })();
+
     // the origin: a house in the suburbs, one host already yours. It must have
     // something next door you can take on turn one — a corner where every
     // neighbour outguns your opening rig is a board you cannot start playing.
@@ -774,7 +1045,7 @@
     seat.ring = 0;
     seat.origin = true;
 
-    return { buildings, hosts, links, adjacency, bands, layout, wob, props,
+    return { buildings, hosts, links, adjacency, bands, layout, wob, props, paths,
              originId: seat.id, dims: { cols, rows } };
   }
 
@@ -884,7 +1155,7 @@
     // and the scenery the new ground came with
     state.props = (state.props || []).concat(fresh.flatMap(blk =>
       scatterProps(blk, blk.district, bands, newBuildings, blk.open)
-        .concat(scatterVerge(blk, blk.district, L, bands))));
+        .concat(scatterVerge(blk, blk.district, L, bands, state.buildings.concat(newBuildings)))));
 
     if (newBuildings.length) {
       state.lastGrowthTrait = traitId;
@@ -919,7 +1190,9 @@
       const boundary = state.buildings.filter(b => b.row === startRow - 1);
       const pool = boundary.concat(newBuildings);
       const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-      const MAX_LINK = 165, CROSSING_LINK = 340, NEIGHBOURS = 3;
+      // the same reach the generator uses, or new ground wires itself up by a
+      // different rule from the ground it is being appended to
+      const MAX_LINK = 270, CROSSING_LINK = 470, NEIGHBOURS = 3;
       const seenPair = {};
       const hostOf = {};
       state.hosts.forEach(h => { hostOf[h.buildingId] = h; });
@@ -1443,6 +1716,7 @@
       layout: g.layout,
       wob: g.wob,
       props: g.props,
+      paths: g.paths,
       region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
@@ -3808,7 +4082,7 @@ scratch.later = null;
       adjacency: state.adjacency, bands: state.bands, dims: state.dims,
       // the street plan is part of the city, not of the session: a road that
       // moved when you walked back into a place would be worse than a straight one
-      layout: state.layout, wob: state.wob, props: state.props,
+      layout: state.layout, wob: state.wob, props: state.props, paths: state.paths,
       rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
@@ -3827,6 +4101,7 @@ scratch.later = null;
     state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
     state.layout = p.layout || null; state.wob = p.wob || [0, 0, 0];
     state.props = p.props || [];
+    state.paths = p.paths || [];
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
@@ -3860,7 +4135,7 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [],
+    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
     hidden: [], hunt: null, hacks: [],
     caughtHere: 0, caughtAt: [],
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
@@ -3903,7 +4178,7 @@ scratch.later = null;
         extraCrossings: capEffect('extraCrossings', 0),
       });
       unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency,
-                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob, props: g.props });
+                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob, props: g.props, paths: g.paths });
       const seat0 = state.hosts.find(h => h.owned);
       if (seat0) seat0.heldSince = state.turn;
     }
@@ -5855,7 +6130,7 @@ scratch.later = null;
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
-      layout: state.layout, wob: state.wob, props: state.props, region: state.region, homeGrowth: state.homeGrowth || 0,
+      layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
       lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
@@ -5887,7 +6162,7 @@ scratch.later = null;
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
         // a save from before the street plan existed draws on the old exact grid
-        layout: saved.layout || null, wob: saved.wob || [0, 0, 0], props: saved.props || [],
+        layout: saved.layout || null, wob: saved.wob || [0, 0, 0], props: saved.props || [], paths: saved.paths || [],
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
         lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
       };
@@ -6509,6 +6784,16 @@ scratch.later = null;
       }
     });
     return out;
+  }
+
+  // The way in to a back plot. Two per city at most, and every one of them is
+  // the difference between a building standing in a field and a building at the
+  // end of a driveway.
+  function svgPaths() {
+    const paths = state.paths || [];
+    if (!paths.length) return '';
+    return '<g class="plot-paths">' + paths.map(p =>
+      `<line class="plot-path" x1="${p.x1}" y1="${p.y1}" x2="${p.x2}" y2="${p.y2}"/>`).join('') + '</g>';
   }
 
   function svgProps() {
@@ -7230,12 +7515,13 @@ scratch.later = null;
     const L = cityLayout();
     const gaps = (state.bands || []).reduce((a, b) => a + (b.gaps || []).length, 0);
     return [state.cityId, L.cols, L.rows, (state.buildings || []).length,
-            (state.props || []).length, (state.bands || []).length, gaps].join('|');
+            (state.props || []).length, (state.paths || []).length,
+            (state.bands || []).length, gaps].join('|');
   }
   function svgGround() {
     const key = groundKey();
     if (groundCache && groundCache.key === key) return groundCache.html;
-    groundCache = { key, html: svgStreets() + svgOpenBlocks() + svgProps() + svgBands() };
+    groundCache = { key, html: svgStreets() + svgOpenBlocks() + svgPaths() + svgProps() + svgBands() };
     return groundCache.html;
   }
   // For anything that changes the ground in a way the key cannot see.
@@ -8920,7 +9206,7 @@ scratch.later = null;
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
-    districtBlocks, cityLayout, svgGround, svgProps, svgOpenBlocks, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    districtBlocks, districtAt, cityLayout, svgGround, svgProps, svgOpenBlocks, svgPaths, scatterFurniture, pathsFor, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,

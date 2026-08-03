@@ -437,26 +437,73 @@ window.PROP_FILL = {
 // a single thing you either hold or do not. Its kind says what it is.
 // Stealth lives in street furniture rather than on walls, which keeps it a
 // distinct, cheap, spatial thing without reintroducing interiors.
+// How big things are, and it is the one thing on this map that has to be true
+// at a glance. Measured on the old table across six generated cities: a house
+// and a shopfront came out 1.15x apart in linear size, a house and an apartment
+// block 1.45x, and *eight* pairs of different kinds sat within 18% of each
+// other in median footprint — cabinet/mast, finance/office, and warehouse,
+// depot, substation and switchyard all four mutually. Four kinds of industrial
+// building that draw the same size is four kinds you cannot tell apart.
+//
+// Two rules now. **No two ordinary kinds within 18% of each other in median
+// area**, which is what actually reads as "these are the same thing" — more
+// than the overall range does. And **aspect carries what area cannot**: the
+// biggest things are all big, so a dock is long and low, an exchange is square
+// and tall, and a depot is a fat rectangle. That is a second axis to tell them
+// apart on.
+//
+// The rule is about the eleven ordinary kinds and not about landmarks, and that
+// is deliberate rather than a gap. Landmarks all live at the top of the ladder
+// by definition, and between switchyard and datacenter there is a 1.27x step
+// with no room in it for a depot — so a depot is told from a switchyard by
+// being square rather than by being bigger, and by the marking every landmark
+// already carries. Chasing separation for those too meant shoving the ordinary
+// kinds apart to make gaps for rare ones, which is the tail wagging the dog.
+//
+// The small end is fixed rather than free: a camera mast is about thirteen
+// screen pixels at the ordinary play zoom, so the range could only widen
+// upward. Which is why blocks now grow with their district (see
+// DISTRICT_BLOCK): a datacenter at 159x110 does not fit on a suburban plot,
+// and it should not.
 window.BUILDING_KINDS = {
-  cabinet:    { w: [18, 24], h: [14, 18], label: 'street cabinet', host: 'iot' },
-  mast:       { w: [12, 16], h: [20, 26], label: 'camera mast',    host: 'iot' },
-  house:      { w: [30, 38], h: [24, 30], label: 'house',          host: 'consumer' },
-  apartment:  { w: [44, 58], h: [34, 44], label: 'apartments',     host: 'consumer' },
-  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',      host: 'till' },
-  office:     { w: [52, 68], h: [42, 56], label: 'offices',        host: 'server' },
-  finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
-  warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
-  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter', trace: 1.8 },
-  pillar:     { w: [20, 26], h: [16, 22], label: 'feeder pillar',  host: 'feeder' },
-  switchyard: { w: [64, 82], h: [48, 62], label: 'switchyard',     host: 'switchgear' },
+  cabinet:    { w: [14, 19],   h: [10, 14],   label: 'street cabinet', host: 'iot' },
+  mast:       { w: [11, 15],   h: [24, 32],   label: 'camera mast',    host: 'iot' },
+  pillar:     { w: [22, 29],   h: [17, 23],   label: 'feeder pillar',  host: 'feeder' },
+  house:      { w: [26, 36],   h: [22, 30],   label: 'house',          host: 'consumer' },
+  shop:       { w: [38, 52],   h: [30, 40],   label: 'shopfront',      host: 'till' },
+  apartment:  { w: [58, 76],   h: [40, 54],   label: 'apartments',     host: 'consumer' },
+  // a tower rather than a slab: the smaller footprint of the two, and the
+  // taller one, so it is not the office block next door with a different label
+  finance:    { w: [62, 80],   h: [58, 76],   label: 'finance floor',  host: 'corporate' },
+  office:     { w: [84, 108],  h: [58, 76],   label: 'offices',        host: 'server' },
+  warehouse:  { w: [110, 140], h: [70, 92],   label: 'warehouse',      host: 'server' },
+  switchyard: { w: [120, 152], h: [88, 114],  label: 'switchyard',     host: 'switchgear' },
+  datacenter: { w: [140, 178], h: [96, 124],  label: 'datacenter',     host: 'datacenter', trace: 1.8 },
   // Landmarks. One or two to a city, always up against whatever terrain the
   // region has, and always worth more than the street around them — they are
-  // the reason to fight for a crossing rather than route around it.
-  docks:      { w: [78, 96], h: [50, 64], label: 'container dock', host: 'server',     landmark: true },
-  station:    { w: [74, 92], h: [48, 60], label: 'station',        host: 'server',     landmark: true },
-  depot:      { w: [66, 84], h: [46, 58], label: 'depot',          host: 'till',       landmark: true },
-  exchange:   { w: [64, 80], h: [52, 66], label: 'exchange floor', host: 'corporate',  landmark: true },
-  substation: { w: [58, 72], h: [44, 56], label: 'substation',     host: 'switchgear', landmark: true },
+  // the reason to fight for a crossing rather than route around it. They are
+  // all at the big end by definition, so aspect is what separates them.
+  docks:      { w: [175, 220], h: [62, 82],   label: 'container dock', host: 'server',     landmark: true },
+  station:    { w: [158, 198], h: [72, 94],   label: 'station',        host: 'server',     landmark: true },
+  depot:      { w: [122, 154], h: [98, 126],  label: 'depot',          host: 'till',       landmark: true },
+  exchange:   { w: [92, 118],  h: [98, 126],  label: 'exchange floor', host: 'corporate',  landmark: true },
+  substation: { w: [88, 110],  h: [66, 86],   label: 'substation',     host: 'switchgear', landmark: true },
+};
+
+// How much bigger a block is where the big things stand. A datacenter is
+// 159x110 at its median and a house is 31x26 — they cannot share a plot size,
+// and in a real city they do not: industrial and business blocks are simply
+// larger. This is also the district gradient becoming visible in the street
+// plan itself, which it never was while every block was the same rectangle.
+//
+// A row and a column take the largest scale of any block in them, because the
+// roads have to stay straight — a jagged street plan is a different and much
+// bigger change than this one.
+window.DISTRICT_BLOCK = {
+  residential: 0.82,
+  commercial: 1.0,
+  business: 1.34,
+  industrial: 1.75,
 };
 
 // A landmark is a bigger prize and a harder door than the district it sits in.
@@ -477,7 +524,12 @@ window.CITY = {
   cols: 6, rows: 6,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
-  perBlock: [2, 4],    // buildings in a block
+  perBlock: [2, 4],    // buildings in a block, at the base block size
+  // How much of a block is building rather than yard, path and gap. Tuned
+  // against the count: a 6x6 home board held 98 buildings before the size
+  // ladder was spread out, and it has to still hold about that many afterwards
+  // or the first city quietly became a much longer game.
+  plotShare: 12.5,
 
   // --- the irregular part -------------------------------------------------
   // The block grid used to be exact: every block the same size, every street
@@ -495,10 +547,26 @@ window.CITY = {
   arterialMult: 1.75,  // ...and that much wider
   gapMin: 13,          // clear air any two buildings keep between them
   edgeInset: 7,        // and between a building and the road
-  // How hard buildings pull toward the street rather than sitting mid-block.
-  // Frontage is most of what makes a block read as built rather than sprinkled:
-  // at 0 the scatter looks like confetti, at 1 every block is a hollow ring.
-  frontage: 0.6,
+  // Frontage is a constraint now, not a preference. It used to be a nudge —
+  // pull the dart toward the nearer edge on one axis, 35% of the way — and
+  // measured across six cities only 28% of buildings ended up touching a
+  // street at all, while 16% sat marooned more than 26 units from any edge.
+  // Buildings that are not on a road do not make sense from either an
+  // infrastructure or an architecture point of view.
+  //
+  // So: a building takes a frontage on one of the block's four sides, squared
+  // onto it. Where that cannot be done — the side is full, or the terrain is in
+  // the way — it goes behind, and gets a drawn path from its door out to the
+  // nearest kerb. Nothing stands in a field with no way to reach it.
+  frontDepth: 4,       // how close "on the street" means
+  backRows: true,      // whether a block may have anything behind its frontage
+  pathWidth: 3,
+  // Street furniture is not on a plot at all. A camera mast, a street cabinet
+  // and a feeder pillar stand on the pavement, which is between the blocks —
+  // measured, cabinets were the single most marooned thing on the map, 22 of
+  // them mid-lot across six cities, which is exactly backwards for the one
+  // category of thing the data already calls street furniture.
+  furniture: { cabinet: true, mast: true, pillar: true },
   scatterTries: 26,    // darts thrown per building before giving up on it
   // Scatter alone still reads as sprinkled. What makes a block look *built* is
   // that buildings share a frontage: a run of them along the same edge, lined

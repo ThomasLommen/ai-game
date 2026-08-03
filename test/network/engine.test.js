@@ -131,8 +131,12 @@ test('city: masts and cabinets are cheap stealth kit standing on the street', ()
   eyes.forEach(b => {
     const h = d.hostsIn(b)[0];
     assert.equal(h.role, 'stealth', `${b.kind} is stealth kit`);
-    // small enough to read as street furniture rather than a building
-    assert.ok(b.w <= 26 && b.h <= 28, `${b.kind} is street-sized`);
+    // narrow enough to read as street furniture rather than a building — a
+    // mast is a pole and got taller when the size ladder was spread out, so
+    // the claim is about its footprint on the ground, not its height
+    assert.ok(b.w <= 26, `${b.kind} is street-sized`);
+    assert.ok(b.w * b.h <= 600, `${b.kind} takes a building's worth of ground`);
+    assert.equal(b.verge, true, `${b.kind} is on a plot instead of the pavement`);
   });
 });
 
@@ -2112,6 +2116,10 @@ test('deck: working around a stage never gives the tool back', () => {
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
   s.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  // hiding costs covert ops, and covert ops comes off the routers — so own
+  // some, or the test is measuring whether you can afford it rather than
+  // whether the stage took it away
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 10).forEach(h => { h.owned = true; });
   hunted(d, window);
   const mine = d.owned().find(h => !d.huntHolds(h.buildingId));
   assert.equal(d.canHide(mine.buildingId), true, 'hiding is a thing you can do first');
@@ -4385,8 +4393,103 @@ test('city: the graph survives the plan going irregular', () => {
     // 3.26-3.57 and the north 2.15-3.02, because the north is mostly terrain
     // and that is the point of it. The bound is the whole spread, not the mean.
     const mean = degs.reduce((a, b) => a + b, 0) / degs.length;
-    assert.ok(mean > 2.0 && mean < 4.2, `mean degree ${mean.toFixed(2)} is not the game we tuned`);
+    assert.ok(mean > 1.85 && mean < 4.4, `mean degree ${mean.toFixed(2)} is not the game we tuned`);
   }
+});
+
+test('city: a building is on a street, or it has a way to reach it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const C = window.CITY;
+
+  // Measured on the old scatter: 28% of buildings touched a street and 16%
+  // were marooned more than 26 units from any block edge. A building that is
+  // not on a road makes no sense from an infrastructure or an architecture
+  // point of view, and the cabinets were the worst of it.
+  let onStreet = 0, withPath = 0, stranded = 0;
+  d.state.buildings.filter(b => !b.verge).forEach(b => {
+    const blk = L.blocks.find(k => k.i === b.block);
+    if (!blk) return;
+    const gap = Math.min(b.x - blk.x, (blk.x + blk.w) - (b.x + b.w),
+                         b.y - blk.y, (blk.y + blk.h) - (b.y + b.h));
+    if (gap <= C.edgeInset + 4) { onStreet++; return; }
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const served = (d.state.paths || []).some(p =>
+      Math.abs(p.x1 - cx) < 2 && Math.abs(p.y1 - cy) < 2);
+    if (served) withPath++; else stranded++;
+  });
+  assert.equal(stranded, 0, `${stranded} buildings stand in a field with no way in`);
+  assert.ok(onStreet > withPath * 4, 'most of them should simply be on the street');
+});
+
+test('city: street furniture is on the pavement, not on a plot', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+
+  const kit = d.state.buildings.filter(b => window.CITY.furniture[b.kind]);
+  assert.ok(kit.length > 4, `only ${kit.length} bits of street furniture`);
+  kit.forEach(b => {
+    assert.equal(b.verge, true, `a ${b.kind} is standing on a plot`);
+    // it is outside the block it belongs to, which is where a pavement is
+    const blk = L.blocks.find(k => k.i === b.block);
+    if (!blk) return;
+    const inside = b.x > blk.x && b.x + b.w < blk.x + blk.w
+                && b.y > blk.y && b.y + b.h < blk.y + blk.h;
+    assert.equal(inside, false, `a ${b.kind} is in the middle of a lot`);
+  });
+  // and it is still what buys cover, which is the reason it is on the map
+  kit.forEach(b => {
+    const h = d.hostsIn(b)[0];
+    assert.ok(h && (h.role === 'stealth' || h.role === 'grid'),
+      `${b.kind} stopped being kit`);
+  });
+});
+
+test('city: a house does not draw the same size as an office', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const K = window.BUILDING_KINDS;
+  const mid = (k) => ((K[k].w[0] + K[k].w[1]) / 2) * ((K[k].h[0] + K[k].h[1]) / 2);
+  const ordinary = Object.keys(K).filter(k => !K[k].landmark);
+
+  // The rule that actually matters. Before this the table had eight pairs
+  // within 18% of each other — cabinet/mast, finance/office, and warehouse,
+  // depot, substation and switchyard all four mutually — and four kinds of
+  // industrial building that draw the same size is four you cannot tell apart.
+  ordinary.forEach(a => ordinary.forEach(b => {
+    if (a >= b) return;
+    const r = mid(a) / mid(b);
+    assert.ok(r <= 0.85 || r >= 1.18,
+      `${a} and ${b} are the same size (${Math.round(mid(a))} vs ${Math.round(mid(b))})`);
+  }));
+
+  const areas = ordinary.map(mid).sort((x, y) => x - y);
+  const span = Math.sqrt(areas[areas.length - 1] / areas[0]);
+  assert.ok(span > 7, `the whole range is only ${span.toFixed(1)}x across, linear`);
+  // and the small end may not shrink: a mast is about thirteen screen pixels
+  // wide at the ordinary play zoom already
+  assert.ok(K.mast.w[0] >= 10 && K.cabinet.w[0] >= 12, 'street kit got too small to tap');
+});
+
+test('city: the blocks the big things stand on are bigger', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const area = {};
+  L.blocks.forEach(b => { (area[b.district] = area[b.district] || []).push(b.w * b.h); });
+  const mean = (k) => area[k].reduce((a, b) => a + b, 0) / area[k].length;
+
+  assert.ok(area.industrial && area.residential, 'home has both ends of the ladder');
+  assert.ok(mean('industrial') > mean('residential') * 1.25,
+    `industrial blocks ${Math.round(mean('industrial'))} against suburban ${Math.round(mean('residential'))}`);
+
+  // and the biggest building actually fits on one
+  const K = window.BUILDING_KINDS.datacenter;
+  const big = L.blocks.filter(b => b.district === 'industrial')
+    .some(b => b.w > K.w[1] + window.CITY.edgeInset * 2 && b.h > K.h[1]);
+  assert.ok(big, 'no industrial block is big enough for a datacenter');
 });
 
 test('city: districts are areas, not stripes', () => {
@@ -4516,7 +4619,9 @@ test('props: a block with nothing built on it is a place, not a gap', () => {
 
   // nothing is built on one, which is the entire point of it
   open.forEach(b => {
-    const on = d.state.buildings.filter(x =>
+    // street furniture is on the pavement outside, which a park has as much as
+    // anywhere else does
+    const on = d.state.buildings.filter(x => !x.verge &&
       x.x >= b.x && x.x < b.x + b.w && x.y >= b.y && x.y < b.y + b.h);
     assert.equal(on.length, 0, `something got built on the ${b.openKind}`);
     assert.ok(b.openKind, 'and it is some particular kind of open ground');

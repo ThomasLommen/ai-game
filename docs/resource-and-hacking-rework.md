@@ -524,6 +524,82 @@ The consequence for props: they belong on the ground layer, which costs 1.4 ms
 and only rebuilds when the city does. Three hundred of them is affordable in a
 way three hundred more buildings would not be.
 
+### Buildings that are on a street, and are different sizes
+
+Two things the placement pass left wrong, both reported from play and both worse
+than reported once measured.
+
+**Nothing was on a street.** Across six generated cities only **28%** of
+buildings touched a block edge, and **16%** sat marooned more than 26 units from
+any of them — the largest single group of those being **street cabinets, 22 of
+them**, the one category the data already calls street furniture. Frontage was a
+nudge (pull the dart toward the nearer edge, 35% of the way) rather than a rule.
+
+Now it is a rule. A building takes a frontage on one of the block's four sides,
+squared onto it, sides tried in shuffled order. Only when every side is full does
+it go behind — and then it gets a drawn **path** from its door out to the nearest
+kerb, which is what a back plot has in a real place. Measured after: **100% on
+the street**, 0% marooned, and a handful of paths per city for the offices and
+finance floors too big to take any frontage.
+
+Street furniture went to **the verge** — the pavement between the blocks, where a
+camera mast and a street cabinet actually are. That is a gameplay change, not a
+visual one: they are the cheap stealth kit, and the verge sits near more
+buildings. Their count is held at about a quarter of the board, the way it was
+when they lived on plots, because how much cover a city offers is a balance
+number.
+
+**Everything was the same size.** House to shopfront was **1.15× linear**. House
+to apartment 1.45×. And eight pairs of different kinds sat within 18% of each
+other in median footprint — cabinet/mast, finance/office, and warehouse, depot,
+substation and switchyard all four mutually.
+
+| | cabinet | mast | house | shop | apartment | office | warehouse | datacenter |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| before | 336 | 320 | 936 | 1247 | 1976 | 2925 | 3650 | 4980 |
+| after | 195 | 336 | 792 | 1550 | 3185 | 6450 | 9625 | 17473 |
+
+The rule now is **no two ordinary kinds within 18% of each other**, which is what
+actually reads as "these are the same thing", and a linear range of **9.5×** (was
+3.9×). Aspect carries what area cannot at the top of the ladder: a dock is long
+and low, an exchange square and tall, a depot a fat rectangle. Landmarks are
+exempt from the 18% rule on purpose — they all live at the top by definition, and
+between switchyard and datacenter there is a 1.27× step with no room in it for a
+depot, so a depot is told apart by being square and by the marking every landmark
+already carries.
+
+The small end could not shrink — a mast is about thirteen screen pixels wide at
+the ordinary play zoom — so **blocks grow with their district**: residential
+0.82, commercial 1.0, business 1.34, industrial 1.75. A row and a column take the
+largest scale in them, because the roads have to stay straight. The district
+gradient is now visible in the street plan itself, which it never was.
+
+Three things fell out of it, and all three are the same lesson — the map is a
+system, and the size table is not a cosmetic file:
+
+- **The density formula had to be rewritten twice.** Plain area put 203 buildings
+  on a board that used to hold 98, because the map grew when the blocks did.
+  Dividing by the district's nominal scale was *worse and backwards*: a suburban
+  block in an industrial column is large, and dividing by 0.82² made it denser.
+  The honest denominator is the district's own typical building size — one
+  datacenter takes the room of twenty houses because it is twenty times the house.
+- **`MAX_LINK` moved again, 178 → 270.** Adjacency is centre-to-centre, the map is
+  about 1.8× the area, and mean degree had fallen to 2.57. At 270: mean 3.15, no
+  isolated building, one component per board, 6% of links crossing terrain.
+- **Landmark placement was checking the terrain and nothing else.** Survivable
+  while a landmark grew by a few units; not once one can be 160 wide and slide
+  half a block looking for room. It produced two buildings standing inside each
+  other and a tree inside a substation. It checks every building now, and the
+  slide is capped at three steps so a landmark stays on the block it came from.
+
+And one guarantee replaced a tuning: **anything still unreachable is deleted.**
+Two passes try to wire every pocket in — a crossing where terrain is the problem,
+a stitch where distance is — and on a hard northern board a building or two still
+came out with no way in at all. That is not content, it is a hole: it cannot be
+scanned, cannot be taken, and counts against the share of the city you need to
+hold. Zero isolated buildings and one connected component are now true by
+construction rather than by having picked the right link distance.
+
 ### Things that are not doors
 
 The map contained nothing but buildings you can hack, which is a diagram of a
