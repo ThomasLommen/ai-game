@@ -62,7 +62,13 @@
         x + w + pad <= p.x || p.x + p.w + pad <= x ||
         y + h + pad <= p.y || p.y + p.h + pad <= y);
 
-    const want = open ? rndInt(F.perOpen[0], F.perOpen[1]) : rndInt(F.perBlock[0], F.perBlock[1]);
+    // Scaled by the block, not a flat count. Blocks grew a long way when they
+    // started varying with their district, and a fixed three-to-seven left the
+    // middle of a big one as a dark void — which reads as buildings floating
+    // rather than as buildings lining a street with yards behind them.
+    const K = (block.w * block.h) / (window.CITY.blockW * window.CITY.blockH);
+    const want = Math.round(K *
+      (open ? rndInt(F.perOpen[0], F.perOpen[1]) : rndInt(F.perBlock[0], F.perBlock[1])));
     for (let n = 0; n < want; n++) {
       const kind = pick(pool);
       const P = window.PROPS[kind];

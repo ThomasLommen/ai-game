@@ -763,8 +763,14 @@ footer .build { opacity: .55; font-size: 10px; }
 /* --- streets ------------------------------------------------------------
    A grid of identical roads reads as graph paper. Not every street matters
    equally in a real place, so not every street is drawn the same here. */
-.street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
-.street.main { stroke: #202a26; stroke-width: 30; }
+/* No width here. The plan gives every road its own — 49 to 99 units once block
+   sizes started varying — and a stroke-width in the stylesheet *overrides* the
+   presentation attribute, so every road was painted 22 wide inside a gap of up
+   to 99. That left a fat unpainted margin between the tarmac and every
+   building, which is why the frontage pass looked like it had not happened: the
+   buildings were on their plot boundary and the road was nowhere near it. */
+.street { stroke: #1b2320; stroke-linecap: square; }
+.street.main { stroke: #202a26; }
 .street-line { stroke: #2b3a34; stroke-width: 1; stroke-dasharray: 8 12; opacity: .55; }
 /* --- props ---------------------------------------------------------------
    Everything standing on the map that is not a door. Two rules hold the whole

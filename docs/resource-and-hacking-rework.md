@@ -542,6 +542,23 @@ kerb, which is what a back plot has in a real place. Measured after: **100% on
 the street**, 0% marooned, and a handful of paths per city for the offices and
 finance floors too big to take any frontage.
 
+**And none of it was visible, for a reason that had nothing to do with the
+placement.** Reported from play as "I can't see the buildings being closer to
+the streets". They were — measured on the running page, 99% of buildings sit
+within 10 units of a painted road edge, median 7. The problem was the road.
+`svgStreets` gives every road its own width from the plan (49 to 99 units once
+blocks started varying), as a presentation attribute — and the stylesheet had
+`stroke-width: 22` on `.street`, which **overrides** a presentation attribute.
+So every road was painted 22 wide inside a gap of up to 99, leaving a fat
+unpainted margin between the tarmac and every building on it. The frontage pass
+had worked perfectly and was invisible. A test now reads the stylesheet and
+fails if a width reappears there.
+
+The other half of "it still looks empty" was real: blocks grew a long way, and a
+flat three-to-seven props left the middle of a big one a dark void. Prop counts
+scale with the block now, so a block reads as buildings lining a street with
+yards behind them.
+
 Street furniture went to **the verge** — the pavement between the blocks, where a
 camera mast and a street cabinet actually are. That is a gameplay change, not a
 visual one: they are the cheap stealth kit, and the verge sits near more

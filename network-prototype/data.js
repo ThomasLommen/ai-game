@@ -425,8 +425,9 @@ window.OPEN_BLOCKS = {
 // ground layer, which is 386 nodes and 1.4ms against the buildings' 2,867 and
 // 12.2ms — but a block packed edge to edge stops reading as a block.
 window.PROP_FILL = {
-  perBlock: [3, 7],     // darts thrown into the gaps of an ordinary block
-  perOpen: [9, 16],     // and into an open one, which is nothing but gaps
+  perBlock: [5, 9],     // darts thrown into the gaps of an ordinary block...
+  perOpen: [10, 17],    // ...into an open one, which is nothing but gaps,
+                        // and both scaled by how big the block actually is
   verge: [1, 3],        // and along the road outside it
   tries: 14,
   clearOfBuilding: 6,   // air a prop keeps off a building it is not part of

@@ -4478,6 +4478,29 @@ test('city: the graph survives the plan going irregular', () => {
   }
 });
 
+test('city: the road is painted the width the plan gave it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const svg = d.svgStreets();
+
+  // Every road carries its own width as a presentation attribute...
+  L.vRoad.forEach(w => {
+    assert.ok(svg.includes(`stroke-width="${w}"`), `no road is drawn ${w} wide`);
+  });
+  // ...and the stylesheet must not override it. A stroke-width in CSS beats a
+  // presentation attribute, and while one was there every road was painted 22
+  // wide inside a gap of up to 99 — which left an unpainted margin between the
+  // tarmac and every building, and made the frontage pass look like it had
+  // never happened.
+  const rule = /\.street\s*\{([^}]*)\}/.exec(STYLE_CSS);
+  assert.ok(rule, 'there is no .street rule at all');
+  assert.ok(!/stroke-width/.test(rule[1]),
+    'the stylesheet is overriding every road width again');
+  const main = /\.street\.main\s*\{([^}]*)\}/.exec(STYLE_CSS);
+  if (main) assert.ok(!/stroke-width/.test(main[1]), 'and the arterials too');
+});
+
 test('city: a building is on a street, or it has a way to reach it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
