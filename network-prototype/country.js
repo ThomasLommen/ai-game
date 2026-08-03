@@ -238,29 +238,48 @@ window.LADDER = {
 // against 6.9 slots, and `assetRoom() === 0` essentially never happened. Two
 // different kinds per region makes claiming a choice, and a choice is what
 // makes the slot worth having.
+// `runs` is a span along the band's own axis, as a fraction of the map. Without
+// it a band goes edge to edge, which is a river or a railway and nothing else.
+// With it the same primitive is a *patch* — a lake, a wood, a green belt that
+// stops — which blocks what is under it and is gone round rather than crossed.
+// A patch usually has no crossings at all: you do not bridge a lake, you walk
+// round it, and the routing round it is the interesting part.
 window.TERRAIN = {
   home: {
     label: 'parkland',
-    bands: [{ kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 }],
-    landmarks: ['depot', 'substation'],
+    bands: [
+      { kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 },
+      // the boating lake in the middle of it, which nothing wires across
+      { kind: 'water', axis: 'h', at: 0.62, thickness: 84, crossings: 0, runs: [0.18, 0.44] },
+    ],
+    landmarks: ['depot', 'substation', 'market'],
   },
   estuary: {
     label: 'the water',
-    bands: [{ kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 }],
-    landmarks: ['docks', 'station'],
+    bands: [
+      { kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 },
+      { kind: 'water', axis: 'v', at: 0.78, thickness: 96, crossings: 0, runs: [0.55, 0.92] },
+    ],
+    landmarks: ['docks', 'station', 'works'],
   },
   midlands: {
     label: 'the line',
-    bands: [{ kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 }],
-    landmarks: ['station', 'depot'],
+    bands: [
+      { kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 },
+      // the green belt: a working landscape rather than a hole, with a couple
+      // of lanes through it
+      { kind: 'green', axis: 'h', at: 0.72, thickness: 76, crossings: 2 },
+    ],
+    landmarks: ['station', 'depot', 'market'],
   },
   capital: {
     label: 'the river and the line',
     bands: [
       { kind: 'water', axis: 'h', at: 0.4, thickness: 52, crossings: 2 },
       { kind: 'rail', axis: 'v', at: 0.62, thickness: 28, crossings: 2 },
+      { kind: 'green', axis: 'v', at: 0.2, thickness: 70, crossings: 0, runs: [0.1, 0.46] },
     ],
-    landmarks: ['exchange', 'station'],
+    landmarks: ['exchange', 'station', 'stadium'],
   },
   north: {
     label: 'the moor',
@@ -269,8 +288,9 @@ window.TERRAIN = {
     bands: [
       { kind: 'moor', axis: 'h', at: 0.34, thickness: 62, crossings: 1 },
       { kind: 'moor', axis: 'h', at: 0.74, thickness: 54, crossings: 1 },
+      { kind: 'water', axis: 'v', at: 0.32, thickness: 92, crossings: 0, runs: [0.4, 0.68] },
     ],
-    landmarks: ['substation', 'depot'],
+    landmarks: ['substation', 'depot', 'works'],
   },
 };
 
@@ -280,6 +300,7 @@ window.BAND_KINDS = {
   rail:  { label: 'the line', crossing: 'level crossing',  blocks: true },
   moor:  { label: 'open moor', crossing: 'the road',       blocks: true },
   park:  { label: 'the park', crossing: 'a path',          blocks: true },
+  green: { label: 'the green belt', crossing: 'a lane',    blocks: true },
 };
 
 // The mirror's numbers. It is the rival one scale up: it takes ground you have

@@ -501,18 +501,35 @@
       const across = spec.axis === 'h' ? H : W;     // the direction it cuts
       const mid = across * spec.at;
       const half = spec.thickness / 2;
+      // A band used to run the whole width of the map, always — which is a
+      // river or a railway and nothing else. `runs` gives it a span along its
+      // own axis, so the same primitive can be a lake: a patch of water that
+      // blocks what is under it and is simply gone round, rather than a wall
+      // with bridges over it. Absent means the old behaviour, edge to edge.
+      const runs = spec.runs
+        ? { from: along * spec.runs[0], to: along * spec.runs[1] }
+        : { from: -1e6, to: 1e6 };
       // crossings sit at even intervals with a little jitter, never at the edge
       const gaps = [];
-      const n = Math.max(1, spec.crossings + extra);
+      const n = Math.max(0, (spec.crossings || 0) + extra);
+      const span = Math.min(along, runs.to - runs.from);
+      const base = spec.runs ? runs.from : 0;
       for (let g = 0; g < n; g++) {
         const t = (g + 1) / (n + 1);
         gaps.push({
-          at: along * t + rnd(-along * 0.06, along * 0.06),
+          at: base + span * t + rnd(-span * 0.06, span * 0.06),
           w: window.CITY.street * 1.6,
         });
       }
-      return { id: 'band' + i, kind: spec.kind, axis: spec.axis, from: mid - half, to: mid + half, gaps };
+      return { id: 'band' + i, kind: spec.kind, axis: spec.axis,
+               from: mid - half, to: mid + half, runs, gaps };
     });
+  }
+  // Where a band actually is along its own axis. Everything below asks this
+  // rather than assuming edge to edge.
+  function bandCovers(band, along) {
+    const r = band.runs;
+    return !r || (along >= r.from && along <= r.to);
   }
 
   // is this point inside a band, and not in one of its crossings?
@@ -520,6 +537,7 @@
     const across = band.axis === 'h' ? y : x;
     const along = band.axis === 'h' ? x : y;
     if (across < band.from || across > band.to) return false;
+    if (!bandCovers(band, along)) return false;
     return !band.gaps.some(g => Math.abs(along - g.at) <= g.w / 2);
   }
 
@@ -527,7 +545,11 @@
   function rectOnBand(band, x, y, w, h) {
     const lo = band.axis === 'h' ? y : x;
     const hi = lo + (band.axis === 'h' ? h : w);
-    return hi >= band.from && lo <= band.to;
+    if (hi < band.from || lo > band.to) return false;
+    const alo = band.axis === 'h' ? x : y;
+    const ahi = alo + (band.axis === 'h' ? w : h);
+    const r = band.runs;
+    return !r || (ahi >= r.from && alo <= r.to);
   }
 
   // Would a wire from a to b have to cross the band somewhere there is no
@@ -554,7 +576,13 @@
     for (const band of bands) {
       const a = band.axis === 'h' ? ay : ax;
       const b = band.axis === 'h' ? by : bx;
-      if (Math.min(a, b) <= band.to && Math.max(a, b) >= band.from) return true;
+      if (Math.min(a, b) > band.to || Math.max(a, b) < band.from) continue;
+      // and it has to cross the band where the band actually is: a wire that
+      // passes north of the lake has not crossed the lake
+      const p = band.axis === 'h' ? ax : ay;
+      const q = band.axis === 'h' ? bx : by;
+      if (!bandCovers(band, p) && !bandCovers(band, q)) continue;
+      return true;
     }
     return false;
   }
@@ -856,10 +884,26 @@
         // enough to cover the whole traverse. Placing it at the segment's
         // midpoint looks right and is wrong for anything diagonal: the wire
         // enters and leaves the band well to one side of it.
-        bands.forEach(band => {
+        // Which bands are actually in the way of this pair. A patch only exists
+        // along part of its axis, and without checking that, a wire crossing
+        // the park at the far end of the map put three bridges over the
+        // boating lake.
+        const inTheWay = bands.filter(band => {
           const a0 = band.axis === 'h' ? best.ca.y : best.ca.x;
           const b0 = band.axis === 'h' ? best.cb.y : best.cb.x;
-          if (Math.min(a0, b0) > band.to || Math.max(a0, b0) < band.from) return;
+          if (Math.min(a0, b0) > band.to || Math.max(a0, b0) < band.from) return false;
+          const alongA = band.axis === 'h' ? best.ca.x : best.ca.y;
+          const alongB = band.axis === 'h' ? best.cb.x : best.cb.y;
+          return bandCovers(band, alongA) || bandCovers(band, alongB);
+        });
+        // You bridge the river, not the lake. A patch is a thing to go round,
+        // full stop — it never gets a way across, and anything it does manage
+        // to cut off is picked up by the stitcher or, failing that, deleted by
+        // dropUnreachable. Letting this pass gap a patch put three bridges
+        // over a boating lake, which is three more than a boating lake has.
+        inTheWay.filter(band => !band.runs || band.runs.from <= -1e5).forEach(band => {
+          const a0 = band.axis === 'h' ? best.ca.y : best.ca.x;
+          const b0 = band.axis === 'h' ? best.cb.y : best.cb.x;
           const alongA = band.axis === 'h' ? best.ca.x : best.ca.y;
           const alongB = band.axis === 'h' ? best.cb.x : best.cb.y;
           // where the segment sits when it enters and leaves the band
@@ -6510,11 +6554,21 @@ scratch.later = null;
     let out = '';
     bands.forEach(band => {
       const horiz = band.axis === 'h';
-      const x = horiz ? -CITY_PAD : band.from;
-      const y = horiz ? band.from : -CITY_PAD;
-      const w = horiz ? B.w + CITY_PAD * 2 : band.to - band.from;
-      const h = horiz ? band.to - band.from : B.h + CITY_PAD * 2;
-      out += `<rect class="band-${band.kind}" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
+      // A band that only runs part of the map — a lake rather than a river —
+      // is drawn at its own extent, and with rounded ends, because a patch of
+      // water with square corners reads as a rectangle somebody forgot to
+      // finish. Everything else still runs edge to edge.
+      const r = band.runs || {};
+      const partial = r.from !== undefined && r.from > -1e5;
+      const a0 = partial ? r.from : -CITY_PAD;
+      const a1 = partial ? r.to : (horiz ? B.w + CITY_PAD : B.h + CITY_PAD);
+      const x = horiz ? a0 : band.from;
+      const y = horiz ? band.from : a0;
+      const w = horiz ? a1 - a0 : band.to - band.from;
+      const h = horiz ? band.to - band.from : a1 - a0;
+      const round = partial ? ` rx="${Math.round(Math.min(w, h) * 0.4)}"` : '';
+      out += `<rect class="band-${band.kind}${partial ? ' patch' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}"${round}/>`;
 
       if (band.kind === 'water') {
         // a couple of ripples so it reads as water and not a hole
@@ -6984,6 +7038,50 @@ scratch.later = null;
       s += `<line class="pylon" x1="${cx.toFixed(1)}" y1="${b.y}" x2="${cx.toFixed(1)}" y2="${(b.y - 22).toFixed(1)}"/>`;
       s += `<line class="pylon" x1="${(cx - 9).toFixed(1)}" y1="${(b.y - 16).toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${(b.y - 16).toFixed(1)}"/>`;
       s += `<line class="pylon" x1="${(cx - 6).toFixed(1)}" y1="${(b.y - 21).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 21).toFixed(1)}"/>`;
+      return s;
+    },
+    // a barrel-vaulted hall with the stalls under it, seen from above
+    market: (b, n) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 34));
+      for (let i = 0; i < bays; i++) {
+        const bw = (b.w - 10) / bays;
+        s += `<rect class="vault" x="${(b.x + 5 + i * bw).toFixed(1)}" y="${(b.y + 4).toFixed(1)}"`
+          + ` width="${(bw - 3).toFixed(1)}" height="${(b.h - 10).toFixed(1)}" rx="${(bw * 0.4).toFixed(1)}"/>`;
+      }
+      for (let i = 0; i < 6; i++) {
+        s += `<rect class="awning" x="${(b.x + 8 + n(i) * (b.w - 24)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 9 - n(i + 7) * 5).toFixed(1)}" width="11" height="4" rx="1"/>`;
+      }
+      return s;
+    },
+    // a bowl: the stand ring, and the pitch inside it
+    stadium: (b) => {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      return `<ellipse class="stand" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}"`
+        + ` rx="${(b.w / 2 - 2).toFixed(1)}" ry="${(b.h / 2 - 2).toFixed(1)}"/>`
+        + `<ellipse class="pitch" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}"`
+        + ` rx="${(b.w * 0.32).toFixed(1)}" ry="${(b.h * 0.3).toFixed(1)}"/>`
+        + `<line class="pitch-line" x1="${cx.toFixed(1)}" y1="${(cy - b.h * 0.3).toFixed(1)}"`
+        + ` x2="${cx.toFixed(1)}" y2="${(cy + b.h * 0.3).toFixed(1)}"/>`;
+    },
+    // sheds, stacks and a flare: the thing the region is actually for
+    works: (b, n) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 42));
+      for (let i = 0; i < bays; i++) {
+        const bw = (b.w - 12) / bays;
+        s += `<polygon class="sawtooth" points="${(b.x + 6 + i * bw).toFixed(1)},${(b.y + 14).toFixed(1)} `
+          + `${(b.x + 6 + i * bw + bw * 0.5).toFixed(1)},${(b.y + 2).toFixed(1)} `
+          + `${(b.x + 6 + i * bw + bw * 0.5).toFixed(1)},${(b.y + 14).toFixed(1)}"/>`;
+      }
+      for (let i = 0; i < 3; i++) {
+        const sx = b.x + b.w * (0.2 + i * 0.3);
+        s += `<rect class="stack" x="${sx.toFixed(1)}" y="${(b.y - 20 - n(i) * 8).toFixed(1)}"`
+          + ` width="6" height="${(24 + n(i) * 8).toFixed(1)}"/>`;
+      }
+      s += `<rect class="tanks" x="${(b.x + 8).toFixed(1)}" y="${(b.y + b.h - 20).toFixed(1)}"`
+        + ` width="${(b.w * 0.3).toFixed(1)}" height="16" rx="7"/>`;
       return s;
     },
   };
@@ -9201,7 +9299,7 @@ scratch.later = null;
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
+    makeCity, makeBands, inBand, bandCovers, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,

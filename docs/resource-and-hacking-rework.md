@@ -831,6 +831,42 @@ reachable door meets the race almost never (the hunt arrived in 3 of 10 runs,
 against 7 of 10 with three programs). The race bites when the easy doors run
 out, not before.
 
+### Terrain that is a patch, and three more doors
+
+The last of the map pass, and both halves of it are gameplay rather than
+decoration — which is exactly why they are here rather than in the props.
+
+**A band can be a patch now.** Terrain was one primitive: a strip running edge to
+edge, with crossings punched through it. That is a river or a railway and nothing
+else, which is why the request for lakes could not be answered by drawing one —
+decorative water that did not block adjacency would teach a rule the game
+contradicts. `runs` gives a band a span along its own axis, so the same
+primitive is a lake, a wood, a green belt that stops. It blocks what is under it
+the way water always has; what changes is that you go **round** it rather than
+across it.
+
+That produced a real rule, and it took three attempts to get right:
+
+- A patch only exists along part of its axis, so `inBand`, `rectOnBand` and
+  `segmentSpansBand` all had to learn to ask *where*. Without it, a wire crossing
+  the park at the far end of the map put **three bridges over the boating lake**.
+- And the crossing pass may not bridge a patch at all. You bridge the river, not
+  the lake — anything a patch does cut off is picked up by the stitcher, or
+  deleted by `dropUnreachable`. Measured, that costs about half a building per
+  board.
+
+Every region gained one: a boating lake in home's parkland, a tidal inlet in the
+estuary, a green belt across the midlands, a wooded strip in the capital, a tarn
+in the north. Each region still has at least one full band that genuinely cuts it
+in two, and a test enforces that — the crossings are what make a region a place.
+
+**Three more landmarks**: a **covered market** (till), a **stadium** (server), and
+a **works** (datacenter, and noisy with it). Each is a real door with a real host,
+its own silhouette, and a place in some region's landmark list. This is the other
+half of the argument against decorative stations: a thing that looks like
+somewhere you could get into has to be somewhere you can get into. A test asserts
+no landmark id collides with a prop id, in either direction.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

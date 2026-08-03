@@ -488,6 +488,14 @@ window.BUILDING_KINDS = {
   depot:      { w: [122, 154], h: [98, 126],  label: 'depot',          host: 'till',       landmark: true },
   exchange:   { w: [92, 118],  h: [98, 126],  label: 'exchange floor', host: 'corporate',  landmark: true },
   substation: { w: [88, 110],  h: [66, 86],   label: 'substation',     host: 'switchgear', landmark: true },
+  // Three more, because a city with two possible landmarks in it is a city with
+  // two possible landmarks in it however many times you visit. Each is a real
+  // door with a real host behind it — that was the whole argument against
+  // drawing decorative stations and markets: a thing that looks like somewhere
+  // you could get into has to be somewhere you can get into.
+  market:     { w: [136, 168], h: [86, 110],  label: 'covered market', host: 'till',       landmark: true },
+  stadium:    { w: [186, 232], h: [136, 172], label: 'stadium',        host: 'server',     landmark: true },
+  works:      { w: [162, 200], h: [104, 132], label: 'works',          host: 'datacenter', landmark: true, trace: 1.6 },
 };
 
 // How much bigger a block is where the big things stand. A datacenter is
