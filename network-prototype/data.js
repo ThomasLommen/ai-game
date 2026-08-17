@@ -341,7 +341,12 @@ window.SOUND = {
   },
   chordMs: 7000,
   fadeMs: 3000,          // must stay well under chordMs or the chords smear
-  master: 0.17,          // quiet. It is a room, not a soundtrack.
+  // Matched to the bench this was dialled on, which ran at 0.5. It shipped
+  // at 0.17 first — my guess at "quiet, it is a room" — and that is 9.4 dB
+  // under what was actually approved, which on top of content sitting almost
+  // entirely below 250 Hz meant it read as silence on anything but
+  // headphones. Tune the level where the sound is tuned, not afterwards.
+  master: 0.5,
 
   // The voice
   tone: 0.60,            // harmonic amplitude: tone^(k-1)/k. Rich, then cut.

@@ -3636,7 +3636,7 @@ scratch.later = null;
     pushLog(found.length
       ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.${note}`
       : 'Sweep found nothing new.');
-    startSweepFx(found);
+    startSweepFx(found, fromId);
     persistNow();
     render();
   }
@@ -3677,23 +3677,34 @@ scratch.later = null;
 
   // Returns what it computed, so the timing can be asserted without depending
   // on the transient object still being there.
-  function startSweepFx(found) {
+  function startSweepFx(found, fromId) {
     if (!found || !found.length) { sweepFx = null; return null; }
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
 
-    // the ring goes out from the nearest thing you actually hold — that is
-    // where a sweep would have been run from
-    const held = state.buildings.filter(b => hostsIn(b).some(h => h.owned));
     const targets = found.map(centre);
     const mid = targets.reduce((a, c) => ({ x: a.x + c.x / targets.length, y: a.y + c.y / targets.length }), { x: 0, y: 0 });
     let origin = mid;
-    if (held.length) {
-      const near = held.reduce((best, b) => {
-        const c = centre(b);
-        const d = Math.hypot(c.x - mid.x, c.y - mid.y);
-        return (!best || d < best.d) ? { d, c } : best;
-      }, null);
-      if (near) origin = near.c;
+    // The ring goes out from the building you swept *from*. It used to guess
+    // — nearest thing held, on the reasoning that a sweep would have been run
+    // from there — and that guess was right only while scanning was
+    // unaimed. Now the panel says "scan from here" and points at a specific
+    // building, so a ring rising somewhere else is the picture contradicting
+    // the button.
+    const chosen = fromId != null ? buildingById(fromId) : null;
+    if (chosen) {
+      origin = centre(chosen);
+    } else {
+      // no vantage named (the harness's bots still sweep this way): fall back
+      // to the nearest ground you hold
+      const held = state.buildings.filter(b => hostsIn(b).some(h => h.owned));
+      if (held.length) {
+        const near = held.reduce((best, b) => {
+          const c = centre(b);
+          const d = Math.hypot(c.x - mid.x, c.y - mid.y);
+          return (!best || d < best.d) ? { d, c } : best;
+        }, null);
+        if (near) origin = near.c;
+      }
     }
 
     const dists = targets.map(t => Math.hypot(t.x - origin.x, t.y - origin.y));
@@ -4306,7 +4317,8 @@ scratch.later = null;
       const found = dark.slice(0, C.cold.reveals);
       found.forEach(b => revealBuilding(b));
       if (found.length) {
-        startSweepFx(found);
+        // ...and this ring starts at the machine the map came off
+        startSweepFx(found, h.buildingId);
         pushLog(`Cold storage: a map. ${found.length} building${found.length === 1 ? '' : 's'} you had not found.`);
       } else {
         pushLog('Cold storage: a map of places you already know.');
@@ -9969,6 +9981,7 @@ scratch.later = null;
     mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capEffect,
     showBanner, dismissBanner, bannerQueueLength: () => bannerQueue.length,
     get state() { return state; },
+    sweepFx: () => sweepFx,
     setState(s) { state = s; window.__netState = s; },
   };
 

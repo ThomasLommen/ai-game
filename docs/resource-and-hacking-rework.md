@@ -1343,6 +1343,27 @@ established: the engine plays one held Gm at a spectral centroid of 195 Hz,
 falling to 159 Hz under full district suspicion — darker when watched,
 which is the coupling working in the direction it should.
 
+## Two things play testing caught
+
+**The room tone was inaudible.** It shipped at a master gain of 0.17 — my
+own guess at "quiet, it is a room" — against the 0.5 the bench it was
+dialled on had been running at. That is 9.4 dB under what was actually
+approved, and with content sitting almost entirely below 250 Hz it read as
+silence on anything but headphones. Matched to the bench, measured either
+side: −19.1 dBFS RMS before, −9.3 after. The lesson generalises past audio:
+tune a thing where it is judged, or the judgement does not survive the
+port.
+
+**The sweep ring rose from the wrong building.** The effect picked the
+nearest ground you held as its origin, on the reasoning — written in its
+own comment — that a sweep "would have been run from there". That was true
+while scanning was unaimed. Once the panel started saying "scan from here"
+and pointing at one specific building, a ring rising somewhere else was
+the picture contradicting the button. It now starts at the vantage you
+chose; the cold-storage reveal likewise starts at the machine the map came
+off. The nearest-held guess survives only for the harness's bots, which
+still sweep without naming a vantage.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

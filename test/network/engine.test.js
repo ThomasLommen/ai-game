@@ -7284,6 +7284,39 @@ test('scan: aiming a sweep at one building is the base verb, not a capability', 
   assert.equal(d.buildingById(nB).discovered, false, 'the one off the other building was left alone');
 });
 
+test('scan: the ring rises from the building you swept from, not a guess', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = false; });
+  // a held seat, and a vantage well away from it with unknown ground beside it
+  const seat = s.hosts.find(h => h.owned);
+  d.buildingById(seat.buildingId).discovered = true;
+  const far = s.buildings
+    .filter(b => b.id !== seat.buildingId && (s.adjacency[b.id] || []).length)
+    .sort((a, b) => Math.hypot(b.x - d.buildingById(seat.buildingId).x, b.y - d.buildingById(seat.buildingId).y)
+                  - Math.hypot(a.x - d.buildingById(seat.buildingId).x, a.y - d.buildingById(seat.buildingId).y))[0];
+  far.discovered = true;
+  s.ap = 5;
+
+  const before = d.buildingById(seat.buildingId);
+  d.actScan(far.id);
+  const fx = d.sweepFx ? d.sweepFx() : null;
+  // the panel says "scan from here" and points at one building — a ring that
+  // rises somewhere else is the picture contradicting the button
+  const cx = far.x + far.w / 2, cy = far.y + far.h / 2;
+  const seatX = before.x + before.w / 2, seatY = before.y + before.h / 2;
+  if (fx) {
+    assert.ok(Math.hypot(fx.x - cx, fx.y - cy) < 1,
+      'the ring did not start at the building that was swept from');
+    if (Math.hypot(seatX - cx, seatY - cy) > 2) {
+      assert.ok(Math.hypot(fx.x - seatX, fx.y - seatY) > 1,
+        'the ring is still starting from the nearest thing held');
+    }
+  }
+});
+
 test('scan: the last dice left resolution — the sweep finds what is nearest, every time', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
