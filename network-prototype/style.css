@@ -158,6 +158,18 @@ body {
 }
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 12.5px; }
+/* a number that moved says so. Same grammar as the turn tick — a short
+   swell back to rest, on the figure itself rather than the whole chip, so
+   the eye is sent to the digit that changed. */
+.res b.bumped, #held-count.bumped { animation: statBump .5s ease-out; }
+@keyframes statBump {
+  0%   { transform: scale(1.28); filter: brightness(1.5); }
+  100% { transform: scale(1);    filter: brightness(1); }
+}
+.res b, #held-count { display: inline-block; }
+@media (prefers-reduced-motion: reduce) {
+  .res b.bumped, #held-count.bumped { animation: none; }
+}
 .res.compute b { color: var(--compute); }
 .res.funds b { color: var(--funds); }
 .res.tflops b { color: var(--tflops); }
@@ -285,6 +297,14 @@ body {
   border-radius: 12px;
   padding: 12px 14px;
 }
+/* a new subject settles in rather than snapping — short and low-travel, because
+   this fires on every building you tap and anything longer becomes a wait */
+.sel.settle { animation: selSettle 160ms ease-out; }
+@keyframes selSettle {
+  0%   { opacity: .2; transform: translateY(4px); }
+  100% { opacity: 1;  transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .sel.settle { animation: none; } }
 .sel-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .sel-name { font-weight: 600; font-size: 15px; }
 .sel-desc { margin: 0 0 10px; font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; }
@@ -771,8 +791,13 @@ footer .build { opacity: .55; font-size: 10px; }
    to 99. That left a fat unpainted margin between the tarmac and every
    building, which is why the frontage pass looked like it had not happened: the
    buildings were on their plot boundary and the road was nowhere near it. */
-.street { stroke: #1b2320; stroke-linecap: square; }
-.street.main { stroke: #202a26; }
+/* side streets are humbler than they were: the hierarchy the plan encodes
+   should be visible without reading widths against each other */
+.street { stroke: #182320; stroke-linecap: square; }
+.street.main { stroke: #222c28; }
+/* the kerb line down each side of an arterial — a surface with an edge,
+   not a thick stroke. Never scaled: a kerb is a kerb at every zoom. */
+.kerb { stroke: #2a3833; stroke-width: .8; opacity: .5; vector-effect: non-scaling-stroke; }
 .street-line { stroke: #2b3a34; stroke-width: 1; stroke-dasharray: 8 12; opacity: .55; }
 /* Something is on this machine. The funds colour, softly pulsing, no stroke —
    it must invite a tap without ever competing with the states that matter
@@ -2001,12 +2026,33 @@ footer .build { opacity: .55; font-size: 10px; }
   border: 1px dashed var(--line); border-radius: 4px;
   overflow: hidden;
 }
+.trace-fc { display: flex; }
 .trace-fc i {
   display: block; height: 100%;
   background: color-mix(in srgb, var(--cover) 70%, transparent);
 }
 .trace-fc.caught { border-color: color-mix(in srgb, var(--heat) 60%, var(--line)); }
 .trace-fc.caught i { background: var(--heat); }
+/* one more turn of their noticing, ghosted past the fill — the margin, made
+   spatial. Striped rather than solid: it has not happened, and the grammar
+   for a projection in this game is dashes. */
+/* scoped past `.trace-fc i`, which sets a solid background and would
+   otherwise win on specificity and eat the stripes — the same trap the
+   `.street` stroke-width once fell into */
+.trace-fc i.fc-ghost {
+  background: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--cover) 55%, transparent) 0 3px,
+    color-mix(in srgb, var(--cover) 12%, transparent) 3px 6px);
+}
+/* ...and when that one turn would be enough to lose the door, the ghost is
+   the warning: it wears the race's red instead of grey */
+.trace-fc.tight i.fc-ghost {
+  background: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--heat) 55%, transparent) 0 3px,
+    transparent 3px 6px);
+}
 
 /* what the public thinks: a word rather than a number, because "distrusted" is
    the thing the player acts on and the figure behind it never is. Read outward

@@ -8668,6 +8668,48 @@ test('hack: the one program is one the race can actually beat', () => {
     `no door on this board could ever win the race: worst trace ${worst.toFixed(2)} of ${goal}`);
 });
 
+test('forecast: the bar shows the margin, and reddens when one turn would lose it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  // comfortable: fill, a grey ghost, no warning
+  const easy = d.traceForecastBar(0.3, false, 0.1);
+  assert.ok(easy.includes('fc-ghost'), 'no margin drawn at all');
+  assert.ok(!/class="trace-fc[^"]*tight/.test(easy), 'a safe door is being flagged as tight');
+  // one more turn of noticing would take it past the goal — that is the warning
+  const tight = d.traceForecastBar(0.85, false, 0.2);
+  assert.ok(/class="trace-fc[^"]*tight/.test(tight), 'a door one turn from flipping says nothing');
+  // already caught: the whole bar is the bad news, the ghost adds nothing
+  const lost = d.traceForecastBar(1, true, 0.2);
+  assert.ok(lost.includes('caught'), 'a lost race is not marked');
+  assert.ok(!/tight/.test(lost), 'a race already lost is warning about losing');
+  // the ghost never overflows the bar
+  const capped = d.traceForecastBar(0.95, false, 0.9);
+  const widths = [...capped.matchAll(/width:(\d+)%/g)].map(m => +m[1]);
+  assert.ok(widths.reduce((a, b) => a + b, 0) <= 100, `the bar sums past full: ${widths}`);
+
+  // ...and the stripes must actually beat `.trace-fc i`, which sets a solid
+  // background. Written unscoped first and the grey ghost rendered invisible
+  // while the red one (higher specificity) showed — the same trap that once
+  // made `.street` ignore its own painted widths, so it is pinned here.
+  assert.ok(/\.trace-fc\s+i\.fc-ghost\s*\{/.test(STYLE_CSS),
+    'the ghost background is not scoped past .trace-fc i and will lose to it');
+});
+
+test('the map draws the hierarchy the plan encodes: arterials have kerbs', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const g = d.svgGround();
+  assert.ok(g.includes('class="kerb"'), 'no kerb on any road');
+  // the kerb is a hairline that never scales — a kerb is a kerb at any zoom
+  assert.ok(/\.kerb\s*\{[^}]*vector-effect:\s*non-scaling-stroke/.test(STYLE_CSS),
+    'the kerb thickens as you zoom');
+  // and it is only on the main roads, not every street
+  const kerbs = (g.match(/class="kerb"/g) || []).length;
+  const streets = (g.match(/class="street/g) || []).length;
+  assert.ok(kerbs > 0 && kerbs < streets * 2,
+    `every street has kerbs (${kerbs} kerbs, ${streets} streets)`);
+});
+
 test('hack: starting one takes compute and an action, and holds the compute', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;

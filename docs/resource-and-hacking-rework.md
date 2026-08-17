@@ -1151,6 +1151,36 @@ easy to miss":
 - **District seams softened.** The ragged wobble marks the border now; a
   hard line over a ragged edge read as a mistake in both.
 
+Slice three — the panel and the HUD, which had never had a pass:
+
+- **A number that moved says so.** The stat chips used to swap text
+  silently, so a take's payoff landed in the panel and the log while the
+  figure it fed sat there looking identical. The chip that changed now
+  pulses — never on first paint, or the HUD flashes its whole self at boot
+  and teaches the player to ignore the signal on turn one.
+- **The panel settles on a new subject.** Selecting a different building
+  fades-and-lifts rather than snapping. It fires only on a genuine change
+  of subject, not on the constant repaints, because the eye tracks a
+  transition and does not track a repaint.
+- **The forecast shows its margin.** The bar answered only "do they get
+  there", which the sentence beside it already said. A ghost now continues
+  past the fill: one more turn of this door's noticing. That answers the
+  question actually carried between doors — how much room before this
+  flips — and when that one turn would be enough to lose the door, the
+  ghost wears the race's red instead of the cover's green. A door one
+  hardening (or one point of suspicion) from catching you is now something
+  you see rather than something you compute.
+- **Arterials have kerbs**, and side streets got humbler. The plan already
+  encoded the hierarchy; the drawing has caught up with it.
+
+One bug worth recording, because it is the second time: the ghost's
+stripes were written as `.fc-ghost`, which loses on specificity to
+`.trace-fc i`'s solid background — so the grey margin rendered invisible
+while the red one (matched by a two-class selector) showed fine. Exactly
+the trap that once made `.street` ignore its own painted road widths. Now
+scoped as `.trace-fc i.fc-ghost`, with a test that reads the stylesheet
+and pins it.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

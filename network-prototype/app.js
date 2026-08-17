@@ -6759,13 +6759,26 @@ scratch.later = null;
       const main = wide(L.vRoad[c]);
       out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.vRoad[c]}"`
         + ` x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
-      if (main) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      // An arterial has kerbs. The plan already encodes the hierarchy — this
+      // is the drawing catching up with it, so a main road reads as a main
+      // road at a glance instead of merely being wider.
+      if (main) {
+        const k = L.vRoad[c] / 2;
+        out += `<line class="kerb" x1="${x - k}" y1="${-CITY_PAD}" x2="${x - k}" y2="${B.h + CITY_PAD}"/>`
+          + `<line class="kerb" x1="${x + k}" y1="${-CITY_PAD}" x2="${x + k}" y2="${B.h + CITY_PAD}"/>`
+          + `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      }
     });
     L.ys.forEach((y, r) => {
       const main = wide(L.hRoad[r]);
       out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.hRoad[r]}"`
         + ` x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
-      if (main) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      if (main) {
+        const k = L.hRoad[r] / 2;
+        out += `<line class="kerb" x1="${-CITY_PAD}" y1="${y - k}" x2="${B.w + CITY_PAD}" y2="${y - k}"/>`
+          + `<line class="kerb" x1="${-CITY_PAD}" y1="${y + k}" x2="${B.w + CITY_PAD}" y2="${y + k}"/>`
+          + `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      }
     });
     // Junctions, sized to the two roads that actually meet there.
     L.ys.forEach((y, r) => {
@@ -8231,6 +8244,24 @@ scratch.later = null;
   }
 
 
+  // A stat that changed should say so. The chips used to swap text silently,
+  // so the payoff of a take landed in the panel and the log while the number
+  // it actually fed sat there looking identical. One pulse on the chip whose
+  // value moved — never on first paint, or the HUD would flash its whole self
+  // at boot and teach the player to ignore the signal on turn one.
+  function setStat(el, text) {
+    if (!el) return;
+    const next = String(text);
+    if (el.textContent === next) return;
+    const first = el.dataset.seen !== '1';
+    el.textContent = next;
+    el.dataset.seen = '1';
+    if (first) return;
+    el.classList.remove('bumped');
+    void el.offsetWidth;                 // restart, the way #turn does
+    el.classList.add('bumped');
+  }
+
   function renderHud() {
     const held = owned().length;
     const st = stageFor(held);
@@ -8265,8 +8296,10 @@ scratch.later = null;
       document.getElementById('stage-label').textContent =
         state.cityWon ? window.CITY_WON.label : st.label;
       const theirs = rivalHeld().length;
-      document.getElementById('held-count').textContent =
-        held + ' held' + (theirs ? ` · ${theirs} lost` : '');
+      // the count of what you hold is the loop's own scoreboard — it gets the
+      // same pulse as the resources it feeds
+      setStat(document.getElementById('held-count'),
+        held + ' held' + (theirs ? ` · ${theirs} lost` : ''));
     }
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
@@ -8301,7 +8334,7 @@ scratch.later = null;
       $end.disabled = !!state.card || state.over;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
-    document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
+    setStat(document.getElementById('res-funds'), Math.floor(state.res.funds));
     // "How much have I got" was never the live question — "how much of it is
     // already spoken for" is, because every dial and every running hack holds
     // its allocation until you take it back. The denominator is what you can
@@ -8328,12 +8361,12 @@ scratch.later = null;
     // iron you hold and cannot switch on, which is exactly when a substation
     // is worth more to you than another datacenter.
     const $tf = document.getElementById('res-tflops');
-    if ($tf) $tf.textContent = `${drawn()}/${tflops()}`;
+    setStat($tf, `${drawn()}/${tflops()}`);
     // And no power chip at all until there is a power ceiling. A second limit
     // in the HUD that does nothing yet is not a hint — it is a question the
     // player carries around unanswered for the whole first city.
     const $pw = document.getElementById('res-power');
-    if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
+    setStat($pw, `${drawn()}/${electricity()}`);
     const $pwb = document.getElementById('res-power-btn');
     if ($pwb) {
       $pwb.hidden = !gridBinds();
@@ -8997,10 +9030,23 @@ scratch.later = null;
   // So the forecast is one meter of how close they get, filling from the left
   // toward the point where they have you. Short is safe. Full is caught. There
   // is nothing to interpret.
-  function traceForecastBar(share, caught) {
+  // `margin` is one more turn of this door's noticing, drawn as a ghost
+  // continuing past the fill. The bar used to answer only "do they get
+  // there", which the sentence beside it already said; the ghost answers the
+  // question the player actually carries between doors — how much room is
+  // there before this flips. A door whose ghost runs off the end is one
+  // hardening, or one more point of suspicion, from catching you, and that
+  // is now something you see rather than something you compute.
+  function traceForecastBar(share, caught, margin) {
     const w = Math.max(2, Math.min(100, Math.round(share * 100)));
-    return `<span class="trace-fc${caught ? ' caught' : ''}" aria-hidden="true">`
-      + `<i style="width:${w}%"></i></span>`;
+    const g = margin ? Math.max(0, Math.min(100 - w, Math.round(margin * 100))) : 0;
+    // it only reads as a warning while there is still something to warn
+    // about: past the goal the whole bar is already the bad news
+    const over = margin && !caught && (share + margin) >= 1;
+    return `<span class="trace-fc${caught ? ' caught' : ''}${over ? ' tight' : ''}" aria-hidden="true">`
+      + `<i style="width:${w}%"></i>`
+      + (g ? `<i class="fc-ghost" style="width:${g}%"></i>` : '')
+      + `</span>`;
   }
 
   // Some businesses will simply sell. No action, no program, no race — funds,
@@ -9067,7 +9113,7 @@ scratch.later = null;
       ${suspicionLine(h.district)}
       ${carryContract}
       ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
-      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
+      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught, f.rate / f.goal)}
       <p class="yield-row">${
         f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
                  : chip('cover', `they only get to ${f.traceAtEnd} of the ${f.goal} they need — you are in first`)
@@ -9112,6 +9158,9 @@ scratch.later = null;
 
   // Tapping one of their streets rather than one of their buildings: the same
   // action, named for the thing you actually pointed at.
+  // what the panel was last talking about, so a repaint and a change of
+  // subject can be told apart (presentation only — never serialized)
+  let lastPanelSubject = null;
   function renderPanel() {
     const $p = document.getElementById('panel');
     // A card interrupting play — a breach, an event, the hunter — used to sit
@@ -9211,6 +9260,16 @@ scratch.later = null;
       ${huntBar()}
       ${sel}
     `;
+    // The panel repaints constantly — every render, most of them changing
+    // nothing you looked away for. So the settle fires on the one transition
+    // that is actually a change of subject: looking at a different building.
+    // The eye tracks a transition; it does not track a repaint.
+    const subject = (state.selectedBuilding || '') + ':' + (state.selected || '');
+    if (subject !== lastPanelSubject) {
+      lastPanelSubject = subject;
+      const card = $p.querySelector('.sel');
+      if (card) { card.classList.remove('settle'); void card.offsetWidth; card.classList.add('settle'); }
+    }
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });
     });
