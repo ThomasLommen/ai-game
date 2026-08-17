@@ -832,9 +832,22 @@ footer .build { opacity: .55; font-size: 10px; }
    actually reach this turn. */
 .props { pointer-events: none; }
 .props * { stroke: none; }
-.pr-leaf   { fill: #16301e; opacity: .9; }
-.pr-leaf.hi{ fill: #1b3b25; opacity: .7; }
-.pr-trunk  { fill: #241d16; opacity: .9; }
+/* A canopy is a mass with light falling on it, so it carries three tones
+   rather than one flat fill — this and the wobbled hull are what stop a tree
+   reading as a green dot. */
+.pr-leaf   { fill: #16301e; opacity: .92; }
+.pr-leaf.hi{ fill: #21492c; opacity: .85; }
+.pr-leaf.lo{ fill: #102315; opacity: .9; }
+.pr-trunk  { fill: #2b2119; opacity: .95; }
+/* everything standing on the ground throws one, in the same light direction
+   the buildings use — most of what stops scenery looking stuck on */
+.pr-shade  { fill: #050706; opacity: .3; }
+.pr-bank   { fill: #1f2a22; opacity: .9; }
+/* Tufts and ripples are drawn rather than filled, and `.props *` blanks every
+   stroke in here — so they are scoped past it deliberately. Third time this
+   pattern has bitten (see .street, .fc-ghost); there is a test for it. */
+.props .pr-tuft   { fill: none; stroke: #24361f; stroke-width: 1; opacity: .85; }
+.props .pr-ripple { fill: none; stroke: #26525f; stroke-width: .9; opacity: .6; }
 .pr-scrub  { fill: #1d2a1c; opacity: .7; }
 .pr-wood   { fill: #2a221a; opacity: .85; }
 .pr-metal  { fill: #232d2f; opacity: .85; }
@@ -844,7 +857,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .pr-paper  { fill: #33342c; opacity: .8; }
 .pr-lit    { fill: #4a4326; opacity: .85; }
 .pr-water  { fill: #12262e; opacity: .9; }
-.pr-water.hi { fill: #1a3540; opacity: .7; }
+/* the far bank catching light, not a lens in the middle of the water */
+.pr-water.hi { fill: #17313c; opacity: .55; }
 .pr-sand   { fill: #2a2419; opacity: .7; }
 .pr-tarmac { fill: #1b1f1e; opacity: .9; }
 .pr-car    { fill: #262f2c; opacity: .85; }

@@ -8695,6 +8695,61 @@ test('forecast: the bar shows the margin, and reddens when one turn would lose i
     'the ghost background is not scoped past .trace-fc i and will lose to it');
 });
 
+test('greenery is a mass, not a dot: hulls, shadows, and strokes that survive', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const P = window.PROPS;
+  // a street tree is a real fraction of the house it stands beside — it was
+  // 7-12 against a 26-35 house, which read as a coloured circle
+  const house = window.BUILDING_KINDS.house;
+  assert.ok(P.tree.w[1] >= house.w[0] * 0.6,
+    `a tree tops out at ${P.tree.w[1]} beside a ${house.w[0]}-wide house`);
+
+  const svg = d.svgProps();
+  // organic props are wobbled hulls, not circles or ellipses
+  assert.ok(/class="pr-leaf" d="M/.test(svg), 'canopies are not drawn as paths');
+  assert.ok(/class="pr-shade"/.test(svg), 'nothing on the ground throws a shadow');
+
+  // Tufts and ripples are stroked, and `.props *` blanks every stroke in the
+  // group — so they must be scoped past it or they vanish. Same trap as
+  // .street and .fc-ghost; pinned because it has now bitten three times.
+  assert.ok(/\.props\s+\.pr-tuft\s*\{/.test(STYLE_CSS),
+    'the scrub tuft stroke is not scoped past `.props *` and will be blanked');
+  assert.ok(/\.props\s+\.pr-ripple\s*\{/.test(STYLE_CSS),
+    'the pond ripple stroke is not scoped past `.props *` and will be blanked');
+});
+
+test('allocation: the bar draws the ramp, in whichever direction it is going', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  // rising: solid is what runs, stripes are what is still travelling
+  const up = d.allocBar(4, 10, 20);
+  assert.ok(/ab-live" style="width:20%/.test(up), 'the running part is wrong: ' + up);
+  assert.ok(/ab-ramp" style="width:30%/.test(up), 'the travelling part is wrong: ' + up);
+  assert.ok(!/falling/.test(up), 'a rising dial is marked as draining');
+  // falling: solid is the target, stripes are what is being handed back
+  const down = d.allocBar(10, 4, 20);
+  assert.ok(/falling/.test(down), 'a dial being given back does not read as draining');
+  assert.ok(/ab-live" style="width:20%/.test(down), 'the kept part is wrong: ' + down);
+  // settled: nothing on the way, so nothing striped
+  assert.ok(!/ab-ramp/.test(d.allocBar(6, 6, 20)), 'a settled dial still shows a ramp');
+  // and it never overflows its own track
+  const huge = d.allocBar(2, 99, 20);
+  const w = [...huge.matchAll(/width:(\d+)%/g)].map(m => +m[1]).reduce((a, b) => a + b, 0);
+  assert.ok(w <= 100, `the bar sums past full: ${w}`);
+  // Scaled to the biggest dial, not the rack — against the rack a late-game
+  // row is a 4% sliver and the ramp, the whole point of the bar, cannot be
+  // seen. (setAlloc clamps to compute actually free, so read the dial back
+  // rather than assuming the figure asked for.)
+  d.setAlloc('covert', 9);
+  const dial = d.allocDial('covert');
+  assert.ok(dial > 0, 'nothing to scale against');
+  assert.ok(d.allocScale() >= dial, 'the scale ignores the dials it is drawing');
+  // the biggest dial fills most of its track, whatever the rack adds up to
+  const filled = +d.allocBar(dial, dial, d.allocScale()).match(/width:(\d+)%/)[1];
+  assert.ok(filled >= 80, `the biggest dial only fills ${filled}% of its bar`);
+});
+
 test('the map draws the hierarchy the plan encodes: arterials have kerbs', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;

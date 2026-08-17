@@ -7018,20 +7018,80 @@ scratch.later = null;
   // Every one of these is a couple of marks and no stroke. That is the rule
   // that keeps the map readable: an outline means a door. They also never
   // carry a `data-` attribute, so no tap can ever land on one.
+  // A hull that is not a circle. Circles read as circles — the playtest put
+  // it plainly: "trees and ponds just look like small colored circles" — so
+  // everything organic gets a wobbled outline instead, smoothed through the
+  // midpoints of a seeded polygon so it curves rather than facets. Same
+  // silhouette family as the country map's lakes and forests, and seeded off
+  // the prop itself, so a tree keeps its own shape across every render.
+  function propBlob(cx, cy, rx, ry, n, wobble, steps) {
+    const N = steps || 9;
+    const pt = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const k = 1 - wobble + n(i * 3) * wobble * 2;
+      pt.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+    }
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const f = (v) => v.map(q => q.toFixed(1)).join(' ');
+    let d = 'M' + f(mid(pt[N - 1], pt[0])) + ' ';
+    for (let i = 0; i < N; i++) {
+      d += 'Q' + f(pt[i]) + ' ' + f(mid(pt[i], pt[(i + 1) % N])) + ' ';
+    }
+    return d + 'Z';
+  }
+  // Anything standing on the ground throws the same shadow the buildings do —
+  // one light direction for the whole city. This is most of what stops a tree
+  // reading as a sticker laid on the map.
+  function propShade(cx, cy, rx, ry) {
+    return `<ellipse class="pr-shade" cx="${(cx + rx * 0.22).toFixed(1)}" cy="${(cy + ry * 0.28).toFixed(1)}"`
+      + ` rx="${rx.toFixed(1)}" ry="${(ry * 0.72).toFixed(1)}"/>`;
+  }
+
   const PROP_ART = {
+    // A canopy is a cluster, not a ball: three overlapping lobes of different
+    // sizes, the biggest off-centre, so no two trees are the same silhouette
+    // and none of them is a circle. The trunk is drawn thick enough to be
+    // visible at the zoom the map is actually read at.
     tree: (p, n) => {
-      const cx = p.x + p.w / 2, r = p.w / 2;
-      return `<rect class="pr-trunk" x="${(cx - 0.9).toFixed(1)}" y="${(p.y + p.h * 0.6).toFixed(1)}" width="1.8" height="${(p.h * 0.4).toFixed(1)}"/>`
-        + `<circle class="pr-leaf" cx="${cx.toFixed(1)}" cy="${(p.y + r * 0.95).toFixed(1)}" r="${r.toFixed(1)}"/>`
-        + `<circle class="pr-leaf hi" cx="${(cx - r * 0.3).toFixed(1)}" cy="${(p.y + r * 0.7).toFixed(1)}" r="${(r * 0.55).toFixed(1)}"/>`;
+      const cx = p.x + p.w / 2, rx = p.w / 2, ry = p.h * 0.42;
+      const cy = p.y + ry * 1.02;
+      let s = propShade(cx, p.y + p.h * 0.92, rx * 0.72, ry * 0.42);
+      s += `<rect class="pr-trunk" x="${(cx - p.w * 0.075).toFixed(1)}" y="${(p.y + p.h * 0.55).toFixed(1)}"`
+        + ` width="${(p.w * 0.15).toFixed(1)}" height="${(p.h * 0.45).toFixed(1)}" rx="0.6"/>`;
+      s += `<path class="pr-leaf" d="${propBlob(cx, cy, rx, ry, n, 0.2)}"/>`;
+      s += `<path class="pr-leaf lo" d="${propBlob(cx + rx * 0.34, cy + ry * 0.26, rx * 0.52, ry * 0.5, (k) => n(k + 11), 0.24)}"/>`;
+      s += `<path class="pr-leaf hi" d="${propBlob(cx - rx * 0.3, cy - ry * 0.3, rx * 0.46, ry * 0.44, (k) => n(k + 23), 0.24)}"/>`;
+      return s;
     },
-    bush: (p) => `<ellipse class="pr-leaf" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}"`
-      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h / 2).toFixed(1)}"/>`,
-    hedge: (p) => `<rect class="pr-leaf" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="2"/>`,
+    bush: (p, n) => {
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      return propShade(cx, p.y + p.h * 0.86, p.w * 0.42, p.h * 0.3)
+        + `<path class="pr-leaf" d="${propBlob(cx, cy, p.w / 2, p.h / 2, n, 0.26)}"/>`
+        + `<path class="pr-leaf hi" d="${propBlob(cx - p.w * 0.14, cy - p.h * 0.16, p.w * 0.26, p.h * 0.24, (k) => n(k + 7), 0.3)}"/>`;
+    },
+    // A hedge is a run of foliage, so its top is scalloped rather than ruled —
+    // a straight green bar was reading as a wall
+    hedge: (p, n) => {
+      let s = `<rect class="pr-leaf" x="${p.x}" y="${(p.y + p.h * 0.3).toFixed(1)}" width="${p.w}" height="${(p.h * 0.7).toFixed(1)}" rx="1.5"/>`;
+      const lobes = Math.max(2, Math.round(p.w / 7));
+      for (let i = 0; i < lobes; i++) {
+        const cx = p.x + (i + 0.5) * (p.w / lobes);
+        const r = (p.w / lobes) * (0.5 + n(i) * 0.18);
+        s += `<ellipse class="pr-leaf" cx="${cx.toFixed(1)}" cy="${(p.y + p.h * 0.34).toFixed(1)}"`
+          + ` rx="${r.toFixed(1)}" ry="${(p.h * 0.42).toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    // Tufts, not pebbles: scrub is what grows on ground nobody keeps
     scrub: (p, n) => {
       let s = '';
-      for (let i = 0; i < 4; i++) {
-        s += `<circle class="pr-scrub" cx="${(p.x + n(i) * p.w).toFixed(1)}" cy="${(p.y + n(i + 9) * p.h).toFixed(1)}" r="${(1.6 + n(i + 3) * 2).toFixed(1)}"/>`;
+      for (let i = 0; i < 7; i++) {
+        const x = p.x + n(i) * p.w, y = p.y + n(i + 9) * p.h;
+        const hh = 2.4 + n(i + 3) * 3;
+        s += `<path class="pr-tuft" d="M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${(x - hh * 0.3).toFixed(1)} ${y.toFixed(1)}`
+          + ` M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${(x + hh * 0.34).toFixed(1)} ${(y + hh * 0.15).toFixed(1)}`
+          + ` M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${x.toFixed(1)} ${(y - hh * 0.15).toFixed(1)}"/>`;
       }
       return s;
     },
@@ -7064,9 +7124,25 @@ scratch.later = null;
       + `<rect class="pr-lit" x="${(p.x + 1.5).toFixed(1)}" y="${(p.y + 2).toFixed(1)}" width="${(p.w - 3).toFixed(1)}" height="${(p.h * 0.33).toFixed(1)}" rx="0.6"/>`,
     fountain: (p) => `<circle class="pr-water" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w / 2).toFixed(1)}"/>`
       + `<circle class="pr-stone" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w * 0.16).toFixed(1)}"/>`,
-    pond: (p) => `<ellipse class="pr-water" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}"`
-      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h / 2).toFixed(1)}"/>`
-      + `<ellipse class="pr-water hi" cx="${(p.x + p.w * 0.38).toFixed(1)}" cy="${(p.y + p.h * 0.36).toFixed(1)}" rx="${(p.w * 0.18).toFixed(1)}" ry="${(p.h * 0.12).toFixed(1)}"/>`,
+    // Water with a shoreline. The ellipse read as a blue pill; a pond is an
+    // irregular thing with a bank around it and light on the surface.
+    pond: (p, n) => {
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      const rx = p.w / 2, ry = p.h / 2;
+      // No centred highlight: a bright lens in the middle of an oval with a
+      // curve under it reads as a face. The light sits on the far bank as a
+      // crescent instead, and the ripples are short, offset and paired.
+      let s = `<path class="pr-bank" d="${propBlob(cx, cy, rx, ry, n, 0.16, 11)}"/>`
+        + `<path class="pr-water" d="${propBlob(cx, cy, rx * 0.87, ry * 0.85, n, 0.16, 11)}"/>`
+        + `<path class="pr-water hi" d="${propBlob(cx, cy - ry * 0.1, rx * 0.8, ry * 0.62, n, 0.14, 11)}"/>`;
+      for (let i = 0; i < 2; i++) {
+        const ox = (i ? 0.16 : -0.34) * rx, oy = (i ? -0.3 : 0.3) * ry;
+        const len = rx * (0.26 + n(i + 31) * 0.16);
+        s += `<path class="pr-ripple" d="M${(cx + ox).toFixed(1)} ${(cy + oy).toFixed(1)}`
+          + ` q ${(len / 2).toFixed(1)} ${(-ry * 0.1).toFixed(1)} ${len.toFixed(1)} 0"/>`;
+      }
+      return s;
+    },
     sculpture: (p) => `<rect class="pr-stone" x="${(p.x + p.w * 0.25).toFixed(1)}" y="${(p.y + p.h * 0.72).toFixed(1)}" width="${(p.w * 0.5).toFixed(1)}" height="${(p.h * 0.28).toFixed(1)}"/>`
       + `<polygon class="pr-stone" points="${(p.x + p.w / 2).toFixed(1)},${p.y} ${(p.x + p.w).toFixed(1)},${(p.y + p.h * 0.72).toFixed(1)} ${p.x},${(p.y + p.h * 0.72).toFixed(1)}"/>`,
     play: (p, n) => {

@@ -466,10 +466,15 @@ window.DISTRICTS = {
 //
 // `w`/`h` are drawn footprints; `pad` is how much clear air the prop wants
 // around it before it will stand somewhere.
+// Greenery was measured against the wrong thing. A house is 26–35 across and
+// a tree was 7–12, which is a shrub in a pot — on screen it read as, in the
+// playtest's words, a small coloured circle. A street tree is a real fraction
+// of the house it stands next to, so the canopies grew accordingly, and the
+// pad grew with them so they still stand clear of what they are beside.
 window.PROPS = {
-  tree:      { w: [7, 12],  h: [7, 12],  pad: 3 },
-  bush:      { w: [5, 8],   h: [5, 8],   pad: 2 },
-  hedge:     { w: [22, 46], h: [4, 6],   pad: 3 },
+  tree:      { w: [14, 23], h: [15, 25], pad: 4 },
+  bush:      { w: [8, 13],  h: [7, 11],  pad: 2 },
+  hedge:     { w: [22, 46], h: [6, 9],   pad: 3 },
   bench:     { w: [9, 12],  h: [3, 4],   pad: 3 },
   bin:       { w: [4, 5],   h: [4, 5],   pad: 2 },
   lamp:      { w: [2, 3],   h: [10, 14], pad: 3 },
@@ -482,7 +487,7 @@ window.PROPS = {
   bollards:  { w: [14, 24], h: [3, 3],   pad: 2 },
   fountain:  { w: [14, 20], h: [14, 20], pad: 5 },
   sculpture: { w: [8, 12],  h: [12, 18], pad: 5 },
-  pond:      { w: [26, 44], h: [18, 30], pad: 6 },
+  pond:      { w: [34, 58], h: [24, 38], pad: 6 },
   play:      { w: [18, 26], h: [14, 20], pad: 5 },
   carpark:   { w: [26, 44], h: [18, 26], pad: 4 },
   containers:{ w: [22, 40], h: [14, 22], pad: 4 },
