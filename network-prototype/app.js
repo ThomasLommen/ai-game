@@ -3783,6 +3783,12 @@ scratch.later = null;
     // what happens when it arrives
     out += `<circle class="breach-land" cx="${f.to.x}" cy="${f.to.y}" r="6"`
       + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
+    // ...and the ground under a win notices: one soft ring rolling out from
+    // the take, so the place reacts to what just happened in it
+    if (f.win) {
+      out += `<circle class="breach-ground" cx="${f.to.x}" cy="${f.to.y}" r="14"`
+        + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
+    }
     out += '</g>';
     return out;
   }
@@ -6824,6 +6830,11 @@ scratch.later = null;
         + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}"${round}/>`;
 
       if (band.kind === 'water') {
+        // an edge highlight, inset — the waterline is what makes a flat
+        // fill read as a surface rather than a hole in the map
+        out += `<rect class="water-edge" x="${(x + 1.5).toFixed(1)}" y="${(y + 1.5).toFixed(1)}"`
+          + ` width="${(w - 3).toFixed(1)}" height="${(h - 3).toFixed(1)}"`
+          + (partial ? ` rx="${Math.max(1, Math.round(Math.min(w, h) * 0.4) - 1)}"` : '') + '/>';
         // a couple of ripples so it reads as water and not a hole
         for (let i = 1; i <= 2; i++) {
           const off = band.from + (band.to - band.from) * (i / 3);
@@ -7404,8 +7415,11 @@ scratch.later = null;
     const lightUp = {};
     canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
     cells.forEach(c => {
+      // lit windows carry their index so the stylesheet can treat them as
+      // individuals: the take cascades them on in sequence, and held
+      // buildings flick the odd one off and on again (see winWake/winFlick)
       out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
-        + ` width="${c.w}" height="${c.h}"/>`;
+        + ` width="${c.w}" height="${c.h}"${lightUp[c.i] ? ` style="--wi:${c.i}"` : ''}/>`;
     });
 
     // Something is on this machine. A dot, not an outline — an outline means

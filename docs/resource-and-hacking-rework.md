@@ -1077,6 +1077,34 @@ which means earlier "paired board" probes were actually independent
 samples wearing the wrong label (means honest, pairing fictional). Probes
 from here on restore boards properly.
 
+## The city moves — juice, slice one
+
+From `docs/ideas/visuals.md`, the items that pay per loop rather than per
+feature (sound stays on the shelf until asked for — it is the bigger
+lever, but it is not visuals):
+
+- **The impact pause.** Both take animations now open with ~70ms where
+  nothing moves after the route lands. The pop reads harder for arriving
+  late; it is the cheapest trick in the juice literature and the most
+  effective.
+- **Windows wake in sequence.** A taken building's windows come on floor
+  by floor (each lit window carries its own index; the stylesheet staggers
+  them 45ms apart after the landing). A building waking up, not a texture
+  swap.
+- **The ground notices.** One soft ring rolls out from a successful take
+  and is gone — the place reacting, not a firework.
+- **Somebody is in there.** Held buildings flick the odd window off and on
+  — an 11-second cycle, steps(1) so it costs two paints, staggered per
+  window so the city never strobes in unison. Ambient life with zero
+  JavaScript.
+- **Water reads as water.** The lakes and rivers get an inset waterline
+  and their ripples drift slowly. The flat fill stopped reading as a hole
+  in the map.
+
+All of it is CSS on nodes that already existed, every animation has a
+reduced-motion path that is a clean instant state, and windows only render
+at detail zoom anyway, so the ambient set stays small on screen.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

@@ -12,7 +12,12 @@ transforms, opacity and paced cascades — not particles. And nothing here
 may violate the map's laws: an outline still means a door, scenery still
 takes no taps.
 
-## A. Juice the take ★ [M] — do this first
+## A. Juice the take ★ [M] — do this first — SLICE SHIPPED
+
+Shipped from this list (rework doc, "The city moves"): the impact pause,
+the window cascade, the district ground ring, held-window flicker (§C),
+and the waterline + drifting ripples (§D). Still open here: the wire
+draw, the number flying to its chip, and everything in §B/§E/§F.
 
 A building becoming yours is the loop's payoff and currently gets a
 color change, a banner and a log line. The full Nijman treatment, in order

@@ -976,7 +976,11 @@ footer .build { opacity: .55; font-size: 10px; }
 .band-green { fill: #101b12; }
 .band-water.patch { fill: #0e1f27; }
 .band-park  { fill: #0f1712; }
-.ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10; }
+.ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10;
+           animation: rippleDrift 16s linear infinite; }
+@keyframes rippleDrift { to { stroke-dashoffset: -48; } }
+/* the waterline: an inset edge is what turns a flat fill into a surface */
+.water-edge { fill: none; stroke: #1d3d4c; stroke-width: 1; opacity: .75; }
 .sleeper { stroke: #202826; stroke-width: 2; }
 .scrub   { fill: #1b2a1e; }
 /* --- the breach, seen ---------------------------------------------------
@@ -1175,17 +1179,60 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.breached.took.buy    { animation: tookSoft 500ms ease-out both var(--breach-land); }
 .bldg.breached.bounced     { animation: heldOut 420ms ease-out both var(--breach-land); }
 
+/* both takes open with a held breath — ~70ms where nothing moves after the
+   route lands. The pause is the cheapest trick in the juice literature and
+   the most effective: the pop reads twice as hard for arriving late. */
 @keyframes tookHard {
-  0%   { transform: scale(1); }
-  18%  { transform: scale(1.14); }
-  38%  { transform: scale(.97) translateX(2px); }
-  58%  { transform: translateX(-2px); }
+  0%, 16% { transform: scale(1); }
+  32%  { transform: scale(1.14); }
+  50%  { transform: scale(.97) translateX(2px); }
+  66%  { transform: translateX(-2px); }
   100% { transform: scale(1) translateX(0); }
 }
 @keyframes tookSoft {
-  0%   { opacity: .45; transform: scale(.96); }
-  60%  { opacity: 1;   transform: scale(1.04); }
+  0%, 12% { opacity: .45; transform: scale(.96); }
+  62%  { opacity: 1;   transform: scale(1.05); }
   100% { opacity: 1;   transform: scale(1); }
+}
+
+/* the windows come on in sequence after the take lands — a building waking
+   up floor by floor, not a texture swap. --wi is the window's own index,
+   --breach-land the moment the take landed (set on the group). */
+.bldg.breached.took .win.lit {
+  animation: winWake 200ms ease-out both;
+  animation-delay: calc(var(--breach-land, 0ms) + 110ms + var(--wi, 0) * 45ms);
+}
+@keyframes winWake { from { opacity: 0; } to { opacity: 1; } }
+
+/* ambient: a held building flicks the odd window off and on — somebody is
+   in there. Long period, steps(1) so it costs two paints a cycle, staggered
+   by the window's own index so the city never strobes in unison. */
+.bldg.all-held:not(.breached) .win.lit {
+  animation: winFlick 11s steps(1) infinite;
+  animation-delay: calc(var(--wi, 0) * -1.9s);
+}
+@keyframes winFlick {
+  0%, 93% { opacity: 1; }
+  93.01%, 95.5% { opacity: .3; }
+  95.51%, 100% { opacity: 1; }
+}
+
+/* the ground notices a take: one soft ring rolling out and gone */
+.breach-ground {
+  fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: 0;
+  transform-box: fill-box; transform-origin: center;
+  animation: groundPulse 750ms ease-out both;
+}
+@keyframes groundPulse {
+  0%   { opacity: .3; transform: scale(.35); }
+  100% { opacity: 0;  transform: scale(2.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bldg.breached.took .win.lit { animation: none; }
+  .bldg.all-held:not(.breached) .win.lit { animation: none; }
+  .breach-ground { animation: none; }
+  .ripple { animation: none; }
 }
 /* it holds: a shudder and nothing else */
 @keyframes heldOut {
