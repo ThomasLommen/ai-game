@@ -120,7 +120,10 @@
   }
 
   function build() {
-    ctx = new AC();
+    // 'playback' asks for large buffers. Nothing here is rhythm-synced to
+    // input — it is a room, not an instrument — and small interactive-grade
+    // buffers are exactly what crackles on a busy phone.
+    ctx = new AC({ latencyHint: 'playback' });
     master = ctx.createGain();
     master.gain.value = S.master || 0.17;
 
@@ -158,8 +161,23 @@
     const nb = ctx.createBuffer(1, Math.round(ctx.sampleRate * 2), ctx.sampleRate);
     const nd = nb.getChannelData(0);
     for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    // The loop seam: raw noise ends nowhere near where it began, so the wrap
+    // was a discontinuity every two seconds — a metronome of tiny clicks the
+    // bandpass could soften but not remove. The fix is the standard
+    // overlap-loop: the tail crossfades into a copy of the head, and the
+    // loop region then starts *after* that head — so the wrap lands on the
+    // sample that naturally follows the blended tail, not back on nd[0].
+    // (Blending alone is not enough; the first draft did that and the seam
+    // survived, just wearing the head's clothes.)
+    const xf = Math.round(ctx.sampleRate * 0.08);
+    for (let i = 0; i < xf; i++) {
+      const a = i / xf;
+      nd[nd.length - xf + i] = nd[nd.length - xf + i] * (1 - a) + nd[i] * a;
+    }
     const src = ctx.createBufferSource();
     src.buffer = nb; src.loop = true;
+    src.loopStart = xf / ctx.sampleRate;
+    src.loopEnd = nb.duration;
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass'; bp.frequency.value = 200; bp.Q.value = 1.2;
     noiseGain = ctx.createGain(); noiseGain.gain.value = S.air || 0;
@@ -279,20 +297,26 @@
         if (on || !ctx) return;
         try { ctx.close(); } catch (e) {}
         ctx = null; master = null; f1 = null; f2 = null;
-        wave = null; held = null; voices = [];
+        wave = null; held = null; voices = []; lastAim = null;
       }, 2000);
     }
   }
 
   // The colouring. Everything glides, so nothing here can arrive as an event.
+  // Called on every render, so it must also be safe to call on every render:
+  // no cancelScheduledValues (cancelling can snap a param to its
+  // pre-automation value, which is a click per tap), and no automation spam
+  // when the mood has not actually moved — consecutive setTargetAtTime calls
+  // are continuous, so the glide simply re-aims.
+  let lastAim = null;
   function setMood(heldCount, warmth) {
     mood = moodFor(heldCount, warmth);
     if (!ctx || !f1) return;
+    const aim = mood.cutoff.toFixed(1) + '|' + mood.detune.toFixed(2);
+    if (aim === lastAim) return;
+    lastAim = aim;
     const t = ctx.currentTime, k = (S.glideS || 9) / 3;
-    [f1, f2].forEach(f => {
-      f.frequency.cancelScheduledValues(t);
-      f.frequency.setTargetAtTime(mood.cutoff, t, k);
-    });
+    [f1, f2].forEach(f => f.frequency.setTargetAtTime(mood.cutoff, t, k));
     // a held drone never gets rebuilt, so its detuning has to be re-aimed
     voices.forEach(v => {
       if (v.sub) return;

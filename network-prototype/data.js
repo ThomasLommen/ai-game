@@ -359,7 +359,10 @@ window.SOUND = {
   deep: 0.14,            // an octave under the pedal: felt rather than heard
   topVoice: 0.62,        // the airiest voice in the stack, held back
   damp: 1700,            // the reverb tail loses its top as it decays
-  reverbS: 3.2,
+  // trimmed from 3.2: at room 0.6 the nave is a quarter of the wet mix and
+  // the last second of its tail is inaudible — but every tap of it is CPU a
+  // phone pays on the audio thread, which is where crackle comes from
+  reverbS: 2.4,
 
   // Colour, never information. Two inputs, both slow by nature — how much of
   // the city you hold, and how warm the district you are looking at is — both
