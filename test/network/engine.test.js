@@ -8543,9 +8543,11 @@ test('carry: the sweep says when it turned something up, and never what', () => 
   assert.ok(!/wallet/i.test(line), 'the log spoiled the contents');
 });
 
-test('hack: there is one way in, and nothing to pick between at the door', () => {
+test('hack: one program at the rig — the choice lives at the door now', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
+  // PROGRAMS still holds exactly backdoor: siphon is not a mountable
+  // program, it is the other verb at the door. The rig never came back.
   assert.equal(window.PROGRAMS.length, 1, 'one program');
   const p = d.mounted();
   assert.ok(p, 'and it is always what is running');
@@ -8554,6 +8556,152 @@ test('hack: there is one way in, and nothing to pick between at the door', () =>
   // nothing to mount means no mounting verb at all
   assert.equal(typeof d.mount, 'undefined', 'no program is chosen, so nothing chooses one');
   assert.equal(d.serialize().mount, undefined, 'and a save carries no choice either');
+  // but a frontier door offers both verbs — take it, or tap it
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const t = s.hosts.find(h => !h.owned && d.isFrontier(h));
+  assert.ok(t, 'a frontier door exists');
+  assert.equal(d.canHack(t.id), true, 'backdoor is offered');
+  assert.equal(d.canSiphon(t.id), true, 'and so is the siphon');
+});
+
+// --- the second verb: siphon -----------------------------------------------
+// Harvest instead of take. Push-your-luck with the whole arithmetic stated,
+// which is the only kind the covenant allows.
+
+function frontierDoor(d) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  return s.hosts.find(h => !h.owned && d.isFrontier(h));
+}
+
+test('siphon: the whole arithmetic is on the table before the tap', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const t = frontierDoor(d);
+  const f = d.siphonForecast(t);
+  const S = window.SIPHON;
+  assert.equal(f.need, Math.max(1, Math.ceil(d.effDefense(t) * S.load)), 'the hold is not the stated share');
+  assert.equal(f.rate, Math.round(d.traceRate(t) * S.traceMult * 100) / 100, 'the rate is not the stated fraction');
+  assert.equal(f.pay, S.payBase + S.payPerTier * ((window.DISTRICTS[t.district] || {}).tier || 0),
+    'the trickle is not priced by the street');
+  assert.equal(f.goal, window.HACK.traceGoal, 'a different goal than every other race');
+  // the horizon is how many pays are safe, not when the number gets big
+  assert.equal(f.horizon, Math.max(0, Math.ceil(f.goal / f.rate) - 1), 'the horizon lies');
+});
+
+test('siphon: it pays while it sits, and pulling out is the only bank', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = frontierDoor(d);
+  const f = d.siphonForecast(t);
+  const free0 = d.allocFree();
+  assert.equal(d.startSiphon(t.id), true);
+  assert.equal(d.allocFree(), free0 - f.need, 'the line does not hold its compute');
+  assert.equal(d.canHack(t.id), false, 'both verbs running against one door');
+
+  // ride it two turns, but never to the wire
+  const rides = Math.min(2, d.siphonForecast(t).horizon);
+  for (let i = 0; i < rides; i++) { s.card = null; d.endTurn({ silent: true }); }
+  const k = d.siphonOn(t.id);
+  assert.ok(k, 'the line died early');
+  assert.equal(k.pot, f.pay * rides, 'the trickle is not the stated trickle');
+
+  const funds0 = s.res.funds;
+  assert.equal(d.pullSiphon(t.id), true);
+  assert.equal(s.res.funds, funds0 + f.pay * rides, 'the pot did not bank');
+  assert.equal(d.siphonOn(t.id), null, 'the line is still there');
+  assert.equal(d.allocFree(), free0, 'the compute did not come home');
+  assert.equal(t.owned, false, 'a siphon never takes the door');
+});
+
+test('siphon: found means the pot burns and the door remembers', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = frontierDoor(d);
+  assert.ok(d.siphonRate(t) > 0, 'a door that never notices cannot catch');
+  assert.equal(d.startSiphon(t.id), true);
+  // ride it to the wire by hand — the last step is what is under test
+  const k = d.siphonOn(t.id);
+  k.trace = window.HACK.traceGoal - 0.01;
+  k.pot = 8;
+  const def0 = t.defense;
+  const caught0 = d.caughtHere();
+  const susp0 = d.suspicionOf(t.district);
+  const funds0 = s.res.funds;
+  d.siphonStep();
+  assert.equal(d.siphonOn(t.id), null, 'they never found it');
+  assert.equal(d.caughtHere(), caught0 + 1, 'a found line did not count as caught');
+  assert.equal(t.defense, def0 + window.HACK.hardenOnCaught, 'the door did not harden');
+  assert.ok(d.suspicionOf(t.district) > susp0, 'the neighbours did not talk');
+  assert.equal(s.res.funds, funds0, 'the pot banked on the way down');
+  assert.ok(s.log.some(l => /found the siphon/.test(l.text) && /burned/.test(l.text)),
+    'the burn was not reported');
+});
+
+test('siphon: keys never cover a line — nothing covers forever', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = frontierDoor(d);
+  s.keys = 3;
+  assert.equal(d.startSiphon(t.id), true);
+  assert.equal(s.keys, 3, 'the tap spent someone\'s keys');
+  s.card = null; d.endTurn({ silent: true });
+  const k = d.siphonOn(t.id);
+  if (k) assert.ok(k.trace > 0, 'the line is invisible — keys covered it after all');
+});
+
+test('siphon: never offered against the response\'s core', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  hunted(d, window);
+  const core = d.huntCoreHost();
+  assert.ok(core, 'no core to refuse');
+  assert.equal(d.canSiphon(core.id), false, 'there is money in the confront now');
+});
+
+test('siphon: a door that becomes yours banks the line, a hardened one drops it paid', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = frontierDoor(d);
+  assert.equal(d.startSiphon(t.id), true);
+  d.siphonOn(t.id).pot = 9;
+  const funds0 = s.res.funds;
+  d.takeHost(t);   // bought, spread onto, forced — the line does not care
+  assert.equal(d.siphonOn(t.id), null, 'the line outlived the door');
+  assert.equal(s.res.funds, funds0 + 9, 'the pot did not come home');
+
+  // and a door hardened past the allocation drops the line but keeps the pot
+  const u = s.hosts.find(h => !h.owned && d.isFrontier(h) && h.id !== t.id);
+  assert.equal(d.startSiphon(u.id), true);
+  d.siphonOn(u.id).pot = 5;
+  u.defense += 200;
+  const funds1 = s.res.funds;
+  d.reapSiphons();
+  assert.equal(d.siphonOn(u.id), null, 'an unholdable line stayed up');
+  assert.equal(s.res.funds, funds1 + 5, 'what was already through got lost');
+});
+
+test('siphon: packs, saves, and a stale line is reconciled on the way in', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t = frontierDoor(d);
+  assert.equal(d.startSiphon(t.id), true);
+  d.siphonOn(t.id).pot = 4;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal((back.siphons || []).length, 1, 'the line did not survive the save');
+  assert.equal(back.siphons[0].pot, 4, 'the pot did not survive the save');
+  // a save carrying a line against a door that is already yours comes up clean
+  const stale = JSON.parse(JSON.stringify(d.serialize()));
+  stale.hosts.find(h => h.id === t.id).owned = true;
+  const clean = d.deserialize(stale);
+  assert.equal((clean.siphons || []).length, 0, 'a dead line came back up');
 });
 
 test('hack: the one program is one the race can actually beat', () => {

@@ -4,7 +4,12 @@ Grouped by the part of the game they touch. Effort [S]/[M]/[L], the question
 each answers, and how to measure it. The strongest candidates are marked ★ —
 an opinion, offered to be argued with.
 
-## A. The rig — programs, returning one at a time
+## A. The rig — programs, returning one at a time — SIPHON SHIPPED
+
+siphon.exe is in (see the rework doc's "The second verb"), with one shape
+change from the sketch below: it lives at the door, not at the rig — no
+mount slot returned, both verbs are offered against any door in reach.
+The rest of this section stays as the bar any third program must clear.
 
 The cut to one program was explicitly "until the second one earns its
 place." Earning its place means: it must create runs backdoor cannot, not

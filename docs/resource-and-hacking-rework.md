@@ -1029,6 +1029,45 @@ free. Three misses, each a dial, none a redesign:
   blocks, and it starts where the words start — the map and the panel
   agree about when a district is worth a glance.
 
+## The second verb — siphon.exe
+
+The bar set when the other programs were cut: a second one must create runs
+backdoor cannot, not price the same run differently. siphon qualifies by
+being a different verb — harvest instead of take. It runs against a door
+forever and never opens it: a stated trickle of funds per turn accrues into
+an unbanked pot, the door notices at a stated fraction of its usual rate,
+and pulling out — free, any time — is the only way to bank. Found means the
+pot burns and being found costs what it always costs: harden, caught-here,
+the neighbours talk. Push-your-luck with the whole arithmetic on the panel,
+the only kind the covenant allows.
+
+It lives **at the door, not at the rig.** PROGRAMS still holds exactly
+backdoor and there is still nothing to mount — both verbs are simply
+offered against any door in reach, and choosing is the decision. The one
+door that refuses it is the response's core: there is no money in the
+confront, only the walk that ends it. Keys never cover a line — nothing
+covers forever.
+
+Tuned against a bot that plays it properly (pulls the turn before it is
+found, liquidates lines the moment a door opens), paired over 8 boards ×
+40 turns:
+
+- traceMult 0.5 paid +122 funds but cost ~4 buildings of tempo; 0.8 made
+  the horizon too short to be worth the action (+29, taps collapsed).
+- **0.65 with payBase 1** is the shape that earned entry: **+86 funds,
+  tempo neutral, zero burns** for a disciplined player — and the extra
+  street activity feeds suspicion enough to show (+0.5 caught over a run).
+  A supplement to the economy, not a second one.
+- The interplay that fell out unplanned: taps are activity, so tapping in
+  *other* districts cools the one you are working — the siphon is also a
+  rotation instrument. And a district warming under your own runs shortens
+  every live horizon in it, which the panel re-states every turn.
+
+The dumb-bot probe was the honest half: a bot that rides lines without
+liquidating loses 10 buildings of tempo for +27 funds. The verb rewards
+exactly the player who reads the board — which is what the last playtest
+said the game finally asks for.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

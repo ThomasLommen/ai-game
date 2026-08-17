@@ -275,6 +275,44 @@ window.PROGRAMS = [
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
 ];
 
+// --- the second verb ------------------------------------------------------
+// The bar for a second program was set when the other two were cut: it must
+// create runs backdoor cannot, not price the same run differently. siphon
+// qualifies because it is a different *verb* — harvest instead of take. It
+// runs against a door forever and never opens it: a stated trickle of funds
+// per turn accrues into an unbanked pot, the door notices at a stated
+// fraction of its usual rate, and pulling out — free, any time — is the only
+// way to bank the pot. If the trace completes first, the pot burns and being
+// found costs what being found always costs. Push-your-luck with the whole
+// arithmetic on the table, which is the only kind the covenant allows.
+//
+// It lives at the door, not at the rig: there is still nothing to mount.
+// Both verbs are simply available against any door in reach, and choosing is
+// the decision the panel exists to inform.
+window.SIPHON = {
+  label: 'siphon.exe',
+  // Lighter grip than backdoor (0.45): a tap on the line, not a crowbar in
+  // the frame. Still held for the whole ride, which is the real price —
+  // compute on a siphon is compute not walking through doors.
+  load: 0.35,
+  // The door notices a siphon slower than a break-in — that gap is the
+  // horizon, and the horizon is the decision. Probed paired over 8 boards,
+  // 40 turns, against a bot that pulls lines the turn before they are found
+  // and liquidates them whenever a door opens: at 0.5 the verb paid +122
+  // funds and cost 4 buildings of tempo; at 0.8 the horizon was too short
+  // to be worth the action (+29, taps collapsed). 0.65 with payBase 1 is
+  // the shape that earned its place: +86 funds, tempo neutral, and the
+  // extra street activity feeds suspicion enough to matter (+0.5 caught).
+  // A supplement to the economy, not a second one.
+  traceMult: 0.65,
+  // Funds per turn, by district tier — the same scale wallets use, so the
+  // fiction stays coherent: richer streets have richer lines. The suburbs
+  // pay 1 a turn on purpose; the industrial edge pays 4.
+  payBase: 1,
+  payPerTier: 1,
+  blurb: 'A tap on their line, left running. Pays while it sits, seen a little more every turn — pull it out yourself or lose everything it was holding.',
+};
+
 // --- what's on the machine ------------------------------------------------
 // Taking a building used to yield the building. The fantasy says every
 // machine has *contents* — and the honest half of the reward literature says
