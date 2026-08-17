@@ -1309,15 +1309,39 @@ and a game that makes noise on load is a game played muted forever after.
 The preference is remembered but still waits for a tap, because restoring
 it silently would only produce a button that lies.
 
-**What is not finished: the timbre.** It went dark and then read as
-"almost angelic or religious" — correctly, and for a reason worth keeping:
-pure integer harmonics rolled off smoothly *are* an organ registration, and
-consonant triads in a long tail *are* a nave. Every choice was defensible
-alone and together they built a church. The target is humming machinery,
-and the four levers that move it there — inharmonic partials, a noise bed,
-detune width, room size — were all pushed hard in a render that came back
-"too noisy". The answer is somewhere well short of that, and the next pass
-is dialling, not adding. See the note in `SOUND` for the specifics.
+**The timbre, settled — by ear, and against the theory.** It went dark and
+then read as "almost angelic or religious", correctly: pure integer
+harmonics rolled off smoothly *are* an organ registration, and consonant
+triads in a long tail *are* a nave. Batches of candidate renders were the
+wrong instrument for fixing it — a verdict like "too noisy" on a clip that
+moved four things at once teaches nothing about any of them. So the next
+round shipped a bench instead: the real engine behind one slider per axis,
+plus seven progressions, dialled live.
+
+What came back overturned most of what the renders had assumed:
+
+- **No progression at all.** One chord, held — Gm, the only one of the
+  three that sits on its own root. The player's own suspicion, and right:
+  machinery does not change chord. The seven-chord loop is kept whole and
+  unused; the harmony behind it is still correct, it simply is not what a
+  room hums.
+- **Zero inharmonicity.** Stretched partials were the theory of what makes
+  a sound mechanical. The ear picked exact integers.
+- **Almost no detune** — 6 cents. Grinding beats read as an effect, not a
+  room.
+- **Rich harmonics *and* a low filter**: a thick source cut down at 400 Hz,
+  rather than a thin source left open. That is where the weight comes from.
+- **The machinery is the noise bed and the hum**, both pushed to the top of
+  their range. Those two did the work that every clever timbre trick had
+  failed to do.
+
+Three of those arrived pinned at the bench's ceiling, so the true setting
+may sit past them — the rails, not the ear, may be what stopped it there.
+
+The port was measured rather than trusted, for the reason the earlier pass
+established: the engine plays one held Gm at a spectral centroid of 195 Hz,
+falling to 159 Hz under full district suspicion — darker when watched,
+which is the coupling working in the direction it should.
 
 ## Not changing
 

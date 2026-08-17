@@ -298,64 +298,77 @@ window.PROGRAMS = [
 // that the tempo was never the problem — an equal-power crossfade and the
 // seventh chord were. Pure pad won on a listen.
 window.SOUND = {
+  // WHAT THE BENCH SETTLED. The player dialled this live, and it overturned
+  // most of what the seven-chord version assumed:
+  //
+  //   * no progression at all. Their own suspicion, and it was right —
+  //     machinery does not change chord. The seven-chord loop is still here,
+  //     unused, because the reasoning behind it holds and one line brings it
+  //     back; it just is not what a room hums.
+  //   * zero inharmonicity. Stretched partials were my theory of what makes
+  //     a sound mechanical and the ear said otherwise: pure integers, then
+  //     buried under a filter.
+  //   * barely any detune. Grinding beats read as an effect, not a room.
+  //   * rich harmonics *and* a low filter — a thick source cut down, rather
+  //     than a thin source left open. That is where the weight comes from.
+  //   * the machinery is the noise bed and the hum, not the timbre. Those
+  //     two dials did the work every clever tone trick failed to do.
+  //
+  // Three of these arrived pinned at the bench's ceiling (air, hum, tone),
+  // so the true setting may sit past them — the rails, not the ear, may be
+  // what stopped it there.
+  progression: 'one',
+  progressions: {
+    // one chord, held, forever. Gm: the only one of the three that sits on
+    // its own root, so it is the one that sounds settled rather than hanging.
+    one: [
+      { name: 'Gm', bass: 31, up: [50, 55, 58] },
+    ],
+    // Kept whole: Eb-Cm-Gm-Bb-Eb-Cm-Gm. Eb, Cm and Gm are I, vi and iii, so
+    // nothing pulls; the Bb is the one V, carrying the only F in the loop,
+    // and the only chord the bass moves for (Bb over a held G is Gm7 and has
+    // no pull at all). Seven is odd, so it never lands where a four-bar
+    // instinct expects. All still true — just not what this game wants.
+    seven: [
+      { name: 'Eb', bass: 31, up: [51, 55, 58] },
+      { name: 'Cm', bass: 31, up: [51, 55, 60] },
+      { name: 'Gm', bass: 31, up: [50, 55, 58] },
+      { name: 'Bb', bass: 34, up: [50, 53, 58] },
+      { name: 'Eb', bass: 31, up: [51, 55, 58] },
+      { name: 'Cm', bass: 31, up: [51, 55, 60] },
+      { name: 'Gm', bass: 31, up: [50, 55, 58] },
+    ],
+  },
   chordMs: 7000,
   fadeMs: 3000,          // must stay well under chordMs or the chords smear
-  // midi numbers: `bass` is doubled an octave up, `up` is the voicing above
-  loop: [
-    { name: 'Eb', bass: 31, up: [51, 55, 58] },   // Eb/G — soft, first inversion
-    { name: 'Cm', bass: 31, up: [51, 55, 60] },   // Cm/G — floating, second inversion
-    { name: 'Gm', bass: 31, up: [50, 55, 58] },   // Gm   — the only grounded one
-    { name: 'Bb', bass: 34, up: [50, 53, 58] },   // Bb   — the pull, and the F
-    { name: 'Eb', bass: 31, up: [51, 55, 58] },
-    { name: 'Cm', bass: 31, up: [51, 55, 60] },
-    { name: 'Gm', bass: 31, up: [50, 55, 58] },
-  ],
   master: 0.17,          // quiet. It is a room, not a soundtrack.
-  // Colour, never information. Both inputs are slow by nature — how much of
-  // the city you hold, and how warm the district you are looking at is — and
-  // both are smoothed over many seconds on top of that, so the pad drifts
-  // rather than reacting. Nothing here is ever the only place a fact lives:
-  // play with the sound off and you lose feel, never knowledge.
-  cutoff: 700,           // Hz, quiet city
-  cutoffWatched: 340,    // ...and everyone here is watching
-  detune: 7,             // cents between the stacked oscillators
-  detuneWatched: 16,     // wider beating reads as queasiness, not alarm
+
+  // The voice
+  tone: 0.60,            // harmonic amplitude: tone^(k-1)/k. Rich, then cut.
+  cutoff: 700,           // set below, per mood
+  detune: 6,             // cents. Nearly none: this is a room, not a chorus.
+  air: 0.30,             // the noise bed — half of what makes it machinery
+  humDepth: 0.22,        // ...and the other half
+  humHz: 5.7,            // motor speed
+  room: 0.60,            // 0 nave, 1 plant room
+  deep: 0.14,            // an octave under the pedal: felt rather than heard
+  topVoice: 0.62,        // the airiest voice in the stack, held back
+  damp: 1700,            // the reverb tail loses its top as it decays
+  reverbS: 3.2,
+
+  // Colour, never information. Two inputs, both slow by nature — how much of
+  // the city you hold, and how warm the district you are looking at is — both
+  // clamped and both glided over seconds on top of that, so nothing can
+  // arrive as an event. No fact lives here and nowhere else: play muted and
+  // you lose feel, never knowledge.
+  cutoffOpen: 400,       // Hz, quiet city  (the bench's number)
+  cutoffWatched: 260,    // ...and everyone here is watching
+  detuneWatched: 11,     // a little more beating, well short of grinding
   warmthFull: 26,        // the suspicion that counts as fully watched
   subBase: 0.22,
   subPerSize: 0.3,       // the size of you, as weight underneath
   sizeFull: 40,          // buildings held at which the low end is all the way in
   glideS: 9,             // how long any of the above takes to arrive
-  reverbS: 3.2,
-  // Darkness, measured rather than guessed: the first pass came out airy and
-  // the spectral centroid said why — 241 Hz. Four things were doing it, in
-  // order of damage: the voicing sat an octave too high (D4-C5 is where a pad
-  // stops droning and starts shimmering), the reverb tail was undamped noise,
-  // the harmonics rolled off too gently, and the top voice was as loud as the
-  // rest. Fixed, the centroid sits at 106 Hz. Dark is as much what you take
-  // out as what you add.
-  // TIMBRE IS NOT FINISHED. What ships here is the dark version, which was
-  // approved as dark and then judged "almost angelic or religious" — and it
-  // is, for a reason worth writing down: a stack of pure integer harmonics
-  // rolled off smoothly *is* an organ registration, and consonant triads in
-  // a long smooth tail *is* a nave. Nothing about it was a mistake
-  // individually; together they built a church.
-  //
-  // The target is humming machinery. Four levers move it that way, and a
-  // render pushing all four hard came back "too noisy", so the next pass is
-  // dialling them, not adding more:
-  //   1. inharmonicity — partials off exact multiples (the biggest single
-  //      cause of "holy"; needs a custom wave per note, since PeriodicWave
-  //      can only place harmonics on integers)
-  //   2. a noise bed — air through something, currently zero
-  //   3. detune width — 7 cents blends into a choir, 20+ grinds; we are at 7
-  //   4. room size — short and hard reads as a plant room, long reads as a
-  //      cathedral
-  // Somewhere well short of the "industrial" render is right. Dial from here.
-  tone: 0.34,            // harmonic rolloff: amplitude of harmonic k is
-                         // tone^(k-1)/k, ten harmonics, no more
-  damp: 1700,            // the reverb tail loses its top as it decays
-  deep: 0.14,            // an octave under the pedal: felt rather than heard
-  topVoice: 0.62,        // the airiest voice in the stack, held back
 };
 
 // --- the network, seen ----------------------------------------------------

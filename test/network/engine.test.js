@@ -8699,32 +8699,61 @@ test('forecast: the bar shows the margin, and reddens when one turn would lose i
 // The pad is arithmetic plus an audio device. These test the arithmetic, which
 // is the half that can be wrong in ways you cannot hear.
 
-test('sound: seven chords, one pull, and the bass moves only for it', () => {
+test('sound: what plays is one chord, held — the bench chose it over the loop', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const S = window.SOUND;
   const snd = window.__sound;
-  assert.equal(S.loop.length, 7, 'the loop is not seven chords');
+  // Machinery does not change chord. Dialled live against six alternatives,
+  // this is what won, and it is Gm — the only one of the three that sits on
+  // its own root, so it sounds settled rather than hanging.
+  assert.equal(snd.activeLoop().length, 1, 'the room tone went back to a progression');
+  assert.equal(snd.isHeld(), true, 'a single chord is being rescheduled instead of held');
+  assert.equal(snd.stepAt(0).name, 'Gm', 'the held chord is not the grounded one');
+  // held means held: every step is the same chord, forwards or back
+  assert.equal(snd.stepAt(5).name, snd.stepAt(0).name, 'a held drone drifts');
+  assert.equal(snd.stepAt(-3).name, snd.stepAt(0).name, 'stepping back leaves the drone');
+});
+
+test('sound: the seven-chord loop is kept whole, and still means what it meant', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const S = window.SOUND;
+  // Unused, not deleted: one line brings it back, and the harmony behind it
+  // is still correct — it is simply not what a room hums.
+  const loop = S.progressions.seven;
+  assert.equal(loop.length, 7, 'the loop is not seven chords');
   // odd length is the point — it never lands where a four-bar instinct expects
-  assert.equal(S.loop.length % 2, 1, 'an even loop lands on the beat it is avoiding');
-  assert.equal(S.loop.filter(c => c.name === 'Bb').length, 1, 'the pull is not once per loop');
+  assert.equal(loop.length % 2, 1, 'an even loop lands on the beat it is avoiding');
+  assert.equal(loop.filter(c => c.name === 'Bb').length, 1, 'the pull is not once per loop');
 
   // Bb is the only chord off the G pedal, because Bb over G is Gm7 and has no
   // pull at all — which would have cancelled the only chord with a job
-  const G = S.loop.find(c => c.name === 'Eb').bass;
-  S.loop.forEach(c => {
+  const G = loop.find(c => c.name === 'Eb').bass;
+  loop.forEach(c => {
     if (c.name === 'Bb') assert.notEqual(c.bass, G, 'the Bb sits on the pedal and loses its pull');
     else assert.equal(c.bass, G, `${c.name} left the pedal`);
   });
 
   // F belongs to the Bb alone: the one moment of pull is the one new colour
   const pcs = (c) => c.up.concat([c.bass]).map(m => ((m % 12) + 12) % 12);
-  const F = 5;
-  S.loop.forEach(c => {
-    assert.equal(pcs(c).includes(F), c.name === 'Bb', `F in the wrong chord: ${c.name}`);
+  loop.forEach(c => {
+    assert.equal(pcs(c).includes(5), c.name === 'Bb', `F in the wrong chord: ${c.name}`);
   });
-  // and it repeats forever without drifting off its own list
-  assert.equal(snd.stepAt(0).name, snd.stepAt(7).name, 'the loop does not loop');
-  assert.equal(snd.stepAt(-1).name, snd.stepAt(6).name, 'stepping back falls off the loop');
+});
+
+test('sound: the machinery is the air and the hum, not a clever timbre', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const S = window.SOUND;
+  // The bench overturned the theory. Stretched partials and grinding detune
+  // were my account of what sounds mechanical; the ear picked pure harmonics,
+  // almost no detune, and leaned the whole way on noise and a slow hum.
+  assert.ok(S.air > 0, 'the noise bed is gone, and it was half of the machinery');
+  assert.ok(S.humDepth > 0, 'the hum is gone, and it was the other half');
+  assert.ok(S.humHz > 1 && S.humHz < 12, 'the hum is not at motor speed');
+  assert.ok(S.detune <= 8, 'the detune is back up into chorus territory');
+  assert.equal(S.inharm, undefined, 'inharmonicity came back; the ear said zero');
+  // rich source, low filter — a thick sound cut down, not a thin one left open
+  assert.ok(S.tone >= 0.5, 'the source went thin again');
+  assert.ok(S.cutoffOpen <= 500, 'the filter is no longer doing the darkening');
 });
 
 test('sound: the crossfade holds its level through the change', () => {
