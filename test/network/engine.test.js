@@ -8231,6 +8231,11 @@ test('carry: contents are decided at generation, bounded, and landmarks always c
     // street furniture and the grid carry nothing, ever
     c.hosts.filter(h => h.type === 'iot' || h.type === 'feeder')
       .forEach(h => assert.ok(!h.carry, 'a lamppost is holding a wallet'));
+    // and neither does the seat you start in — assignCarry runs before the
+    // origin is chosen, so this is the late clear being tested, not the
+    // filter. An owned carrier is a glint that never lights.
+    const seat = c.hosts.find(h => h.origin);
+    assert.ok(seat && !seat.carry, 'the origin machine is carrying its own prize');
   }
 });
 

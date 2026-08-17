@@ -1147,6 +1147,11 @@
     seat.discovered = true;
     seat.ring = 0;
     seat.origin = true;
+    // assignCarry ran before the seat was chosen, so its origin exclusion
+    // can't have fired — clear it here instead. A machine you already own
+    // holds no prize: the glint keys off carry, and an owned carrier would
+    // be a glint that never lights and contents no take can ever resolve.
+    delete seat.carry;
 
     return { buildings, hosts, links, adjacency, bands, layout, wob, props, paths,
              originId: seat.id, dims: { cols, rows } };
