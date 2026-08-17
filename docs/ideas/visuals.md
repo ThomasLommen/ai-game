@@ -37,7 +37,12 @@ What is left, and why:
   the most-pressed button in the game is a tax paid every turn; see the
   rework doc.
 - **horizon twinkle (§D)** — country-gated, so dormant along with it.
-- **sound (§F)** — deferred at the user's request; they have ideas.
+- **sound (§F)** — the room tone is **in**: a seven-chord drone
+  (Eb-Cm-Gm-Bb-Eb-Cm-Gm) synthesised at runtime, off until asked for, and
+  coupled to two slow readings as colour only. Its *timbre* is unfinished —
+  it currently reads as organ rather than machinery, and the dial-in is the
+  next sound job. See the rework doc. Everything else in §F — the take's
+  relay-click, the race tone, the response's signal — is still untouched.
 
 A building becoming yours is the loop's payoff and currently gets a
 color change, a banner and a log line. The full Nijman treatment, in order

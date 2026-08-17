@@ -1266,6 +1266,59 @@ sweep and the breach already use, so a re-render mid-flourish resumes it
 instead of restarting: without that, every tap would yank every packet
 back to its start.
 
+## The room tone — a drone, and an unfinished timbre
+
+Sound, which the game had none of. Synthesised at runtime like everything
+else here: no audio files, ever.
+
+**The music.** Seven chords over forty-nine seconds — Eb, Cm, Gm, **Bb**,
+Eb, Cm, Gm — at seven seconds each, chosen by the player from the piano
+figure in Outlandish's *Warrior//Worrier*. Eb, Cm and Gm are I, vi and iii:
+no pull between any of them, which is exactly what lets a drone rotate
+forever without going anywhere. The Bb is the V — one moment of gravity per
+loop, resolving straight back to Eb — and it carries F, the only pitch
+class the rest of the loop never touches. Seven is odd, so at a steady
+tempo the loop never lands where a four-bar instinct expects it: that does
+more for "no beat" than the tempo does.
+
+The bass sits on G throughout except under the Bb, and it has to. Bb over a
+held G is Gm7, which has no dominant function at all — the pedal would have
+quietly cancelled the one chord it was added for. So the single moment of
+harmonic pull is also the single moment the bass moves.
+
+**Two things measured rather than argued.** A 7s crossfade on a linear
+curve sags in the middle, and at this tempo that sag lands twice as often
+as it did at 14s — it is audible as a wobble, and equal-power (sin/cos)
+fixes it. And the in-game engine came out four times brighter than the
+render it was approved from — 447 Hz of spectral centroid against 111 —
+because plain `sawtooth` nodes carry a full harmonic series falling at only
+6dB an octave. The wave is now built with exactly the render's harmonic
+amplitudes, and a second filter pole gives the mood coupling something to
+bite on: 187 Hz and closing.
+
+**The coupling: colour, never information.** Two inputs, both slow by
+nature — how much of the city you hold, and how warm the district you are
+looking at is. Both clamped, both glided over ~9 seconds on top of that, so
+nothing can arrive as an event. Held ground adds weight underneath;
+suspicion darkens the filter and widens the detuning into a queasiness. No
+fact lives here and nowhere else: play muted — which everyone does until
+they press the button — and you lose feel, nothing more.
+
+**Off until asked.** Phones refuse to start audio without a gesture anyway,
+and a game that makes noise on load is a game played muted forever after.
+The preference is remembered but still waits for a tap, because restoring
+it silently would only produce a button that lies.
+
+**What is not finished: the timbre.** It went dark and then read as
+"almost angelic or religious" — correctly, and for a reason worth keeping:
+pure integer harmonics rolled off smoothly *are* an organ registration, and
+consonant triads in a long tail *are* a nave. Every choice was defensible
+alone and together they built a church. The target is humming machinery,
+and the four levers that move it there — inharmonic partials, a noise bed,
+detune width, room size — were all pushed hard in a render that came back
+"too noisy". The answer is somewhere well short of that, and the next pass
+is dialling, not adding. See the note in `SOUND` for the specifics.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

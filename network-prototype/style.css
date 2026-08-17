@@ -531,7 +531,7 @@ footer {
   gap: 8px;
 }
 footer .build { opacity: .55; font-size: 10px; }
-#restart {
+#restart, #sound-btn {
   background: none;
   border: 1px solid var(--line);
   color: var(--muted);
@@ -540,6 +540,11 @@ footer .build { opacity: .55; font-size: 10px; }
   font-size: 10.5px;
   cursor: pointer;
 }
+/* On reads as on. Anything louder than this would be a control shouting
+   about itself in a footer that is otherwise all whisper. */
+#sound-btn.on { color: var(--cover); border-color: color-mix(in srgb, var(--cover) 45%, var(--line)); }
+/* they had it on last time — a hint to tap, not a claim to be playing */
+#sound-btn.remembered:not(.on) { border-style: dashed; }
 
 /* tap-to-explain: the fix for "unclear what any of this does" */
 #info-strip {

@@ -9886,8 +9886,20 @@ scratch.later = null;
     }
   }
 
+  // What the pad is allowed to know: how big you are, and how warm the place
+  // you are looking at is. Both move over minutes, and the engine glides on
+  // top of that — so this can colour the room without ever reporting an event.
+  function soundMood() {
+    const snd = window.__sound;
+    if (!snd || !snd.isOn()) return;
+    const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : null;
+    const here = b ? b.district : (hostById(state.selected) || {}).district;
+    snd.setMood(owned().length, here ? suspicionOf(here) : 0);
+  }
+
   function render() {
     ensureFrontierIsOpen();
+    soundMood();
     renderGraph();
     renderHud();
     renderConsolidate();
@@ -9999,6 +10011,33 @@ scratch.later = null;
   // The recenter button is gone: its job was undoing a pan, and the map already
   // recenters itself whenever the scope changes, which is now one tap away at
   // all times. What sat there is the zoom-out toggle instead.
+
+  // The room tone. Off until asked for — phones refuse to start audio without
+  // a gesture anyway, and a game that makes noise the moment it loads is a
+  // game people play muted forever after.
+  const $sound = document.getElementById('sound-btn');
+  if ($sound && window.__sound) {
+    const paint = () => {
+      const on = window.__sound.isOn();
+      $sound.textContent = on ? 'sound on' : 'sound off';
+      $sound.setAttribute('aria-pressed', on ? 'true' : 'false');
+      $sound.classList.toggle('on', on);
+    };
+    $sound.hidden = !window.__sound.available;
+    $sound.addEventListener('click', () => {
+      const on = window.__sound.toggle();
+      try { localStorage.setItem('net-sound', on ? '1' : '0'); } catch (e) {}
+      if (on) soundMood();
+      paint();
+    });
+    paint();
+    // A remembered preference still waits for a tap: browsers will not start
+    // audio without one, so restoring it silently would only ever produce a
+    // button that lies about what it is doing.
+    try {
+      if (localStorage.getItem('net-sound') === '1') $sound.classList.add('remembered');
+    } catch (e) {}
+  }
 
   const $restart = document.getElementById('restart');
   if ($restart) {

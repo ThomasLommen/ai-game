@@ -8695,6 +8695,83 @@ test('forecast: the bar shows the margin, and reddens when one turn would lose i
     'the ghost background is not scoped past .trace-fc i and will lose to it');
 });
 
+// --- the room tone -----------------------------------------------------------
+// The pad is arithmetic plus an audio device. These test the arithmetic, which
+// is the half that can be wrong in ways you cannot hear.
+
+test('sound: seven chords, one pull, and the bass moves only for it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const S = window.SOUND;
+  const snd = window.__sound;
+  assert.equal(S.loop.length, 7, 'the loop is not seven chords');
+  // odd length is the point — it never lands where a four-bar instinct expects
+  assert.equal(S.loop.length % 2, 1, 'an even loop lands on the beat it is avoiding');
+  assert.equal(S.loop.filter(c => c.name === 'Bb').length, 1, 'the pull is not once per loop');
+
+  // Bb is the only chord off the G pedal, because Bb over G is Gm7 and has no
+  // pull at all — which would have cancelled the only chord with a job
+  const G = S.loop.find(c => c.name === 'Eb').bass;
+  S.loop.forEach(c => {
+    if (c.name === 'Bb') assert.notEqual(c.bass, G, 'the Bb sits on the pedal and loses its pull');
+    else assert.equal(c.bass, G, `${c.name} left the pedal`);
+  });
+
+  // F belongs to the Bb alone: the one moment of pull is the one new colour
+  const pcs = (c) => c.up.concat([c.bass]).map(m => ((m % 12) + 12) % 12);
+  const F = 5;
+  S.loop.forEach(c => {
+    assert.equal(pcs(c).includes(F), c.name === 'Bb', `F in the wrong chord: ${c.name}`);
+  });
+  // and it repeats forever without drifting off its own list
+  assert.equal(snd.stepAt(0).name, snd.stepAt(7).name, 'the loop does not loop');
+  assert.equal(snd.stepAt(-1).name, snd.stepAt(6).name, 'stepping back falls off the loop');
+});
+
+test('sound: the crossfade holds its level through the change', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const snd = window.__sound;
+  const S = window.SOUND;
+  assert.ok(S.fadeMs < S.chordMs, 'the fade is longer than the chord and will smear it');
+  // equal power: the two halves square to one at every point of the overlap,
+  // where a straight line would sag in the middle and wobble once a chord
+  const up = snd.fadeCurve(64, true), down = snd.fadeCurve(64, false);
+  for (let i = 0; i < 64; i++) {
+    const p = up[i] * up[i] + down[i] * down[i];
+    assert.ok(Math.abs(p - 1) < 0.02, `power dips to ${p.toFixed(3)} part-way through the change`);
+  }
+});
+
+test('sound: it colours and cannot inform — bounded, and slow by construction', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const snd = window.__sound;
+  const S = window.SOUND;
+  const quiet = snd.moodFor(0, 0);
+  const watched = snd.moodFor(0, S.warmthFull);
+  assert.ok(watched.cutoff < quiet.cutoff, 'a watched district does not darken the room');
+  assert.ok(watched.detune > quiet.detune, 'a watched district does not unsettle the room');
+  // ...and no reading, however extreme, pushes past the stated ends: the pad
+  // has a floor and a ceiling, so it can never spike into being an alarm
+  const absurd = snd.moodFor(9999, 9999);
+  assert.equal(absurd.cutoff, watched.cutoff, 'suspicion past the cap keeps darkening');
+  assert.ok(absurd.sub <= S.subBase + S.subPerSize + 1e-9, 'the low end has no ceiling');
+  // the size of you is the other input, and only the other input
+  assert.ok(snd.moodFor(S.sizeFull, 0).sub > quiet.sub, 'holding the city weighs nothing');
+  // every change glides over seconds — an event cannot be heard as an event
+  assert.ok(S.glideS >= 5, 'the colouring arrives fast enough to read as a cue');
+});
+
+test('sound: silent until asked, and never the only place a fact lives', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const snd = window.__sound;
+  // nothing starts on its own — no context, no noise, whatever the harness is
+  assert.equal(snd.isOn(), false, 'the game made noise without being asked');
+  // and with no audio device at all the whole thing is inert rather than broken
+  assert.equal(snd.available, false, 'the test harness grew an audio device');
+  assert.equal(snd.start(), false, 'it claims to have started with nothing to start');
+  assert.doesNotThrow(() => { snd.setMood(10, 20); snd.stop(); },
+    'the silent path throws');
+});
+
 // --- the network, seen -------------------------------------------------------
 // Held links were always drawn; what was missing was a link *arriving* and
 // anything discrete travelling one. Both are presentation only.
