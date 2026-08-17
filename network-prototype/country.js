@@ -204,8 +204,8 @@ window.LADDER = {
     },
     3: {
       name: 'Public',
-      tell: 'lying low no longer sheds heat — they know to look at exactly the places that go quiet',
-      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones being used.',
+      tell: 'you can no longer hide a building from the response — they know to look at exactly the places that go quiet, and everything you were hiding comes back onto their map',
+      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones going quiet.',
     },
     4: {
       name: 'Enforcement',
@@ -238,29 +238,48 @@ window.LADDER = {
 // against 6.9 slots, and `assetRoom() === 0` essentially never happened. Two
 // different kinds per region makes claiming a choice, and a choice is what
 // makes the slot worth having.
+// `runs` is a span along the band's own axis, as a fraction of the map. Without
+// it a band goes edge to edge, which is a river or a railway and nothing else.
+// With it the same primitive is a *patch* — a lake, a wood, a green belt that
+// stops — which blocks what is under it and is gone round rather than crossed.
+// A patch usually has no crossings at all: you do not bridge a lake, you walk
+// round it, and the routing round it is the interesting part.
 window.TERRAIN = {
   home: {
     label: 'parkland',
-    bands: [{ kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 }],
-    landmarks: ['depot', 'substation'],
+    bands: [
+      { kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 },
+      // the boating lake in the middle of it, which nothing wires across
+      { kind: 'water', axis: 'h', at: 0.62, thickness: 84, crossings: 0, runs: [0.18, 0.44] },
+    ],
+    landmarks: ['depot', 'substation', 'market'],
   },
   estuary: {
     label: 'the water',
-    bands: [{ kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 }],
-    landmarks: ['docks', 'station'],
+    bands: [
+      { kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 },
+      { kind: 'water', axis: 'v', at: 0.78, thickness: 96, crossings: 0, runs: [0.55, 0.92] },
+    ],
+    landmarks: ['docks', 'station', 'works'],
   },
   midlands: {
     label: 'the line',
-    bands: [{ kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 }],
-    landmarks: ['station', 'depot'],
+    bands: [
+      { kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 },
+      // the green belt: a working landscape rather than a hole, with a couple
+      // of lanes through it
+      { kind: 'green', axis: 'h', at: 0.72, thickness: 76, crossings: 2 },
+    ],
+    landmarks: ['station', 'depot', 'market'],
   },
   capital: {
     label: 'the river and the line',
     bands: [
       { kind: 'water', axis: 'h', at: 0.4, thickness: 52, crossings: 2 },
       { kind: 'rail', axis: 'v', at: 0.62, thickness: 28, crossings: 2 },
+      { kind: 'green', axis: 'v', at: 0.2, thickness: 70, crossings: 0, runs: [0.1, 0.46] },
     ],
-    landmarks: ['exchange', 'station'],
+    landmarks: ['exchange', 'station', 'stadium'],
   },
   north: {
     label: 'the moor',
@@ -269,8 +288,9 @@ window.TERRAIN = {
     bands: [
       { kind: 'moor', axis: 'h', at: 0.34, thickness: 62, crossings: 1 },
       { kind: 'moor', axis: 'h', at: 0.74, thickness: 54, crossings: 1 },
+      { kind: 'water', axis: 'v', at: 0.32, thickness: 92, crossings: 0, runs: [0.4, 0.68] },
     ],
-    landmarks: ['substation', 'depot'],
+    landmarks: ['substation', 'depot', 'works'],
   },
 };
 
@@ -280,6 +300,7 @@ window.BAND_KINDS = {
   rail:  { label: 'the line', crossing: 'level crossing',  blocks: true },
   moor:  { label: 'open moor', crossing: 'the road',       blocks: true },
   park:  { label: 'the park', crossing: 'a path',          blocks: true },
+  green: { label: 'the green belt', crossing: 'a lane',    blocks: true },
 };
 
 // The mirror's numbers. It is the rival one scale up: it takes ground you have
@@ -579,12 +600,11 @@ window.HARDWARE = [
   //
   // Gated lower than the other families because grid buildings are rarer: a
   // feeder pillar or two is a normal opening, six of them is not.
-  {
-    id: 'line_survey', family: 'grid', tier: 1, heldAt: 1, cost: 20, heat: 0,
-    label: 'line.survey', effect: {},
-    mechanic: true, // scan from a building you choose, rather than anywhere on the frontier
-    blurb: 'Somebody walked the lines and wrote down what they went past. You can decide where to look instead of taking what turns up.',
-  },
+  // line.survey retired: scanning from a building you choose became the base
+  // verb when the sweep went aimed-and-deterministic — route control cannot
+  // be a 20-fund unlock when choosing a route is the game's missing
+  // decision. A hardware slot that sells a core verb back to the player is
+  // the worst kind of upgrade.
   {
     id: 'pontoon_kit', family: 'grid', tier: 2, heldAt: 2, cost: 44, heat: 2,
     label: 'pontoon.kit', effect: {},
@@ -628,14 +648,14 @@ window.HUNT = {
   name: 'the response',
   // it does not arrive before you have anything to lose
   minHeld: 8,
-  // turns between moves. It slows down as your cover rises: cover is what
-  // makes you hard to follow, and until now its only job in the whole engine
-  // was gating one door type.
+  // Turns between moves, and covert ops is the only input. Heat used to
+  // override this and pin them to a fixed fast tick whenever you were over the
+  // line, which meant the cadence was usually decided by a meter the city
+  // scale no longer even shows. One input, one lever.
   everyBase: 6,
   perCover: 0.22,          // turns added per point of covert.ops
   everyMax: 14,
-  // and speeds up while you are over the line
-  hotEvery: 3,
+
   // A strike used to drop heat to a quarter of the threshold — it was the only
   // thing in the game that ever brought the meter down hard, and replacing it
   // left every profile sitting permanently over the line at a mean of 34 to

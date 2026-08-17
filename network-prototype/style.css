@@ -158,6 +158,18 @@ body {
 }
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 12.5px; }
+/* a number that moved says so. Same grammar as the turn tick — a short
+   swell back to rest, on the figure itself rather than the whole chip, so
+   the eye is sent to the digit that changed. */
+.res b.bumped, #held-count.bumped { animation: statBump .5s ease-out; }
+@keyframes statBump {
+  0%   { transform: scale(1.28); filter: brightness(1.5); }
+  100% { transform: scale(1);    filter: brightness(1); }
+}
+.res b, #held-count { display: inline-block; }
+@media (prefers-reduced-motion: reduce) {
+  .res b.bumped, #held-count.bumped { animation: none; }
+}
 .res.compute b { color: var(--compute); }
 .res.funds b { color: var(--funds); }
 .res.tflops b { color: var(--tflops); }
@@ -231,6 +243,28 @@ body {
 .float-chip.tflops { color: var(--tflops); border-color: color-mix(in srgb, var(--tflops) 55%, transparent); }
 .float-chip.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 55%, transparent); }
 .float-chip.held { color: var(--ink); }
+/* A gain with somewhere to be goes there: a small lift, then a travel to the
+   chip it feeds, shrinking as it lands. The group's own floatUp drifts the
+   whole stack upward, which would compound with the flight and land it short
+   — so a group carrying a flight holds still and lets its children move. */
+.float-group.has-flight { animation: floatHold 1.2s ease-out forwards; }
+@keyframes floatHold {
+  0%   { opacity: 0; transform: translateY(8px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.float-chip.flying {
+  animation: floatFly 420ms cubic-bezier(.36, 0, .2, 1) forwards;
+}
+@keyframes floatFly {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+  20%  { opacity: 1; transform: translate(0, -3px) scale(1.05); }
+  100% { opacity: 0; transform: translate(var(--fx, 0), var(--fy, 0)) scale(.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-chip.flying { animation: none; opacity: 1; }
+}
 @keyframes floatUp {
   0% { opacity: 0; transform: translateY(8px) scale(.94); }
   15% { opacity: 1; transform: translateY(0) scale(1); }
@@ -285,6 +319,14 @@ body {
   border-radius: 12px;
   padding: 12px 14px;
 }
+/* a new subject settles in rather than snapping — short and low-travel, because
+   this fires on every building you tap and anything longer becomes a wait */
+.sel.settle { animation: selSettle 160ms ease-out; }
+@keyframes selSettle {
+  0%   { opacity: .2; transform: translateY(4px); }
+  100% { opacity: 1;  transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .sel.settle { animation: none; } }
 .sel-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .sel-name { font-weight: 600; font-size: 15px; }
 .sel-desc { margin: 0 0 10px; font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; }
@@ -754,7 +796,9 @@ footer .build { opacity: .55; font-size: 10px; }
    kinds — but nothing on the map said so, so the city read as one place that
    got harder for no visible reason. The tint is deliberately slight: this has
    to be legible under everything else drawn on top of it, not four stripes. */
-.district-seam { stroke-width: 1.6; opacity: .8; vector-effect: non-scaling-stroke; }
+/* softer than it was: the ragged wobble is what marks the border now, and a
+   hard line over a ragged edge reads as a mistake in both */
+.district-seam { stroke-width: 1.2; opacity: .45; vector-effect: non-scaling-stroke; }
 .district-tag {
   fill: var(--muted); opacity: .5; font-size: 9px; letter-spacing: .24em;
   text-transform: uppercase; font-family: ui-monospace, Menlo, monospace;
@@ -763,9 +807,125 @@ footer .build { opacity: .55; font-size: 10px; }
 /* --- streets ------------------------------------------------------------
    A grid of identical roads reads as graph paper. Not every street matters
    equally in a real place, so not every street is drawn the same here. */
-.street { stroke: #1b2320; stroke-width: 22; stroke-linecap: square; }
-.street.main { stroke: #202a26; stroke-width: 30; }
+/* No width here. The plan gives every road its own — 49 to 99 units once block
+   sizes started varying — and a stroke-width in the stylesheet *overrides* the
+   presentation attribute, so every road was painted 22 wide inside a gap of up
+   to 99. That left a fat unpainted margin between the tarmac and every
+   building, which is why the frontage pass looked like it had not happened: the
+   buildings were on their plot boundary and the road was nowhere near it. */
+/* side streets are humbler than they were: the hierarchy the plan encodes
+   should be visible without reading widths against each other */
+.street { stroke: #182320; stroke-linecap: square; }
+.street.main { stroke: #222c28; }
+/* the kerb line down each side of an arterial — a surface with an edge,
+   not a thick stroke. Never scaled: a kerb is a kerb at every zoom. */
+.kerb { stroke: #2a3833; stroke-width: .8; opacity: .5; vector-effect: non-scaling-stroke; }
 .street-line { stroke: #2b3a34; stroke-width: 1; stroke-dasharray: 8 12; opacity: .55; }
+/* Something is on this machine. The funds colour, softly pulsing, no stroke —
+   it must invite a tap without ever competing with the states that matter
+   (held, hunted, next-up). Dies with ownership. */
+/* the pulse breathes size as well as light — a dot that only dims is
+   invisible in a busy frame, a dot that swells is not */
+.bldg .glint { fill: var(--funds); opacity: .95; transform-box: fill-box;
+               transform-origin: center; animation: glintPulse 2.2s ease-in-out infinite; }
+@keyframes glintPulse {
+  0%, 100% { opacity: .95; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(.7); }
+}
+@media (prefers-reduced-motion: reduce) { .bldg .glint { animation: none; } }
+/* the contract line is the thing to catch while flipping through buildings:
+   a gold bar down the side, read before it is read */
+.carry-line { border-left: 2px solid var(--funds); padding-left: 8px;
+              color: color-mix(in srgb, var(--funds) 45%, var(--ink)); }
+.carry-line b { color: var(--funds); }
+
+/* --- props ---------------------------------------------------------------
+   Everything standing on the map that is not a door. Two rules hold the whole
+   thing together and they are enforced here rather than by care:
+
+     * no stroke, ever. An outline on this map means something you can take,
+       and a prop that borrows one starts competing with the buildings for the
+       player's attention. Every prop below is fill-only.
+     * no pointer events, ever. The group takes none, so a tap can never land
+       on scenery — not on the shape and not on the nearest-target fallback.
+
+   They also sit below the dimmest undiscovered building in contrast, which is
+   what stops a city full of trees from burying the four buildings you can
+   actually reach this turn. */
+.props { pointer-events: none; }
+.props * { stroke: none; }
+/* A canopy is a mass with light falling on it, so it carries three tones
+   rather than one flat fill — this and the wobbled hull are what stop a tree
+   reading as a green dot. */
+.pr-leaf   { fill: #16301e; opacity: .92; }
+.pr-leaf.hi{ fill: #21492c; opacity: .85; }
+.pr-leaf.lo{ fill: #102315; opacity: .9; }
+.pr-trunk  { fill: #2b2119; opacity: .95; }
+/* everything standing on the ground throws one, in the same light direction
+   the buildings use — most of what stops scenery looking stuck on */
+.pr-shade  { fill: #050706; opacity: .3; }
+.pr-bank   { fill: #1f2a22; opacity: .9; }
+/* Tufts and ripples are drawn rather than filled, and `.props *` blanks every
+   stroke in here — so they are scoped past it deliberately. Third time this
+   pattern has bitten (see .street, .fc-ghost); there is a test for it. */
+.props .pr-tuft   { fill: none; stroke: #24361f; stroke-width: 1; opacity: .85; }
+.props .pr-ripple { fill: none; stroke: #26525f; stroke-width: .9; opacity: .6; }
+.pr-scrub  { fill: #1d2a1c; opacity: .7; }
+.pr-wood   { fill: #2a221a; opacity: .85; }
+.pr-metal  { fill: #232d2f; opacity: .85; }
+.pr-metal.hi { fill: #2b383a; opacity: .8; }
+.pr-stone  { fill: #262a2c; opacity: .85; }
+.pr-canopy { fill: #2c2320; opacity: .9; }
+.pr-paper  { fill: #33342c; opacity: .8; }
+.pr-lit    { fill: #4a4326; opacity: .85; }
+.pr-water  { fill: #12262e; opacity: .9; }
+/* the far bank catching light, not a lens in the middle of the water */
+.pr-water.hi { fill: #17313c; opacity: .55; }
+.pr-sand   { fill: #2a2419; opacity: .7; }
+.pr-tarmac { fill: #1b1f1e; opacity: .9; }
+.pr-car    { fill: #262f2c; opacity: .85; }
+.pr-crate  { fill: #262521; opacity: .9; }
+.pr-crate.c1 { fill: #2b2320; }
+.pr-crate.c2 { fill: #21282a; }
+.pr-lattice{ fill: #232a2c; opacity: .55; }
+.pr-spoil  { fill: #23201a; opacity: .8; }
+
+/* The district is talking. The warmth is the ground rect's own fill, mixed
+   inline in app.js — no fill rule here, deliberately: a class fill would
+   override the inline colour the way .street's stroke-width once overrode
+   the painted road widths. .d-warm is a marker, not a style. */
+.susp-line { color: color-mix(in srgb, var(--heat) 70%, var(--ink)); }
+
+/* The driveway to a back plot. Wide, soft and low-contrast: it is a surface,
+   not a line, and it must never be mistaken for a wire between two buildings —
+   which is the one other thing on this map drawn as a stroke between points. */
+/* The three landmarks added with the terrain pass. Same rule as every other
+   silhouette: it is a fill inside the building's own body, so the outline that
+   says "this is a door" is still the body's. */
+.vault      { fill: #1c2521; }
+.awning     { fill: #2c2320; }
+.stand      { fill: #1a221f; }
+.pitch      { fill: #16301e; }
+.pitch-line { stroke: #24382b; stroke-width: 1; }
+.sawtooth   { fill: #1d2622; }
+.stack      { fill: #232a27; }
+.tanks      { fill: #202826; }
+
+.plot-paths { pointer-events: none; }
+.plot-path {
+  stroke: #1a211d; stroke-width: 7; stroke-linecap: round; fill: none; opacity: .9;
+}
+
+/* A block with nothing built on it. The strongest mark props make, because it
+   is the only one with a shape of its own — and the reason the plan stops
+   reading as wall-to-wall blocks. */
+.open-ground { pointer-events: none; }
+.open-ground.park   { fill: #0f1a12; }
+.open-ground.square { fill: #14171a; }
+.open-ground.plaza  { fill: #141621; }
+.open-ground.yard   { fill: #16130e; }
+.open-path { fill: none; stroke: #1e2622; stroke-width: 5; opacity: .8; pointer-events: none; }
+
 .junction { fill: #202a26; opacity: .7; }
 .zebra { fill: #33423b; opacity: .55; }
 .tree { fill: #17301f; opacity: .85; }
@@ -886,8 +1046,14 @@ footer .build { opacity: .55; font-size: 10px; }
 .band-water { fill: #0e1b22; }
 .band-rail  { fill: #171c1a; }
 .band-moor  { fill: #121a14; }
+.band-green { fill: #101b12; }
+.band-water.patch { fill: #0e1f27; }
 .band-park  { fill: #0f1712; }
-.ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10; }
+.ripple  { stroke: #16303c; stroke-width: 1.4; stroke-dasharray: 14 10;
+           animation: rippleDrift 16s linear infinite; }
+@keyframes rippleDrift { to { stroke-dashoffset: -48; } }
+/* the waterline: an inset edge is what turns a flat fill into a surface */
+.water-edge { fill: none; stroke: #1d3d4c; stroke-width: 1; opacity: .75; }
 .sleeper { stroke: #202826; stroke-width: 2; }
 .scrub   { fill: #1b2a1e; }
 /* --- the breach, seen ---------------------------------------------------
@@ -1086,17 +1252,61 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.breached.took.buy    { animation: tookSoft 500ms ease-out both var(--breach-land); }
 .bldg.breached.bounced     { animation: heldOut 420ms ease-out both var(--breach-land); }
 
+/* both takes open with a held breath — ~70ms where nothing moves after the
+   route lands. The pause is the cheapest trick in the juice literature and
+   the most effective: the pop reads twice as hard for arriving late. */
 @keyframes tookHard {
-  0%   { transform: scale(1); }
-  18%  { transform: scale(1.14); }
-  38%  { transform: scale(.97) translateX(2px); }
-  58%  { transform: translateX(-2px); }
+  0%, 16% { transform: scale(1); }
+  32%  { transform: scale(1.14); }
+  50%  { transform: scale(.97) translateX(2px); }
+  66%  { transform: translateX(-2px); }
   100% { transform: scale(1) translateX(0); }
 }
 @keyframes tookSoft {
-  0%   { opacity: .45; transform: scale(.96); }
-  60%  { opacity: 1;   transform: scale(1.04); }
+  0%, 12% { opacity: .45; transform: scale(.96); }
+  62%  { opacity: 1;   transform: scale(1.05); }
   100% { opacity: 1;   transform: scale(1); }
+}
+
+/* the windows come on in sequence after the take lands — a building waking
+   up floor by floor, not a texture swap. --wi is the window's own index,
+   --breach-land the moment the take landed (set on the group). */
+.bldg.breached.took .win.lit {
+  animation: winWake 200ms ease-out both;
+  animation-delay: calc(var(--breach-land, 0ms) + 110ms + var(--wi, 0) * 45ms);
+}
+@keyframes winWake { from { opacity: 0; } to { opacity: 1; } }
+
+/* ambient: a held building flicks the odd window off and on — somebody is
+   in there. Long period, steps(1) so it costs two paints a cycle, staggered
+   by the window's own index so the city never strobes in unison. */
+.bldg.all-held:not(.breached) .win.lit {
+  animation: winFlick 11s steps(1) infinite;
+  animation-delay: calc(var(--wi, 0) * -1.9s);
+}
+@keyframes winFlick {
+  0%, 93% { opacity: 1; }
+  93.01%, 95.5% { opacity: .3; }
+  95.51%, 100% { opacity: 1; }
+}
+
+/* the ground notices a take: one soft ring rolling out and gone */
+.breach-ground {
+  fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: 0;
+  transform-box: fill-box; transform-origin: center;
+  animation: groundPulse 750ms ease-out both;
+}
+@keyframes groundPulse {
+  0%   { opacity: .3; transform: scale(.35); }
+  100% { opacity: 0;  transform: scale(2.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bldg.breached.took .win.lit { animation: none; }
+  .bldg.all-held:not(.breached) .win.lit { animation: none; }
+  .breach-ground { animation: none; }
+  .ripple { animation: none; }
+  .bldg.breached.bounced .body { animation: none; }
 }
 /* it holds: a shudder and nothing else */
 @keyframes heldOut {
@@ -1104,6 +1314,17 @@ footer .build { opacity: .55; font-size: 10px; }
   20%  { transform: translateX(-3px); }
   45%  { transform: translateX(3px); }
   70%  { transform: translateX(-1.5px); }
+}
+/* ...and the door visibly hardens as it holds: the outline thickens in the
+   race's red and recedes to rest. Bad news is withdrawal, not alarm — the
+   game's grammar — so it drains rather than flashes. */
+.bldg.breached.bounced .body {
+  animation: hardenUp 1100ms ease-out var(--breach-land, 0ms);
+}
+@keyframes hardenUp {
+  0%   { stroke: var(--heat); stroke-width: 3; }
+  55%  { stroke: var(--heat); stroke-width: 2; }
+  100% { }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1214,6 +1435,41 @@ footer .build { opacity: .55; font-size: 10px; }
   animation: wireFlow 1.9s linear infinite;
 }
 @keyframes wireFlow { to { stroke-dashoffset: -12; } }
+/* A link arriving. It runs from the ground you held toward the ground you
+   just took — the renderer emits the endpoints in that order — and hands
+   over to the ordinary drifting wire when it lands. Scoped past `.wire.live`
+   so the flow dasharray does not win over the draw's own. */
+.wire.live.drawing {
+  stroke: color-mix(in srgb, var(--cover) 92%, white);
+  stroke-width: 2.4;
+  stroke-dasharray: var(--len) var(--len);
+  animation: wireDraw 620ms cubic-bezier(.3, 0, .2, 1) both;
+}
+@keyframes wireDraw {
+  from { stroke-dashoffset: var(--len); }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Something on the wires you own. Ambient, rationed in the renderer, and the
+   first thing to go when motion is unwelcome — a still packet would be a
+   lie about a thing whose whole meaning is that it moves. */
+.packets { pointer-events: none; }
+.packet {
+  fill: color-mix(in srgb, var(--cover) 80%, white);
+  animation-name: packetRun;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes packetRun {
+  0%   { transform: translate(calc(var(--ax) * 1px), calc(var(--ay) * 1px)); opacity: 0; }
+  12%  { opacity: .85; }
+  88%  { opacity: .85; }
+  100% { transform: translate(calc(var(--bx) * 1px), calc(var(--by) * 1px)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .packets { display: none; }
+  .wire.live.drawing { animation: none; stroke-dasharray: 7 5; }
+}
 
 /* a soft halo in the role's colour, so your territory reads at a glance */
 .bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
@@ -1826,6 +2082,12 @@ footer .build { opacity: .55; font-size: 10px; }
 .race i { display: block; height: 100%; }
 .race-done { background: var(--compute); }
 .race-seen { background: var(--heat); margin-left: auto; }
+/* a photo-finish quickens: when the projected end is within one turn's
+   noticing of the goal, both bars pulse together — the tension is felt
+   before it is computed */
+.race.close i { animation: racePulse 650ms ease-in-out infinite; }
+@keyframes racePulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .race.close i { animation: none; } }
 /* The forecast answers a different question — "how close do they get" — so it
    is one meter filling from the left toward the point where they have you.
    Short is safe, full is caught, and it is dashed because it is a projection
@@ -1835,12 +2097,56 @@ footer .build { opacity: .55; font-size: 10px; }
   border: 1px dashed var(--line); border-radius: 4px;
   overflow: hidden;
 }
+/* What a dial is actually running, and what is still on its way there. Same
+   grammar as the forecast's margin: solid happened, stripes have not yet.
+   Scoped past the bare element selector on purpose — a plain `.ab-ramp`
+   would lose to `.alloc-bar i` the way `.fc-ghost` did. */
+.alloc-bar {
+  display: flex; height: 5px; margin: 4px 0 6px;
+  border-radius: 3px; overflow: hidden; background: var(--line);
+}
+.alloc-bar i { display: block; height: 100%; }
+.alloc-bar i.ab-live { background: var(--compute); }
+.alloc-bar i.ab-ramp {
+  background: repeating-linear-gradient(115deg,
+    color-mix(in srgb, var(--compute) 55%, transparent) 0 3px,
+    color-mix(in srgb, var(--compute) 12%, transparent) 3px 6px);
+}
+/* handing compute back drains rather than fills, so it is not the dial's
+   own colour arriving */
+.alloc-bar.falling i.ab-ramp {
+  background: repeating-linear-gradient(115deg,
+    color-mix(in srgb, var(--ink-dim) 40%, transparent) 0 3px,
+    transparent 3px 6px);
+}
+
+.trace-fc { display: flex; }
 .trace-fc i {
   display: block; height: 100%;
   background: color-mix(in srgb, var(--cover) 70%, transparent);
 }
 .trace-fc.caught { border-color: color-mix(in srgb, var(--heat) 60%, var(--line)); }
 .trace-fc.caught i { background: var(--heat); }
+/* one more turn of their noticing, ghosted past the fill — the margin, made
+   spatial. Striped rather than solid: it has not happened, and the grammar
+   for a projection in this game is dashes. */
+/* scoped past `.trace-fc i`, which sets a solid background and would
+   otherwise win on specificity and eat the stripes — the same trap the
+   `.street` stroke-width once fell into */
+.trace-fc i.fc-ghost {
+  background: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--cover) 55%, transparent) 0 3px,
+    color-mix(in srgb, var(--cover) 12%, transparent) 3px 6px);
+}
+/* ...and when that one turn would be enough to lose the door, the ghost is
+   the warning: it wears the race's red instead of grey */
+.trace-fc.tight i.fc-ghost {
+  background: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--heat) 55%, transparent) 0 3px,
+    transparent 3px 6px);
+}
 
 /* what the public thinks: a word rather than a number, because "distrusted" is
    the thing the player acts on and the figure behind it never is. Read outward

@@ -8,6 +8,11 @@ const path = require('node:path');
 // on the page" cannot be asked of it. Read the page.
 const INDEX_HTML = fs.readFileSync(
   path.join(__dirname, '..', '..', 'network-prototype', 'index.html'), 'utf8');
+// Same reason: some rules — a prop taking no pointer events, a prop never
+// getting a stroke — are only true because the stylesheet says so, and the
+// stub has no cascade to ask.
+const STYLE_CSS = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'network-prototype', 'style.css'), 'utf8');
 
 // Spend the turn's budget on sweeps, and return how many actually happened.
 // An action that cannot proceed (nothing left to scan, no actions) silently
@@ -126,8 +131,12 @@ test('city: masts and cabinets are cheap stealth kit standing on the street', ()
   eyes.forEach(b => {
     const h = d.hostsIn(b)[0];
     assert.equal(h.role, 'stealth', `${b.kind} is stealth kit`);
-    // small enough to read as street furniture rather than a building
-    assert.ok(b.w <= 26 && b.h <= 28, `${b.kind} is street-sized`);
+    // narrow enough to read as street furniture rather than a building — a
+    // mast is a pole and got taller when the size ladder was spread out, so
+    // the claim is about its footprint on the ground, not its height
+    assert.ok(b.w <= 26, `${b.kind} is street-sized`);
+    assert.ok(b.w * b.h <= 600, `${b.kind} takes a building's worth of ground`);
+    assert.equal(b.verge, true, `${b.kind} is on a plot instead of the pavement`);
   });
 });
 
@@ -210,7 +219,7 @@ test('frontier: you can reach the next building along, and nothing further', () 
   }
 });
 
-test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
+test('heat: sprawl raises it, routers launder it', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -224,10 +233,6 @@ test('heat: sprawl raises it, routers launder it, lying low cuts it', () => {
   const routers = s.hosts.filter(h => h.type === 'iot').slice(0, 3);
   routers.forEach(h => { h.owned = true; });
   assert.ok(d.heatPerTurn() < noisy, 'routers cut the per-turn heat');
-
-  s.heat = 20;
-  d.actLieLow();
-  assert.ok(s.heat < 20, 'lying low reduces heat');
 });
 
 test('breach: a lone impossibly hard door with nothing left to sweep is not a dead end', () => {
@@ -276,24 +281,54 @@ test('breach: a frontier that is already open is left alone', () => {
 // relatively *cheaper* the deeper the campaign went, and the other two got
 // relatively pricier. Three routes meant to stay comparable should not drift
 // apart like that.
-test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
-  // regression guard for a real exploit — discovery used to spread from any
-  // *discovered* host, so a player could reveal all 30 hosts from the start
-  // node without ever taking anything.
-  const { window } = loadNetwork();
+test('sweeping scouts past territory now, and the turn budget is the leash', () => {
+  // The old rule here — discovery follows territory, not sight — died in
+  // playtest: aiming was the fun, and needing to *take* a door before you
+  // could look again kept stalling the search loop into waiting. The
+  // exploit the old rule guarded (revealing the map for free) stays
+  // guarded by price instead: every sweep costs an action and warms the
+  // street it touches, so sight is bounded by turns spent looking.
+  const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
-  const total = d.state.hosts.length;
-
-  for (let i = 0; i < 60; i++) {
-    d.state.res.funds = 999;          // money must not be the thing limiting this
+  const s = d.state;
+  const startTotal = s.buildings.length;
+  let sweeps = 0;
+  for (let guard = 0; guard < 300; guard++) {
+    s.card = null;                     // a card mid-loop blocks every action
     if (d.sweepBlocked() === 'nothing') break;
-    if (d.state.ap <= 0) { d.actEndTurn(); continue; }  // budget, not sight, is the other limiter
+    if (s.ap <= 0) { d.actEndTurn(); continue; }
+    const before = s.buildings.filter(b => b.discovered).length;
     d.actScan();
+    if (s.buildings.filter(b => b.discovered).length > before) sweeps++;
   }
-  const discovered = d.state.hosts.filter(h => h.discovered).length;
+  const discovered = s.buildings.filter(b => b.discovered).length;
   assert.equal(d.owned().length, 1, 'still holding only the origin');
-  assert.ok(discovered < total / 2, `revealed ${discovered}/${total} without taking anything`);
-  assert.equal(d.sweepBlocked(), 'nothing', 'sweep reports itself exhausted rather than idling');
+  // sight now genuinely outruns territory — the opposite of the old assert
+  assert.ok(discovered > startTotal / 2,
+    `territory still bounds sight: ${discovered}/${startTotal} from a scouting chain`);
+  // ...but never outruns what was paid for it
+  assert.ok(discovered <= sweeps * d.sweepReach() + 4,
+    `${discovered} revealed on ${sweeps} sweeps — sight the budget never bought`);
+  assert.ok(sweeps >= 8, 'the map came cheap');
+});
+
+test('scan: a discovered building is a vantage — owning it is not required', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // wire a two-hop chain by hand: held -> known -> unknown
+  const seat = s.hosts.find(h => h.owned);
+  const bSeat = seat.buildingId;
+  const others = s.buildings.filter(b => b.id !== bSeat);
+  const mid2 = others[0], far = others[1];
+  s.adjacency[bSeat] = [mid2.id];
+  s.adjacency[mid2.id] = [bSeat, far.id];
+  s.adjacency[far.id] = [mid2.id];
+  s.buildings.forEach(b => { b.discovered = (b.id === bSeat); });
+  mid2.discovered = true;                  // seen once, never taken
+  s.ap = 5;
+  d.actScan(mid2.id);
+  assert.equal(far.discovered, true, 'a known building could not be looked from');
 });
 
 test('scanning is free, unlimited, and costs heat instead', () => {
@@ -525,7 +560,7 @@ test('every stat and action shown to the player has an explanation', () => {
   ['funds', 'tflops', 'covert', 'power', 'heat'].forEach(k => {
     assert.ok(window.STAT_INFO[k] && window.STAT_INFO[k].length > 20, `${k} is explained`);
   });
-  ['sweep', 'lielow'].forEach(k => {
+  ['sweep'].forEach(k => {
     assert.ok(window.ACTION_INFO[k] && window.ACTION_INFO[k].length > 20, `${k} is explained`);
   });
 });
@@ -596,18 +631,6 @@ test('production is once per turn, not once per action', () => {
   assert.ok(s.res.funds > start, 'the turn boundary is what pays');
 });
 
-test('lying low costs the entire turn, not one action of it', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
-  s.heat = 20;
-  const turn = s.turn;
-
-  d.actLieLow();
-  assert.equal(s.turn, turn + 1, 'going dark ends the turn there and then');
-  assert.ok(s.heat < 20, 'and it did cut heat');
-});
 
 test('persistence: the budget and the tooling survive a round trip', () => {
   const { window } = loadNetwork();
@@ -620,23 +643,6 @@ test('persistence: the budget and the tooling survive a round trip', () => {
   assert.equal(round.upgrades, 3);
 });
 
-test('lying low earns nothing — hiding costs you the turn', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  // a modest holding: one building is one host now, so forty of them is an
-  // empire whose sprawl outruns the lie-low lever entirely
-  s.hosts.slice(0, 12).forEach(h => { h.owned = true; });
-  // sprawl sets a floor under heat, so start clearly above it or there is
-  // nothing for lying low to shed
-  const start = d.heatFloor() + 20;
-  s.heat = start;
-  const before = s.res.funds;
-
-  for (let i = 0; i < 10; i++) { s.card = null; d.actLieLow(); }
-  assert.equal(s.res.funds, before, 'ten turns dark produced nothing');
-  assert.ok(s.heat < start, 'but it did cut heat');
-});
 
 test('heat has a floor that scales with holdings, so a sprawl cannot hide', () => {
   const { window } = loadNetwork();
@@ -658,54 +664,7 @@ test('heat has a floor that scales with holdings, so a sprawl cannot hide', () =
   assert.ok(d.heatFloor() < loudFloor, 'and a dark relay lowers it further');
 });
 
-test('lying low cannot drive heat below the floor', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.filter(h => h.role !== 'stealth').slice(0, 12).forEach(h => { h.owned = true; });
-  const floor = d.heatFloor();
-  assert.ok(floor > 0, 'test needs a real floor to be meaningful');
 
-  s.heat = floor + 20;
-  for (let i = 0; i < 40; i++) { s.card = null; d.actLieLow(); }
-  assert.ok(s.heat >= d.heatFloor() - 0.001, `heat ${s.heat} fell below the floor ${d.heatFloor()}`);
-});
-
-test('strike branches differ: ride burns a share, shed drops the loud ones, cover pays', () => {
-  const HEAT = loadNetwork().window.HEAT;
-  function primed(effect) {
-    const { window } = loadNetwork();
-    const d = window.__netDebug;
-    const s = d.state;
-    s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
-    s.res.funds = 40;
-    s.heat = HEAT.STRIKE + 2;
-    s.card = { kind: 'strike' };
-    const before = d.owned().length;
-    d.resolveStrike(effect);
-    return { before, after: d.owned().length, heat: s.heat, floor: d.heatFloor(),
-             funds: s.res.funds, strikes: s.strikes };
-  }
-
-  const ride = primed('ride');
-  assert.ok(ride.after < ride.before, 'riding it out costs you bodies');
-
-  const cover = primed('burn_cover');
-  assert.equal(cover.after, cover.before, 'paying protects the whole fleet');
-  assert.equal(cover.funds, 32, 'and costs 8 funds');
-
-  const shed = primed('shed_loud');
-  assert.ok(shed.after <= shed.before, 'shedding drops the noisy holdings');
-
-  for (const r of [ride, cover, shed]) {
-    assert.equal(r.strikes, 1);
-    // heat falls as far as the rules allow. Holding most of the city can put
-    // the floor above the strike line — permanently hunted is a real state,
-    // not a bug — so the claim is "it dropped to the floor", not "below 40".
-    const lowest = Math.max(r.floor, HEAT.STRIKE * HEAT.STRIKE_DROP);
-    assert.ok(r.heat <= lowest + 0.001, `heat ${r.heat} did not fall to ${lowest}`);
-  }
-});
 
 test('nothing is ever reclaimed by The Cut, stranded or not', () => {
   const { window } = loadNetwork();
@@ -1560,53 +1519,26 @@ test('ladder: every stage past the baseline says something different, in a fixed
   }
 });
 
-test('the adjusters: enough doors kicked in wakes them, and the loud way costs more', () => {
+test('the adjusters: getting in costs more once enforcement lands', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  const loud = window.PROGRAMS.find(p => !p.quiet);
-  const quiet = window.PROGRAMS.find(p => p.quiet);
+  const p = d.mounted();
 
   assert.equal(d.ladderStage() >= 4, false, 'nobody is counting yet');
-  const before = d.hackHeat(loud);
-  const quietBefore = d.hackHeat(quiet);
+  const before = d.hackHeat(p);
 
   wake(d, 'adjusters');
   assert.equal(d.ladderStage() >= 4, true, 'enforcement has landed');
-  assert.ok(d.hackHeat(loud) > before, 'and hammer.exe costs more heat now');
-  assert.equal(d.hackHeat(quiet), quietBefore, 'while the quiet ones are not what they count');
+  // It used to charge only the loud program. There is one program now, so a
+  // surcharge that skipped quiet runs would be a ladder rung that lands doing
+  // nothing at all.
+  assert.ok(d.hackHeat(p) > before, `getting in should cost more: ${before} -> ${d.hackHeat(p)}`);
 
   s.tags.add('unlisted');
-  assert.equal(d.hackHeat(loud), before, 'off their list, it costs what it always did');
+  assert.equal(d.hackHeat(p), before, 'off their list, it costs what it always did');
 });
 
-test('the quiet hours: going dark stops shedding heat, and the turn is still gone', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
-
-  // The world turn has its own drift, which can be negative all on its own.
-  // The claim is about the shed, so measure the same board twice and compare
-  // the difference rather than the sign.
-  const start = d.heatFloor() + 25;
-  s.heat = start;
-  s.ap = 2; s.card = null;
-  d.actLieLow();
-  const openShed = start - s.heat;
-  assert.ok(openShed > 0, 'normally lying low buys heat down');
-
-  wake(d, 'quiet_hours');
-  s.heat = start;
-  s.ap = 2; s.card = null;
-  const turnBefore = s.turn;
-  d.actLieLow();
-  const watchedShed = start - s.heat;
-
-  assert.ok(Math.abs((openShed - watchedShed) - d.lieLowShed()) < 1e-6,
-    `watched, the ${d.lieLowShed().toFixed(1)} it normally sheds is gone (shed ${openShed} vs ${watchedShed})`);
-  assert.ok(s.turn > turnBefore, 'and it still costs you the turn');
-});
 
 test('civic eyes: your own cameras stop covering you and start reporting', () => {
   const { window } = loadNetwork();
@@ -2211,25 +2143,32 @@ test('deck: working around a stage never gives the tool back', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
-  s.hosts.slice(0, 10).forEach(h => { h.owned = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, 20).forEach(h => { h.owned = true; });
+  // hiding costs covert ops, and covert ops comes off the routers — so own
+  // some, or the test is measuring whether you can afford it rather than
+  // whether the stage took it away
+  s.hosts.filter(h => h.role === 'stealth').slice(0, 10).forEach(h => { h.owned = true; });
+  hunted(d, window);
+  const mine = d.owned().find(h => !d.huntHolds(h.buildingId));
+  assert.equal(d.canHide(mine.buildingId), true, 'hiding is a thing you can do first');
+
   wake(d, 'quiet_hours');
+  assert.equal(d.ladderStage() >= 3, true, 'they are up there now');
+  assert.equal(d.canHide(mine.buildingId), false, 'and hiding is gone');
 
-  s.tags.add('rota_contact');
-  assert.equal(d.ladderStage() >= 3, true, 'they are still up there');
-
-  const start = d.heatFloor() + 25;
-  s.heat = start; s.ap = 2; s.card = null;
-  d.actLieLow();
-  const withContact = start - s.heat;
-
-  s.tags.delete('rota_contact');
-  s.heat = start; s.ap = 2; s.card = null;
-  d.actLieLow();
-  const without = start - s.heat;
-
-  assert.ok(withContact > without, 'a name on the rota buys you something');
-  assert.ok(Math.abs((withContact - without) - d.lieLowShed() * window.HEAT.ROTA_SHARE) < 1e-6,
-    'but only a share of what the tool used to do');
+  // Public's own cards are the only place this stage is discussed, and not one
+  // of them may hand hiding back — the ladder never reverses, so the offer is
+  // always what you do about the loss, never an undo.
+  const theirs = window.EVENTS.filter(e => e.id.startsWith('qh_'));
+  assert.ok(theirs.length >= 3, `Public only has ${theirs.length} cards of its own`);
+  theirs.forEach(ev => ev.choices.forEach(ch => {
+    d.state.hidden = [];
+    ch.apply(Object.assign({ tags: new Set(), res: { funds: 99 }, heat: 10 }, {}));
+    assert.equal(d.canHide(mine.buildingId), false,
+      `"${ch.text}" gave the tool back`);
+  }));
 });
 
 // --- terrain -------------------------------------------------------------
@@ -2267,13 +2206,94 @@ test('terrain: every region has its own, and no two are alike', () => {
     assert.ok(T.landmarks.length >= 1, `${R.id} has nothing worth going for`);
     T.bands.forEach(b => {
       assert.ok(window.BAND_KINDS[b.kind], `unknown band kind ${b.kind}`);
-      assert.ok(b.crossings >= 1, `${R.id}'s ${b.kind} has no way across it`);
       assert.ok(b.at > 0 && b.at < 1, `${R.id}'s ${b.kind} sits off the map`);
+      if (b.runs) {
+        // a patch — a lake, a wood — is gone round rather than crossed, so it
+        // is allowed and expected to have no way across it at all
+        assert.ok(b.runs.length === 2 && b.runs[0] >= 0 && b.runs[1] <= 1 && b.runs[0] < b.runs[1],
+          `${R.id}'s ${b.kind} runs off the map`);
+        assert.ok(b.runs[1] - b.runs[0] < 0.75,
+          `${R.id}'s ${b.kind} is a band pretending to be a patch`);
+      } else {
+        assert.ok(b.crossings >= 1, `${R.id}'s ${b.kind} has no way across it`);
+      }
     });
-    const sig = T.bands.map(b => b.kind + b.axis).sort().join('+');
+    // and every region must still have at least one thing that cuts it in two,
+    // or the crossings stop being what makes a region a place
+    assert.ok(T.bands.some(b => !b.runs), `${R.id} has patches but nothing that cuts it`);
+    const sig = T.bands.map(b => b.kind + b.axis + (b.runs ? 'p' : '')).sort().join('+');
     assert.ok(!seen[sig], `${R.id} has the same terrain as ${seen[sig]}`);
     seen[sig] = R.id;
   });
+});
+
+test('terrain: a lake is gone round, not crossed', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+
+  // A band used to run edge to edge always, which is a river or a railway and
+  // nothing else. A patch is the same primitive with a span along its own
+  // axis: it blocks what is under it, it has no crossings, and the routing
+  // round it is the point.
+  const patches = [];
+  window.REGIONS.forEach(R => {
+    const g = cityIn(d, R.id);
+    g.bands.filter(b => b.runs && b.runs.from > -1e5).forEach(band => {
+      patches.push({ R: R.id, band, g });
+    });
+  });
+  assert.ok(patches.length >= 3, `only ${patches.length} regions have a patch of anything`);
+
+  // No way across, authored or generated. The crossing pass bridges rivers and
+  // railways; a patch is a thing to go round, and anything it cuts off is
+  // picked up by the stitcher or deleted as unreachable.
+  window.REGIONS.forEach(R => {
+    (window.TERRAIN[R.id].bands || []).filter(b => b.runs).forEach(b => {
+      assert.ok(!b.crossings, `${R.id}'s ${b.kind} patch is written with a bridge over it`);
+    });
+  });
+
+  patches.forEach(({ R, band, g }) => {
+    assert.equal(band.gaps.length, 0,
+      `${R}'s ${band.kind} patch grew ${band.gaps.length} bridges`);
+
+    // it stops. A point past its end, at the same distance across, is clear.
+    const across = (band.from + band.to) / 2;
+    const past = band.runs.to + 60;
+    const inside = band.axis === 'h'
+      ? d.inBand(band, (band.runs.from + band.runs.to) / 2, across)
+      : d.inBand(band, across, (band.runs.from + band.runs.to) / 2);
+    const beyond = band.axis === 'h' ? d.inBand(band, past, across) : d.inBand(band, across, past);
+    assert.equal(inside, true, `${R}'s ${band.kind} does not block its own middle`);
+    assert.equal(beyond, false, `${R}'s ${band.kind} carries on past where it ends`);
+
+    // and a wire that passes it by has not crossed it
+    assert.equal(
+      d.segmentSpansBand([band],
+        band.axis === 'h' ? past : across - 200, band.axis === 'h' ? across - 200 : past,
+        band.axis === 'h' ? past + 40 : across + 200, band.axis === 'h' ? across + 200 : past + 40),
+      false, `${R}: going round the ${band.kind} counts as crossing it`);
+  });
+});
+
+test('terrain: the new landmarks are doors, not scenery', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  ['market', 'stadium', 'works'].forEach(kind => {
+    const K = window.BUILDING_KINDS[kind];
+    assert.ok(K, `${kind} is not a building kind`);
+    assert.ok(K.landmark, `${kind} is not marked a landmark`);
+    assert.ok(window.HOST_TYPES[K.host], `${kind} has no host behind it`);
+    assert.ok(d.KIND_DETAIL[kind], `${kind} draws as a plain box`);
+    // the whole argument against decorative stations: something that looks
+    // like a place you could get into has to be one
+    assert.equal(window.PROPS[kind], undefined, `${kind} is scenery as well as a door`);
+  });
+  // and somewhere in the country actually hands them out
+  const offered = new Set();
+  window.REGIONS.forEach(R => (window.TERRAIN[R.id].landmarks || []).forEach(k => offered.add(k)));
+  ['market', 'stadium', 'works'].forEach(k =>
+    assert.ok(offered.has(k), `${k} exists but no region ever builds one`));
 });
 
 test('terrain: nothing is built on the water, the line or the moor', () => {
@@ -2327,6 +2347,7 @@ test('terrain: the crossings are genuine chokepoints', () => {
   // Cut every link that spans terrain and the city should fall apart. If it
   // does not, the bands are decoration and the bridges mean nothing.
   let shattered = 0, tried = 0;
+  const shares = [];
   window.REGIONS.forEach(R => {
     for (let i = 0; i < 4; i++) {
       const g = cityIn(d, R.id);
@@ -2347,11 +2368,17 @@ test('terrain: the crossings are genuine chokepoints', () => {
       }));
       tried++;
       assert.ok(crossing > 0, `${R.id}: nothing crosses the terrain at all`);
-      assert.ok(crossing / total < 0.25,
-        `${R.id}: ${((crossing / total) * 100).toFixed(0)}% of links cross terrain — that is not a chokepoint`);
+      shares.push(crossing / total);
       if (componentsOf(g.buildings, kept) > 1) shattered++;
     }
   });
+  // Averaged rather than asserted per board. The share swings a fair way run to
+  // run — measured 1% to 23% across the five regions — and a single unlucky
+  // board saying 26% is not evidence the bands stopped mattering. The claim
+  // below is the one that actually means "chokepoint", and it is per board.
+  const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
+  assert.ok(mean < 0.25,
+    `${(mean * 100).toFixed(0)}% of links cross terrain on average — that is not a chokepoint`);
   assert.ok(shattered / tried > 0.8,
     `only ${shattered} of ${tried} cities fall apart without their crossings`);
 });
@@ -2539,14 +2566,18 @@ test('covert.ops: one number, and everything quiet reads it', () => {
 test('the rules that left the dials are all still reachable, from their new homes', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const moved = ['deep_root', 'swarm_front', 'fixers', 'standing_army', 'master_plan'];
+  const moved = ['deep_root', 'swarm_front', 'standing_army', 'master_plan'];
   const deck = JSON.stringify(window.EVENTS.map(e => String(e.choices.map(c => String(c.apply)))));
   moved.forEach(t => {
     assert.ok(window.TAG_INFO[t], `${t} has nothing to describe it`);
     assert.ok(deck.includes(`'${t}'`) || deck.includes(`"${t}"`),
       `${t} left the dials and no card hands it out`);
   });
-  ['line_survey', 'pontoon_kit'].forEach(id => {
+  // line.survey left the shelf the other way: aiming a sweep became the
+  // base verb, so the rule it sold is now simply the rule
+  assert.ok(!window.HARDWARE.find(x => x.id === 'line_survey'),
+    'line.survey is still selling the base verb back to the player');
+  ['pontoon_kit'].forEach(id => {
     const hw = window.HARDWARE.find(x => x.id === id);
     assert.ok(hw, `${id} is not on the shelf`);
     assert.ok(hw.mechanic, `${id} changes a rule and does not say so`);
@@ -2979,9 +3010,11 @@ test('hunt: cover is what makes it slow, which is what cover is for', () => {
   assert.ok(d.covertOps() > 1, 'they buy cover');
   assert.ok(d.huntCadence() > bare,
     `cover should slow it: ${bare} turns bare, ${d.huntCadence()} with cover`);
-  // and being over the line makes it move at its fastest
-  s.heat = d.strikeThreshold() + 1;
-  assert.equal(d.huntCadence(), window.HUNT.hotEvery, 'hot, it comes on quickly');
+  // and heat is not an input any more: the cadence is covert ops and nothing
+  // else, so running hot cannot take the lever away from you
+  const withCover = d.huntCadence();
+  s.heat = d.strikeThreshold() * window.HEAT.MAX_OVER;
+  assert.equal(d.huntCadence(), withCover, 'heat still decides how fast they move');
 });
 
 test('hunt: a city it takes enough of is gone for good', () => {
@@ -3371,10 +3404,9 @@ test('traits: a watched city notices everything faster', () => {
   c.trait = 'sprawl';
   assert.equal(d.traceRate(h), plain, 'the rule belongs to the place');
 
-  // it closes nothing: every program is still on the rig, it is just a worse
-  // city to be slow in
+  // it closes nothing: it is just a worse city to be slow in
   c.trait = 'watched';
-  window.PROGRAMS.forEach(p => assert.equal(d.mount(p.id), true, `${p.id} is still mountable`));
+  assert.ok(d.traceRate(h, d.mounted()) > 0, 'the run still runs, it is just watched');
 });
 
 test('traits: no trait can leave a city you cannot finish', () => {
@@ -4096,10 +4128,9 @@ test('breach fx: the take happens in state, whatever is drawn', () => {
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
   if (!target) return;
 
-  d.mount('brute');
   s.ap = 6;
   assert.equal(d.startHack(target.id), true);
-  d.hackStep();
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
   assert.equal(target.owned, true, 'the building is yours the moment the run lands');
   assert.equal(d.serialize().breachFx, undefined, 'the animation is never serialized');
@@ -4400,11 +4431,233 @@ test('city: districts run outward in one direction and never double back', () =>
   assert.equal(rows[0], 0, 'and you wake up in the softest of them');
 });
 
+// --- a plan rather than graph paper ---------------------------------------
+// Measured on the old generator: across 104 buildings there were *two* distinct
+// x-offsets, and the nearest-neighbour gap ran 82.0 minimum against an 82.8
+// median. Every building the same distance from its neighbour is not a city.
+// These pin the shape of the fix, and the invariants the graph cannot lose.
+
+test('city: the street plan is irregular, and it is the same plan every render', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+
+  const widths = new Set(L.blocks.map(b => b.w));
+  const heights = new Set(L.blocks.map(b => b.h));
+  assert.ok(widths.size > 1, `every block is ${[...widths][0]} wide`);
+  assert.ok(heights.size > 1, 'and every block is the same height');
+  assert.ok(new Set(L.vRoad).size > 1, 'and every road is the same width');
+
+  // the plan travels with the city rather than being rolled per render
+  assert.equal(d.cityLayout(), L, 'the plan is the city, not the frame');
+  const packed = d.packCity();
+  assert.ok(packed.layout, 'a city you walk out of keeps its streets');
+  assert.equal(packed.layout.blocks.length, L.blocks.length);
+});
+
+test('city: buildings are thrown into a block, not slotted into it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const bs = d.state.buildings;
+
+  const centres = bs.map(b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 }));
+  const nearest = centres.map(a =>
+    Math.min(...centres.filter(c => c !== a).map(c => Math.hypot(a.x - c.x, a.y - c.y))));
+  const sorted = nearest.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
+  // the old generator had min === median to within a pixel
+  assert.ok(sorted[0] < med * 0.8,
+    `spacing is uniform: min ${sorted[0].toFixed(1)} against median ${med.toFixed(1)}`);
+
+  const xs = new Set(bs.map(b => Math.round((b.x + b.w / 2) / 5)));
+  assert.ok(xs.size > bs.length / 4, `only ${xs.size} distinct positions across ${bs.length} buildings`);
+
+  // and nothing overlaps anything, however hard it was thrown
+  bs.forEach(a => bs.forEach(b => {
+    if (a === b) return;
+    const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+    assert.ok(apart, `${a.id} and ${b.id} are standing in each other`);
+  }));
+});
+
+test('city: the graph survives the plan going irregular', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  // The whole game runs on this graph: the frontier, what a scan turns up, and
+  // the response's reach. Moving the buildings is a balance change, and these
+  // are the two things it may never do.
+  for (let i = 0; i < 6; i++) {
+    const c = d.makeCity({ cols: 5, rows: 5, regionTier: i % 5 });
+    const adj = c.adjacency || {};
+    const degs = c.buildings.map(b => (adj[b.id] || []).length);
+    assert.equal(degs.filter(k => k === 0).length, 0, 'a building nothing can reach is a building nobody can take');
+
+    const seen = {}; let comps = 0;
+    c.buildings.forEach(b => {
+      if (seen[b.id]) return;
+      comps++;
+      const q = [b.id]; seen[b.id] = true;
+      while (q.length) {
+        const cur = q.pop();
+        (adj[cur] || []).forEach(x => { if (!seen[x]) { seen[x] = true; q.push(x); } });
+      }
+    });
+    assert.equal(comps, 1, `the city came out in ${comps} pieces`);
+
+    // Measured across the five regions, twenty boards each: home runs
+    // 3.26-3.57 and the north 2.15-3.02, because the north is mostly terrain
+    // and that is the point of it. The bound is the whole spread, not the mean.
+    const mean = degs.reduce((a, b) => a + b, 0) / degs.length;
+    assert.ok(mean > 1.85 && mean < 4.4, `mean degree ${mean.toFixed(2)} is not the game we tuned`);
+  }
+});
+
+test('city: the road is painted the width the plan gave it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const svg = d.svgStreets();
+
+  // Every road carries its own width as a presentation attribute...
+  L.vRoad.forEach(w => {
+    assert.ok(svg.includes(`stroke-width="${w}"`), `no road is drawn ${w} wide`);
+  });
+  // ...and the stylesheet must not override it. A stroke-width in CSS beats a
+  // presentation attribute, and while one was there every road was painted 22
+  // wide inside a gap of up to 99 — which left an unpainted margin between the
+  // tarmac and every building, and made the frontage pass look like it had
+  // never happened.
+  const rule = /\.street\s*\{([^}]*)\}/.exec(STYLE_CSS);
+  assert.ok(rule, 'there is no .street rule at all');
+  assert.ok(!/stroke-width/.test(rule[1]),
+    'the stylesheet is overriding every road width again');
+  const main = /\.street\.main\s*\{([^}]*)\}/.exec(STYLE_CSS);
+  if (main) assert.ok(!/stroke-width/.test(main[1]), 'and the arterials too');
+});
+
+test('city: a building is on a street, or it has a way to reach it', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const C = window.CITY;
+
+  // Measured on the old scatter: 28% of buildings touched a street and 16%
+  // were marooned more than 26 units from any block edge. A building that is
+  // not on a road makes no sense from an infrastructure or an architecture
+  // point of view, and the cabinets were the worst of it.
+  let onStreet = 0, withPath = 0, stranded = 0;
+  d.state.buildings.filter(b => !b.verge).forEach(b => {
+    const blk = L.blocks.find(k => k.i === b.block);
+    if (!blk) return;
+    const gap = Math.min(b.x - blk.x, (blk.x + blk.w) - (b.x + b.w),
+                         b.y - blk.y, (blk.y + blk.h) - (b.y + b.h));
+    if (gap <= C.edgeInset + 4) { onStreet++; return; }
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const served = (d.state.paths || []).some(p =>
+      Math.abs(p.x1 - cx) < 2 && Math.abs(p.y1 - cy) < 2);
+    if (served) withPath++; else stranded++;
+  });
+  assert.equal(stranded, 0, `${stranded} buildings stand in a field with no way in`);
+  assert.ok(onStreet > withPath * 4, 'most of them should simply be on the street');
+});
+
+test('city: street furniture is on the pavement, not on a plot', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+
+  const kit = d.state.buildings.filter(b => window.CITY.furniture[b.kind]);
+  assert.ok(kit.length > 4, `only ${kit.length} bits of street furniture`);
+  kit.forEach(b => {
+    assert.equal(b.verge, true, `a ${b.kind} is standing on a plot`);
+    // it is outside the block it belongs to, which is where a pavement is
+    const blk = L.blocks.find(k => k.i === b.block);
+    if (!blk) return;
+    const inside = b.x > blk.x && b.x + b.w < blk.x + blk.w
+                && b.y > blk.y && b.y + b.h < blk.y + blk.h;
+    assert.equal(inside, false, `a ${b.kind} is in the middle of a lot`);
+  });
+  // and it is still what buys cover, which is the reason it is on the map
+  kit.forEach(b => {
+    const h = d.hostsIn(b)[0];
+    assert.ok(h && (h.role === 'stealth' || h.role === 'grid'),
+      `${b.kind} stopped being kit`);
+  });
+});
+
+test('city: a house does not draw the same size as an office', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const K = window.BUILDING_KINDS;
+  const mid = (k) => ((K[k].w[0] + K[k].w[1]) / 2) * ((K[k].h[0] + K[k].h[1]) / 2);
+  const ordinary = Object.keys(K).filter(k => !K[k].landmark);
+
+  // The rule that actually matters. Before this the table had eight pairs
+  // within 18% of each other — cabinet/mast, finance/office, and warehouse,
+  // depot, substation and switchyard all four mutually — and four kinds of
+  // industrial building that draw the same size is four you cannot tell apart.
+  ordinary.forEach(a => ordinary.forEach(b => {
+    if (a >= b) return;
+    const r = mid(a) / mid(b);
+    assert.ok(r <= 0.85 || r >= 1.18,
+      `${a} and ${b} are the same size (${Math.round(mid(a))} vs ${Math.round(mid(b))})`);
+  }));
+
+  const areas = ordinary.map(mid).sort((x, y) => x - y);
+  const span = Math.sqrt(areas[areas.length - 1] / areas[0]);
+  assert.ok(span > 7, `the whole range is only ${span.toFixed(1)}x across, linear`);
+  // and the small end may not shrink: a mast is about thirteen screen pixels
+  // wide at the ordinary play zoom already
+  assert.ok(K.mast.w[0] >= 10 && K.cabinet.w[0] >= 12, 'street kit got too small to tap');
+});
+
+test('city: the blocks the big things stand on are bigger', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const area = {};
+  L.blocks.forEach(b => { (area[b.district] = area[b.district] || []).push(b.w * b.h); });
+  const mean = (k) => area[k].reduce((a, b) => a + b, 0) / area[k].length;
+
+  assert.ok(area.industrial && area.residential, 'home has both ends of the ladder');
+  // Means converge more than you would think, because a row and a column take
+  // the largest scale in them — a suburban block in an industrial column is
+  // big. The claim that matters is the one below: the big things fit.
+  assert.ok(mean('industrial') > mean('residential'),
+    `industrial blocks ${Math.round(mean('industrial'))} against suburban ${Math.round(mean('residential'))}`);
+
+  // and the biggest building actually fits on one
+  const K = window.BUILDING_KINDS.datacenter;
+  const big = L.blocks.filter(b => b.district === 'industrial')
+    .some(b => b.w > K.w[1] + window.CITY.edgeInset * 2 && b.h > K.h[1]);
+  assert.ok(big, 'no industrial block is big enough for a datacenter');
+});
+
+test('city: districts are areas, not stripes', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const by = d.districtBlocks();
+  const L = d.cityLayout();
+
+  // a row that runs through more than one district is the whole point: while
+  // districts were rows, the boundary was a straight line across the map
+  const rowsWithTwo = [];
+  for (let r = 0; r < L.rows; r++) {
+    const here = new Set(L.blocks.filter(b => b.row === r).map(b => by[b.i]).filter(Boolean));
+    if (here.size > 1) rowsWithTwo.push(r);
+  }
+  assert.ok(rowsWithTwo.length > 0, 'every row is exactly one district — they are still stripes');
+
+  // and home still spans all four, because it is where you learn them
+  const present = new Set(Object.values(by));
+  assert.equal(present.size, 4, `home shows ${present.size} kinds of place, not 4`);
+});
+
 test('city: the map says which district you are standing in', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const rows = d.districtRows();
-  const present = [...new Set(Object.values(rows))];
+  const by = d.districtBlocks();
+  const present = [...new Set(Object.values(by))];
   assert.ok(present.length > 1, 'a city is more than one kind of place');
 
   const svg = d.svgStreets();
@@ -4419,12 +4672,166 @@ test('city: the map says which district you are standing in', () => {
     'and the names are drawn over the streets, not under them');
 });
 
+// --- what else is standing there ------------------------------------------
+// The map used to contain nothing but doors, which is a diagram of a city
+// rather than a city. These pin the two rules that keep the scenery from
+// eating the thing it decorates.
+
+test('props: the city is full of things that are not doors', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const props = d.state.props || [];
+  assert.ok(props.length > 40, `only ${props.length} things standing that are not buildings`);
+
+  const kinds = new Set(props.map(p => p.kind));
+  assert.ok(kinds.size >= 8, `only ${kinds.size} kinds of thing`);
+  kinds.forEach(k => {
+    assert.ok(window.PROPS[k], `${k} has no size`);
+    assert.ok(d.PROP_ART[k], `${k} has nothing to draw it`);
+  });
+
+  // and they are the city's, not the session's
+  assert.deepEqual(d.packCity().props.length, props.length, 'a city you walk out of keeps its benches');
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal((back.props || []).length, props.length, 'and a save keeps them too');
+});
+
+test('props: nothing decorative can be mistaken for a door, or tapped like one', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const svg = d.svgProps();
+
+  // an outline on this map means something you can take
+  assert.ok(!/stroke=/.test(svg), 'a prop is drawing itself an outline');
+  // and nothing addressable can be hanging off one
+  assert.ok(!/data-bldg/.test(svg), 'a prop is carrying a building id');
+  assert.ok(!/data-[a-z]+=/.test(svg), 'a prop is carrying a handle of some kind');
+
+  // the rules that make it true are in the stylesheet, not in good intentions
+  assert.ok(/\.props\s*\{[^}]*pointer-events:\s*none/.test(STYLE_CSS),
+    'the props group still takes pointer events');
+  assert.ok(/\.props \*\s*\{[^}]*stroke:\s*none/.test(STYLE_CSS),
+    'nothing stops a prop being given a stroke');
+
+  // and none of them is a copy of something real: a fake station beside a real
+  // one is a lie the player pays for
+  const real = Object.keys(window.BUILDING_KINDS);
+  Object.keys(window.PROPS).forEach(k => {
+    assert.equal(real.indexOf(k), -1, `${k} is both scenery and a building`);
+  });
+});
+
+test('props: what stands there depends on where there is', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const by = d.districtBlocks();
+  const props = d.state.props || [];
+
+  const blockAt = (p) => L.blocks.find(b =>
+    p.x + p.w > b.x - 30 && p.x < b.x + b.w + 30 &&
+    p.y + p.h > b.y - 30 && p.y < b.y + b.h + 30);
+
+  const seen = {};
+  props.forEach(p => {
+    const b = blockAt(p);
+    if (!b) return;
+    const k = b.district || by[b.i];
+    (seen[k] = seen[k] || new Set()).add(p.kind);
+  });
+  const kinds = Object.keys(seen);
+  assert.ok(kinds.length > 1, 'every district got the same scenery');
+  // the industrial edge does not have playgrounds in it
+  kinds.forEach(k => {
+    const allowed = new Set((window.DISTRICT_PROPS[k] || [])
+      .concat((window.OPEN_BLOCKS[k] || {}).props || []));
+    // verge props can spill one block over, so this is about the bulk of them
+    const wrong = [...seen[k]].filter(x => !allowed.has(x)).length;
+    assert.ok(wrong <= 3, `${k} is full of things that do not belong there: ${wrong}`);
+  });
+});
+
+test('props: a block with nothing built on it is a place, not a gap', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const L = d.cityLayout();
+  const open = L.blocks.filter(b => b.open);
+  assert.ok(open.length > 0, 'the whole city is wall-to-wall blocks');
+
+  // nothing is built on one, which is the entire point of it
+  open.forEach(b => {
+    // street furniture is on the pavement outside, which a park has as much as
+    // anywhere else does
+    const on = d.state.buildings.filter(x => !x.verge &&
+      x.x >= b.x && x.x < b.x + b.w && x.y >= b.y && x.y < b.y + b.h);
+    assert.equal(on.length, 0, `something got built on the ${b.openKind}`);
+    assert.ok(b.openKind, 'and it is some particular kind of open ground');
+  });
+
+  const svg = d.svgOpenBlocks();
+  open.forEach(b => assert.ok(svg.includes(`open-ground ${b.openKind}`), `the ${b.openKind} is not drawn`));
+
+  // and it costs buildings, so it must not cost so many that the graph goes
+  const degs = d.state.buildings.map(b => (d.state.adjacency[b.id] || []).length);
+  assert.equal(degs.filter(k => k === 0).length, 0, 'open ground stranded a building');
+});
+
+test('props: nothing decorative stands on a building', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  (d.state.props || []).forEach(p => {
+    d.state.buildings.forEach(b => {
+      const apart = p.x + p.w <= b.x || b.x + b.w <= p.x || p.y + p.h <= b.y || b.y + b.h <= p.y;
+      assert.ok(apart, `a ${p.kind} is standing inside ${b.kind} ${b.id}`);
+    });
+  });
+});
+
+test('map: the ground is built once and the buildings are what cost', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+
+  const a = d.svgGround();
+  assert.equal(d.svgGround(), a, 'the ground is rebuilt for no reason');
+  d.growHomeBase();
+  assert.notEqual(d.svgGround(), a, 'and not rebuilt when the map actually grew');
+
+  // walking into somewhere else is somewhere else, whatever size it happens
+  // to be — the key alone cannot tell two cities of the same shape apart
+  const b = d.svgGround();
+  d.unpackCity(d.EMPTY_CITY());
+  assert.notEqual(d.svgGround(), b, 'a different city drew the last one');
+});
+
+test('map: a building too small to read is not drawn in detail', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const b = s.buildings.find(x => x.kind === 'apartment') || s.buildings[0];
+  b.discovered = true;
+
+  s.view = { x: b.x - 30, y: b.y - 30, w: 140, h: 140 };
+  const close = d.svgBuilding(b);
+  s.view = { x: 0, y: 0, w: 6000, h: 6000 };
+  const far = d.svgBuilding(b);
+
+  assert.ok(far.length < close.length * 0.7,
+    `zoomed out it costs about the same: ${far.length} against ${close.length}`);
+  assert.ok(!/class="win/.test(far), 'windows nobody can resolve are still being drawn');
+  // what it *is* has to survive every zoom, or the map stops being readable
+  assert.ok(/data-bldg="/.test(far) && /class="body"/.test(far), 'the building itself is still there');
+  assert.ok(/class="btag"/.test(far), 'and it still says what it is');
+});
+
 test('city: every kind of building looks like its own kind of building', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const b = s.buildings[0];
   b.discovered = true;
+  // close enough that the detail is drawn at all — below about 26 screen pixels
+  // a building is a box on purpose, and every kind is the same box
+  s.view = { x: b.x - 40, y: b.y - 40, w: 120, h: 120 };
   // strip the label, which is the one thing that always differs, and compare
   // what is left: the silhouette itself has to carry the difference
   const shapeOf = (kind) => {
@@ -6839,7 +7246,7 @@ test('caps: the report is derived, so it cannot lie about what happened', () => 
   assert.equal(d.readoutDiff(before, before).length, 0, 'and nothing when nothing moves');
 });
 
-test('caps: Survey aims a sweep at one building instead of anywhere held', () => {
+test('scan: aiming a sweep at one building is the base verb, not a capability', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -6867,15 +7274,73 @@ test('caps: Survey aims a sweep at one building instead of anywhere held', () =>
   s.res.funds = 1000;
   s.ap = 5;
 
-  // without Survey, sweeping from a specific building is not a thing —
-  // the global pool includes both candidates
+  // the global pool includes both candidates — aiming is what narrows it
   assert.ok(d.sweepTargets().some(b => b.id === nA) && d.sweepTargets().some(b => b.id === nB),
     'both candidates sit in the untargeted pool');
 
-  grantHw(d, 'line_survey');
+  // no hardware, no grant: aiming the sweep is the base verb now
   d.actScan(bA);
   assert.equal(d.buildingById(nA).discovered, true, 'the building off the chosen one turned up');
   assert.equal(d.buildingById(nB).discovered, false, 'the one off the other building was left alone');
+});
+
+test('scan: the last dice left resolution — the sweep finds what is nearest, every time', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const saved = JSON.parse(JSON.stringify(d.serialize()));
+  const sweep = () => {
+    const { window: W } = loadNetwork({ cityOnly: true });
+    const d2 = W.__netDebug;
+    // deserialize returns a state; setState is what installs it — a probe
+    // that forgets the second half quietly runs on its own random city
+    d2.setState(d2.deserialize(JSON.parse(JSON.stringify(saved))));
+    d2.state.ap = 5;
+    d2.actScan();
+    return d2.state.buildings.filter(b => b.discovered).map(b => b.id).sort().join(',');
+  };
+  const first = sweep();
+  // the same board swept twice reveals the same ground — no dice anywhere
+  assert.equal(sweep(), first, 'two sweeps of one board found different ground');
+  // and what it revealed is the nearest of the pool, not a lucky draw
+  const { window: W } = loadNetwork({ cityOnly: true });
+  const d3 = W.__netDebug;
+  d3.setState(d3.deserialize(JSON.parse(JSON.stringify(saved))));
+  const pool = d3.sweepTargets();
+  d3.state.ap = 5;
+  const before = new Set(d3.state.buildings.filter(b => b.discovered).map(b => b.id));
+  d3.actScan();
+  const revealed = d3.state.buildings.filter(b => b.discovered && !before.has(b.id));
+  const mid = b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  const anchorList = d3.state.hosts.filter(h => h.owned).map(h => d3.buildingById(h.buildingId));
+  const dist = b => anchorList.reduce((best, a) => {
+    const c = mid(b), ac = mid(a);
+    return Math.min(best, Math.hypot(c.x - ac.x, c.y - ac.y));
+  }, Infinity);
+  const worstRevealed = Math.max(...revealed.map(dist));
+  const skipped = pool.filter(b => !revealed.some(r => r.id === b.id));
+  skipped.forEach(b => assert.ok(dist(b) >= worstRevealed - 0.001,
+    'the sweep skipped nearer ground for farther ground'));
+});
+
+test('scan: looking warms the street it touched, and cools nothing anywhere', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 5;
+  d.noteDistrictAct('industrial', 10);   // a far district, already warm
+  const before = d.suspicionOf('industrial');
+  const b0 = new Set(s.buildings.filter(b => b.discovered).map(b => b.id));
+  d.actScan();
+  const revealed = s.buildings.filter(b => b.discovered && !b0.has(b.id));
+  assert.ok(revealed.length, 'the sweep found nothing to price');
+  const touched = new Set(revealed.map(b => (d.hostsIn(b)[0] || {}).district).filter(Boolean));
+  touched.forEach(dk => assert.ok(d.suspicionOf(dk) >= window.SUSPICION.perScan,
+    `the sweep touched ${dk} and the street did not notice`));
+  // and the warm far district was not cooled by looking — a sweep is not
+  // the rotation rule, or scan-mashing becomes a coolant
+  if (!touched.has('industrial')) {
+    assert.equal(d.suspicionOf('industrial'), before, 'looking cooled a district it never touched');
+  }
 });
 
 test('caps: Pontoon reveals ground past a settled holding, once it has matured', () => {
@@ -6925,26 +7390,6 @@ test('caps: Standing Army pays a retainer either way, and funds a real war-open 
   assert.equal(s.res.funds, 0, 'and it actually spent the going rate, not given free');
 });
 
-test('caps: Fixers unlocks an escape hatch on the strike card nobody else has', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.card = { kind: 'strike' };
-  ungrant(d);
-  d.render();
-  let html = window.document.getElementById('panel').innerHTML;
-  assert.ok(!html.includes('Call in a favor'), 'the option does not even show without Fixers');
-
-  grantTag(d, 'fixers');
-  s.res.funds = window.FIXERS_FAVOR_COST;
-  d.render();
-  html = window.document.getElementById('panel').innerHTML;
-  assert.ok(html.includes('Call in a favor'), 'and it does with Fixers');
-
-  const before = s.res.funds;
-  d.resolveStrike('buy_out');
-  assert.equal(s.res.funds, before - window.FIXERS_FAVOR_COST, 'and using it actually spends the cost');
-});
 
 test('home base: growHomeBase appends new ground without breaking what is already there', () => {
   const { window } = loadNetwork();
@@ -7192,20 +7637,48 @@ test('home base: growth trait survives a save/load round trip', () => {
 
 // --- heat/hunt rework: the alarm, and ending the hunt for good -------------
 
-test('alarm: shows only once the hunt exists, on top of the heat bar, not instead of it', () => {
+test('alarm: shows only once the hunt exists, and it is what the row is for now', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  const s = d.state;
   const $alarm = window.document.getElementById('alarm-row');
-  const $fill = window.document.getElementById('heat-fill');
+  const $heat = window.document.getElementById('heat-row');
   d.render();
   assert.equal($alarm.hidden, true, 'nothing to alarm about yet');
-  assert.notEqual($fill.style.width, undefined, 'the heat bar itself is still there');
+  assert.equal($heat.hidden, true, 'heat is not a city-scale number any more');
 
   hunted(d, window);
   d.render();
   assert.equal($alarm.hidden, false, 'it shows once the hunt is real');
-  assert.ok($fill.style.width, 'and the bar underneath is still rendered alongside it');
+  assert.equal($heat.hidden, true, 'and it did not bring the heat bar back with it');
+});
+
+test('heat: the city never shows it, and the country always does', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const $heat = window.document.getElementById('heat-row');
+  d.state.heat = d.strikeThreshold();
+  d.render();
+  assert.equal($heat.hidden, true, 'the streets are quoting a number they do not read');
+
+  holdToGoal(d);                 // the country does not open before the city is yours
+  d.setScope('country');
+  d.render();
+  assert.equal($heat.hidden, false, 'and the country hides the one thing heat still does');
+  const text = window.document.getElementById('heat-text').textContent;
+  assert.ok(/NOTICED/.test(text), `it should say what it now is, not what it once cost: "${text}"`);
+  assert.ok(/pressure/.test(window.document.getElementById('heat-drift').textContent),
+    'and say what it is worth on the ladder');
+});
+
+test('heat: nothing at city scale quotes it as a price', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const loud = window.PROGRAMS.find(p => p.heat > 0);
+  assert.ok(loud, 'some program is still noisy');
+  const sec = d.capSections().find(x => x.id === 'programs');
+  assert.ok(sec, 'the programs section is where a program is mounted');
+  assert.ok(!/heat/i.test(sec.html),
+    'a price the player cannot see the meter for is not a price');
 });
 
 // The stub setTimeout in load-network.js fires synchronously, which drains
@@ -7342,7 +7815,6 @@ test('hunt confront: landing on the core ends the hunt and reclaims only the add
   s.hosts.forEach(h => { if (!h.origin) h.owned = true; });
   core.owned = false;
 
-  d.mount('brute');
   s.ap = 9;
   assert.equal(d.startHack(core.id), true, 'the run starts');
   assert.equal(d.hackOn(core.id).confront, true, 'and it knows what it is going at');
@@ -7368,7 +7840,6 @@ test('hunt confront: being found costs heat and brings it closer, and does not e
   s.allocLive = {}; s.alloc = {};          // no covert ops to hide behind
 
   // a slow program against the hardest door on the board loses the race
-  d.mount('backdoor');
   const f = d.hackForecast(core, d.mounted());
   if (!f.caught) return;                    // an unusually soft core; covered above
   const heat = s.heat, before = d.hunt().lastActed;
@@ -7395,7 +7866,10 @@ test('hardware: four families, three tiers apiece, each gated a rung higher', ()
   });
   Object.keys(families).forEach(fam => {
     const tiers = families[fam].map(hw => hw.tier).sort();
-    assert.deepEqual(tiers, [1, 2, 3], `${fam} does not offer three clean tiers`);
+    // grid runs [2,3]: its tier 1 was line.survey, and that mechanic became
+    // the base sweep — a family selling a core verb was the wrong shelf
+    assert.deepEqual(tiers, fam === 'grid' ? [2, 3] : [1, 2, 3],
+      `${fam} does not offer its clean tiers`);
     const byTier = families[fam].slice().sort((a, b) => a.tier - b.tier);
     for (let i = 1; i < byTier.length; i++) {
       assert.ok(byTier[i].heldAt > byTier[i - 1].heldAt, `${fam} tier ${byTier[i].tier} is not a higher bar than the last`);
@@ -7825,18 +8299,558 @@ function openTarget(d) {
   return s.hosts.filter(h => !h.owned && d.isFrontier(h))[0];
 }
 
-test('hack: a program is a posture, mounted once, not chosen per door', () => {
+// --- the knife, hard-gate form ----------------------------------------------
+// The shipped game is city one, whole. The country is dormant, not deleted —
+// these tests load with { cityOnly: true } to test what ships; everything
+// else in this file loads with the gate open so the dormant machinery keeps
+// its coverage and cannot rot.
+
+test('city-only: the door upward is simply not there', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  assert.equal(d.countryUnlocked(), false, 'holding everything opened the country');
+  assert.equal(d.gridBinds(), false, 'the grid ceiling exists without the country');
+  assert.equal(d.setScope('country'), false, 'the scope switch worked anyway');
+});
+
+test('city-only: the goal is an ending you can keep playing past', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.ok(!s.cityWon, 'won before anything happened');
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(s.cityWon, true, 'the goal came and went unremarked');
+  assert.ok(s.log.some(l => l.text === window.CITY_WON.log), 'and unsaid');
+
+  // once — it must never be a surprise twice
+  const said = s.log.filter(l => l.text === window.CITY_WON.log).length;
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(s.log.filter(l => l.text === window.CITY_WON.log).length, said);
+
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.cityWon, true, 'the ending did not survive a save');
+});
+
+// --- the district is talking -------------------------------------------------
+// Suspicion, built to two constraints from play: waiting must not work, and
+// there must never be a cliff.
+
+test('suspicion: acting warms here and cools there — waiting cools nothing', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+
+  d.noteDistrictAct('commercial', 10);
+  // the second act already cools the first district — every act cools every
+  // other district, including this one
+  d.noteDistrictAct('business', 4);
+  assert.equal(d.suspicionOf('commercial'), 10 - S.coolPerAct);
+  assert.equal(d.suspicionOf('business'), 4);
+
+  // and a third act cools both of the others by exactly the rule
+  d.noteDistrictAct('residential', S.perRun);
+  assert.equal(d.suspicionOf('commercial'), 10 - S.coolPerAct * 2);
+  assert.equal(d.suspicionOf('business'), 4 - S.coolPerAct);
+
+  // and doing nothing at all does nothing at all — attention stays where it
+  // last was; you cannot wait a district quiet
+  const before = JSON.stringify(s.suspicion);
+  for (let i = 0; i < 6; i++) { s.card = null; d.endTurn({ silent: true }); }
+  assert.equal(JSON.stringify(s.suspicion), before, 'idle turns cooled the city');
+});
+
+test('suspicion: the sources are the loop itself', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const t = s.hosts.find(h => !h.origin && h.district);
+  t.owned = false;
+  s.ap = 9;
+
+  const d0 = d.suspicionOf(t.district);
+  assert.equal(d.startHack(t.id), true);
+  assert.equal(d.suspicionOf(t.district), Math.min(S.max, d0 + S.perRun),
+    'starting a run went unnoticed');
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+  assert.equal(t.owned, true);
+  assert.ok(d.suspicionOf(t.district) >= d0 + S.perRun + S.perTake - 0.001,
+    'a take went unnoticed');
+});
+
+test('suspicion: a straight line into the forecast, no cliff anywhere', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const t = s.hosts.find(h => !h.owned && h.district === 'commercial')
+    || s.hosts.find(h => !h.owned && h.district);
+  const dk = t.district;
+
+  const base = d.traceRate(t);
+  d.noteDistrictAct(dk, 10);
+  const at10 = d.traceRate(t);
+  d.noteDistrictAct(dk, 10);
+  const at20 = d.traceRate(t);
+  // exact slope, both steps — the same line, no knee
+  assert.ok(Math.abs(at10 - base * (1 + 10 * S.slope)) < 0.02, `at 10: ${at10} vs ${base * (1 + 10 * S.slope)}`);
+  assert.ok(Math.abs(at20 - base * (1 + 20 * S.slope)) < 0.02, `at 20: ${at20} vs ${base * (1 + 20 * S.slope)}`);
+  // and the forecast is downstream of traceRate, so it says the true number
+  const f = d.hackForecast(t);
+  assert.equal(f.rate, at20, 'the forecast is quoting the quiet number');
+
+  // capped, so the worst case is stated and finite
+  d.noteDistrictAct(dk, 999);
+  assert.equal(d.suspicionOf(dk), S.max);
+});
+
+test('suspicion: the words wait for the second visit — one run is not a story', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const S = window.SUSPICION;
+  assert.equal(d.suspicionLine('commercial'), '', 'a quiet district is being talked about');
+  // one visit — a run and a take — says nothing. The playtest found the
+  // first band at 1 put the phrase on 90% of doors, and a phrase everything
+  // wears is wallpaper.
+  d.noteDistrictAct('commercial', S.perRun + S.perTake);
+  assert.equal(d.suspicionLine('commercial'), '',
+    'a single visit already has the street talking');
+  assert.ok(S.bands[0][0] > S.perRun + S.perTake,
+    'the first band is inside one visit');
+  // the second visit crosses the line, and the words arrive with the figure
+  d.noteDistrictAct('commercial', S.perRun);
+  const line = d.suspicionLine('commercial');
+  assert.ok(line.includes('People mention it'), 'the first band has the wrong words: ' + line);
+  assert.ok(line.includes('15% faster'), 'the exact figure is missing: ' + line);
+});
+
+test('suspicion: it is a fact about here — packs, saves, and warms the ground', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.noteDistrictAct('commercial', 12);
+  assert.equal(d.packCity().suspicion.commercial, 12, 'it does not pack with the city');
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.suspicion.commercial, 12, 'it does not survive a save');
+
+  // ...and neither did caughtHere, it turns out — found wiring this through
+  s.caughtHere = 2; s.caughtAt = ['b1'];
+  const again = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(again.caughtHere, 2, 'a reload forgives your catches');
+
+  // the cached ground layer redraws when warmth meaningfully changes
+  const k0 = d.svgGround();
+  d.noteDistrictAct('commercial', 15);
+  assert.notEqual(d.svgGround(), k0, 'the ground never warms');
+  // the warmth is the district fill itself, shifted — never an overlay rect
+  // whose hard edges match nothing on the map
+  const g = d.svgGround();
+  assert.ok(g.includes('d-warm'), 'warmth is not drawn at all');
+  assert.ok(/class="district commercial d-warm"[^>]*color-mix/.test(g),
+    'the warm ground is not the fill itself');
+});
+
+// --- what's on the machine -------------------------------------------------
+// Loot, slice one. The laws: contents decided at generation and packed with
+// the city; a carrier is always inspectable before committing; kinds, not
+// grades; and the share is a bound, not a roll.
+
+test('carry: contents are decided at generation, bounded, and landmarks always carry', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
-  assert.ok(window.PROGRAMS.length >= 3, 'three ways in');
-  assert.ok(d.mounted(), 'something is always mounted');
-  window.PROGRAMS.forEach(p => {
-    assert.equal(d.mount(p.id), true, `${p.id} can be mounted`);
-    assert.equal(d.mounted().id, p.id);
-    assert.ok(p.blurb && p.blurb.length > 20, `${p.id} says what it is`);
-    assert.ok(p.load > 0 && p.turns >= 1, `${p.id} has a real load and duration`);
-  });
-  assert.equal(d.mount('nonsense.exe'), false, 'and nothing else is');
+  for (let i = 0; i < 5; i++) {
+    const c = d.makeCity({ cols: 5, rows: 5, regionTier: i % 5 });
+    const eligible = c.hosts.filter(h => !h.origin && (window.CARRY.pools[h.type] || []).length);
+    const carriers = c.hosts.filter(h => h.carry);
+    // bounded by ranking, so a share, not a hope — landmarks ride on top
+    const lm = c.hosts.filter(h => h.landmark && (window.CARRY.pools[h.type] || []).length);
+    assert.ok(carriers.length >= Math.floor(eligible.length * window.CARRY.share * 0.8),
+      `only ${carriers.length} carriers among ${eligible.length} eligible`);
+    assert.ok(carriers.length <= Math.ceil(eligible.length * window.CARRY.share * 1.2) + lm.length,
+      `${carriers.length} carriers is a flood`);
+    lm.forEach(h => assert.ok(h.carry, `a ${h.type} landmark carries nothing`));
+    carriers.forEach(h => {
+      assert.ok((window.CARRY.pools[h.type] || []).indexOf(h.carry) !== -1,
+        `a ${h.type} host is carrying ${h.carry}, which its pool does not offer`);
+      if (h.carry === 'wallet') assert.ok(h.carryAmt > 0, 'a wallet with no amount is a gamble');
+    });
+    // street furniture and the grid carry nothing, ever
+    c.hosts.filter(h => h.type === 'iot' || h.type === 'feeder')
+      .forEach(h => assert.ok(!h.carry, 'a lamppost is holding a wallet'));
+    // and neither does the seat you start in — assignCarry runs before the
+    // origin is chosen, so this is the late clear being tested, not the
+    // filter. An owned carrier is a glint that never lights.
+    const seat = c.hosts.find(h => h.origin);
+    assert.ok(seat && !seat.carry, 'the origin machine is carrying its own prize');
+  }
+});
+
+test('carry: contents pack with the city and survive a save', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const before = d.state.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|');
+  assert.ok(before.length, 'the home city generated no contents at all');
+  const packed = d.packCity();
+  assert.equal(packed.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|'), before);
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|'), before);
+});
+
+test('carry: the panel names the contents exactly, before any commitment', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const carrier = s.hosts.find(h => h.carry === 'wallet');
+  assert.ok(carrier, 'a wallet somewhere on the board');
+  carrier.owned = false;
+  const html = d.targetPanel(carrier);
+  assert.ok(html.includes('On this machine'), 'the contract line is missing');
+  assert.ok(html.includes(String(carrier.carryAmt)),
+    'the wallet does not state its exact amount — that is a gamble');
+});
+
+test('carry: a wallet pays what it said, once, however you got in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const carrier = s.hosts.find(h => h.carry === 'wallet');
+  const stated = carrier.carryAmt;
+  const before = s.res.funds;
+  d.takeHost(carrier);
+  assert.equal(s.res.funds - before, stated, 'it paid something other than the contract');
+  assert.ok(!carrier.carry, 'the glint should die with ownership');
+  assert.equal(carrier.carried, 'wallet', 'and the record stays');
+  d.takeHost(carrier);
+  assert.equal(s.res.funds - before, stated, 'taking twice paid twice');
+});
+
+test('carry: keys cover exactly the runs that needed them, and travel with you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  // not every board rolls a keys carrier (~14% share across three pools) —
+  // plant one rather than flake on the draw; resolveCarry is what is under
+  // test, not the lottery
+  let keyer = s.hosts.find(h => h.carry === 'keys');
+  if (!keyer) { keyer = s.hosts.find(h => !h.origin); keyer.carry = 'keys'; }
+  d.resolveCarry(keyer);
+  assert.equal(s.keys, 1, 'the keys were not kept');
+
+  // a safe door must NOT consume them — keys only answer the door that
+  // would catch you, so holding them is holding an answer
+  const safe = s.hosts.find(h => !h.origin && !h.carry);
+  safe.owned = false;
+  safe.defense = 2;
+  assert.equal(d.hackForecast(safe).keyed, false, 'a safe run is borrowing the keys');
+  s.ap = 9;
+  assert.equal(d.startHack(safe.id), true);
+  assert.equal(s.keys, 1, 'a safe run spent the keys');
+
+  // a door the bare arithmetic catches is what they are for
+  const risky = s.hosts.find(h => !h.origin && h !== safe && !h.carry && !d.hackOn(h.id));
+  risky.owned = false;
+  risky.defense = 400;                      // trace would sail past the goal
+  const f = d.hackForecast(risky);
+  assert.ok(Math.round(d.traceRate(risky, d.mounted()) * d.mounted().turns * 100) / 100 >= f.goal,
+    'the test door is not actually dangerous');
+  assert.equal(f.keyed, true, 'the forecast does not offer the keys');
+  assert.equal(f.caught, false, 'keyed, and still caught');
+  s.allocLive = s.allocLive || {};
+  const need = d.hackNeed(d.mounted(), risky);
+  s.hosts.forEach(h => { if (!h.owned) return; h.threads += 2; }); // room to afford it
+  if (d.allocFree() >= need && d.canHack(risky.id)) {
+    assert.equal(d.startHack(risky.id), true);
+    assert.equal(s.keys, 0, 'the keys were not spent');
+    const k = d.hacks().find(x => x.hostId === risky.id);
+    assert.equal(k.keyed, true);
+    d.hackStep();
+    assert.equal(k.trace, 0, 'a keyed run accrued trace');
+  }
+
+  // keys are yours, not the city's: they survive a save at top level
+  s.keys = 2;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.keys, 2, 'the keys stayed behind in the save');
+});
+
+test('carry: cold storage reveals ground you had not found', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const holder = s.hosts.find(h => (window.CARRY.pools[h.type] || []).length && !h.origin);
+  holder.carry = 'cold';
+  const dark = s.buildings.filter(b => !b.discovered).length;
+  assert.ok(dark > 0, 'the board is already fully known');
+  d.resolveCarry(holder);
+  const after = s.buildings.filter(b => !b.discovered).length;
+  assert.ok(after < dark, 'the map revealed nothing');
+  assert.ok(dark - after <= window.CARRY.cold.reveals, 'it revealed more than it said it would');
+});
+
+test('carry: the glint is an invitation, not an outline, and dies with ownership', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const carrier = s.hosts.find(h => h.carry);
+  const b = d.buildingById(carrier.buildingId);
+  b.discovered = true; carrier.discovered = true;
+  s.view = { x: b.x - 40, y: b.y - 40, w: 140, h: 140 };  // close enough for detail
+  let svg = d.svgBuilding(b);
+  assert.ok(svg.includes('class="glint"'), 'a discovered carrier shows no glint');
+  assert.ok(!/glint"[^/]*stroke/.test(svg), 'the glint has an outline — outlines mean doors');
+  // and it survives altitude — planning happens zoomed out, and "easy to
+  // miss" was the playtest's verdict on the fine-zoom-only version. The
+  // radius floors at a screen size, so it grows in map units as you rise.
+  s.view = { x: b.x - 1800, y: b.y - 1800, w: 3600, h: 3600 };
+  svg = d.svgBuilding(b);
+  assert.ok(svg.includes('class="glint"'), 'the glint is culled at planning zoom');
+  const far = parseFloat(svg.match(/glint"[^>]*r="([\d.]+)"/)[1]);
+  assert.ok(far > 2.1, 'the glint scales away with the building at altitude');
+  s.view = { x: b.x - 40, y: b.y - 40, w: 140, h: 140 };
+  d.takeHost(carrier);
+  svg = d.svgBuilding(b);
+  assert.ok(!svg.includes('class="glint"'), 'the glint survived being taken');
+});
+
+test('carry: the sweep says when it turned something up, and never what', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // load every machine, so whatever the sweep happens to reveal is laden —
+  // the discovery moment was where loot got missed, so the log now points
+  // at it. It names the building, never the contents: the tap stays the
+  // scouting verb, and the log line is only the reason to tap.
+  s.hosts.forEach(h => { if (!h.owned) { h.carry = 'wallet'; h.carryAmt = 5; } });
+  s.ap = 9;
+  d.actScan();
+  const line = s.log[0].text;
+  assert.ok(/Something is sitting on/.test(line), 'the sweep kept the find to itself: ' + line);
+  assert.ok(!/wallet/i.test(line), 'the log spoiled the contents');
+});
+
+test('hack: there is one way in, and nothing to pick between at the door', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  assert.equal(window.PROGRAMS.length, 1, 'one program');
+  const p = d.mounted();
+  assert.ok(p, 'and it is always what is running');
+  assert.ok(p.blurb && p.blurb.length > 20, 'it says what it is');
+  assert.ok(p.load > 0 && p.turns >= 1, 'and has a real load and duration');
+  // nothing to mount means no mounting verb at all
+  assert.equal(typeof d.mount, 'undefined', 'no program is chosen, so nothing chooses one');
+  assert.equal(d.serialize().mount, undefined, 'and a save carries no choice either');
+});
+
+test('hack: the one program is one the race can actually beat', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const p = d.mounted();
+  // The whole reason backdoor survived and hammer did not. A program that
+  // finishes before the target ever accrues a turn of trace makes the race,
+  // the hunt's trigger, covert ops' shield and door hardening all unreachable.
+  const goal = window.HACK.traceGoal;
+  const worst = s.hosts.reduce((a, h) => Math.max(a, d.traceRate(h, p) * p.turns), 0);
+  assert.ok(worst >= goal,
+    `no door on this board could ever win the race: worst trace ${worst.toFixed(2)} of ${goal}`);
+});
+
+test('forecast: the bar shows the margin, and reddens when one turn would lose it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  // comfortable: fill, a grey ghost, no warning
+  const easy = d.traceForecastBar(0.3, false, 0.1);
+  assert.ok(easy.includes('fc-ghost'), 'no margin drawn at all');
+  assert.ok(!/class="trace-fc[^"]*tight/.test(easy), 'a safe door is being flagged as tight');
+  // one more turn of noticing would take it past the goal — that is the warning
+  const tight = d.traceForecastBar(0.85, false, 0.2);
+  assert.ok(/class="trace-fc[^"]*tight/.test(tight), 'a door one turn from flipping says nothing');
+  // already caught: the whole bar is the bad news, the ghost adds nothing
+  const lost = d.traceForecastBar(1, true, 0.2);
+  assert.ok(lost.includes('caught'), 'a lost race is not marked');
+  assert.ok(!/tight/.test(lost), 'a race already lost is warning about losing');
+  // the ghost never overflows the bar
+  const capped = d.traceForecastBar(0.95, false, 0.9);
+  const widths = [...capped.matchAll(/width:(\d+)%/g)].map(m => +m[1]);
+  assert.ok(widths.reduce((a, b) => a + b, 0) <= 100, `the bar sums past full: ${widths}`);
+
+  // ...and the stripes must actually beat `.trace-fc i`, which sets a solid
+  // background. Written unscoped first and the grey ghost rendered invisible
+  // while the red one (higher specificity) showed — the same trap that once
+  // made `.street` ignore its own painted widths, so it is pinned here.
+  assert.ok(/\.trace-fc\s+i\.fc-ghost\s*\{/.test(STYLE_CSS),
+    'the ghost background is not scoped past .trace-fc i and will lose to it');
+});
+
+// --- the network, seen -------------------------------------------------------
+// Held links were always drawn; what was missing was a link *arriving* and
+// anything discrete travelling one. Both are presentation only.
+
+function wiredUp(d) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const seat = s.hosts.find(h => h.owned);
+  const held = new Set([seat.buildingId]);
+  for (let i = 0; i < 30 && held.size < 6; i++) {
+    [...held].forEach(bid => (s.adjacency[bid] || []).forEach(nb => { if (held.size < 6) held.add(nb); }));
+  }
+  let target = null;
+  [...held].forEach(bid => (s.adjacency[bid] || []).forEach(nb => { if (!held.has(nb) && !target) target = nb; }));
+  s.hosts.forEach(h => { if (held.has(h.buildingId)) h.owned = true; });
+  return target;
+}
+
+test('wires: taking a building draws the link in, toward the new holding', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = wiredUp(d);
+  assert.ok(target, 'the board needs a neighbour to take');
+  assert.ok(!/drawing/.test(d.svgWires()), 'a settled network is drawing itself');
+
+  const h = s.hosts.find(x => x.buildingId === target);
+  d.takeHost(h);
+  const svg = d.svgWires();
+  const drawn = (svg.match(/wire live drawing/g) || []).length;
+  assert.ok(drawn > 0, 'the new link did not draw');
+
+  // direction matters: the line runs from the ground you held toward the
+  // ground you just took, because that is the way the dash offset travels
+  const line = svg.match(/<line class="wire live drawing"[^/]*\/>/)[0];
+  const x2 = +line.match(/x2="([-\d.]+)"/)[1], y2 = +line.match(/y2="([-\d.]+)"/)[1];
+  assert.ok(Math.abs(x2 - h.x) < 0.01 && Math.abs(y2 - h.y) < 0.01,
+    'the draw runs away from the new holding instead of into it');
+  // it carries its own length, or the dash trick cannot work
+  assert.ok(/--len:[\d.]+/.test(line), 'the draw has no length to run down');
+});
+
+test('wires: the flourish is presentation — it expires and never saves', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const target = wiredUp(d);
+  const h = d.state.hosts.find(x => x.buildingId === target);
+  d.takeHost(h);
+  assert.ok(d.drawFxOn(), 'nothing is drawing right after a take');
+  assert.equal(d.serialize().drawFx, undefined, 'the flourish went into the save');
+  // and it lets go on its own, rather than marking that wire forever
+  d.startDrawFx(target);
+  const W = window.WIRE_FX;
+  const fx = d.drawFxOn();
+  fx.started -= W.drawMs + 50;                 // wind it past its own duration
+  assert.equal(d.drawFxOn(), null, 'the draw never finishes');
+  assert.ok(!/drawing/.test(d.svgWires()), 'a finished draw is still marked');
+});
+
+test('wires: packets are rationed — capped, and gone when you pull back', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  wiredUp(d);
+  const wires = d.heldWires();
+  assert.ok(wires.length, 'no held wires to carry anything');
+  const W = window.WIRE_FX;
+
+  // close in: packets, and never more than the cap however much you hold
+  const b = d.buildingById(s.hosts.find(h => h.owned).buildingId);
+  s.view = { x: b.x - 90, y: b.y - 90, w: 190, h: 190 };
+  const close = d.svgPackets(wires);
+  assert.ok(/class="packet"/.test(close), 'nothing travels a network you hold');
+  assert.ok((close.match(/class="packet"/g) || []).length <= W.packetCap,
+    'the packet cap is not a cap');
+  // each carries both ends and a phase, so a re-render resumes rather than
+  // yanking every dot back to its start
+  assert.ok(/--ax:[-\d.]+;--ay:[-\d.]+;--bx:[-\d.]+;--by:[-\d.]+/.test(close),
+    'a packet does not know where it is going');
+  assert.ok(/animation-delay:-\d+ms/.test(close), 'packets restart on every render');
+
+  // pulled back to plan: none at all. At that zoom a packet is confetti, and
+  // the glint — which means something — is competing for the same eye.
+  s.view = { x: b.x - 2000, y: b.y - 2000, w: 4000, h: 4000 };
+  assert.equal(d.svgPackets(wires), '', 'packets survive being zoomed away from');
+});
+
+test('greenery is a mass, not a dot: hulls, shadows, and strokes that survive', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const P = window.PROPS;
+  // a street tree is a real fraction of the house it stands beside — it was
+  // 7-12 against a 26-35 house, which read as a coloured circle
+  const house = window.BUILDING_KINDS.house;
+  assert.ok(P.tree.w[1] >= house.w[0] * 0.6,
+    `a tree tops out at ${P.tree.w[1]} beside a ${house.w[0]}-wide house`);
+
+  const svg = d.svgProps();
+  // organic props are wobbled hulls, not circles or ellipses
+  assert.ok(/class="pr-leaf" d="M/.test(svg), 'canopies are not drawn as paths');
+  assert.ok(/class="pr-shade"/.test(svg), 'nothing on the ground throws a shadow');
+
+  // Tufts and ripples are stroked, and `.props *` blanks every stroke in the
+  // group — so they must be scoped past it or they vanish. Same trap as
+  // .street and .fc-ghost; pinned because it has now bitten three times.
+  assert.ok(/\.props\s+\.pr-tuft\s*\{/.test(STYLE_CSS),
+    'the scrub tuft stroke is not scoped past `.props *` and will be blanked');
+  assert.ok(/\.props\s+\.pr-ripple\s*\{/.test(STYLE_CSS),
+    'the pond ripple stroke is not scoped past `.props *` and will be blanked');
+});
+
+test('allocation: the bar draws the ramp, in whichever direction it is going', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  // rising: solid is what runs, stripes are what is still travelling
+  const up = d.allocBar(4, 10, 20);
+  assert.ok(/ab-live" style="width:20%/.test(up), 'the running part is wrong: ' + up);
+  assert.ok(/ab-ramp" style="width:30%/.test(up), 'the travelling part is wrong: ' + up);
+  assert.ok(!/falling/.test(up), 'a rising dial is marked as draining');
+  // falling: solid is the target, stripes are what is being handed back
+  const down = d.allocBar(10, 4, 20);
+  assert.ok(/falling/.test(down), 'a dial being given back does not read as draining');
+  assert.ok(/ab-live" style="width:20%/.test(down), 'the kept part is wrong: ' + down);
+  // settled: nothing on the way, so nothing striped
+  assert.ok(!/ab-ramp/.test(d.allocBar(6, 6, 20)), 'a settled dial still shows a ramp');
+  // and it never overflows its own track
+  const huge = d.allocBar(2, 99, 20);
+  const w = [...huge.matchAll(/width:(\d+)%/g)].map(m => +m[1]).reduce((a, b) => a + b, 0);
+  assert.ok(w <= 100, `the bar sums past full: ${w}`);
+  // Scaled to the biggest dial, not the rack — against the rack a late-game
+  // row is a 4% sliver and the ramp, the whole point of the bar, cannot be
+  // seen. (setAlloc clamps to compute actually free, so read the dial back
+  // rather than assuming the figure asked for.)
+  d.setAlloc('covert', 9);
+  const dial = d.allocDial('covert');
+  assert.ok(dial > 0, 'nothing to scale against');
+  assert.ok(d.allocScale() >= dial, 'the scale ignores the dials it is drawing');
+  // the biggest dial fills most of its track, whatever the rack adds up to
+  const filled = +d.allocBar(dial, dial, d.allocScale()).match(/width:(\d+)%/)[1];
+  assert.ok(filled >= 80, `the biggest dial only fills ${filled}% of its bar`);
+});
+
+test('the map draws the hierarchy the plan encodes: arterials have kerbs', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const g = d.svgGround();
+  assert.ok(g.includes('class="kerb"'), 'no kerb on any road');
+  // the kerb is a hairline that never scales — a kerb is a kerb at any zoom
+  assert.ok(/\.kerb\s*\{[^}]*vector-effect:\s*non-scaling-stroke/.test(STYLE_CSS),
+    'the kerb thickens as you zoom');
+  // and it is only on the main roads, not every street
+  const kerbs = (g.match(/class="kerb"/g) || []).length;
+  const streets = (g.match(/class="street/g) || []).length;
+  assert.ok(kerbs > 0 && kerbs < streets * 2,
+    `every street has kerbs (${kerbs} kerbs, ${streets} streets)`);
 });
 
 test('hack: starting one takes compute and an action, and holds the compute', () => {
@@ -7849,7 +8863,6 @@ test('hack: starting one takes compute and an action, and holds the compute', ()
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
 
-  d.mount('backdoor');
   const need = d.hackNeed(d.mounted(), target);
   const free = d.allocFree(), ap = s.ap;
   assert.equal(d.canHack(target.id), true, 'there is room and an action for it');
@@ -7883,7 +8896,6 @@ test('hack: sending one shows on the map the instant you send it', () => {
   // can be read the way the browser would read it
   const realTimeout = window.setTimeout;
   window.setTimeout = () => 0;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   const wire = d.svgHackLinks();
   window.setTimeout = realTimeout;
@@ -7914,11 +8926,16 @@ test('hack: the rig lists what is running, and none of it can be called off', ()
   const empty = d.programSection().html;
   assert.ok(/nothing running/i.test(empty), 'and says so when there is nothing');
 
-  const targets = s.hosts.filter(h => !h.origin).slice(0, 3);
-  targets.forEach(t => { t.owned = false; });
-  d.mount('backdoor');
+  // Released one at a time and checked against the frontier as we go: taking
+  // three neighbours off you at once can leave one of them with nothing held
+  // beside it, which is not a door you can reach.
   s.ap = 9;
-  const started = targets.filter(t => d.startHack(t.id));
+  const started = [];
+  for (const h of s.hosts) {
+    if (started.length >= 3 || h.origin || !h.owned) continue;
+    h.owned = false;
+    if (d.startHack(h.id)) started.push(h); else h.owned = true;
+  }
   assert.ok(started.length >= 2, 'two doors going at once');
 
   const html = d.programSection().html;
@@ -8120,7 +9137,6 @@ test('hack: a save never restores a program running against a door you hold', ()
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   // the door falls to something else, and the save is written the way an
@@ -8145,7 +9161,6 @@ test('hack: a running program does not follow you across a border', () => {
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   s.ap = 9;
   assert.equal(d.startHack(target.id), true);
   const startedOn = target.id;
@@ -8188,41 +9203,6 @@ test('programs: the one mounted before you choose is one the opening can run', (
     'the default program fits on the opening rack');
 });
 
-test('programs: no one of them is the answer to every door', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  const probe = s.hosts.find(h => !h.origin);
-
-  const at = (type, def) => {
-    probe.type = type; probe.defense = def; probe.owned = false;
-    const out = {};
-    window.PROGRAMS.forEach(p => { out[p.id] = d.hackForecast(probe, p); });
-    probe.owned = true;
-    return out;
-  };
-
-  // something soft: every program gets in, so the cheapest wins
-  const soft = at('consumer', 4);
-  Object.keys(soft).forEach(k => assert.equal(soft[k].caught, false, `${k} should manage a home PC`));
-
-  // something hard: only the loud one survives, and it wants a lot of rack
-  const hard = at('datacenter', 29);
-  assert.equal(hard.brute.caught, false, 'hammer outruns anything');
-  assert.equal(hard.backdoor.caught, true, 'a slow program is found on a datacenter');
-  assert.equal(hard.contagion.caught, true, 'and so is the spreading one');
-  assert.ok(hard.brute.need > hard.backdoor.need * 2,
-    'hammer pays for it in peak draw, which is its only real cost');
-
-  // and the two quiet ones are not the same program with a different blurb:
-  // contagion is touching four buildings, so it is noticed sooner
-  const mid = at('server', 11);
-  assert.ok(mid.contagion.traceAtEnd > mid.backdoor.traceAtEnd,
-    'contagion is the loudest of the quiet ones');
-  assert.ok(mid.contagion.need < mid.backdoor.need, 'and the cheapest of them');
-});
 
 test('programs: covert.ops is what opens a hard door to a slow program', () => {
   const { window } = loadNetwork();
@@ -8253,7 +9233,6 @@ test('hack: a run cannot be called off, by any route', () => {
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   assert.equal(typeof d.abortHack, 'undefined', 'the engine has no such verb');
@@ -8278,7 +9257,6 @@ test('hack: a door that becomes yours mid-run stops being a race at once', () =>
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   assert.ok(d.hackOn(target.id), 'something is working on it');
   assert.ok(d.svgHackLinks().includes('hack-wire'), 'and the map says so');
@@ -8304,7 +9282,6 @@ test('hack: the mark on the map tracks the race, and goes when the hack does', (
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => !h.origin);
   target.owned = false;
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
 
   const b = d.buildingById(target.buildingId);
@@ -8365,7 +9342,6 @@ test('hack: it lands when the work finishes, and the compute comes back', () => 
   });
   if (!target) return;                          // no quiet, reachable door on this board
 
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true, 'the hack started');
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
@@ -8390,7 +9366,6 @@ test('hack: the target traces you, and a hack that loses the race fails and hard
   target.defense = 18;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
-  d.mount('backdoor');
   ungrant(d);
 
   const f = d.hackForecast(target, d.mounted());
@@ -8407,25 +9382,6 @@ test('hack: the target traces you, and a hack that loses the race fails and hard
   assert.ok(s.heat > heat, 'and somebody is looking');
 });
 
-test('hack: brute outruns a trace that backdoor loses to — the answer is not fixed', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const target = s.hosts.find(h => !h.origin);
-  target.type = 'corporate';
-  target.defense = 18;
-  ungrant(d);
-
-  const slow = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'backdoor'));
-  const fast = d.hackForecast(target, window.PROGRAMS.find(p => p.id === 'brute'));
-  assert.ok(slow.caught && !fast.caught, 'fast gets in where slow is found');
-  // and pays for it the other way: a bigger rig at once, and much more noise
-  assert.ok(fast.need > slow.need, 'brute wants more running at once');
-  assert.ok(fast.prog.heat > slow.prog.heat, 'and makes far more noise doing it');
-  // while slow is the cheaper thing to fit into a small ceiling
-  assert.ok(slow.need * slow.turns > fast.need * fast.turns,
-    'and is the less efficient way in overall, which is the trade');
-});
 
 test('hack: covert ops is what buys the slow programs their race', () => {
   const { window } = loadNetwork();
@@ -8487,7 +9443,6 @@ test('hack: running hacks draw against the same ceiling as everything else', () 
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
 
-  d.mount('backdoor');
   const drawnBefore = d.drawn();
   d.startHack(target.id);
   assert.equal(d.drawn(), drawnBefore + d.hackDraw(), 'a hack is part of what is running');
@@ -8508,93 +9463,17 @@ test('hack: hacks survive a save, mid-race', () => {
   target.owned = false;
   s.hosts.forEach(h => { h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
-  d.mount('contagion');
   d.startHack(target.id);
   s.card = null; d.endTurn({ silent: true });
 
   const round = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
-  assert.equal(round.mount, 'contagion', 'what you had mounted');
-  assert.equal(round.hacks.length, 1, 'and what it was working on');
+  assert.equal(round.hacks.length, 1, 'what it was working on');
   assert.equal(round.hacks[0].hostId, target.id);
   assert.ok(round.hacks[0].trace > 0, 'with how far it had been noticed');
 });
 
-test('contagion: it lands on more than the door you pointed it at, and picks them itself', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
 
-  // a soft door with soft neighbours, so the rig is big enough for them too
-  const seed = s.hosts.find(h => !h.origin
-    && d.buildingNeighbours(h.buildingId).length >= 3);
-  assert.ok(seed, 'somewhere with several neighbours');
-  seed.owned = false;
-  // a quiet door, so the seed survives its own four turns in the race — and
-  // soft, since the rig is sized for it and that same rig is what has to carry
-  // into whatever is next door
-  seed.type = 'consumer';
-  seed.defense = 8;
-  // all but one neighbour freed up as somewhere to spread to — the one left
-  // held is what makes the seed a frontier at all, and without it there is
-  // nothing to launch from
-  const all = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  const nbrs = all.slice(1);
-  nbrs.forEach(n => { n.owned = false; n.defense = 2; });
-  assert.ok(all[0].owned, 'and something of yours to reach from');
 
-  d.mount('contagion');
-  assert.equal(d.startHack(seed.id), true);
-  // hackStep directly rather than whole turns: with the board this full, four
-  // turns of world is violent enough to take ground off you mid-run and shed
-  // the hack for want of power, which is real behaviour but not this claim
-  for (let i = 0; i < P.turns; i++) d.hackStep();
-
-  assert.equal(seed.owned, true, 'the door it was pointed at opened');
-  const spread = nbrs.filter(n => n.owned).length;
-  assert.ok(spread > 0, 'and it did not stop there');
-  assert.ok(spread <= P.spread - 1, `never more than the program says (${spread})`);
-});
-
-test('contagion: a neighbour harder than the rig simply holds', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
-  const nbrs = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  nbrs.forEach(n => { n.owned = false; n.defense = 999; });
-
-  // a rig sized for a soft door cannot carry into a hard one
-  const took = d.spreadFrom(seed, { allocated: 1 }, P);
-  assert.equal(took.length, 0, 'nothing beside it gave');
-  assert.ok(s.log.some(l => /held/.test(l.text)), 'and the player is told why');
-});
-
-test('contagion: it will walk onto ground the rival is holding, which nothing else does', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  const seed = s.hosts.find(h => !h.origin && d.buildingNeighbours(h.buildingId).length >= 1);
-  const victim = d.hostsIn(d.buildingById(d.buildingNeighbours(seed.buildingId)[0]))[0];
-  assert.ok(victim, 'there is something next door');
-  victim.owned = false;
-  victim.defense = 1;
-
-  s.rival = s.rival || { awake: true, buildings: [], lastActed: 0, seen: true };
-  s.rival.buildings = [victim.buildingId];
-  assert.equal(d.rivalHolds(victim.buildingId), true, 'the rival has it to begin with');
-
-  const took = d.spreadFrom(seed, { allocated: 50 }, P);
-  assert.ok(took.indexOf(victim) !== -1, 'contagion took it anyway');
-  assert.equal(d.rivalHolds(victim.buildingId), false, 'and it is not theirs any more');
-  assert.equal(victim.owned, true, 'it is yours');
-});
 
 test('hack UI: the target panel shows the whole race before you commit', () => {
   const { window } = loadNetwork();
@@ -8605,7 +9484,6 @@ test('hack UI: the target panel shows the whole race before you commit', () => {
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
   assert.ok(target, 'a door to look at');
 
-  d.mount('backdoor');
   const f = d.hackForecast(target, d.mounted());
   const html = d.targetPanel(target);
   assert.ok(html.includes(d.mounted().label), 'it names what is mounted');
@@ -8645,7 +9523,6 @@ test('hack UI: a running hack shows how far in, how close they are, and that it 
   s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
   const target = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
-  d.mount('backdoor');
   assert.equal(d.startHack(target.id), true);
   s.card = null; d.endTurn({ silent: true });
   if (!d.hackOn(target.id)) return;             // caught on a fast target; covered elsewhere
@@ -8672,74 +9549,20 @@ test('hack UI: the race bar is one bar, and the two halves never overrun it', ()
   });
 });
 
-test('hack UI: the rig is a section of its own, and mounting from it takes', () => {
+test('hack UI: the rig is a section of its own, and it is a readout now', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const sec = d.programSection();
   assert.equal(sec.id, 'programs');
-  window.PROGRAMS.forEach(p => {
-    assert.ok(sec.html.includes(p.label), `${p.id} is on the rig screen`);
-    assert.ok(sec.html.includes(p.blurb), `${p.id} says what it is`);
-  });
-  assert.ok(sec.html.includes('mounted'), 'and one of them is marked as running');
-
-  d.mount('contagion');
-  const after = d.programSection();
-  assert.ok(after.html.includes('reaches ' + window.PROGRAMS.find(p => p.id === 'contagion').spread + ' buildings'),
-    'contagion advertises that it does not stop at one');
+  const p = d.mounted();
+  assert.ok(sec.html.includes(p.label), 'it names what is running');
+  assert.ok(sec.html.includes(p.blurb), 'and says what it is');
+  // one program, so there is nothing to offer and nothing to press
+  assert.ok(!/data-prog=/.test(sec.html), 'nothing offers to mount anything');
+  assert.ok(!/reaches \d+ buildings/.test(sec.html), 'and nothing claims to spread');
 });
 
-test('hack UI: contagion states where it might go next, without promising', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  const P = window.PROGRAMS.find(p => p.id === 'contagion');
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
 
-  const seed = s.hosts.find(h => {
-    if (h.origin || d.buildingNeighbours(h.buildingId).length < 3) return false;
-    h.owned = false;
-    const ok = d.isFrontier(h);
-    if (!ok) h.owned = true;
-    return ok;
-  });
-  assert.ok(seed, 'a door with neighbours');
-  seed.type = 'consumer'; seed.defense = 8;
-  const all = d.buildingNeighbours(seed.buildingId)
-    .map(id => d.hostsIn(d.buildingById(id))[0]).filter(Boolean);
-  const open = all.slice(1);
-  open.forEach(n => { n.owned = false; n.defense = 2; });
-
-  d.mount('contagion');
-  const f = d.hackForecast(seed, d.mounted());
-  assert.ok(f.spread, 'a spreading program forecasts its spread');
-  assert.ok(f.spread.upTo > 0, 'it can see somewhere to go');
-  assert.ok(f.spread.upTo <= P.spread - 1, 'and never claims more than the program allows');
-
-  const html = d.targetPanel(seed);
-  assert.ok(html.includes(`up to ${f.spread.upTo} more beside it`), 'the panel says how many');
-  assert.ok(html.includes('its choice'), 'and that the choosing is not yours');
-
-  // a neighbour too hard for the rig is reported as such, not quietly counted
-  open.forEach(n => { n.defense = 999; });
-  const hard = d.hackForecast(seed, d.mounted());
-  assert.equal(hard.spread.upTo, 0, 'nothing it could carry into');
-  assert.equal(hard.spread.holds, open.length, 'and it knows why');
-  assert.ok(d.targetPanel(seed).includes('too hard to carry into'), 'which the panel states');
-});
-
-test('hack UI: a program that does not spread says nothing about spreading', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  const t = s.hosts.find(h => { h.owned = false; const ok = d.isFrontier(h); if (!ok) h.owned = true; return ok; });
-  d.mount('brute');
-  assert.equal(d.hackForecast(t, d.mounted()).spread, null, 'brute has no spread to forecast');
-  assert.ok(!/beside it/.test(d.targetPanel(t)), 'and the panel does not mention any');
-});
 
 // --- what forcing used to do, hacking does now ----------------------------
 
@@ -8774,7 +9597,6 @@ test('parity: Deep Root loosens the block around a door you get through', () => 
   const before = nbrs.map(n => n.defense);
 
   grantTag(d, 'deep_root');
-  d.mount('backdoor');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
   assert.equal(t.owned, true, 'the door opened');
@@ -8783,25 +9605,25 @@ test('parity: Deep Root loosens the block around a door you get through', () => 
     'and what is next to it is softer than it was');
 });
 
-test('parity: the Adjusters count doors kicked in, not doors opened quietly', () => {
+test('parity: the Adjusters count every door you get into', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
   const t = hackTarget(d, { type: 'consumer', defense: 6 });
   assert.ok(t, 'a door');
 
+  // The counter used to split loud from quiet. There is one way in now, so
+  // the split was a distinction with nothing on the other side of it.
   s.timesForced = 0;
-  d.mount('backdoor');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
-  assert.equal(s.timesForced, 0, 'slipping in is not kicking a door in');
+  assert.equal(s.timesForced, 1, 'a door you got into is a door you got into');
 
   const t2 = hackTarget(d, { type: 'consumer', defense: 4 });
   if (!t2) return;
-  d.mount('brute');
   assert.equal(d.startHack(t2.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
-  assert.equal(s.timesForced, 1, 'hammer.exe is what they are counting');
+  assert.equal(s.timesForced, 2, 'and so is the next one');
 });
 
 test('parity: a hack that lands runs the same effects a forced door did', () => {
@@ -8810,7 +9632,6 @@ test('parity: a hack that lands runs the same effects a forced door did', () => 
   const s = d.state;
   const t = hackTarget(d, { type: 'consumer', defense: 6 });
   assert.ok(t, 'a door');
-  d.mount('brute');
   assert.equal(d.startHack(t.id), true);
   for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
 
@@ -8856,7 +9677,6 @@ test('standing: being found inside something wrecks the name and leaves the pape
   const t = hackTarget(d, { type: 'corporate', defense: 22 });
   assert.ok(t, 'a door that notices quickly');
   ungrant(d);
-  d.mount('backdoor');
   const f = d.hackForecast(t, d.mounted());
   if (!f.caught) return;                        // covered by the race tests
 
@@ -8901,10 +9721,13 @@ test('buy: it costs funds and no action, takes nothing by force, and raises both
 
   s.res.funds = d.buyPrice(t) + 5;
   const ap = s.ap, pub = d.pubStanding(), legit = d.legitScore(), heat = s.heat;
+  // if the machine happens to carry a wallet, its contents are yours with it —
+  // a purchase resolves carry like any other take, so account for it exactly
+  const windfall = t.carry === 'wallet' ? t.carryAmt : 0;
   assert.equal(d.buyBuilding(t.id), true);
 
   assert.equal(t.owned, true, 'it is yours');
-  assert.equal(s.res.funds, 5, 'paid for at the asking price');
+  assert.equal(s.res.funds, 5 + windfall, 'paid for at the asking price');
   assert.equal(s.ap, ap, 'and it cost no action — this is a transaction, not a move');
   assert.equal(s.heat, heat, 'nothing was forced, so nothing was noticed');
   assert.ok(d.legitScore() > legit, 'it is the one thing you hold that survives being looked at');
@@ -8918,10 +9741,9 @@ test('buy: taking a business by force is quietly noticed by its trade', () => {
   const t = hackTarget(d, { type: 'till', defense: 6 });
   assert.ok(t, 'a business to take');
   const pub = d.pubStanding();
-  d.mount('brute');
   s.ap = 9;
   assert.equal(d.startHack(t.id), true);
-  d.hackStep();
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
   assert.equal(t.owned, true, 'taken');
   assert.ok(d.pubStanding() < pub, 'and its trade noticed who took it');
 });
@@ -9268,7 +10090,6 @@ test('deck: the machine is on the event context, both halves of it', () => {
   assert.equal(c.grid.power, d.electricity());
   assert.equal(c.grid.idle, d.idleTflops());
   assert.equal(c.rig.mounted, d.mounted().id);
-  d.mount('backdoor');
   assert.equal(d.eventContext().rig.mounted, 'backdoor', 'it follows the rig');
 });
 
@@ -9305,7 +10126,6 @@ test('deck: being traced is remembered, so the aftermath can be a card', () => {
   const t = hackTarget(d, { type: 'corporate', defense: 22 });
   if (!t) return;
   ungrant(d);
-  d.mount('backdoor');
   if (!d.hackForecast(t, d.mounted()).caught) return;
   s.ap = 9;
   assert.equal(d.startHack(t.id), true);
@@ -9325,9 +10145,19 @@ test('deck: the new cards are about the machine, not decoration on it', () => {
   assert.ok(machine.length >= 6, `only ${machine.length} cards about the grid or the rig`);
 
   machine.forEach(e => {
-    // each one must actually turn on the machine's state, not merely mention it
+    // each one must actually turn on the machine's state, not merely mention it.
+    // The "off" side is written out rather than taken from turn one: a fresh
+    // board's spare capacity depends on what the generator handed the seat, so
+    // reading it live made this flake whenever the opening rack was roomy.
     const ctx = d.eventContext();
-    const off = e.cond(ctx);
+    const off = e.cond(Object.assign({}, ctx, {
+      grid: Object.assign({}, ctx.grid, {
+        idle: 0, free: 0, drawn: 0, sites: 0,
+        ap: 0, dev: 0, intel: 0, covert: 0, agents: 0,
+      }),
+      rig: Object.assign({}, ctx.rig, { running: 0, sinceTraced: 99, quiet: true }),
+      held: 0, forced: 0, doors: 0,
+    }));
     const on = e.cond(Object.assign({}, ctx, {
       // the dials are part of the machine too — a card about what your
       // compute is doing is exactly as much about the grid as one about

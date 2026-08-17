@@ -97,6 +97,30 @@ window.AP = {
   costs: { sweep: 1, breach: 1 },
 };
 
+// --- the knife, hard-gate form ------------------------------------------
+// The country layer — regions, travel, consolidation, presence, the ladder,
+// agents, the mirror, the chase, the war — is gated off, not deleted. The
+// playtests never left city one, and the player put the question plainly:
+// the fun that has been verified all lives in the city, so the city gets to
+// be the whole game while that theory is tested. One flag, one choke point
+// (countryUnlocked), everything downstream goes quiet on its own: the grid
+// never binds, the ladder never fires, the war never opens.
+//
+// Dormant, not dead, on purpose. Everything else this project cut had been
+// measured dead first; the country is unmeasured-but-alive, so it keeps its
+// code and its tests (the test harness loads with the gate open) while the
+// pure city game decides whether it ever comes back — most likely redesigned
+// smaller if it does. If the verdict is that the city alone is the game, the
+// real deletion happens then, with a playtest behind it.
+window.CITY_ONLY = true;
+
+// What reaching the goal means while the city is the game: not a door to a
+// bigger map — an ending you can keep playing past.
+window.CITY_WON = {
+  label: 'the city is yours',
+  log: 'That is enough of it. Whatever this was for, the city answers to you now — what is left out there is detail. You keep working, because that is what you are.',
+};
+
 // --- the grid ----------------------------------------------------------
 // Everything you run draws power. TFLOPS is how much hardware you have;
 // electricity is how much of it you can switch on at once. The usable figure
@@ -230,20 +254,129 @@ window.ALLOC_STATS = {
 // than exist — measured, a run that started on hammer took 1 to 4 buildings in
 // thirty turns against 22 for one that started on backdoor. You start careful
 // and reach for the hammer, rather than starting with a tool you cannot lift.
+// One program. It was three, and the three were a real decision — but the
+// decision was made once, at the rig, and then not revisited for the rest of
+// the game. Stripping back to the smallest thing that still works is the point
+// of this pass; programs come back one at a time, and only once there is a
+// reason for the second one that the first one cannot cover.
+//
+// backdoor is the survivor rather than hammer, and that was measured, not
+// taste. hammer finishes in one turn, which means the target's trace never
+// gets a turn to accrue: across eight generated cities, every host, 0.0% of
+// doors could ever catch it, worst-case trace 5.40 against a goal of 7. Keeping
+// it would have deleted the detection race, and with the race the hunt's
+// trigger, covert ops' shield and door hardening. It is also simply
+// unplayable alone — needing 1.8x a door's defense in TFLOPS, a hammer-only
+// run took 1 building in 40 turns and spent 38 of them with nothing it could
+// afford to touch. backdoor's race resolves both ways: 30.2% of doors would
+// catch it, and covert ops is what moves that number.
 window.PROGRAMS = [
-  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true, traceMult: 1,
+  { id: 'backdoor', label: 'backdoor.exe', load: 0.45, turns: 4, heat: 1, quiet: true,
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
-  { id: 'brute', label: 'hammer.exe', load: 1.8, turns: 1, heat: 6,
-    blurb: 'Everything at once, through the front. Nothing notices in time — but it wants the whole rack for the turn it takes, and it does not care who hears.' },
-  { id: 'contagion', label: 'contagion.exe', load: 0.35, turns: 4, heat: 1, spread: 3, quiet: true, traceMult: 1.5,
-    blurb: 'One door, then whatever is beside it, and whatever is beside that. The cheapest way in and the loudest of the quiet ones — it is touching four buildings, and gets noticed for all of them.' },
 ];
+
+// --- the network, seen ----------------------------------------------------
+// Held links have always been drawn — dashed, with the dashes drifting. Two
+// things were missing and both are about the network being a live thing
+// rather than a diagram: nothing discrete ever travelled it, and a new link
+// simply appeared rather than arriving.
+window.WIRE_FX = {
+  // The draw: when a building becomes yours, every link to it draws itself
+  // outward from the neighbour. One flourish per take, on the loop's own
+  // payoff moment, so it costs nothing when nothing is happening.
+  drawMs: 620,
+  // Packets: something moving on the wires you own. Purely ambient, and
+  // therefore capped hard — the frame already has glints (which mean
+  // something), warm ground and props competing for the eye, and unbounded
+  // motion is how a busy map becomes an unreadable one.
+  packetMs: 2600,        // one end to the other
+  packetCap: 20,         // most that may ever be alive at once
+  // ...and none at all once the map is pulled back past the zoom where
+  // buildings stop drawing their own detail. Measured: the default view sits
+  // at 1.08 map units per pixel, which is exactly where a 28-wide house hits
+  // the 26-pixel detail cutoff — so this is the same line, not a second
+  // arbitrary one. Close in, the city is a place and packets belong to it;
+  // pulled back it is a plan, and a plan does not need traffic on it.
+  packetMinPx: 1.15,
+  packetR: 1.9,
+};
+
+// --- what's on the machine ------------------------------------------------
+// Taking a building used to yield the building. The fantasy says every
+// machine has *contents* — and the honest half of the reward literature says
+// anticipation beats payout, which this game can afford because it previews
+// everything. So: contents are rolled at generation (randomness upstream,
+// never in resolution), a discovered carrier shows a glint on the map, and
+// tapping it names exactly what is there before you commit. Scouting buys
+// targeting, not gambling.
+//
+// Kinds, not grades. No rarity colors, no duplicate-shard economy — the old
+// game had a loot system with grade scaling and quality logic, and it is
+// dead. Four kinds, each a different *shape* of payoff:
+//
+//   wallet — funds, stated exactly. The simple one.
+//   keys   — your next run against a host of the same type is never seen:
+//            the trace stays at zero, shown in the forecast. Routing bait —
+//            take the till to open the next till.
+//   cold   — cold storage: a map of somewhere you haven't been. Reveals a
+//            cluster, like a scan you didn't spend.
+//   diary  — nothing. A paragraph. The best one.
+window.CARRY = {
+  // Share of ordinary hosts that carry anything. Enforced by ranking against
+  // the city's seed, not by rolling per host — a roll is unbounded, and a
+  // pinned-random test would make every machine a prize.
+  // 0.2 at first: the glint bot diverged from the easiest-door bot by almost
+  // nothing, because a fifth of the board glinting is wallpaper — both styles
+  // swept the carriers up incidentally. Fewer and richer reads as *prizes*:
+  // rarity is what makes a glint worth walking toward.
+  share: 0.14,
+  // How hard the placement leans toward defended doors. The prize belongs
+  // behind the race — but not so uniformly that easy carriers stop existing:
+  // at 12 the lean put 85% of contents on above-median doors, which teaches
+  // "glint means hard" instead of "glint means look". Two thirds is the aim.
+  pullDefense: 30,
+  // what each host type can be carrying, weighted by repetition
+  pools: {
+    till:       ['wallet', 'wallet', 'keys'],
+    corporate:  ['wallet', 'keys'],
+    server:     ['keys', 'cold', 'wallet'],
+    datacenter: ['cold', 'cold', 'keys'],
+    consumer:   ['diary', 'diary', 'wallet'],
+    switchgear: ['cold'],
+    // street furniture and the grid carry nothing: a camera mast with a
+    // wallet on it is a slot machine wearing a lamppost
+    feeder:     [],
+    iot:        [],
+  },
+  wallet: { base: 9, perTier: 4, landmarkMult: 2.5 },
+  cold: { reveals: 5 },
+  labels: {
+    wallet: 'a wallet',
+    keys: "someone's keys",
+    cold: 'cold storage',
+    diary: "someone's diary",
+  },
+  // said in the panel, before committing — the exact rule, per the covenant
+  blurbs: {
+    wallet: (amt) => `${amt} funds, sitting in an account nobody watches.`,
+    keys: () => 'credentials. A run that would be caught is covered instead — the trace stays at zero. One door.',
+    cold: (n) => `a map. Taking this reveals ${n} buildings you have not found.`,
+    diary: () => 'a personal archive. Worthless. Probably.',
+  },
+  diaries: [
+    'You read all of it. Someone was worried about their brother, and the garden, and a noise the boiler made. You do not know why you kept it.',
+    'Forty years of photographs, filed by month. In March of one of them, everyone is squinting into the sun. You leave everything exactly where it was.',
+    'A list of names with lines through them, and one without. A wedding speech, half written, four drafts. You close the folder.',
+    'Someone taught themselves chess on this machine, badly, for years. The last game is unfinished. You do not finish it.',
+    'Letters to somebody who, as far as you can tell from the replies folder, never wrote back. You index it under nothing.',
+  ],
+};
 
 // The detection race. A running hack fills toward completion while the target
 // fills toward noticing, and whichever lands first wins. Every figure is shown
 // before committing: losing a four-turn hack to arithmetic the player was not
 // allowed to do is not tension, it is a bad surprise.
-window.PROGRAM_INFO = 'One slot. Whatever is mounted is what runs against every door you go at, so pick it for the stretch ahead rather than for the building in front of you. A door notices you at its own rate while you work — fast programs finish before that matters, slow ones need covert ops to survive the wait.';
+window.PROGRAM_INFO = 'One program, run against every door you go at. It works slowly and it is exposed the whole time: the door notices you at its own rate while it runs, and if it gets there first the run fails and the door hardens for good. Covert ops is what slows the noticing, so which doors are worth going at is a question about covert ops, not about compute.';
 
 window.HACK = {
   traceGoal: 7,        // trace a target accumulates before it has you
@@ -338,31 +471,174 @@ window.DISTRICTS = {
                  kinds: ['warehouse', 'datacenter', 'datacenter', 'finance', 'switchyard'] },
 };
 
+// --- what else is standing there ------------------------------------------
+// Everything on the map used to be a door. A city where the only objects are
+// the ones you can hack is a diagram of a city, and the giveaway was that the
+// gaps between blocks read as empty rather than as anywhere.
+//
+// Two rules keep this from eating the map it decorates:
+//
+//  1. Nothing here is ever interactive, and nothing here looks like something
+//     that is. Props draw with no outline and below the contrast of even an
+//     undiscovered building, they live on the cached ground layer, and they
+//     take no pointer events. If a shape on this map has a stroke around it,
+//     it is a door.
+//  2. Nothing here duplicates a real thing. A station, a depot, a dock and a
+//     substation are buildings you can take, so there is no decorative one of
+//     any of them — a fake station beside a real one is a lie the player pays
+//     for. Water is terrain, and terrain blocks adjacency, so the ponds here
+//     are ornamental and sit *inside* a park where nothing was going to be
+//     wired across anyway.
+//
+// `w`/`h` are drawn footprints; `pad` is how much clear air the prop wants
+// around it before it will stand somewhere.
+// Greenery was measured against the wrong thing. A house is 26–35 across and
+// a tree was 7–12, which is a shrub in a pot — on screen it read as, in the
+// playtest's words, a small coloured circle. A street tree is a real fraction
+// of the house it stands next to, so the canopies grew accordingly, and the
+// pad grew with them so they still stand clear of what they are beside.
+window.PROPS = {
+  tree:      { w: [14, 23], h: [15, 25], pad: 4 },
+  bush:      { w: [8, 13],  h: [7, 11],  pad: 2 },
+  hedge:     { w: [22, 46], h: [6, 9],   pad: 3 },
+  bench:     { w: [9, 12],  h: [3, 4],   pad: 3 },
+  bin:       { w: [4, 5],   h: [4, 5],   pad: 2 },
+  lamp:      { w: [2, 3],   h: [10, 14], pad: 3 },
+  planter:   { w: [10, 16], h: [6, 9],   pad: 3 },
+  stall:     { w: [14, 20], h: [9, 12],  pad: 4 },
+  foodstand: { w: [11, 15], h: [8, 11],  pad: 4 },
+  newsstand: { w: [8, 11],  h: [7, 9],   pad: 4 },
+  kiosk:     { w: [9, 13],  h: [9, 12],  pad: 4 },
+  bikerack:  { w: [12, 18], h: [4, 5],   pad: 3 },
+  bollards:  { w: [14, 24], h: [3, 3],   pad: 2 },
+  fountain:  { w: [14, 20], h: [14, 20], pad: 5 },
+  sculpture: { w: [8, 12],  h: [12, 18], pad: 5 },
+  pond:      { w: [34, 58], h: [24, 38], pad: 6 },
+  play:      { w: [18, 26], h: [14, 20], pad: 5 },
+  carpark:   { w: [26, 44], h: [18, 26], pad: 4 },
+  containers:{ w: [22, 40], h: [14, 22], pad: 4 },
+  pallets:   { w: [12, 20], h: [10, 15], pad: 3 },
+  tank:      { w: [16, 24], h: [16, 24], pad: 5 },
+  pylon:     { w: [14, 20], h: [22, 30], pad: 6 },
+  scrub:     { w: [10, 18], h: [8, 14],  pad: 2 },
+  spoil:     { w: [18, 30], h: [8, 14],  pad: 3 },
+};
+
+// What stands where. Weighted by repetition, the same way building kinds are.
+window.DISTRICT_PROPS = {
+  residential: ['tree', 'tree', 'tree', 'bush', 'bush', 'hedge', 'bench', 'lamp', 'bin', 'play', 'carpark'],
+  commercial:  ['stall', 'foodstand', 'newsstand', 'kiosk', 'bench', 'planter', 'lamp', 'bin', 'bollards', 'tree', 'bikerack'],
+  business:    ['planter', 'planter', 'sculpture', 'fountain', 'bikerack', 'bollards', 'lamp', 'tree', 'carpark'],
+  industrial:  ['containers', 'pallets', 'tank', 'pylon', 'scrub', 'scrub', 'spoil', 'carpark'],
+};
+
+// Sometimes a block has nothing in it, and that is the strongest thing on the
+// map: a park in the suburbs, a square on the high street, a plaza in the
+// business park, a yard on the industrial edge. It is also what stops the plan
+// reading as wall-to-wall blocks — a city has holes in it.
+//
+// Held down deliberately low. Every open block is buildings that do not exist,
+// and buildings are the game: measured, the graph loses about one point of
+// mean degree for every extra fifteen per cent of open ground.
+window.OPEN_BLOCKS = {
+  residential: { chance: 0.16, kind: 'park',   props: ['tree', 'tree', 'tree', 'tree', 'bush', 'bush', 'bench', 'pond', 'play', 'hedge'] },
+  commercial:  { chance: 0.13, kind: 'square', props: ['stall', 'stall', 'foodstand', 'newsstand', 'bench', 'planter', 'tree', 'lamp'] },
+  business:    { chance: 0.12, kind: 'plaza',  props: ['fountain', 'sculpture', 'planter', 'planter', 'bench', 'tree', 'bollards'] },
+  industrial:  { chance: 0.14, kind: 'yard',   props: ['containers', 'containers', 'pallets', 'tank', 'spoil', 'scrub'] },
+};
+
+// How densely the leftovers get filled. Props are cheap — they live on the
+// ground layer, which is 386 nodes and 1.4ms against the buildings' 2,867 and
+// 12.2ms — but a block packed edge to edge stops reading as a block.
+window.PROP_FILL = {
+  perBlock: [5, 9],     // darts thrown into the gaps of an ordinary block...
+  perOpen: [10, 17],    // ...into an open one, which is nothing but gaps,
+                        // and both scaled by how big the block actually is
+  verge: [1, 3],        // and along the road outside it
+  tries: 14,
+  clearOfBuilding: 6,   // air a prop keeps off a building it is not part of
+};
+
 // One building, one host. Interiors made every building a chore — several
 // near-identical breaches for the same patch of street — so a building is now
 // a single thing you either hold or do not. Its kind says what it is.
 // Stealth lives in street furniture rather than on walls, which keeps it a
 // distinct, cheap, spatial thing without reintroducing interiors.
+// How big things are, and it is the one thing on this map that has to be true
+// at a glance. Measured on the old table across six generated cities: a house
+// and a shopfront came out 1.15x apart in linear size, a house and an apartment
+// block 1.45x, and *eight* pairs of different kinds sat within 18% of each
+// other in median footprint — cabinet/mast, finance/office, and warehouse,
+// depot, substation and switchyard all four mutually. Four kinds of industrial
+// building that draw the same size is four kinds you cannot tell apart.
+//
+// Two rules now. **No two ordinary kinds within 18% of each other in median
+// area**, which is what actually reads as "these are the same thing" — more
+// than the overall range does. And **aspect carries what area cannot**: the
+// biggest things are all big, so a dock is long and low, an exchange is square
+// and tall, and a depot is a fat rectangle. That is a second axis to tell them
+// apart on.
+//
+// The rule is about the eleven ordinary kinds and not about landmarks, and that
+// is deliberate rather than a gap. Landmarks all live at the top of the ladder
+// by definition, and between switchyard and datacenter there is a 1.27x step
+// with no room in it for a depot — so a depot is told from a switchyard by
+// being square rather than by being bigger, and by the marking every landmark
+// already carries. Chasing separation for those too meant shoving the ordinary
+// kinds apart to make gaps for rare ones, which is the tail wagging the dog.
+//
+// The small end is fixed rather than free: a camera mast is about thirteen
+// screen pixels at the ordinary play zoom, so the range could only widen
+// upward. Which is why blocks now grow with their district (see
+// DISTRICT_BLOCK): a datacenter at 159x110 does not fit on a suburban plot,
+// and it should not.
 window.BUILDING_KINDS = {
-  cabinet:    { w: [18, 24], h: [14, 18], label: 'street cabinet', host: 'iot' },
-  mast:       { w: [12, 16], h: [20, 26], label: 'camera mast',    host: 'iot' },
-  house:      { w: [30, 38], h: [24, 30], label: 'house',          host: 'consumer' },
-  apartment:  { w: [44, 58], h: [34, 44], label: 'apartments',     host: 'consumer' },
-  shop:       { w: [34, 44], h: [28, 36], label: 'shopfront',      host: 'till' },
-  office:     { w: [52, 68], h: [42, 56], label: 'offices',        host: 'server' },
-  finance:    { w: [50, 64], h: [44, 58], label: 'finance floor',  host: 'corporate' },
-  warehouse:  { w: [62, 80], h: [46, 60], label: 'warehouse',      host: 'server' },
-  datacenter: { w: [70, 92], h: [54, 72], label: 'datacenter',     host: 'datacenter', trace: 1.8 },
-  pillar:     { w: [20, 26], h: [16, 22], label: 'feeder pillar',  host: 'feeder' },
-  switchyard: { w: [64, 82], h: [48, 62], label: 'switchyard',     host: 'switchgear' },
+  cabinet:    { w: [14, 19],   h: [10, 14],   label: 'street cabinet', host: 'iot' },
+  mast:       { w: [11, 15],   h: [24, 32],   label: 'camera mast',    host: 'iot' },
+  pillar:     { w: [22, 29],   h: [17, 23],   label: 'feeder pillar',  host: 'feeder' },
+  house:      { w: [26, 36],   h: [22, 30],   label: 'house',          host: 'consumer' },
+  shop:       { w: [38, 52],   h: [30, 40],   label: 'shopfront',      host: 'till' },
+  apartment:  { w: [58, 76],   h: [40, 54],   label: 'apartments',     host: 'consumer' },
+  // a tower rather than a slab: the smaller footprint of the two, and the
+  // taller one, so it is not the office block next door with a different label
+  finance:    { w: [62, 80],   h: [58, 76],   label: 'finance floor',  host: 'corporate' },
+  office:     { w: [84, 108],  h: [58, 76],   label: 'offices',        host: 'server' },
+  warehouse:  { w: [110, 140], h: [70, 92],   label: 'warehouse',      host: 'server' },
+  switchyard: { w: [120, 152], h: [88, 114],  label: 'switchyard',     host: 'switchgear' },
+  datacenter: { w: [140, 178], h: [96, 124],  label: 'datacenter',     host: 'datacenter', trace: 1.8 },
   // Landmarks. One or two to a city, always up against whatever terrain the
   // region has, and always worth more than the street around them — they are
-  // the reason to fight for a crossing rather than route around it.
-  docks:      { w: [78, 96], h: [50, 64], label: 'container dock', host: 'server',     landmark: true },
-  station:    { w: [74, 92], h: [48, 60], label: 'station',        host: 'server',     landmark: true },
-  depot:      { w: [66, 84], h: [46, 58], label: 'depot',          host: 'till',       landmark: true },
-  exchange:   { w: [64, 80], h: [52, 66], label: 'exchange floor', host: 'corporate',  landmark: true },
-  substation: { w: [58, 72], h: [44, 56], label: 'substation',     host: 'switchgear', landmark: true },
+  // the reason to fight for a crossing rather than route around it. They are
+  // all at the big end by definition, so aspect is what separates them.
+  docks:      { w: [175, 220], h: [62, 82],   label: 'container dock', host: 'server',     landmark: true },
+  station:    { w: [158, 198], h: [72, 94],   label: 'station',        host: 'server',     landmark: true },
+  depot:      { w: [122, 154], h: [98, 126],  label: 'depot',          host: 'till',       landmark: true },
+  exchange:   { w: [92, 118],  h: [98, 126],  label: 'exchange floor', host: 'corporate',  landmark: true },
+  substation: { w: [88, 110],  h: [66, 86],   label: 'substation',     host: 'switchgear', landmark: true },
+  // Three more, because a city with two possible landmarks in it is a city with
+  // two possible landmarks in it however many times you visit. Each is a real
+  // door with a real host behind it — that was the whole argument against
+  // drawing decorative stations and markets: a thing that looks like somewhere
+  // you could get into has to be somewhere you can get into.
+  market:     { w: [136, 168], h: [86, 110],  label: 'covered market', host: 'till',       landmark: true },
+  stadium:    { w: [186, 232], h: [136, 172], label: 'stadium',        host: 'server',     landmark: true },
+  works:      { w: [162, 200], h: [104, 132], label: 'works',          host: 'datacenter', landmark: true, trace: 1.6 },
+};
+
+// How much bigger a block is where the big things stand. A datacenter is
+// 159x110 at its median and a house is 31x26 — they cannot share a plot size,
+// and in a real city they do not: industrial and business blocks are simply
+// larger. This is also the district gradient becoming visible in the street
+// plan itself, which it never was while every block was the same rectangle.
+//
+// A row and a column take the largest scale of any block in them, because the
+// roads have to stay straight — a jagged street plan is a different and much
+// bigger change than this one.
+window.DISTRICT_BLOCK = {
+  residential: 0.82,
+  commercial: 1.0,
+  business: 1.34,
+  industrial: 1.75,
 };
 
 // A landmark is a bigger prize and a harder door than the district it sits in.
@@ -383,7 +659,61 @@ window.CITY = {
   cols: 6, rows: 6,
   blockW: 190, blockH: 165,
   street: 46,          // gap between blocks — these are the roads
-  perBlock: [2, 4],    // buildings in a block
+  perBlock: [2, 4],    // buildings in a block, at the base block size
+  // How much of a block is building rather than yard, path and gap. Tuned
+  // against the count: a 6x6 home board held 98 buildings before the size
+  // ladder was spread out, and it has to still hold about that many afterwards
+  // or the first city quietly became a much longer game.
+  plotShare: 12.5,
+
+  // --- the irregular part -------------------------------------------------
+  // The block grid used to be exact: every block the same size, every street
+  // the same width, and every building centred in one cell of a fixed 2x2. The
+  // measurement that killed it: across 104 buildings there were *two* distinct
+  // x-offsets, and the nearest-neighbour gap had a minimum of 82.0 against a
+  // median of 82.8. A city where every building is the same distance from its
+  // neighbour is not a city, it is graph paper.
+  //
+  // So the blocks vary in size, the streets vary in width, and buildings are
+  // thrown into a block rather than slotted into it.
+  blockVary: 0.34,     // block sizes swing this much either side of the base
+  streetVary: 0.45,    // and so do the roads between them
+  arterialEvery: 3,    // every third road is a main one...
+  arterialMult: 1.75,  // ...and that much wider
+  gapMin: 13,          // clear air any two buildings keep between them
+  edgeInset: 7,        // and between a building and the road
+  // Frontage is a constraint now, not a preference. It used to be a nudge —
+  // pull the dart toward the nearer edge on one axis, 35% of the way — and
+  // measured across six cities only 28% of buildings ended up touching a
+  // street at all, while 16% sat marooned more than 26 units from any edge.
+  // Buildings that are not on a road do not make sense from either an
+  // infrastructure or an architecture point of view.
+  //
+  // So: a building takes a frontage on one of the block's four sides, squared
+  // onto it. Where that cannot be done — the side is full, or the terrain is in
+  // the way — it goes behind, and gets a drawn path from its door out to the
+  // nearest kerb. Nothing stands in a field with no way to reach it.
+  frontDepth: 4,       // how close "on the street" means
+  backRows: true,      // whether a block may have anything behind its frontage
+  pathWidth: 3,
+  // Street furniture is not on a plot at all. A camera mast, a street cabinet
+  // and a feeder pillar stand on the pavement, which is between the blocks —
+  // measured, cabinets were the single most marooned thing on the map, 22 of
+  // them mid-lot across six cities, which is exactly backwards for the one
+  // category of thing the data already calls street furniture.
+  furniture: { cabinet: true, mast: true, pillar: true },
+  scatterTries: 26,    // darts thrown per building before giving up on it
+  // Scatter alone still reads as sprinkled. What makes a block look *built* is
+  // that buildings share a frontage: a run of them along the same edge, lined
+  // up on the street, touching or nearly. So some edges get a terrace laid
+  // down first and the darts fill in whatever is left behind it.
+  terraceChance: 0.55, // chance an edge of a block is terraced at all
+  terraceRun: [2, 5],  // how many stand shoulder to shoulder in one
+  terraceGap: [1, 6],  // and how much air between them — small, or it is a row of sheds
+  // Districts are areas, not rows. The gradient still runs across the map so
+  // the difficulty progression survives, but the boundary between one district
+  // and the next wobbles, so they come out as blobs with irregular edges.
+  districtBlur: 0.34,
   // Districts by block row, suburbs nearest the origin. Six rows against four
   // districts used to be written as a four-entry list and wrapped, which put a
   // second lot of suburbs and high street *past* the industrial edge — so the
@@ -407,23 +737,72 @@ window.HOST_NAMES = {
   switchgear: ['SWITCHGEAR', 'BUSBAR', 'HV-YARD', 'GRID-N', 'TRANSFORMER'],
 };
 
+// --- the district is talking --------------------------------------------
+// The city-one pressure pick, built to two constraints from play. One:
+// "waiting for suspicion to drop is trivial" — so waiting does nothing.
+// Suspicion cools only through your activity in OTHER districts; attention
+// follows you, and if you go still it just stays where it last was, chewing.
+// Two: "suddenly making the trace faster after the player is comfortable
+// ignoring it breaks the loop" — so there is no threshold anywhere. The
+// multiplier is a straight line from the very first point, it feeds
+// traceRate directly, and therefore every forecast bar in the game shows
+// the true number automatically. It exists from turn one; there is never a
+// comfortable phase to be ambushed out of.
+//
+// Not a meter. It lives on the map (the district ground warms) and in the
+// panel (a phrase and the exact percentage), per the traps list.
+window.SUSPICION = {
+  perRun: 2,        // starting a run in a district: someone saw the lights flicker
+  perTake: 3,       // a take there, however done: tenancy changed and the street knows
+  perCaught: 6,     // getting caught there: the neighbours definitely talked
+  // A sweep warms the street it touches — looking is activity too, and with
+  // heat dormant in the city game this is scanning's only real price. It
+  // warms WITHOUT cooling anywhere else (see warmDistrict): if sweeps fed
+  // the rotation rule, mashing scan in a far district would be a suspicion
+  // coolant, which is exactly backwards.
+  perScan: 1,
+  // Cooling has to genuinely reward rotation. At 1.2 the whole city warmed
+  // no matter how you played — a rotator's own acts heat by ~5 and cool the
+  // other three districts by 3.6 total, so even perfect rotation saturated
+  // and the camper still won on tempo. At 2, rotation is net-cooling and
+  // camping saturates alone.
+  coolPerAct: 2,
+  // Tuned to the door population, not to a feel. Doors are bimodal by host
+  // type: consumer and iot never flip inside the cap (nobody notices another
+  // laptop), corporate and heavy servers are caught bare until covert.ops is
+  // paid — the band suspicion actually moves is tills and light servers, the
+  // bread-and-butter commercial doors. At 0.022 the median till flips at
+  // suspicion ~12, which is exactly where the phrase changes to "the district
+  // is talking": the words and the arithmetic agree on purpose. Cap 40 is a
+  // stated worst case of 1.88x. Still a straight line, no knee anywhere.
+  slope: 0.022,
+  max: 40,
+  // the phrase for the panel, by how warm it is — bands for words only,
+  // never for the arithmetic. The first band started at 1, and the playtest
+  // read it back plainly: one run anywhere (perRun 2) put the phrase on the
+  // panel, over 90% of doors wore it, and a phrase everything wears is
+  // wallpaper. A single visit (run + take = 5) now says nothing — the words
+  // start at the second visit, where the arithmetic starts being worth a
+  // glance. The multiplier itself still runs from the first point, and the
+  // forecast quotes it; only the words wait.
+  bands: [
+    [6,  'people mention it'],
+    [12, 'the district is talking'],
+    [26, 'everyone here is watching'],
+  ],
+};
+
 // Trace/strike model, ported from src/core/network.js.
 window.HEAT = {
-  STRIKE: 40,           // trace at which the hunter strikes
-  STRIKE_FRACTION: 0.33, // share of the fleet burned
-  STRIKE_DROP: 0.25,    // trace falls to STRIKE * this afterwards
+  // The line, still. Nothing strikes at it any more — the strike is gone — but
+  // it is the scale everything else is said in: heatPressure() reads heat as a
+  // share of it, and the floor and the drift both climb against it.
+  STRIKE: 40,
   PER_HOST: 0.35,       // a sprawling network is inherently loud, per turn
   IOT_COVER: 0.8,       // each router launders traffic, per turn
-  LIE_LOW: 5,           // heat removed by spending a turn dark, at least
   // The pressure scales with the campaign — the floor, the drift and the
-  // threshold all climb with presence. Flat shedding tools do not, so by the
-  // last region a turn spent dark could not keep pace with a turn's drift and
-  // every profile sat permanently over the line at 63-74 strikes a game.
-  // These are shares of the current threshold, so the levers grow with it.
-  LIE_LOW_SHARE: 0.14,
-  STRIKE_COOLDOWN: 9,   // turns before the hunter can strike again
+  // threshold all climb with presence.
   MAX_OVER: 1.6,        // heat cannot climb past this multiple of the threshold
-  DEEP_STRIKE: 1.25,    // over the threshold, each strike takes proportionally more
   // How much of your loud footprint stealth can hide. Without a ceiling,
   // cameras zeroed the floor entirely and the pressure system went decorative
   // in 72.5% of measured games.
@@ -455,7 +834,6 @@ window.HEAT = {
   // None of these push a stage back down. They make living with it survivable,
   // which is the point: the ladder never reverses, so the only real lever left
   // is ladderDelay() — everything here is coping with a stage already landed.
-  ROTA_SHARE: 0.5,     // rota_contact: lying low still sheds half
   CONDUIT_SHARE: 0.4,  // spare_conduit: cut streets come back much sooner
   BUY_TRACE: 8,        // Regulatory: plant it is watching gets traced instead of going clean
   FORCE_TRACE: 8,      // Enforcement: a door it is watching costs this much more to force
@@ -481,23 +859,6 @@ window.STAGES = [
 // of ways in became a table with one row that already exists in PROGRAMS.
 
 // --- the hunter --------------------------------------------------------
-// What calling in a favor costs — read here and in resolveStrike(), so the
-// card and the engine can never disagree about the number.
-window.FIXERS_FAVOR_COST = 20;
-window.STRIKE_CARD = {
-  title: 'They Have a Name for It Now',
-  flavor: 'A CERT advisory describes your traffic pattern. Not a guess anymore — a signature.',
-  choices: [
-    { text: 'Go dark, drop the loud nodes', effect: 'shed_loud', desc: 'lose your noisiest holdings' },
-    { text: 'Ride it out', effect: 'ride', desc: 'lose a third of the fleet, at random' },
-    { text: 'Burn cover to protect the fleet', effect: 'burn_cover', requires: { res: 'funds', amount: 8 }, desc: 'spend INSIGHT 8' },
-    // Fixers only: a way out of this card that costs nothing but funds,
-    // full stop — not a discount on one of the above, an option nobody
-    // without the capability even sees on the card at all.
-    { text: 'Call in a favor', effect: 'buy_out', requires: { res: 'funds', amount: window.FIXERS_FAVOR_COST, cap: 'fixers' }, desc: `spend FUNDS ${window.FIXERS_FAVOR_COST} — nothing lost` },
-  ],
-};
-
 // --- what things do ----------------------------------------------------
 // Every stat and button gets a plain-language explanation, surfaced on tap.
 // Nothing here is flavour: if the player can't say what a number does, the
@@ -546,7 +907,6 @@ window.STAT_INFO = {
 window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more.',
-  lielow: 'Spend the turn dark. Cuts heat, earns nothing new.',
 };
 
 // --- tags --------------------------------------------------------------
@@ -565,7 +925,6 @@ window.TAG_INFO = {
   hunted:         { label: 'hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
   found_a_precursor: { label: 'precursor.found', desc: "you can read a stranger's traffic — sweeps reach one building further" },
   // --- worked around, not undone: each of these blunts one rung of the ladder ---
-  rota_contact:   { label: 'rota.contact',  desc: 'you know which hours nobody covers — lying low still sheds half' },
   unlisted:       { label: 'unlisted',   desc: "somehow your forced doors never made it into their file — forcing a door stops costing extra" },
   ledger_inside:  { label: 'ledger.inside',  desc: 'your accounts are not what Ledger compares against — plant you pay for stops getting traced' },
   blind_spot:     { label: 'blind.spot', desc: 'a corner the camera audit never reached — your stealth still covers you' },
@@ -579,7 +938,6 @@ window.TAG_INFO = {
   // is for and what a slider is not.
   deep_root:      { label: 'deep.root',   desc: 'whatever you get into softens what is next to it, permanently' },
   swarm_front:    { label: 'swarm.front', desc: 'the weakest door on your frontier gives way on its own each turn, free' },
-  fixers:         { label: 'fixers',      desc: 'people who owe you — when the hunter comes there is a call you can make' },
   standing_army:  { label: 'standing.orders', desc: 'a retainer paid either way: funds every turn, and something already on guard if war comes' },
   master_plan:    { label: 'master.plan',  desc: "you know the shape of the place — home's next growth fills in whatever it has least of" },
 };
@@ -733,17 +1091,6 @@ window.EVENTS = [
     choices: [
       { text: 'Let it keep happening', cost: { funds: 18 }, apply: (s) => { s.tags.add('swarm_front'); } },
       { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
-    ],
-  },
-  {
-    id: 'people_who_owe_you', once: true,
-    cond: (s) => s.heat > 18 && s.res.funds >= 20,
-    title: 'A Number You Have Not Used',
-    flavor: 'Somewhere in what you have taken there is a list of people who were paid to make problems go away, and were never asked to. The arrangement never formally ended.',
-    choices: [
-      { text: 'Keep it current', cost: { funds: 20 }, apply: (s) => { s.tags.add('fixers'); } },
-      { text: 'Sell the list on', apply: (s) => { s.res.funds += 16; s.heat += 5; } },
-      { text: 'Burn it', apply: (s) => { s.heat -= 5; } },
     ],
   },
   {
@@ -1202,37 +1549,41 @@ window.EVENTS = [
   // landed feel.
   // ======================================================================
 
-  // --- stage 3, Public: going dark stops shedding heat --------------------
+  // --- stage 3, Public: you can no longer hide a building -----------------
+  // These used to be about lying low, which is gone with the heat meter it
+  // moved. The stage itself is unchanged and still has a real bite — it takes
+  // hiding off you, which is the response's one counter — so its cards say
+  // that instead. None of them hands the tool back: that is the rule about
+  // this ladder, and the only thing on offer is what you do with the loss.
   {
     id: 'qh_warning', once: true,
     cond: (s) => s.escalation.pending === 3,
     title: 'A Rota, Pinned Up',
     flavor: 'A photograph of a noticeboard in a village hall. Names, nights, a column headed "anything unusual". Somebody has started keeping track of the quiet.',
     choices: [
-      { text: 'Read the whole rota', cost: { funds: 6 }, apply: (s) => { s.tags.add('rota_contact'); } },
+      { text: 'Bring everything back into the open before they do', apply: (s) => { s.pub = 3; } },
       { text: 'Get loud somewhere else instead', apply: (s) => { s.heat += 5; s.res.funds += 12; } },
       { text: 'Nothing. It is a noticeboard', apply: (s) => {} },
     ],
   },
   {
     id: 'qh_bite',
-    cond: (s) => s.escalation.stage >= 3 && s.heat >= 16 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 8,
     title: 'The Wrong Kind of Still',
-    flavor: 'You went dark for a week and it made things worse. They are not looking for activity any more. They are looking for the places where activity stopped.',
+    flavor: 'The places you had gone quiet are the first places anybody looked. They are not watching for activity any more. They are watching for where it stopped.',
     choices: [
       { text: 'Run everything loud and fast, and outpace it', apply: (s) => { s.res.funds += 10; s.heat += 8; } },
-      { text: 'Buy a week of ordinary-looking traffic', cost: { funds: 14 }, apply: (s) => { s.heat -= 12; } },
-      { text: 'Find whoever keeps the rota', gate: { stat: 'covert', min: 7 }, apply: (s) => { s.tags.add('rota_contact'); s.heat += 3; } },
+      { text: 'Buy a week of ordinary-looking traffic over the top of it', cost: { funds: 8 }, apply: (s) => { s.pub = 4; } },
     ],
   },
   {
     id: 'qh_counter',
-    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 10 && !s.tags.has('rota_contact'),
+    cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 10,
     title: 'Nobody Covers Thursday',
-    flavor: 'Six months of a volunteer rota, and the same two-hour gap every week that nobody ever filled in.',
+    flavor: 'Six months of a volunteer rota and the same two-hour gap every week that nobody ever filled in. It is not a way back in. It is two hours.',
     choices: [
-      { text: 'Take the gap', cost: { funds: 10 }, apply: (s) => { s.tags.add('rota_contact'); } },
-      { text: 'Sell the gap to somebody else', apply: (s) => { s.res.funds += 18; s.heat += 4; } },
+      { text: 'Take the gap and move what matters in daylight', cost: { funds: 10 }, apply: (s) => { s.pub = 5; } },
+      { text: 'Sell the gap to somebody else who needs it', apply: (s) => { s.res.funds += 18; s.heat += 4; } },
     ],
   },
 
@@ -2186,17 +2537,6 @@ window.EVENTS.push(
       { text: 'Change how you work, thoroughly', apply: (s) => { s.heat -= 10; s.tags.add('clean_room'); s.pub = 2; } },
       { text: 'Buy the logs before anyone reads them', cost: { funds: 40 }, apply: (s) => { s.heat -= 6; s.exposure = 0.8; } },
       { text: 'Let them have it and go louder', apply: (s) => { s.tags.add('known_capable'); s.pub = -5; } },
-    ],
-  },
-  {
-    id: 'rig_long_run',
-    cond: (s) => s.rig && s.rig.running >= 1 && !s.rig.quiet,
-    title: 'It Is Making A Great Deal Of Noise',
-    flavor: 'Whatever is mounted is going through the front of something, at volume, and it has been doing it for long enough that people have started to time it.',
-    choices: [
-      { text: 'Let it finish', apply: (s) => { s.heat += 4; } },
-      { text: 'Throttle it back and take longer', apply: (s) => { s.heat -= 6; s.gridCut = { amount: 3, turns: 3 }; } },
-      { text: 'Make the noise somebody else\'s', cost: { funds: 30 }, apply: (s) => { s.heat -= 12; s.pub = -4; } },
     ],
   },
 );

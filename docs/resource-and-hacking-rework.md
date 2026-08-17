@@ -457,6 +457,227 @@ All of it is drawn from a hash of the building id rather than `Math.random`,
 because the map is rebuilt on every action and detail that moves between
 redraws is worse than no detail.
 
+### The plan underneath it, which was graph paper
+
+The silhouettes landed and the placement did not, and the measurement says why.
+Across 104 buildings the old generator used **two distinct x-offsets**, and the
+nearest-neighbour gap ran a **minimum of 82.0 against a median of 82.8**. Every
+block was the same size, every road the same width, and every building was
+centred in one cell of a fixed 2×2. Buildings already varied 24× in area — 240
+to 5,780 px² — so what read as uniform was never the buildings, it was the
+lattice and the air around them.
+
+So the plan is explicit geometry now (`makeLayout`), generated once and packed
+with the city, and everything that draws the ground reads it:
+
+- **Blocks and roads vary.** Block sizes swing ±34%, road widths ±45%, and an
+  arterial is a fact about the plan rather than every third index.
+- **Buildings are thrown into a block, not slotted into it** (`scatterBlock`) —
+  darts with a minimum gap, biased toward the nearest edge so they front the
+  street.
+- **Terraces.** Some edges get a run of buildings shoulder to shoulder on one
+  frontage first, and the darts fill in behind. This is most of what separates a
+  city block from boxes in a field. Only kinds naturally of the run's depth may
+  join one, or the lead's depth gets forced onto everything behind it and a
+  street cabinet comes out the size of an apartment block.
+- **Districts are areas, not rows.** The gradient across the map survives — it
+  is what makes the north somewhere else — but the boundary wobbles on three
+  sine terms of position, so districts come out as blobs with ragged edges and a
+  single row can run through three of them. Home still spans all four.
+
+Measured before and after, over twelve generated cities:
+
+| | before | after |
+| --- | --- | --- |
+| distinct x-offsets | 2 | 24 |
+| nearest gap, min / median | 82.0 / 82.8 | 45.8 / 78.5 |
+| mean degree | 3.32 | 3.24 |
+| isolated buildings | 0 | 0 |
+| connected components | 1 | 1 |
+
+### Room for more of it
+
+The map is rebuilt on every action, and the grill said that was the constraint
+on adding detail. Measured, at 113 buildings: 2,977 SVG nodes, 199 KB of markup,
+19.6 ms a render on a desktop against a 16.6 ms frame. What the measurement got
+*wrong* is where the cost is.
+
+| layer | nodes | bytes | ms to write |
+| --- | --- | --- | --- |
+| ground — roads, district tint, terrain, verge | 386 | 28 KB | 1.4 |
+| live — the buildings | 2,867 | 188 KB | 12.2 |
+
+The ground is nearly free and the buildings are the render. Two changes:
+
+- **The ground is its own `<g>`, written once per city.** Caching the string
+  alone saved only building it — assigning `innerHTML` on the whole svg
+  re-parses everything however cached the text was. Rebuilt only when something
+  that could move it moves: walking into another city, the home base growing, a
+  new crossing laid over a band.
+- **A building too small to read is not drawn in detail.** Below about 26 screen
+  pixels the silhouette, the roof furniture and the windows are work spent on
+  something nobody can resolve. Zoomed out, a render goes 19.6 ms → 6.2 ms.
+  What it *is* survives every zoom — body, tag, glow, aerial — because that is
+  the map still being readable.
+
+The consequence for props: they belong on the ground layer, which costs 1.4 ms
+and only rebuilds when the city does. Three hundred of them is affordable in a
+way three hundred more buildings would not be.
+
+### Buildings that are on a street, and are different sizes
+
+Two things the placement pass left wrong, both reported from play and both worse
+than reported once measured.
+
+**Nothing was on a street.** Across six generated cities only **28%** of
+buildings touched a block edge, and **16%** sat marooned more than 26 units from
+any of them — the largest single group of those being **street cabinets, 22 of
+them**, the one category the data already calls street furniture. Frontage was a
+nudge (pull the dart toward the nearer edge, 35% of the way) rather than a rule.
+
+Now it is a rule. A building takes a frontage on one of the block's four sides,
+squared onto it, sides tried in shuffled order. Only when every side is full does
+it go behind — and then it gets a drawn **path** from its door out to the nearest
+kerb, which is what a back plot has in a real place. Measured after: **100% on
+the street**, 0% marooned, and a handful of paths per city for the offices and
+finance floors too big to take any frontage.
+
+**And none of it was visible, for a reason that had nothing to do with the
+placement.** Reported from play as "I can't see the buildings being closer to
+the streets". They were — measured on the running page, 99% of buildings sit
+within 10 units of a painted road edge, median 7. The problem was the road.
+`svgStreets` gives every road its own width from the plan (49 to 99 units once
+blocks started varying), as a presentation attribute — and the stylesheet had
+`stroke-width: 22` on `.street`, which **overrides** a presentation attribute.
+So every road was painted 22 wide inside a gap of up to 99, leaving a fat
+unpainted margin between the tarmac and every building on it. The frontage pass
+had worked perfectly and was invisible. A test now reads the stylesheet and
+fails if a width reappears there.
+
+The other half of "it still looks empty" was real: blocks grew a long way, and a
+flat three-to-seven props left the middle of a big one a dark void. Prop counts
+scale with the block now, so a block reads as buildings lining a street with
+yards behind them.
+
+Street furniture went to **the verge** — the pavement between the blocks, where a
+camera mast and a street cabinet actually are. That is a gameplay change, not a
+visual one: they are the cheap stealth kit, and the verge sits near more
+buildings. Their count is held at about a quarter of the board, the way it was
+when they lived on plots, because how much cover a city offers is a balance
+number.
+
+**Everything was the same size.** House to shopfront was **1.15× linear**. House
+to apartment 1.45×. And eight pairs of different kinds sat within 18% of each
+other in median footprint — cabinet/mast, finance/office, and warehouse, depot,
+substation and switchyard all four mutually.
+
+| | cabinet | mast | house | shop | apartment | office | warehouse | datacenter |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| before | 336 | 320 | 936 | 1247 | 1976 | 2925 | 3650 | 4980 |
+| after | 195 | 336 | 792 | 1550 | 3185 | 6450 | 9625 | 17473 |
+
+The rule now is **no two ordinary kinds within 18% of each other**, which is what
+actually reads as "these are the same thing", and a linear range of **9.5×** (was
+3.9×). Aspect carries what area cannot at the top of the ladder: a dock is long
+and low, an exchange square and tall, a depot a fat rectangle. Landmarks are
+exempt from the 18% rule on purpose — they all live at the top by definition, and
+between switchyard and datacenter there is a 1.27× step with no room in it for a
+depot, so a depot is told apart by being square and by the marking every landmark
+already carries.
+
+The small end could not shrink — a mast is about thirteen screen pixels wide at
+the ordinary play zoom — so **blocks grow with their district**: residential
+0.82, commercial 1.0, business 1.34, industrial 1.75. A row and a column take the
+largest scale in them, because the roads have to stay straight. The district
+gradient is now visible in the street plan itself, which it never was.
+
+Three things fell out of it, and all three are the same lesson — the map is a
+system, and the size table is not a cosmetic file:
+
+- **The density formula had to be rewritten twice.** Plain area put 203 buildings
+  on a board that used to hold 98, because the map grew when the blocks did.
+  Dividing by the district's nominal scale was *worse and backwards*: a suburban
+  block in an industrial column is large, and dividing by 0.82² made it denser.
+  The honest denominator is the district's own typical building size — one
+  datacenter takes the room of twenty houses because it is twenty times the house.
+- **`MAX_LINK` moved again, 178 → 270.** Adjacency is centre-to-centre, the map is
+  about 1.8× the area, and mean degree had fallen to 2.57. At 270: mean 3.15, no
+  isolated building, one component per board, 6% of links crossing terrain.
+- **Landmark placement was checking the terrain and nothing else.** Survivable
+  while a landmark grew by a few units; not once one can be 160 wide and slide
+  half a block looking for room. It produced two buildings standing inside each
+  other and a tree inside a substation. It checks every building now, and the
+  slide is capped at three steps so a landmark stays on the block it came from.
+
+And one guarantee replaced a tuning: **anything still unreachable is deleted.**
+Two passes try to wire every pocket in — a crossing where terrain is the problem,
+a stitch where distance is — and on a hard northern board a building or two still
+came out with no way in at all. That is not content, it is a hole: it cannot be
+scanned, cannot be taken, and counts against the share of the city you need to
+hold. Zero isolated buildings and one connected component are now true by
+construction rather than by having picked the right link distance.
+
+### Things that are not doors
+
+The map contained nothing but buildings you can hack, which is a diagram of a
+city rather than a city — and the giveaway was that the gaps between blocks read
+as empty rather than as anywhere.
+
+About 280 props now stand in a home city: trees, hedges, benches, lamps, bins,
+planters, market stalls, food stands, news stands, kiosks, bike racks, bollards,
+fountains, sculptures, playgrounds, car parks, container stacks, pallets, tanks,
+pylons, scrub and spoil. What stands where comes off the district, so the
+industrial edge has no playgrounds in it and the suburbs have no container
+stacks. They are generated with the city and packed with it — a bench that moved
+when you ended a turn would be worse than no bench — and they draw on the ground
+layer, which is why ~700 extra nodes cost about 2 ms once per city.
+
+**Open blocks.** Roughly one block in seven has nothing built on it: a park in
+the suburbs, a square on the high street, a plaza in the business park, a yard on
+the industrial edge, each with its own tint and a path across it. This is the
+strongest mark the scenery makes, because it is the only one with a shape of its
+own, and it is what stops the plan reading as wall-to-wall blocks.
+
+Chosen by ranking every block against the city's seed rather than rolling per
+block, for two reasons and the second is the one that bit: a roll is unbounded,
+so an unlucky city could open half its blocks and lose the graph — and
+`Math.random() < chance` is *always* true under a test that pins random to zero,
+which emptied the entire city. There is a hard ceiling of 22% either way.
+
+Two rules keep the scenery from eating what it decorates, and both are enforced
+in the stylesheet rather than by care:
+
+- **No stroke, ever.** An outline on this map means something you can take. The
+  rule is `.props * { stroke: none }`, and a test reads the stylesheet for it.
+- **No pointer events, ever.** `.props { pointer-events: none }`, so a tap can
+  never land on scenery — not on the shape and not through the nearest-target
+  fallback.
+
+And nothing decorative duplicates something real. A station, a depot, a dock and
+a substation are buildings you can take, so there is no scenery version of any of
+them; a test asserts no prop id collides with a building kind. Water is terrain
+and terrain blocks adjacency, so the only ponds are ornamental and sit inside a
+park, where nothing was going to be wired across anyway.
+
+One bug worth recording because only a player would have caught it: props were
+scattered before landmarks were placed, and placing a landmark *grows* the
+building it lands on — so a tree ended up standing inside a substation. Scenery
+goes last now.
+
+Still on the table and not done: culling buildings outside the viewport. Worth
+roughly another 2× when zoomed in, but panning writes only the viewBox and never
+re-renders — deliberately, because rebuilding the map DOM per pointer event is
+what made dragging feel like wading — so culling needs a margin and a re-render
+when the view leaves it. A bigger change than it looks.
+
+The graph is the point of the last three rows. Adjacency is built from distance
+between building centres, so moving them changes the frontier, what a scan turns
+up, camera vision and the response's reach — this is a balance change wearing a
+visual one. Mean degree fell to 2.89 on the first pass, which is a thinner
+frontier and fewer options a turn; `MAX_LINK` went 165 → 178 to put it back.
+Zero isolated buildings and one connected component are invariants, not
+observations: a building nothing can reach is a building nobody can take.
+
 ## The playtest round
 
 Hacking and taking buildings landed — *"I find myself having a lot of buildings
@@ -533,6 +754,517 @@ So:
   ever pulls a rung nearer. The pressure section names which of the two it is
   looking at, and a rung pulled in by noise says so: *"You were not big enough
   for this yet. You were loud enough."*
+
+## Subtracting, one thing at a time
+
+A change of method, and it is the player's: *strip out whatever looks redundant
+until the core loop either holds up on its own or does not, and only then add
+things back — one at a time, dialled in until it fits.* Everything below is a
+removal. Nothing here replaces what it takes out.
+
+### Heat leaves the city
+
+Heat's readers had already been reduced to almost nothing by the round above:
+the strike could no longer be created, and the hunt had stopped answering to it.
+What was left at city scale was a bar counting toward a line that no longer meant
+anything, plus a button whose whole job was moving it.
+
+Gone:
+
+- **The heat row, at city scope.** It renders at country scope only, where the
+  one thing heat still does is legible: it is labelled `NOTICED` now, and the
+  drift line says what it is worth on the ladder.
+- **Lie low.** A whole turn traded for a number the city no longer shows.
+- **`hotEvery`.** Being over the line used to override the hunt's cadence and pin
+  it to a fixed fast tick. Covert ops is now the only input — one lever, and it
+  is one the player actually holds.
+- **The strike, and everything hanging off it.** `resolveStrike`, `STRIKE_CARD`,
+  `takeBackACity`, four `HEAT.STRIKE_*` constants, and the `fixers` tag — an
+  earnable tag costing 20 funds whose only payload was one option on a card that
+  could not be created.
+- **`rota_contact`**, whose only payload was a lie-low modifier.
+- **Every heat chip below country scope**, through one `heatChip()` gate: a
+  price may not be quoted where the meter it is charged against is invisible.
+
+Kept, deliberately: heat still *accrues*. Hacking, scanning, sprawl and cards all
+move it, and `heatPressure()` still feeds the escalation ladder. It is a
+country-scale record of how loudly you got where you are, and it is met at
+country scale.
+
+The ladder's Public stage lost its subject — its bite was "lying low no longer
+sheds heat" — so it says what it actually still does, which is take *hiding* away
+from you. Its three cards were rewritten to that, without inventing a mechanic:
+none of them hands the tool back, which is the rule about this ladder.
+
+### Measured before touching the programs
+
+The other proposed cut was down to one program, keeping `hammer.exe`. Measured
+across eight generated cities, every host, against a trace goal of 7:
+
+| program | turns | doors that would catch you | worst trace at end |
+| --- | --- | --- | --- |
+| hammer.exe | 1 | **0.0%** | 5.40 |
+| backdoor.exe | 4 | 30.2% | 21.60 |
+| contagion.exe | 4 | 30.2% | 21.60 |
+
+Hammer needs about 260 effective defense before it can lose a race; region
+medians run 5 / 15 / 33 / 47 / 66. So keeping only hammer would not simplify the
+detection race, it would delete it — and with it the hunt's trigger
+(`caughtHere`, which would never increment), covert ops' shield, and
+`hardenOnCaught`. Four systems removed while believing two were.
+
+So the survivor is **backdoor**: the one where the race resolves both ways.
+
+Two further measurements settled it. A hammer-only run took **1 building in 40
+turns** and spent **38 of them with nothing it could afford to touch** — needing
+1.8x a door's defense in TFLOPS, it is not merely uninteresting alone, it is
+unplayable. Backdoor-only finishes the same 40 turns on 34 buildings against 32
+with all three, so nothing about the pace depends on the other two existing.
+
+### The other two programs
+
+Gone: `hammer.exe`, `contagion.exe`, and with them the mount verb (`mount()`,
+`state.mount`, the mount buttons, the saved choice), the whole spread system
+(`spreadFrom`, `spreadForecast`, the spread chips and forecast line), and
+`traceMult`, which only ever distinguished contagion from backdoor. The rig
+section stays, as a readout rather than a choice — which is the honest shape for
+it, and where the choice goes back if a second program earns its place.
+
+Two rungs of the ladder had payloads keyed to a *loud* program, and there is no
+loud program now. Rather than let them land doing nothing:
+
+- **Enforcement's surcharge charges the run, whichever run it is.** Getting in
+  costs more once they are counting — full stop. `unlisted` keeps its job.
+- **`timesForced` counts every door you get into.** It used to split loud from
+  quiet, which is a distinction with nothing on the other side of it.
+
+One more card went with them: `rig_long_run` gated on `!s.rig.quiet`, so with a
+quiet-only rig it could never be drawn.
+
+What the loop is now: pick a door, and the only question is whether your covert
+ops is high enough that four turns of exposure beat its trace. Worth naming
+plainly — the bot measurements show a player who always takes the *easiest*
+reachable door meets the race almost never (the hunt arrived in 3 of 10 runs,
+against 7 of 10 with three programs). The race bites when the easy doors run
+out, not before.
+
+### Terrain that is a patch, and three more doors
+
+The last of the map pass, and both halves of it are gameplay rather than
+decoration — which is exactly why they are here rather than in the props.
+
+**A band can be a patch now.** Terrain was one primitive: a strip running edge to
+edge, with crossings punched through it. That is a river or a railway and nothing
+else, which is why the request for lakes could not be answered by drawing one —
+decorative water that did not block adjacency would teach a rule the game
+contradicts. `runs` gives a band a span along its own axis, so the same
+primitive is a lake, a wood, a green belt that stops. It blocks what is under it
+the way water always has; what changes is that you go **round** it rather than
+across it.
+
+That produced a real rule, and it took three attempts to get right:
+
+- A patch only exists along part of its axis, so `inBand`, `rectOnBand` and
+  `segmentSpansBand` all had to learn to ask *where*. Without it, a wire crossing
+  the park at the far end of the map put **three bridges over the boating lake**.
+- And the crossing pass may not bridge a patch at all. You bridge the river, not
+  the lake — anything a patch does cut off is picked up by the stitcher, or
+  deleted by `dropUnreachable`. Measured, that costs about half a building per
+  board.
+
+Every region gained one: a boating lake in home's parkland, a tidal inlet in the
+estuary, a green belt across the midlands, a wooded strip in the capital, a tarn
+in the north. Each region still has at least one full band that genuinely cuts it
+in two, and a test enforces that — the crossings are what make a region a place.
+
+**Three more landmarks**: a **covered market** (till), a **stadium** (server), and
+a **works** (datacenter, and noisy with it). Each is a real door with a real host,
+its own silhouette, and a place in some region's landmark list. This is the other
+half of the argument against decorative stations: a thing that looks like
+somewhere you could get into has to be somewhere you can get into. A test asserts
+no landmark id collides with a prop id, in either direction.
+
+## What's on the machine — loot, slice one
+
+The playtest after the subtraction round found the thing the subtraction was
+for: the loop held, and it held *too* smoothly. "Scan, tap, backdoor, repeat —
+the player doesn't look at anything else." Probed: 59% of turns end because AP
+is spent and 32% because no door is in reach — neither requires reading a
+stat — and only 9.2% of offered doors could even lose the race, none of which
+ever need taking. The game had a proven compulsion loop with an inert decision
+layer on top: **no tap could ever be wrong, so nothing ever needed reading.**
+
+The fix chosen (from `docs/ideas/`, one thing at a time): loot. Every machine
+can have contents, because that is what the fantasy always implied.
+
+The laws, from the design lens: contents are rolled **at generation** and
+packed with the city — randomness upstream, never in resolution. **Kinds, not
+grades** — no rarity colors, no shard economy; the old game's graded loot is
+dead and stays dead. And **scouting beats gambling**: a discovered carrier
+shows a glint, and tapping it states exactly what is there — even out of
+reach, *especially* out of reach, because a prize you cannot get to yet is the
+reason to fight toward it.
+
+Four kinds: **a wallet** (funds, exact amount stated), **someone's keys**
+(a run that would be caught is covered instead — trace stays at zero, spent
+automatically and only when needed, never on the response's core), **cold
+storage** (reveals the nearest cluster you haven't found), and **someone's
+diary** (nothing; a paragraph; the best one). ~14% of eligible hosts carry;
+landmarks always do; street furniture never does.
+
+The tuning was measured at every step and twice reversed itself:
+
+- **Uniform placement failed.** A glint-chasing bot's run was
+  indistinguishable from an easiest-door bot's over eight paired boards
+  (+0.1 carriers). Contents sprinkled everywhere land on doors everyone takes
+  anyway. So placement is weighted toward *defended* doors (~75% sit above
+  their board's median defense): the diary is behind the door that would
+  catch you, which is what finally makes the forecast bar worth reading.
+- **Typed keys failed.** "Opens till hosts only" never once matched a door
+  worth opening while held, across eight runs. Universal, need-only spending
+  replaced it.
+- **The honest verdict of the final probe:** chasing prizes now costs real
+  tempo (−105 funds over 40 bot turns), so the pull is priced — a pull with
+  no price is not a decision. But a flat-valuation bot cannot value a map, a
+  banked answer, or a paragraph, so whether the glint makes a *human* lift
+  their eyes is exactly what the next playtest answers. That is the question
+  this slice was built to ask.
+
+One bug the probes caught that play would have: landmarks are grown and slid
+after the scatter, so they could end up marooned mid-lot — the biggest
+building in the city, off every frontage. Any landmark that settles away from
+the street now gets a drive to the kerb, like any back plot.
+
+## The knife — the country is gated off
+
+The subtraction round kept finding the same suspect: everything that was
+"redundant and unnecessary for the player" lived above the city. Heat, the
+ladder, the grid, agents, the mirror, the chase, the war — a second game
+stapled on top of the one being played. The playtest plan is a long run of
+the *pure city game*, so the country is now hard-gated off rather than
+deleted: `window.CITY_ONLY = true` in data, and `countryUnlocked()` returns
+false before any other check. That single choke point is deliberately the
+only cut — every country system goes dormant behind it rather than dying,
+so a one-line flip brings it all back if the playtest misses it. Real
+deletion is a decision for after the playtest, not before.
+
+With the door upward gone, the city needed an ending: reaching the home
+share goal now sets a "the city is yours" beat — a banner, a log line, a
+stage label — and then lets you keep playing. An ending you can keep
+playing past, because the loop is the point.
+
+Tests default the gate *open* (`load-network.js` flips it off unless a test
+asks for `cityOnly`), so the dormant country machinery keeps its full test
+coverage while it sleeps.
+
+## The district is talking — suspicion
+
+The other measured hole: nothing pushes back for the first ~35 turns, and
+with the country gated, nothing pushes back ever. The user's constraints
+were exact: waiting out a meter is trivial (so waiting must not help), and
+a sudden trace cliff after the player has learned to ignore the number
+breaks the loop (so no thresholds in the arithmetic).
+
+The shape that satisfies both: each district accumulates suspicion from
+your activity *in it* — starting a run warms it a little, taking a door
+more, getting caught most — and cools **only through activity in other
+districts**. Ending turns does nothing. The pressure is spatial: you don't
+wait it out, you route around it. The multiplier into `traceRate` is a
+straight line (`1 + suspicion × slope`), no cliff anywhere; the band words
+on the panel ("people mention it" / "the district is talking" / "everyone
+here is watching") are commentary on the same number the arithmetic uses,
+and the panel prints the exact figure next to the phrase — words and
+arithmetic agree.
+
+Tuning was a three-step walk, measured with a flip table (for each door
+type: does the race forecast flip from safe to caught as the district
+warms?):
+
+- slope 0.02 — easy doors never flipped at any reachable suspicion. A tax
+  on doors nobody was taking; pressure in name only.
+- slope 0.035 — the median till flipped at suspicion ≈ 8, before the panel
+  even changed phrase. The words lied about the danger.
+- **slope 0.022** — the till flips right around suspicion 12, exactly where
+  the phrase becomes "the district is talking." The words now *mean* the
+  flip. Across the bands a till goes 3% → 76% → 100% caught; consumer/iot
+  doors never flip (they stay the quiet fallback); server-and-up were
+  always caught bare and stay that way.
+- coolPerAct 1.2 made rotation pointless — a district-rotating bot peaked
+  *higher* than a camper because everything warmed regardless. At **2**,
+  rotation is net-cooling: the camper gets caught more, neither stalls,
+  which was the acceptance test from the idea document.
+
+The warmed ground is painted on the map — a low ember tint over the
+district, bucketed into the ground cache key so the cached layer redraws
+when a district's warmth meaningfully changes. The suspicion line renders
+in the target panel whether or not the door is in reach.
+
+One pre-existing bug surfaced while wiring the save: `caughtHere` and
+`caughtAt` were packed with the city but never written into the top-level
+save, so a reload quietly forgave your catches. Fixed, with a test that
+saves and restores a catch.
+
+## The first pure-city playtest — three dials
+
+The verdict on the whole: more engaging, the player actually reads the
+board now, and buying came alive once backdooring everything stopped being
+free. Three misses, each a dial, none a redesign:
+
+- **"People mention it" was on 90% of doors.** The first band started at
+  suspicion 1, and one run anywhere (perRun 2) crosses that — a phrase
+  everything wears is wallpaper. The band now starts at 6: a single visit
+  (run + take = 5) says nothing, the words arrive with the second visit.
+  Only the words moved — the multiplier still runs from the first point and
+  the forecast still quotes it, so the arithmetic is untouched and the
+  flip table stands.
+- **Loot was easy to miss.** Two causes: the glint drew only at full
+  detail zoom (planning happens zoomed out), and the discovery moment had
+  nothing to say. The glint now draws at every zoom with a screen-constant
+  floor (~2.4px) so it stays a spark from altitude, and the sweep log says
+  when it turned up a laden machine — the building, never the contents.
+  The tap stays the scouting verb; the log line is only the reason to tap.
+- **The warm ground looked bad.** It was an overlay rect at up to 0.3
+  opacity whose hard edges matched nothing. Now the district fill itself
+  mixes toward ember (capped at 22%), seamless across the district's own
+  blocks, and it starts where the words start — the map and the panel
+  agree about when a district is worth a glance.
+
+## The second verb — tried and retired
+
+siphon.exe shipped, tuned tempo-neutral against bot runs, and died in
+the playtest inside a day: "babysitting for a bit of funds." (A correction
+for the record: those probes were labeled "paired" but were not — the
+harness's deserialize returns a state and only setState installs it, so
+each run drew its own board. Independent samples, honest means, wrong
+label. The scan rework's determinism test is what caught it.) The full
+autopsy is in `docs/ideas/systems.md` §A; the sentence that survives it:
+**push-your-luck cannot exist in a perfect-information game** — a player
+who checks the panel is never surprised, so the luck reduces to a
+maintenance loop. The probes had said it (zero burns, every
+configuration) and it was mis-read as discipline working when it was the
+tension being absent. Reverted whole; the one-program game stands. Any
+future second verb must act on a different object than the door, because
+the race already owns the door.
+
+## The sweep, aimed — the last dice leave resolution
+
+The zero-opportunity-cost finding had two halves. Suspicion answered "no
+price"; this answers "no control": scan found new buildings at random, so
+even a player who wanted a route had nothing to steer with. The fix is
+three moves, all in one verb:
+
+- **Deterministic.** The sweep reveals the *nearest* unknown buildings —
+  nearest to the building you swept from, or nearest to anything you hold —
+  ties broken by id. Same board, same sweep, same ground, every time. This
+  was the last place randomness lived in resolution rather than
+  generation; the covenant now holds everywhere.
+- **Aimed, for everyone.** "Scan from here" was line.survey's mechanic, a
+  20-fund unlock. It is the base verb now — route control cannot be
+  something the game sells back to the player when choosing a route is the
+  missing decision. line.survey is retired; the grid hardware family runs
+  two tiers deep and the test suite says so on purpose.
+- **Priced where you looked.** A sweep warms each district it touches by
+  one point — someone trying handles is activity too. It warms *without*
+  cooling elsewhere (a separate joint from the rotation rule): if sweeps
+  fed noteDistrictAct, mashing scan in a far district would be a suspicion
+  coolant, which is exactly backwards. With heat dormant in the city game,
+  this is looking's only real price, and it is spatial like everything
+  else.
+
+The determinism test earned its keep immediately: it caught that the
+harness's deserialize returns a state and only setState installs it —
+which means earlier "paired board" probes were actually independent
+samples wearing the wrong label (means honest, pairing fictional). Probes
+from here on restore boards properly.
+
+## The sweep unchained — sight follows attention
+
+The aimed scan landed ("really engaging and fun") with one stall in it:
+a vantage had to be *owned*, so when every held building's neighbours were
+known, the player was forced back to the unaimed button or left waiting
+for a take to extend their eyes — turns spent waiting to be allowed to
+look. Two changes:
+
+- **Any discovered building is a vantage.** Seeing a place is what makes
+  it somewhere you can look from; owning it was never the load-bearing
+  part. The search loop now chains sweep to sweep — scout the street,
+  then scout from what you found — without a take in between.
+- **The unaimed button is dead.** Aiming was the fun, so aiming is the
+  verb: scanning lives on the panel of the building you are looking from,
+  offered on every discovered building with unknown neighbours. (The
+  engine keeps a no-argument sweep for the harness's bots.)
+
+This deliberately overturns an old rule — "discovery follows territory,
+not sight" — whose regression test guarded a real exploit from the era
+when scanning was free. The exploit stays dead by *price* instead: every
+hop costs an action and warms the street it touches, so deep scouting
+chains spend the turn budget the old rule spent on waiting. The test now
+asserts the opposite direction and the leash: sight outruns territory,
+and never outruns what was paid for it.
+
+## The city moves — juice, slice one
+
+From `docs/ideas/visuals.md`, the items that pay per loop rather than per
+feature (sound stays on the shelf until asked for — it is the bigger
+lever, but it is not visuals):
+
+- **The impact pause.** Both take animations now open with ~70ms where
+  nothing moves after the route lands. The pop reads harder for arriving
+  late; it is the cheapest trick in the juice literature and the most
+  effective.
+- **Windows wake in sequence.** A taken building's windows come on floor
+  by floor (each lit window carries its own index; the stylesheet staggers
+  them 45ms apart after the landing). A building waking up, not a texture
+  swap.
+- **The ground notices.** One soft ring rolls out from a successful take
+  and is gone — the place reacting, not a firework.
+- **Somebody is in there.** Held buildings flick the odd window off and on
+  — an 11-second cycle, steps(1) so it costs two paints, staggered per
+  window so the city never strobes in unison. Ambient life with zero
+  JavaScript.
+- **Water reads as water.** The lakes and rivers get an inset waterline
+  and their ripples drift slowly. The flat fill stopped reading as a hole
+  in the map.
+
+All of it is CSS on nodes that already existed, every animation has a
+reduced-motion path that is a clean instant state, and windows only render
+at detail zoom anyway, so the ambient set stays small on screen.
+
+Slice two, from the same list plus the playtest's "the glint is still
+easy to miss":
+
+- **The contract line catches the eye.** The loot line in the panel wears
+  a gold bar down its side and a gold-leaning tint — the thing to snag on
+  while flipping quickly through buildings, which is exactly how the
+  playtest said loot was being missed. The glint itself also breathes
+  size now, not just light (a dot that only dims disappears into a busy
+  frame), and its screen floor came up a little.
+- **The photo-finish quickens.** When a running race's projected end sits
+  within one turn's noticing of the goal, both bars pulse. The tension is
+  felt before it is computed.
+- **A loss hardens the door, drawn.** On a bounce the outline thickens in
+  the race's red and recedes to rest — bad news as withdrawal, not alarm,
+  which is the game's grammar.
+- **Taller throws longer.** One light direction across the city, shadow
+  offset scaled by the building's own bulk — the size ladder reads as
+  physical instead of drawn.
+- **District seams softened.** The ragged wobble marks the border now; a
+  hard line over a ragged edge read as a mistake in both.
+
+Slice three — the panel and the HUD, which had never had a pass:
+
+- **A number that moved says so.** The stat chips used to swap text
+  silently, so a take's payoff landed in the panel and the log while the
+  figure it fed sat there looking identical. The chip that changed now
+  pulses — never on first paint, or the HUD flashes its whole self at boot
+  and teaches the player to ignore the signal on turn one.
+- **The panel settles on a new subject.** Selecting a different building
+  fades-and-lifts rather than snapping. It fires only on a genuine change
+  of subject, not on the constant repaints, because the eye tracks a
+  transition and does not track a repaint.
+- **The forecast shows its margin.** The bar answered only "do they get
+  there", which the sentence beside it already said. A ghost now continues
+  past the fill: one more turn of this door's noticing. That answers the
+  question actually carried between doors — how much room before this
+  flips — and when that one turn would be enough to lose the door, the
+  ghost wears the race's red instead of the cover's green. A door one
+  hardening (or one point of suspicion) from catching you is now something
+  you see rather than something you compute.
+- **Arterials have kerbs**, and side streets got humbler. The plan already
+  encoded the hierarchy; the drawing has caught up with it.
+
+One bug worth recording, because it is the second time: the ghost's
+stripes were written as `.fc-ghost`, which loses on specificity to
+`.trace-fc i`'s solid background — so the grey margin rendered invisible
+while the red one (matched by a two-class selector) showed fine. Exactly
+the trap that once made `.street` ignore its own painted road widths. Now
+scoped as `.trace-fc i.fc-ghost`, with a test that reads the stylesheet
+and pins it.
+
+## The greenery, and the last of the visuals
+
+The playtest on the scenery: "trees and ponds and greenery just look like
+small colored circles scattered around, and they are really small compared
+to the houses." Both halves were literally true. A tree was 7–12 units
+against a 26–35 house — a shrub in a pot — and it was drawn as a circle
+with a smaller circle on it.
+
+- **Sized against the buildings they stand next to.** Trees are 14–23
+  wide and 15–25 tall now, ponds 34–58 across, with pads grown to match so
+  they still stand clear. Prop counts held (measured either side: ~660 →
+  ~720 per city), so nothing starved for space.
+- **Nothing organic is a circle any more.** Canopies, bushes and ponds are
+  wobbled hulls — a seeded polygon smoothed through its own midpoints,
+  the same silhouette family as the country map's lakes — so no two trees
+  share an outline. A canopy is three overlapping lobes in three tones
+  rather than one flat fill, with a visible trunk.
+- **Everything on the ground throws a shadow**, in the same light
+  direction the buildings now use. This is most of what stops scenery
+  reading as stickers laid on the map.
+- **Scrub is tufts, hedges are scalloped, ponds have a bank.** The pond's
+  centred highlight and single curved ripple were making a face; the light
+  moved to the far bank and the ripples are short, offset and paired.
+
+And the last rows of the visuals menu:
+
+- **A gain flies to the chip it feeds.** A number floating in place and
+  the stat changing were two events the player had to connect. The flight
+  also takes ownership of the chip's pulse — the early one is cancelled
+  and re-fired on landing — so the reaction happens when the number
+  arrives rather than half a second before it. The float group holds still
+  while a chip is in flight, or its own drift would land the number short.
+- **The allocation ramp is drawn.** The dials are sticky by design and the
+  stickiness was only ever the words "on the way". Solid is what is
+  running, striped is what is still travelling, and handing compute back
+  drains in grey rather than filling in the dial's colour. Scaled to the
+  biggest dial rather than the rack: against a 386-TFLOPS rack every row
+  is a 4% sliver and the ramp — the whole point — cannot be seen.
+
+**Deliberately not shipped: the turn-resolve beat.** A half-second where
+the world "resolves" before the turn lands would give the boundary weight,
+and it is the one idea on the list whose own entry warns it becomes a tax.
+End-turn is the most-pressed button in the game; a pause paid dozens of
+times a session buys a feeling that the turn tick and the world's own
+float chips already deliver. Recorded as considered and declined, not
+missed.
+
+Also worth recording: the stroke-scoping trap bit for the third and fourth
+time this pass. `.props *` blanks every stroke in the props group, so the
+new tufts and ripples had to be scoped as `.props .pr-tuft`; `.alloc-bar i`
+would have eaten the ramp stripes the way `.trace-fc i` ate the forecast
+ghost. All four are now pinned by stylesheet-reading tests.
+
+## The network, seen — wires that arrive and carry
+
+A correction first, because it was stated twice and wrongly: held links
+were **always** drawn — dashed lines whose dashes drift. The claim that
+"links are data, not drawn wires" came from a bad search and it made two
+items look blocked that never were. Mocked against the real map, both were
+shipped:
+
+- **The wire draws on a take.** When a building becomes yours the links to
+  it draw themselves in, and the direction is the point: the renderer
+  emits the *neighbour* first and the new holding second, so the line runs
+  from the ground you held into the ground you just took. The network
+  visibly reaches. It fires once per take, on the loop's payoff moment,
+  and costs nothing when nothing is happening.
+- **Packets on your own wires.** Something discrete travelling between
+  buildings you hold. Purely ambient, and therefore rationed: capped at
+  20, chosen nearest-the-view-centre first so the cap is spent on what is
+  on screen, and drawn only while the map is close enough that buildings
+  are drawing their own detail. That last line is not a new arbitrary
+  number — the default view sits at 1.08 map units per pixel, which is
+  exactly where a 28-wide house meets the 26-pixel detail cutoff. Close
+  in the city is a place and traffic belongs to it; pulled back it is a
+  plan, and a plan does not need traffic on it.
+
+Both are emitted by the renderer rather than patched on after it — the
+live layer is rebuilt wholesale on every render, so anything added on top
+is gone by the next one (the mockups learned this the hard way). And both
+carry an elapsed-aware negative `animation-delay`, the same trick the
+sweep and the breach already use, so a re-render mid-flourish resumes it
+instead of restarting: without that, every tap would yank every packet
+back to its start.
 
 ## Not changing
 

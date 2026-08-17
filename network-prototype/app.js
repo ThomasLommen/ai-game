@@ -35,6 +35,500 @@
     return out;
   }
 
+  // --- what else is standing there ----------------------------------------
+  // Props fill what the buildings left over, and the verge outside. Generated
+  // once with the city and packed with it — a bench that moved when you ended a
+  // turn would be worse than no bench, and the whole reason this is affordable
+  // is that it draws on the ground layer, which is written once per city.
+  function scatterProps(block, districtKey, bands, buildings, open) {
+    const F = window.PROP_FILL;
+    const pool = open
+      ? (window.OPEN_BLOCKS[districtKey] || {}).props || []
+      : window.DISTRICT_PROPS[districtKey] || [];
+    if (!pool.length) return [];
+
+    const out = [];
+    // Every building, not the ones nominally in this block. A landmark is
+    // moved and grown after the fact and routinely overhangs the block it came
+    // from, and a margin big enough to be safe is most of the map anyway.
+    const mine = buildings;
+
+    const room = (x, y, w, h, pad) =>
+      !(bands && bands.some(band => rectOnBand(band, x, y, w, h))) &&
+      mine.every(b =>
+        x + w + F.clearOfBuilding <= b.x || b.x + b.w + F.clearOfBuilding <= x ||
+        y + h + F.clearOfBuilding <= b.y || b.y + b.h + F.clearOfBuilding <= y) &&
+      out.every(p =>
+        x + w + pad <= p.x || p.x + p.w + pad <= x ||
+        y + h + pad <= p.y || p.y + p.h + pad <= y);
+
+    // Scaled by the block, not a flat count. Blocks grew a long way when they
+    // started varying with their district, and a fixed three-to-seven left the
+    // middle of a big one as a dark void — which reads as buildings floating
+    // rather than as buildings lining a street with yards behind them.
+    const K = (block.w * block.h) / (window.CITY.blockW * window.CITY.blockH);
+    const want = Math.round(K *
+      (open ? rndInt(F.perOpen[0], F.perOpen[1]) : rndInt(F.perBlock[0], F.perBlock[1])));
+    for (let n = 0; n < want; n++) {
+      const kind = pick(pool);
+      const P = window.PROPS[kind];
+      if (!P) continue;
+      const w = rndInt(P.w[0], P.w[1]);
+      const h = rndInt(P.h[0], P.h[1]);
+      for (let t = 0; t < F.tries; t++) {
+        const x = Math.round(block.x + 2 + Math.random() * Math.max(0, block.w - w - 4));
+        const y = Math.round(block.y + 2 + Math.random() * Math.max(0, block.h - h - 4));
+        if (room(x, y, w, h, P.pad)) { out.push({ kind, x, y, w, h }); break; }
+      }
+    }
+    return out;
+  }
+
+  // Street furniture, on the pavement where it belongs. A camera mast, a street
+  // cabinet and a feeder pillar are not on a plot — the data has called them
+  // street furniture since they were written — and yet the block scatter was
+  // treating them like houses, which is how 22 cabinets across six cities ended
+  // up marooned in the middle of a lot.
+  //
+  // They keep the block's row and column so adjacency is unchanged in kind: a
+  // verge is between two blocks, and `blocksAdjacent` already lets one street
+  // be crossed. What does change is how *many* things are within reach of them,
+  // which is measured rather than assumed.
+  function scatterFurniture(block, kinds, layout, bands, taken) {
+    const C = window.CITY;
+    const pool = kinds.filter(k => C.furniture[k]);
+    if (!pool.length) return [];
+    const out = [];
+    // Two at most. Street furniture was about a quarter of every board when it
+    // lived on the plots, and it has to stay about a quarter now that it lives
+    // on the pavement — it is the cheap stealth kit, and how much cover the
+    // city offers is a balance number, not a decoration.
+    const n = rndInt(0, 2);
+    for (let i = 0; i < n; i++) {
+      const kind = pick(pool);
+      const K = window.BUILDING_KINDS[kind];
+      if (!K) continue;
+      const w = rndInt(K.w[0], K.w[1]);
+      const h = rndInt(K.h[0], K.h[1]);
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const horiz = side === 'n' || side === 's';
+      const road = horiz ? layout.hRoad[block.row + (side === 's' ? 1 : 0)]
+                         : layout.vRoad[block.col + (side === 'e' ? 1 : 0)];
+      // it stands on the kerb, not in the carriageway
+      if (road < (horiz ? h : w) + 10) continue;
+      let x, y;
+      if (side === 'n') { x = block.x + Math.random() * (block.w - w); y = block.y - road / 2 + 4; }
+      else if (side === 's') { x = block.x + Math.random() * (block.w - w); y = block.y + block.h + road / 2 - h - 4; }
+      else if (side === 'w') { x = block.x - road / 2 + 4; y = block.y + Math.random() * (block.h - h); }
+      else { x = block.x + block.w + road / 2 - w - 4; y = block.y + Math.random() * (block.h - h); }
+      x = Math.round(x); y = Math.round(y);
+      if (bands && bands.some(band => rectOnBand(band, x, y, w, h))) continue;
+      const clear = taken.concat(out).every(o =>
+        x + w + 6 <= o.x || o.x + o.w + 6 <= x || y + h + 6 <= o.y || o.y + o.h + 6 <= y);
+      if (clear) out.push({ kind, x, y, w, h, verge: true });
+    }
+    return out;
+  }
+
+  // A path from a back plot's door out to the nearest kerb. Only the handful of
+  // buildings too big to take any frontage get one — measured at 2% of them,
+  // and all offices, finance floors and the industrial giants. A building with
+  // no way to reach it is the thing this whole pass is about.
+  function pathsFor(block, layout, placed) {
+    const C = window.CITY;
+    const out = [];
+    placed.filter(b => b.back).forEach(b => {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      const gaps = [
+        { d: b.y - block.y, to: { x: cx, y: block.y - layout.hRoad[block.row] / 2 } },
+        { d: (block.y + block.h) - (b.y + b.h), to: { x: cx, y: block.y + block.h + layout.hRoad[block.row + 1] / 2 } },
+        { d: b.x - block.x, to: { x: block.x - layout.vRoad[block.col] / 2, y: cy } },
+        { d: (block.x + block.w) - (b.x + b.w), to: { x: block.x + block.w + layout.vRoad[block.col + 1] / 2, y: cy } },
+      ].sort((p, q) => p.d - q.d);
+      const near = gaps[0];
+      out.push({ x1: Math.round(cx), y1: Math.round(cy), x2: Math.round(near.to.x), y2: Math.round(near.to.y) });
+    });
+    return out;
+  }
+
+  // The verge: the strip of road-side outside a block. Lamps and bins and the
+  // odd tree go here rather than inside, because that is where they are in a
+  // city and because it is the gap between blocks that used to read as empty.
+  function scatterVerge(block, districtKey, layout, bands, buildings) {
+    const F = window.PROP_FILL;
+    const pool = (window.DISTRICT_PROPS[districtKey] || [])
+      .filter(k => ['tree', 'bush', 'lamp', 'bin', 'bench', 'bollards', 'newsstand', 'planter', 'scrub'].indexOf(k) !== -1);
+    if (!pool.length) return [];
+    const out = [];
+    const n = rndInt(F.verge[0], F.verge[1]);
+    for (let i = 0; i < n; i++) {
+      const kind = pick(pool);
+      const P = window.PROPS[kind];
+      if (!P) continue;
+      const w = rndInt(P.w[0], P.w[1]);
+      const h = rndInt(P.h[0], P.h[1]);
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const road = (side === 'n' || side === 's') ? layout.hRoad[block.row + (side === 's' ? 1 : 0)]
+                                                 : layout.vRoad[block.col + (side === 'e' ? 1 : 0)];
+      if (road < w + 8 || road < h + 8) continue;    // no room on that road
+      let x, y;
+      if (side === 'n') { x = block.x + Math.random() * (block.w - w); y = block.y - road / 2 + 3; }
+      else if (side === 's') { x = block.x + Math.random() * (block.w - w); y = block.y + block.h + road / 2 - h - 3; }
+      else if (side === 'w') { x = block.x - road / 2 + 3; y = block.y + Math.random() * (block.h - h); }
+      else { x = block.x + block.w + road / 2 - w - 3; y = block.y + Math.random() * (block.h - h); }
+      x = Math.round(x); y = Math.round(y);
+      if (bands && bands.some(band => rectOnBand(band, x, y, w, h))) continue;
+      // the verge is where the street furniture lives too, and a bench inside a
+      // camera mast is the same bug as a tree inside a substation
+      const clear = (buildings || []).every(b =>
+        x + w + 3 <= b.x || b.x + b.w + 3 <= x || y + h + 3 <= b.y || b.y + b.h + 3 <= y)
+        && out.every(o =>
+        x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+      if (!clear) continue;
+      out.push({ kind, x, y, w, h });
+    }
+    return out;
+  }
+
+  // --- what's on the machine ------------------------------------------------
+  // Contents are decided here, at generation, and never again — randomness
+  // upstream, resolution deterministic, which is the covenant. Carriers are
+  // chosen by ranking hosts against a seed rather than rolling per host, so
+  // the share is a bound and not a hope, and a landmark always carries: the
+  // biggest thing in the city is never an empty box.
+  function assignCarry(hostList, seed) {
+    const C = window.CARRY;
+    if (!C) return;
+    const eligible = hostList.filter(h => !h.origin && (C.pools[h.type] || []).length);
+    // Weighted toward the harder doors, deliberately. Measured with uniform
+    // placement: a glint-chasing bot's run was indistinguishable from an
+    // easiest-door bot's (+0.1 carriers over 8 paired boards), because
+    // contents mostly landed on doors both would take anyway. The pull only
+    // works when the prize sits behind the race — the diary is on the machine
+    // that would catch you, and that is what finally makes the forecast bar
+    // worth reading.
+    const ranked = eligible
+      .map((h, i) => ({ h, r: cityNoise(seed, i * 13 + 5) / (1 + h.defense / C.pullDefense) }))
+      .sort((a, b) => a.r - b.r);
+    const want = Math.round(eligible.length * C.share);
+    const carriers = ranked.slice(0, want).map(x => x.h);
+    hostList.filter(h => h.landmark && (C.pools[h.type] || []).length)
+      .forEach(h => { if (carriers.indexOf(h) === -1) carriers.push(h); });
+    carriers.forEach((h, i) => {
+      const pool = C.pools[h.type];
+      h.carry = pool[Math.floor(cityNoise(seed, i * 7 + 3) * pool.length)] || pool[0];
+      if (h.carry === 'wallet') {
+        const tier = h.ring || 0;
+        h.carryAmt = Math.round((C.wallet.base + tier * C.wallet.perTier)
+          * (h.landmark ? C.wallet.landmarkMult : 1));
+      }
+    });
+  }
+
+  // --- the street plan ----------------------------------------------------
+  // The blocks and the roads between them, as explicit geometry rather than
+  // arithmetic on one block size. Everything that draws the ground reads this,
+  // which is what lets the plan be irregular at all: while `blockW` and
+  // `street` were the only two numbers in existence, every road was the same
+  // road and every block was the same block.
+  //
+  // The layout travels with the city — it is generated once and packed with it
+  // — because a street that moved between two renders would be worse than a
+  // street that was always straight.
+  function makeLayout(cols, rows, tierSpan, wob) {
+    const C = window.CITY;
+    const arterial = (n) => n % C.arterialEvery === 0;
+    const swing = (base, vary) => Math.round(base * (1 + (Math.random() * 2 - 1) * vary));
+    const roadAt = (n) => Math.max(18, swing(C.street * (arterial(n) ? C.arterialMult : 1), C.streetVary));
+
+    // Districts first, on the normalised grid, because a block's size depends
+    // on which district it is in — a datacenter is 159 wide at its median and
+    // will not stand on a suburban plot. Rows and columns take the *largest*
+    // scale of any block in them: the roads have to stay straight, and a jagged
+    // street plan is a much bigger change than this one.
+    const dist = [];
+    for (let r = 0; r < rows; r++) {
+      dist.push([]);
+      for (let c = 0; c < cols; c++) {
+        dist[r].push(districtAt((c + 0.5) / cols, (r + 0.5) / rows, tierSpan, wob || [0, 0, 0]));
+      }
+    }
+    const scaleOf = (k) => (window.DISTRICT_BLOCK || {})[k] || 1;
+    const colScale = [], rowScale = [];
+    for (let c = 0; c < cols; c++) colScale.push(Math.max(...dist.map(row => scaleOf(row[c]))));
+    for (let r = 0; r < rows; r++) rowScale.push(Math.max(...dist[r].map(scaleOf)));
+
+    const colW = [], rowH = [], vRoad = [], hRoad = [];
+    for (let c = 0; c <= cols; c++) vRoad.push(roadAt(c));
+    for (let r = 0; r <= rows; r++) hRoad.push(roadAt(r));
+    for (let c = 0; c < cols; c++) colW.push(Math.max(90, swing(C.blockW * colScale[c], C.blockVary)));
+    for (let r = 0; r < rows; r++) rowH.push(Math.max(80, swing(C.blockH * rowScale[r], C.blockVary)));
+
+    // running totals: xs[n] is the centre line of road n, blocks sit between
+    const xs = [], ys = [], blocks = [];
+    let x = vRoad[0] / 2;
+    const blockX = [];
+    for (let c = 0; c < cols; c++) {
+      xs.push(Math.round(x));
+      blockX.push(Math.round(x + vRoad[c] / 2));
+      x += vRoad[c] / 2 + colW[c] + vRoad[c + 1] / 2;
+    }
+    xs.push(Math.round(x));
+    let y = hRoad[0] / 2;
+    const blockY = [];
+    for (let r = 0; r < rows; r++) {
+      ys.push(Math.round(y));
+      blockY.push(Math.round(y + hRoad[r] / 2));
+      y += hRoad[r] / 2 + rowH[r] + hRoad[r + 1] / 2;
+    }
+    ys.push(Math.round(y));
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        blocks.push({
+          row: r, col: c, i: r * cols + c,
+          x: blockX[c], y: blockY[r], w: colW[c], h: rowH[r],
+          district: dist[r][c],
+        });
+      }
+    }
+    return {
+      cols, rows, blocks,
+      xs, ys, vRoad, hRoad,
+      w: Math.round(x + vRoad[cols] / 2),
+      h: Math.round(y + hRoad[rows] / 2),
+    };
+  }
+
+  // A layout for a city generated before layouts existed, or for anything that
+  // asks for bounds without one. Exactly the old arithmetic, so an old save
+  // draws precisely as it always did rather than shifting under the player.
+  function regularLayout(cols, rows) {
+    const C = window.CITY;
+    const blocks = [], xs = [], ys = [];
+    for (let c = 0; c <= cols; c++) xs.push(c * (C.blockW + C.street) + C.street / 2);
+    for (let r = 0; r <= rows; r++) ys.push(r * (C.blockH + C.street) + C.street / 2);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        blocks.push({
+          row: r, col: c, i: r * cols + c,
+          x: C.street + c * (C.blockW + C.street), y: C.street + r * (C.blockH + C.street),
+          w: C.blockW, h: C.blockH,
+        });
+      }
+    }
+    return {
+      cols, rows, blocks, xs, ys,
+      vRoad: xs.map(() => C.street), hRoad: ys.map(() => C.street),
+      w: C.street + cols * (C.blockW + C.street),
+      h: C.street + rows * (C.blockH + C.street),
+    };
+  }
+
+  // Which district a block is in. Districts used to be rows, which is why they
+  // read as stripes: the gradient across the map is real and worth keeping —
+  // suburbs near where you woke up, the industrial edge furthest off — but a
+  // boundary that is a straight horizontal line is the one thing no city has.
+  //
+  // The wobble is three sine terms of the block's own position, so it is smooth
+  // in space: neighbouring blocks agree, and the districts come out as blobs
+  // with ragged edges rather than salt and pepper.
+  const DISTRICT_KEYS = ['residential', 'commercial', 'business', 'industrial'];
+  // `regionTier` undefined means the home city, which spans all four — it is
+  // the one you learn the whole vocabulary in. A city out in the country gets
+  // a window of two or three around its tier, which is what makes the north
+  // read as somewhere else rather than as home with bigger numbers.
+  function districtSpan(regionTier) {
+    if (regionTier === undefined || regionTier === null) return [0, DISTRICT_KEYS.length - 1];
+    return [
+      Math.max(0, Math.min(DISTRICT_KEYS.length - 1, regionTier - 1)),
+      Math.min(DISTRICT_KEYS.length - 1, regionTier + 1),
+    ];
+  }
+  // Taken on the *normalised* grid rather than on pixels, because the layout
+  // now has to know its districts before it can size its blocks — the blocks
+  // grow with the district standing on them, so pixel positions do not exist
+  // yet at the moment this is asked.
+  function districtAt(fx, fy, regionTier, wob) {
+    const C = window.CITY;
+    const span = districtSpan(regionTier);
+    const lo = span[0], hi = span[1];
+    const n = Math.sin(fx * 6.1 + wob[0]) * 0.5
+            + Math.sin(fy * 4.4 + wob[1]) * 0.3
+            + Math.sin((fx + fy * 0.7) * 8.3 + wob[2]) * 0.2;
+    const t = Math.max(0, Math.min(1, fy + n * C.districtBlur));
+    return DISTRICT_KEYS[Math.round(lo + (hi - lo) * t)];
+  }
+  function districtFor(block, layout, regionTier, wob) {
+    return districtAt((block.x + block.w / 2) / Math.max(1, layout.w),
+                      (block.y + block.h / 2) / Math.max(1, layout.h),
+                      regionTier, wob);
+  }
+
+  // Which blocks have nothing built on them: a park in the suburbs, a square on
+  // the high street, a plaza in the business park, a yard on the industrial
+  // edge. It is the strongest mark the scenery makes, because it is the only
+  // one with a shape of its own, and it is what stops the plan reading as
+  // wall-to-wall blocks.
+  //
+  // Chosen by ranking every block against the city's own seed rather than by
+  // rolling per block. Two reasons, and the second is the one that bit: a roll
+  // is unbounded, so an unlucky city could open half its blocks and lose the
+  // graph — and `Math.random() < chance` is *always* true under a test that
+  // pins random to zero, which emptied the whole city.
+  function markOpenBlocks(layout, seed) {
+    const scored = layout.blocks
+      .map((b, i) => {
+        const OB = window.OPEN_BLOCKS[b.district];
+        return OB ? { b, OB, r: cityNoise(seed, i * 7 + 3) / Math.max(0.01, OB.chance) } : null;
+      })
+      .filter(Boolean)
+      .sort((p, q) => p.r - q.r);
+    // the mean chance across the blocks that exist, as a count, so however the
+    // districts fell there is a fixed ceiling on how much of the city is holes
+    const mean = scored.reduce((a, x) => a + x.OB.chance, 0) / Math.max(1, scored.length);
+    const want = Math.min(Math.round(layout.blocks.length * mean),
+                          Math.floor(layout.blocks.length * 0.22));
+    scored.slice(0, Math.max(0, want)).forEach(({ b, OB }) => {
+      b.open = true;
+      b.openKind = OB.kind;
+    });
+  }
+
+  // Buildings thrown into a block rather than slotted into it.
+  //
+  // Darts, not cells: pick a kind, pick a size from its own range, pick a spot,
+  // and keep it only if it clears everything already standing and is not on the
+  // water. `frontage` pulls the spot toward whichever edge of the block is
+  // nearest, because buildings face the road — that, more than the jitter, is
+  // what makes a block read as built rather than sprinkled.
+  function scatterBlock(block, kinds, bands, opts) {
+    const C = window.CITY;
+    const o = opts || {};
+    const placed = [];
+    // How many to ask for: how many things of *this district's* typical size
+    // fit on this much ground. Neither of the obvious formulas works. Plain
+    // area put 203 buildings on a board that used to hold 98, because the map
+    // grew when the blocks did. Dividing by the district's nominal scale was
+    // worse and backwards — a row and a column take the largest scale in them,
+    // so a suburban block sitting in an industrial column is *big*, and
+    // dividing by 0.82 squared made it denser rather than sparser.
+    //
+    // Typical size is the honest denominator, and it falls straight out of the
+    // kinds the district builds: one datacenter takes the room of twenty
+    // houses because it is twenty times the house.
+    const typical = kinds.reduce((a, k) => {
+      const K = window.BUILDING_KINDS[k];
+      if (!K) return a;
+      return a + ((K.w[0] + K.w[1]) / 2) * ((K.h[0] + K.h[1]) / 2);
+    }, 0) / Math.max(1, kinds.length);
+    const want = Math.max(1, Math.round(
+      (block.w * block.h) / Math.max(1, typical) / C.plotShare
+        * (rndInt(C.perBlock[0], C.perBlock[1]) / 3)
+    ) + (o.denser || 0));
+
+    const fits = (x, y, w, h) =>
+      x >= block.x + C.edgeInset && y >= block.y + C.edgeInset &&
+      x + w <= block.x + block.w - C.edgeInset && y + h <= block.y + block.h - C.edgeInset &&
+      !(bands && bands.some(band => rectOnBand(band, x, y, w, h))) &&
+      placed.every(p =>
+        x + w + C.gapMin <= p.x || p.x + p.w + C.gapMin <= x ||
+        y + h + C.gapMin <= p.y || p.y + p.h + C.gapMin <= y);
+
+    // A terrace: a run of buildings shoulder to shoulder along one edge, all
+    // squared onto the same street line. This is most of what separates a city
+    // block from a handful of boxes in a field — the eye reads the shared
+    // frontage as a street long before it reads any individual roof.
+    if (Math.random() < C.terraceChance) {
+      const side = ['n', 's', 'e', 'w'][Math.floor(Math.random() * 4)];
+      const horiz = side === 'n' || side === 's';
+      const run = rndInt(C.terraceRun[0], C.terraceRun[1]);
+      // one depth for the whole terrace, so the backs line up as well as the fronts
+      const lead = window.BUILDING_KINDS[pick(kinds)];
+      const depth = lead ? rndInt(lead[horiz ? 'h' : 'w'][0], lead[horiz ? 'h' : 'w'][1]) : 0;
+      // A terrace is a run of buildings of the same depth, so only kinds that
+      // are naturally that deep may join it. Without this the lead's depth was
+      // forced onto everything behind it and a street cabinet came out the
+      // size of an apartment block — the row lined up, and every proportion
+      // in it was a lie.
+      const sameDepth = kinds.filter(k => {
+        const K = window.BUILDING_KINDS[k];
+        const r = K && K[horiz ? 'h' : 'w'];
+        return r && depth >= r[0] && depth <= r[1];
+      });
+      let along = (horiz ? block.x : block.y) + C.edgeInset + Math.random() * 18;
+      for (let i = 0; i < run && depth && sameDepth.length; i++) {
+        const kind = pick(sameDepth);
+        const K = window.BUILDING_KINDS[kind];
+        if (!K) continue;
+        const span = rndInt(K[horiz ? 'w' : 'h'][0], K[horiz ? 'w' : 'h'][1]);
+        const w = horiz ? span : depth;
+        const h = horiz ? depth : span;
+        const x = horiz ? Math.round(along)
+          : (side === 'w' ? block.x + C.edgeInset : block.x + block.w - C.edgeInset - w);
+        const y = horiz ? (side === 'n' ? block.y + C.edgeInset : block.y + block.h - C.edgeInset - h)
+          : Math.round(along);
+        if (!fits(x, y, w, h)) break;   // ran off the end of the block, or into the water
+        placed.push({ kind, x, y, w, h });
+        along += span + rndInt(C.terraceGap[0], C.terraceGap[1]);
+      }
+    }
+
+    // The rest take a frontage on one of the four sides, squared onto it.
+    // Every side is tried before anything goes behind, because a building that
+    // is not on a road makes no sense from either an infrastructure or an
+    // architecture point of view — and the old scatter left 16% of them
+    // marooned in the middle of a lot with no way to reach them.
+    const SIDES = ['n', 's', 'e', 'w'];
+    const onSide = (side, w, h) => {
+      const inset = C.edgeInset;
+      if (side === 'n') return { x: null, y: block.y + inset };
+      if (side === 's') return { x: null, y: block.y + block.h - inset - h };
+      if (side === 'w') return { x: block.x + inset, y: null };
+      return { x: block.x + block.w - inset - w, y: null };
+    };
+
+    for (let n = 0; n < want; n++) {
+      const kind = pick(kinds);
+      const K = window.BUILDING_KINDS[kind];
+      if (!K) continue;
+      const w = Math.min(rndInt(K.w[0], K.w[1]), block.w - C.edgeInset * 2);
+      const h = Math.min(rndInt(K.h[0], K.h[1]), block.h - C.edgeInset * 2);
+      if (w < 8 || h < 8) continue;
+
+      let put = null;
+      // front a street, trying the sides in a shuffled order so no block ends
+      // up filling clockwise
+      const sides = shuffleArr(SIDES.slice());
+      for (const side of sides) {
+        if (put) break;
+        const anchor = onSide(side, w, h);
+        const horiz = anchor.x === null;
+        const lo = horiz ? block.x + C.edgeInset : block.y + C.edgeInset;
+        const span = Math.max(0, (horiz ? block.w : block.h) - (horiz ? w : h) - C.edgeInset * 2);
+        for (let t = 0; t < C.scatterTries && !put; t++) {
+          const along = Math.round(lo + span * Math.random());
+          const x = horiz ? along : anchor.x;
+          const y = horiz ? anchor.y : along;
+          if (fits(x, y, w, h)) put = { kind, x, y, w, h, front: side };
+        }
+      }
+      // Nothing left on any frontage. It goes behind, and it gets a path out
+      // to the nearest kerb — which is what a back plot has in a real place.
+      if (!put && C.backRows) {
+        const spanX = Math.max(0, block.w - w - C.edgeInset * 2);
+        const spanY = Math.max(0, block.h - h - C.edgeInset * 2);
+        for (let t = 0; t < C.scatterTries && !put; t++) {
+          const x = Math.round(block.x + C.edgeInset + spanX * Math.random());
+          const y = Math.round(block.y + C.edgeInset + spanY * Math.random());
+          if (fits(x, y, w, h)) put = { kind, x, y, w, h, back: true };
+        }
+      }
+      if (put) placed.push(put);
+    }
+    return placed;
+  }
+
   // --- terrain -----------------------------------------------------------
   // A band of water, rail or open ground cutting the city, with a small number
   // of crossings. Everything downstream of this treats a band as a wall: no
@@ -48,18 +542,35 @@
       const across = spec.axis === 'h' ? H : W;     // the direction it cuts
       const mid = across * spec.at;
       const half = spec.thickness / 2;
+      // A band used to run the whole width of the map, always — which is a
+      // river or a railway and nothing else. `runs` gives it a span along its
+      // own axis, so the same primitive can be a lake: a patch of water that
+      // blocks what is under it and is simply gone round, rather than a wall
+      // with bridges over it. Absent means the old behaviour, edge to edge.
+      const runs = spec.runs
+        ? { from: along * spec.runs[0], to: along * spec.runs[1] }
+        : { from: -1e6, to: 1e6 };
       // crossings sit at even intervals with a little jitter, never at the edge
       const gaps = [];
-      const n = Math.max(1, spec.crossings + extra);
+      const n = Math.max(0, (spec.crossings || 0) + extra);
+      const span = Math.min(along, runs.to - runs.from);
+      const base = spec.runs ? runs.from : 0;
       for (let g = 0; g < n; g++) {
         const t = (g + 1) / (n + 1);
         gaps.push({
-          at: along * t + rnd(-along * 0.06, along * 0.06),
+          at: base + span * t + rnd(-span * 0.06, span * 0.06),
           w: window.CITY.street * 1.6,
         });
       }
-      return { id: 'band' + i, kind: spec.kind, axis: spec.axis, from: mid - half, to: mid + half, gaps };
+      return { id: 'band' + i, kind: spec.kind, axis: spec.axis,
+               from: mid - half, to: mid + half, runs, gaps };
     });
+  }
+  // Where a band actually is along its own axis. Everything below asks this
+  // rather than assuming edge to edge.
+  function bandCovers(band, along) {
+    const r = band.runs;
+    return !r || (along >= r.from && along <= r.to);
   }
 
   // is this point inside a band, and not in one of its crossings?
@@ -67,6 +578,7 @@
     const across = band.axis === 'h' ? y : x;
     const along = band.axis === 'h' ? x : y;
     if (across < band.from || across > band.to) return false;
+    if (!bandCovers(band, along)) return false;
     return !band.gaps.some(g => Math.abs(along - g.at) <= g.w / 2);
   }
 
@@ -74,7 +586,11 @@
   function rectOnBand(band, x, y, w, h) {
     const lo = band.axis === 'h' ? y : x;
     const hi = lo + (band.axis === 'h' ? h : w);
-    return hi >= band.from && lo <= band.to;
+    if (hi < band.from || lo > band.to) return false;
+    const alo = band.axis === 'h' ? x : y;
+    const ahi = alo + (band.axis === 'h' ? w : h);
+    const r = band.runs;
+    return !r || (ahi >= r.from && alo <= r.to);
   }
 
   // Would a wire from a to b have to cross the band somewhere there is no
@@ -101,7 +617,13 @@
     for (const band of bands) {
       const a = band.axis === 'h' ? ay : ax;
       const b = band.axis === 'h' ? by : bx;
-      if (Math.min(a, b) <= band.to && Math.max(a, b) >= band.from) return true;
+      if (Math.min(a, b) > band.to || Math.max(a, b) < band.from) continue;
+      // and it has to cross the band where the band actually is: a wire that
+      // passes north of the lake has not crossed the lake
+      const p = band.axis === 'h' ? ax : ay;
+      const q = band.axis === 'h' ? bx : by;
+      if (!bandCovers(band, p) && !bandCovers(band, q)) continue;
+      return true;
     }
     return false;
   }
@@ -113,59 +635,75 @@
     const rows = o.rows || C.rows;
     const regionTier = o.regionTier || 0;
     const regionId = o.regionId || 'home';
+    // what span of districts this city runs across — home is all four
+    const tierSpan = o.regionTier === undefined ? undefined : regionTier;
     // Difficulty rides the district inside a city and the region between them.
     // The region term is the heavier of the two on purpose: a datacenter in the
     // north has to still be a wall to something that has taken four regions.
     const regionBump = regionTier * 9;
     // what kind of city this is, if it is any kind in particular
     const TR = (o.trait && window.CITY_TRAITS[o.trait]) || {};
-    const rowDistricts = o.rowDistricts
-      || (o.regionTier === undefined ? C.rowDistricts : districtBand(regionTier, rows));
     const buildings = [];
     const hosts = [];
     const links = [];
     let bid = 0, hid = 0;
 
-    const mapW = C.street + cols * (C.blockW + C.street);
-    const mapH = C.street + rows * (C.blockH + C.street);
-    const bands = makeBands(regionId, mapW, mapH, o.extraCrossings || 0);
+    // the three phases of the district wobble, fixed for this city
+    const wob = [Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3];
+    const layout = makeLayout(cols, rows, o.regionTier === undefined ? undefined : (o.regionTier || 0), wob);
+    const seed = Math.floor(Math.random() * 1e9) + 1;
+    layout.seed = seed;
+    const bands = makeBands(regionId, layout.w, layout.h, o.extraCrossings || 0);
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const districtKey = rowDistricts[row % rowDistricts.length];
-        const D = window.DISTRICTS[districtKey];
-        const bx = C.street + col * (C.blockW + C.street);
-        const by = C.street + row * (C.blockH + C.street);
+    // Districts are areas now, so a caller that hands us rows (an old save
+    // being regenerated, a test pinning a mix) still gets what it asked for:
+    // the row it names wins over the gradient.
+    const rowDistricts = o.rowDistricts || null;
 
-        // subdivide the block into a small grid and drop a building in some cells
-        const cells = [];
-        const cw = C.blockW / 2, ch = C.blockH / 2;
-        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
-        shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
+    const props = [];
+    const paths = [];
+    // the layout already assigned them; a caller that names rows outright
+    // (an old save being regenerated, a test pinning a mix) still wins
+    if (rowDistricts) {
+      layout.blocks.forEach(block => {
+        block.district = rowDistricts[block.row % rowDistricts.length];
+      });
+    }
+    markOpenBlocks(layout, seed);
 
-        for (let i = 0; i < Math.min(n, cells.length); i++) {
-          const cell = cells[i];
-          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
-          const K = window.BUILDING_KINDS[kind];
-          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
-          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
-          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
-          const by2 = Math.round(cell.y + (cell.h - h) / 2);
-          // nothing stands on the water, the line or the moor
-          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
-          const b = {
+    layout.blocks.forEach(block => {
+      const districtKey = block.district;
+      const D = window.DISTRICTS[districtKey];
+      const allKinds = (TR.kinds && TR.kinds[districtKey]) || D.kinds;
+      const plotKinds = allKinds.filter(k => !window.CITY.furniture[k]);
+      if (!block.open) {
+        const kinds = plotKinds.length ? plotKinds : allKinds;
+        const laid = scatterBlock(block, kinds, bands, { denser: TR.denser || 0 });
+        paths.push(...pathsFor(block, layout, laid));
+        laid.forEach(put => {
+          buildings.push({
             id: 'b' + (bid++),
-            kind, district: districtKey, tier: D.tier,
-            block: row * cols + col, row, col,
-            x: bx2, y: by2, w, h,
+            kind: put.kind, district: districtKey, tier: D.tier,
+            block: block.i, row: block.row, col: block.col,
+            x: put.x, y: put.y, w: put.w, h: put.h,
             hostIds: [],
             discovered: false,
-          };
-          buildings.push(b);
-        }
+          });
+        });
       }
-    }
+      // and the street furniture, out on the pavement where it belongs
+      scatterFurniture(block, allKinds, layout, bands, buildings).forEach(put => {
+        buildings.push({
+          id: 'b' + (bid++),
+          kind: put.kind, district: districtKey, tier: D.tier,
+          block: block.i, row: block.row, col: block.col,
+          verge: true,
+          x: put.x, y: put.y, w: put.w, h: put.h,
+          hostIds: [],
+          discovered: false,
+        });
+      });
+    });
 
     // Landmarks. The reason to fight for a crossing rather than route around
     // it: the biggest thing in the city is always up against the terrain.
@@ -197,19 +735,66 @@
         b.kind = kind;
         b.landmark = true;
         const want = { w: rndInt(K.w[0], K.w[1]), h: rndInt(K.h[0], K.h[1]) };
-        // grow it, but never onto the terrain it sits beside
+        // Grow it, but never onto the terrain it sits beside. It used to shrink
+        // by 12% up to twelve times, which is down to a quarter of its size —
+        // fine while a landmark was 78 wide, absurd once one is 175, and it
+        // showed up as a container dock with a median footprint of 936 and a
+        // minimum of 168. A landmark that has to become a shed to fit is not a
+        // landmark: slide it off the band first, and only then give a little.
         const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-        let nw = want.w, nh = want.h;
-        let nx = Math.round(cx - nw / 2), ny = Math.round(cy - nh / 2);
-        for (let guard = 0; guard < 12 && bands.some(band => rectOnBand(band, nx, ny, nw, nh)); guard++) {
-          nw = Math.round(nw * 0.88); nh = Math.round(nh * 0.88);
-          nx = Math.round(cx - nw / 2); ny = Math.round(cy - nh / 2);
+        // Clear of the terrain *and* of everything already standing. It only
+        // ever checked the terrain, which was survivable while a landmark grew
+        // by a few units and is not now that it can grow to 160 wide and slide
+        // half a block looking for room: measured as two buildings standing
+        // inside each other, and as a tree inside a substation.
+        const clear = (x, y, w, h) => !bands.some(band => rectOnBand(band, x, y, w, h))
+          && buildings.every(o => o === b ||
+            x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+        let put = null;
+        for (let shrink = 0; shrink < 4 && !put; shrink++) {
+          const k = Math.pow(0.9, shrink);           // never below 0.73 of intended
+          const nw = Math.round(want.w * k), nh = Math.round(want.h * k);
+          // straight on, then stepped off the band in each direction in turn
+          // and it does not wander: three steps either way, so a landmark stays
+          // recognisably on the block it was promoted from
+          const tries = [[0, 0]];
+          for (let d = 1; d <= 3; d++) {
+            tries.push([0, -d * nh * 0.3], [0, d * nh * 0.3],
+                       [-d * nw * 0.3, 0], [d * nw * 0.3, 0]);
+          }
+          for (const [dx, dy] of tries) {
+            const nx = Math.round(cx + dx - nw / 2), ny = Math.round(cy + dy - nh / 2);
+            if (clear(nx, ny, nw, nh)) { put = { x: nx, y: ny, w: nw, h: nh }; break; }
+          }
         }
-        if (!bands.some(band => rectOnBand(band, nx, ny, nw, nh))) {
-          b.x = nx; b.y = ny; b.w = nw; b.h = nh;
-        }
+        if (put) { b.x = put.x; b.y = put.y; b.w = put.w; b.h = put.h; }
       });
     })();
+
+    // A landmark is grown and slid after the scatter — dodging the terrain
+    // and everything already standing — so it can end up off every frontage:
+    // the biggest building in the city, marooned in the middle of its lot,
+    // which is precisely the complaint the frontage pass existed to fix. Any
+    // landmark that settled away from the street gets a drive to the kerb,
+    // by the same rule a back plot does.
+    buildings.filter(b => b.landmark).forEach(b => {
+      const blk = layout.blocks.find(k => k.i === b.block);
+      if (!blk) return;
+      const gap = Math.min(b.x - blk.x, (blk.x + blk.w) - (b.x + b.w),
+                           b.y - blk.y, (blk.y + blk.h) - (b.y + b.h));
+      if (gap <= C.edgeInset + 4) return;
+      paths.push(...pathsFor(blk, layout, [Object.assign({}, b, { back: true })]));
+    });
+
+    // Scenery last, and after the landmarks in particular: placing a landmark
+    // grows the building it lands on, so anything scattered before that was
+    // clear of it and then was not. Measured as a tree standing inside a
+    // substation, which is exactly the kind of thing a player notices and
+    // nothing else would have caught.
+    layout.blocks.forEach(block => {
+      props.push(...scatterProps(block, block.district, bands, buildings, block.open));
+      props.push(...scatterVerge(block, block.district, layout, bands, buildings));
+    });
 
     // one building, one host — the building is the thing you take
     buildings.forEach(b => {
@@ -243,6 +828,9 @@
       b.hostId = h.id;
     });
 
+    // what is on these machines — decided now, carried forever
+    assignCarry(hosts, (layout.seed || 1) + 17);
+
     // --- links ---------------------------------------------------------
     const byId = {};
     hosts.forEach(h => { byId[h.id] = hosts.indexOf(h); });
@@ -252,8 +840,22 @@
     // block pair produced a spaghetti of long lines that buried the city.
     const hostOf = (b) => hosts[byId[b.hostId]];
     const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-    const MAX_LINK = 165;
-    const CROSSING_LINK = 340;   // a wire over a bridge reaches further
+    // Tuned twice, and each time for the same reason: this is a distance
+    // between building *centres*, so anything that moves the buildings apart
+    // thins the graph, and a thinner graph is fewer options a turn.
+    //
+    //   165  the original, while every block was the same size and every
+    //        building sat exactly 82 from its neighbour
+    //   178  after the plan went irregular (mean degree had fallen to 2.89)
+    //   270  after the size ladder was spread out. Blocks grow with their
+    //        district so a datacenter has somewhere to stand, which makes the
+    //        map about 1.8x the area it was, which put mean degree at 2.57.
+    //
+    // Measured at 270: mean 3.15, no isolated building, one component on every
+    // board, and 6% of links crossing terrain — so the crossings are still
+    // chokepoints rather than a formality.
+    const MAX_LINK = 270;
+    const CROSSING_LINK = 470;   // and a wire over a bridge still reaches further
     const NEIGHBOURS = 3;
     const seenPair = {};
     const adjacency = {};
@@ -313,26 +915,54 @@
         });
         if (comp <= 1) return;
 
-        // the closest pair that is separated *only* by terrain
-        let best = null;
+        // The closest pair separated *only* by terrain. The radius used to be a
+        // hard CROSSING_LINK * 1.2, which was fine while buildings were small
+        // and started stranding pockets in the north once a datacenter was 159
+        // wide and the nearest pair across the water was further apart than
+        // that. A pocket with no crossing cannot be stitched either — the
+        // stitcher refuses to tunnel under a river — so the two passes handed
+        // the problem to each other and the city came out in pieces.
+        //
+        // So: prefer a pair within reach, and if there is none, take the
+        // closest pair at any distance. A crossing has to exist somewhere, or
+        // there is a part of the city nobody can ever get to.
+        let best = null, far = null;
         buildings.forEach(a => buildings.forEach(b => {
           if (compOf[a.id] === compOf[b.id]) return;
           const ca = centreOf(a), cb = centreOf(b);
           const d = Math.hypot(ca.x - cb.x, ca.y - cb.y);
-          if (d > CROSSING_LINK * 1.2) return;
           if (!segmentBlocked(bands, ca.x, ca.y, cb.x, cb.y)) return;
+          if (!far || d < far.d) far = { d, a, b, ca, cb };
+          if (d > CROSSING_LINK * 1.2) return;
           if (!best || d < best.d) best = { d, a, b, ca, cb };
         }));
+        best = best || far;
         if (!best) return;   // separated by distance, not terrain — stitching handles it
 
         // Put the crossing where the wire actually crosses, and make it wide
         // enough to cover the whole traverse. Placing it at the segment's
         // midpoint looks right and is wrong for anything diagonal: the wire
         // enters and leaves the band well to one side of it.
-        bands.forEach(band => {
+        // Which bands are actually in the way of this pair. A patch only exists
+        // along part of its axis, and without checking that, a wire crossing
+        // the park at the far end of the map put three bridges over the
+        // boating lake.
+        const inTheWay = bands.filter(band => {
           const a0 = band.axis === 'h' ? best.ca.y : best.ca.x;
           const b0 = band.axis === 'h' ? best.cb.y : best.cb.x;
-          if (Math.min(a0, b0) > band.to || Math.max(a0, b0) < band.from) return;
+          if (Math.min(a0, b0) > band.to || Math.max(a0, b0) < band.from) return false;
+          const alongA = band.axis === 'h' ? best.ca.x : best.ca.y;
+          const alongB = band.axis === 'h' ? best.cb.x : best.cb.y;
+          return bandCovers(band, alongA) || bandCovers(band, alongB);
+        });
+        // You bridge the river, not the lake. A patch is a thing to go round,
+        // full stop — it never gets a way across, and anything it does manage
+        // to cut off is picked up by the stitcher or, failing that, deleted by
+        // dropUnreachable. Letting this pass gap a patch put three bridges
+        // over a boating lake, which is three more than a boating lake has.
+        inTheWay.filter(band => !band.runs || band.runs.from <= -1e5).forEach(band => {
+          const a0 = band.axis === 'h' ? best.ca.y : best.ca.x;
+          const b0 = band.axis === 'h' ? best.cb.y : best.cb.x;
           const alongA = band.axis === 'h' ? best.ca.x : best.ca.y;
           const alongB = band.axis === 'h' ? best.cb.x : best.cb.y;
           // where the segment sits when it enters and leaves the band
@@ -405,6 +1035,70 @@
       }
     })();
 
+    // Whatever is still unreachable does not exist. Two passes above try to
+    // wire every pocket in — a crossing where terrain is the problem, a stitch
+    // where distance is — and between them they get all but a couple of
+    // buildings on a hard board. What is left is a building with no way in at
+    // all, which is not content, it is a hole: it cannot be scanned, cannot be
+    // taken, and counts against the share of the city you need to hold.
+    //
+    // Deleting it is the only version of this that is a guarantee rather than a
+    // tuning. Measured, it costs 1-2 buildings on a northern board and nothing
+    // at all on most.
+    (function dropUnreachable() {
+      const compOf = {};
+      const size = [];
+      let comp = 0;
+      buildings.forEach(b => {
+        if (compOf[b.id] !== undefined) return;
+        const stack = [b.id];
+        compOf[b.id] = comp;
+        let n = 0;
+        while (stack.length) {
+          const cur = stack.pop();
+          n++;
+          (adjacency[cur] || []).forEach(x => {
+            if (compOf[x] === undefined) { compOf[x] = comp; stack.push(x); }
+          });
+        }
+        size.push(n);
+        comp++;
+      });
+      if (comp <= 1) return;
+      const keep = size.indexOf(Math.max(...size));
+      const gone = {};
+      buildings.filter(b => compOf[b.id] !== keep).forEach(b => { gone[b.id] = true; });
+      if (!Object.keys(gone).length) return;
+
+      // The host and the link list go with it. `links` holds *indices* into
+      // hosts, so the hosts cannot simply be spliced — the whole array is
+      // rebuilt and every link remapped, or every wire on the map points at
+      // the wrong building.
+      const goneHosts = {};
+      buildings.forEach(b => {
+        if (!gone[b.id]) return;
+        (b.hostIds || []).forEach(h => { goneHosts[h] = true; });
+        if (b.hostId) goneHosts[b.hostId] = true;
+      });
+      const kept = hosts.filter(h => !goneHosts[h.id]);
+      const newIndex = {};
+      kept.forEach((h, i) => { newIndex[h.id] = i; });
+      const remapped = links
+        .map(([a, c]) => [hosts[a], hosts[c]])
+        .filter(([ha, hc]) => ha && hc && !goneHosts[ha.id] && !goneHosts[hc.id])
+        .map(([ha, hc]) => [newIndex[ha.id], newIndex[hc.id]]);
+      hosts.length = 0; kept.forEach(h => hosts.push(h));
+      links.length = 0; remapped.forEach(l => links.push(l));
+      Object.keys(byId).forEach(k => { delete byId[k]; });
+      hosts.forEach((h, i) => { byId[h.id] = i; });
+
+      for (let i = buildings.length - 1; i >= 0; i--) if (gone[buildings[i].id]) buildings.splice(i, 1);
+      Object.keys(adjacency).forEach(id => {
+        if (gone[id]) { delete adjacency[id]; return; }
+        adjacency[id] = adjacency[id].filter(x => !gone[x]);
+      });
+    })();
+
     // the origin: a house in the suburbs, one host already yours. It must have
     // something next door you can take on turn one — a corner where every
     // neighbour outguns your opening rig is a board you cannot start playing.
@@ -453,8 +1147,14 @@
     seat.discovered = true;
     seat.ring = 0;
     seat.origin = true;
+    // assignCarry ran before the seat was chosen, so its origin exclusion
+    // can't have fired — clear it here instead. A machine you already own
+    // holds no prize: the glint keys off carry, and an owned carrier would
+    // be a glint that never lights and contents no take can ever resolve.
+    delete seat.carry;
 
-    return { buildings, hosts, links, adjacency, bands, originId: seat.id, dims: { cols, rows } };
+    return { buildings, hosts, links, adjacency, bands, layout, wob, props, paths,
+             originId: seat.id, dims: { cols, rows } };
   }
 
   // Home base pivot, step 1b: the map grows live, in place, appended past the
@@ -493,12 +1193,40 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
+  // Extend the street plan by a batch of rows, using the same irregular
+  // machinery the city was generated with. The existing roads and blocks are
+  // untouched — a street that moved because the map grew past it would be the
+  // one thing worse than a straight street.
+  function extendLayout(L, rows) {
+    const C = window.CITY;
+    const swing = (base, vary) => Math.round(base * (1 + (Math.random() * 2 - 1) * vary));
+    const wide = () => Math.random() < 1 / C.arterialEvery;
+    let y = L.ys[L.ys.length - 1];
+    for (let r = 0; r < rows; r++) {
+      const rowH = Math.max(80, swing(C.blockH, C.blockVary));
+      const road = Math.max(18, swing(C.street * (wide() ? C.arterialMult : 1), C.streetVary));
+      const blockY = Math.round(y + L.hRoad[L.hRoad.length - 1] / 2);
+      for (let c = 0; c < L.cols; c++) {
+        const blk = L.blocks.find(b => b.col === c && b.row === L.rows - 1) || L.blocks[c];
+        L.blocks.push({
+          row: L.rows + r, col: c, i: (L.rows + r) * L.cols + c,
+          x: blk.x, y: blockY, w: blk.w, h: rowH,
+        });
+      }
+      y = blockY + rowH + road / 2;
+      L.hRoad.push(road);
+      L.ys.push(Math.round(y));
+    }
+    L.rows += rows;
+    L.h = Math.round(y + L.hRoad[L.hRoad.length - 1] / 2);
+    return L;
+  }
+
   function growHomeBase() {
     const C = window.CITY;
     const dims = state.dims || { cols: C.cols, rows: C.rows };
     const cols = dims.cols;
     const startRow = dims.rows;
-    const rowDistricts = C.rowDistricts;
     const bands = state.bands || [];
     const traitId = pickBatchTrait(0, state.lastGrowthTrait);
     const TR = (traitId && window.CITY_TRAITS[traitId]) || {};
@@ -506,38 +1234,36 @@
     let nextBidNum = 1 + (state.buildings || []).reduce((m, b) => Math.max(m, parseInt(b.id.slice(1), 10)), -1);
     let nextHidNum = 1 + (state.hosts || []).reduce((m, h) => Math.max(m, parseInt(h.id.slice(1), 10)), -1);
 
+    // grow the plan, then fill only the blocks that appeared
+    const L = state.layout || (state.layout = regularLayout(dims.cols, dims.rows));
+    extendLayout(L, HOME_GROWTH_ROWS);
+    const wob = state.wob || (state.wob = [0, 0, 0]);
+
+    const fresh = L.blocks.filter(blk => blk.row >= startRow);
+    fresh.forEach(blk => { blk.district = districtFor(blk, L, undefined, wob); });
+    // rank only the new rows, against the same seed the city was laid out with
+    markOpenBlocks({ blocks: fresh }, L.seed || 1);
+
     const newBuildings = [];
-    for (let row = startRow; row < startRow + HOME_GROWTH_ROWS; row++) {
-      for (let col = 0; col < cols; col++) {
-        const districtKey = rowDistricts[row % rowDistricts.length];
-        const D = window.DISTRICTS[districtKey];
-        const bx = C.street + col * (C.blockW + C.street);
-        const by = C.street + row * (C.blockH + C.street);
-        const cells = [];
-        const cw = C.blockW / 2, ch = C.blockH / 2;
-        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) cells.push({ x: bx + c * cw, y: by + r * ch, w: cw, h: ch });
-        shuffleArr(cells);
-        const n = rndInt(C.perBlock[0], C.perBlock[1]) + (TR.denser || 0);
-        for (let i = 0; i < Math.min(n, cells.length); i++) {
-          const cell = cells[i];
-          const kind = pick((TR.kinds && TR.kinds[districtKey]) || D.kinds);
-          const K = window.BUILDING_KINDS[kind];
-          const w = Math.min(rndInt(K.w[0], K.w[1]), cell.w - 10);
-          const h = Math.min(rndInt(K.h[0], K.h[1]), cell.h - 10);
-          const bx2 = Math.round(cell.x + (cell.w - w) / 2);
-          const by2 = Math.round(cell.y + (cell.h - h) / 2);
-          if (bands.some(band => rectOnBand(band, bx2, by2, w, h))) continue;
-          newBuildings.push({
-            id: 'b' + (nextBidNum++),
-            kind, district: districtKey, tier: D.tier, trait: traitId || undefined,
-            block: row * cols + col, row, col,
-            x: bx2, y: by2, w, h,
-            hostIds: [],
-            discovered: false,
-          });
-        }
-      }
-    }
+    fresh.forEach(blk => {
+      if (blk.open) return;
+      const D = window.DISTRICTS[blk.district];
+      const kinds = (TR.kinds && TR.kinds[blk.district]) || D.kinds;
+      scatterBlock(blk, kinds, bands, { denser: TR.denser || 0 }).forEach(put => {
+        newBuildings.push({
+          id: 'b' + (nextBidNum++),
+          kind: put.kind, district: blk.district, tier: D.tier, trait: traitId || undefined,
+          block: blk.i, row: blk.row, col: blk.col,
+          x: put.x, y: put.y, w: put.w, h: put.h,
+          hostIds: [],
+          discovered: false,
+        });
+      });
+    });
+    // and the scenery the new ground came with
+    state.props = (state.props || []).concat(fresh.flatMap(blk =>
+      scatterProps(blk, blk.district, bands, newBuildings, blk.open)
+        .concat(scatterVerge(blk, blk.district, L, bands, state.buildings.concat(newBuildings)))));
 
     if (newBuildings.length) {
       state.lastGrowthTrait = traitId;
@@ -561,6 +1287,9 @@
         b.hostId = h.id;
       });
 
+      // the new ground's machines have contents too, off the same seed
+      assignCarry(newHosts, ((state.layout && state.layout.seed) || 1) + startRow * 31);
+
       // append first, so link indices are stable and final before any get used
       const hostIndex = {};
       state.hosts.forEach((h, i) => { hostIndex[h.id] = i; });
@@ -572,7 +1301,9 @@
       const boundary = state.buildings.filter(b => b.row === startRow - 1);
       const pool = boundary.concat(newBuildings);
       const centre = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-      const MAX_LINK = 165, CROSSING_LINK = 340, NEIGHBOURS = 3;
+      // the same reach the generator uses, or new ground wires itself up by a
+      // different rule from the ground it is being appended to
+      const MAX_LINK = 270, CROSSING_LINK = 470, NEIGHBOURS = 3;
       const seenPair = {};
       const hostOf = {};
       state.hosts.forEach(h => { hostOf[h.buildingId] = h; });
@@ -1093,6 +1824,10 @@
       country,
       cityId: country.homeId,
       dims: g.dims,
+      layout: g.layout,
+      wob: g.wob,
+      props: g.props,
+      paths: g.paths,
       region: 'home',
       buildings: g.buildings,
       adjacency: g.adjacency,
@@ -1116,11 +1851,11 @@
       links: g.links,
       selected: null,
       selectedBuilding: null,
-      card: null,      // { kind:'breach'|'strike', hostId? }
+      keys: 0,         // credentials found on machines, spent one door at a time
+      suspicion: {},   // how warm each district is — a fact about here
+      card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
-      strikes: 0,
-      lastStrikeTurn: -99,
       cuts: [],
       lastCutTurn: -99,
       rival: { awake: false, buildings: [], lastActed: 0, seen: false },
@@ -1598,9 +2333,9 @@
     takeHost(h);
     state.timesForced = (state.timesForced || 0) + 1;
     cameraVision();
-    // unattended, and loud about it: the noise hammer.exe makes when you do it
-    const loud = window.PROGRAMS.find(x => !x.quiet) || window.PROGRAMS[0];
-    state.heat = clampHeat(state.heat + (loud.heat || 0));
+    // unattended, and it costs what a run costs — there is one program now, so
+    // there is no louder one to charge it at
+    state.heat = clampHeat(state.heat + (mounted().heat || 0));
     pushLog(`The frontier forces itself: ${window.BUILDING_KINDS[best.kind].label} took itself in, unattended.`);
     return h;
   }
@@ -1725,6 +2460,7 @@
     // a leftover test) must not sit there blocking every other card forever.
     if (state.card && state.card.kind === 'strike') state.card = null;
     if (!warOn() && !huntOn()) huntStart();
+    cityWonCheck();
     if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -1785,12 +2521,12 @@
     const all = (state.buildings || []).length;
     return all ? (hunt() ? hunt().nodes.length : 0) / all : 0;
   }
-  // How long between its moves. Cover is what makes you hard to follow — this
-  // is the first thing in the game that gives covert.ops a job beyond gating one
-  // door, and it is why a stealth holding is worth taking.
+  // How long between its moves. Cover is what makes you hard to follow, and it
+  // is now the only thing that does — heat used to override this and pin them
+  // to their fastest tick, which meant a number the player could not do
+  // anything about was deciding how fast they were being eaten. One input.
   function huntCadence() {
     const H = window.HUNT;
-    if (state.heat >= strikeThreshold()) return H.hotEvery;
     return Math.min(H.everyMax, Math.round(H.everyBase + covertOps() * H.perCover));
   }
   function huntDueIn() {
@@ -1867,6 +2603,52 @@
   // brings the response, and it is a fact about *here* — it packs with the
   // city and does not travel.
   function caughtHere() { return state.caughtHere || 0; }
+  // How warm a district is. A fact about here — packs with the city.
+  function suspicionOf(district) {
+    return (state.suspicion && state.suspicion[district]) || 0;
+  }
+  // Acting somewhere warms that district and cools every other one. Waiting
+  // cools nothing at all — attention has nothing new to look at, so it stays
+  // where it last was. That is the whole rule: camping is priced, waiting is
+  // worthless, rotation is the play.
+  function noteDistrictAct(district, amount) {
+    if (!district || !window.SUSPICION) return;
+    const S = window.SUSPICION;
+    // one decimal, always — float drift here would surface as "38.00000004%
+    // faster" in the panel, and the panel is a contract
+    const tidy = (v) => Math.round(v * 10) / 10;
+    state.suspicion = state.suspicion || {};
+    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+    Object.keys(state.suspicion).forEach(d => {
+      if (d === district) return;
+      state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - S.coolPerAct));
+      if (!state.suspicion[d]) delete state.suspicion[d];
+    });
+  }
+  // Warmth without the rotation rule. A sweep is someone trying handles on
+  // one street — the street notices, but it is not the kind of moving-around
+  // that makes the last street forget you. If looking fed noteDistrictAct's
+  // cooling, mashing scan in a far district would be a suspicion coolant,
+  // which is exactly backwards.
+  function warmDistrict(district, amount) {
+    if (!district || !amount || !window.SUSPICION) return;
+    const S = window.SUSPICION;
+    const tidy = (v) => Math.round(v * 10) / 10;
+    state.suspicion = state.suspicion || {};
+    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+  }
+  // The panel's phrase and the exact figure, from the first band. Words come
+  // in bands; the arithmetic never does — below the first band the panel is
+  // silent and the forecast still quotes the true rate.
+  function suspicionLine(district) {
+    const S = window.SUSPICION;
+    const v = suspicionOf(district);
+    if (!S || !S.bands.length || v < S.bands[0][0]) return '';
+    let phrase = '';
+    S.bands.forEach(([at, words]) => { if (v >= at) phrase = words; });
+    const pct = Math.round(v * S.slope * 100);
+    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.</p>`;
+  }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
     if (owned().length < window.HUNT.minHeld) return null;
@@ -2063,11 +2845,11 @@
     const b = buildingById(bid);
     if (!b || !buildingHeld(b)) return false;         // only what is yours
     if (ladderStage() >= 3) return false;          // Public watches the quiet
-    return hideSlotsFree() > 0 && canAfford('lielow');
+    return hideSlotsFree() > 0 && canAfford('hide');
   }
   function actHide(bid) {
     if (!canHide(bid)) return false;
-    spendAP('lielow');
+    spendAP('hide');
     hidden().push(bid);
     pushLog(`${window.BUILDING_KINDS[buildingById(bid).kind].label} is off their map. Keeping it there is the expensive part.`);
     persistNow();
@@ -2752,11 +3534,19 @@ scratch.later = null;
   function sweepTargetsFrom(bid) {
     return buildingNeighbours(bid).map(buildingById).filter(b => b && !b.discovered);
   }
+  // Anything unknown next to anything KNOWN — not merely next to anything
+  // held. Playtest: aiming was the fun, but a vantage needed owning, so the
+  // search loop kept stalling on "take something first" — turns spent
+  // waiting to be allowed to look. Seeing a building is what makes it a
+  // place you can look from; owning it was never the load-bearing part.
+  // The cost of a deep scouting chain is real anyway: an action per hop,
+  // and every sweep warms the street it touches.
   function sweepTargets() {
-    const held = heldBuildingIds();
+    const seen = {};
+    (state.buildings || []).forEach(b => { if (b.discovered) seen[b.id] = true; });
     return (state.buildings || []).filter(b => {
       if (b.discovered) return false;
-      return buildingNeighbours(b.id).some(id => held[id]);
+      return buildingNeighbours(b.id).some(id => seen[id]);
     });
   }
 
@@ -2791,7 +3581,16 @@ scratch.later = null;
   }
 
   function actScan(fromId) {
-    const pool = (fromId != null && hasHardware('line_survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
+    // Aimed for everyone: scanning from a chosen building was line.survey's
+    // whole mechanic, and it is the base verb now — route control cannot be
+    // an unlock when choosing a route is the game's missing decision. Any
+    // DISCOVERED building is a vantage: the scan button on the panel is the
+    // whole verb, and the search loop chains sweep to sweep without waiting
+    // for a take. (The no-argument form survives for the harness's bots; the
+    // UI no longer offers it.)
+    const from = fromId != null ? buildingById(fromId) : null;
+    if (fromId != null && (!from || !from.discovered)) return;
+    const pool = fromId != null ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
     spendAP('sweep');
@@ -2799,17 +3598,43 @@ scratch.later = null;
     // little heat on you, which is what stops it being a button you mash.
     state.heat = clampHeat(state.heat + window.SCAN_HEAT);
     const reach = sweepReach();
-    const targets = pool.slice();
-    const found = [];
-    for (let i = 0; i < reach && targets.length; i++) {
-      const idx = Math.floor(Math.random() * targets.length);
-      const b = targets.splice(idx, 1)[0];
-      revealBuilding(b);
-      found.push(b);
-    }
+    // The last dice in resolution died here. The sweep finds what is
+    // nearest — nearest to the building you swept from, or nearest to
+    // anything you hold — ties broken by id so the same board sweeps the
+    // same. Where the frontier grows is now entirely a matter of where you
+    // stand when you look, which is what makes a route a choice.
+    const anchors = fromId != null
+      ? [buildingById(fromId)].filter(Boolean)
+      : Object.keys(heldBuildingIds()).map(buildingById).filter(Boolean);
+    const mid = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const near = (b) => {
+      const c = mid(b);
+      return anchors.reduce((best, a) => {
+        const ac = mid(a);
+        return Math.min(best, Math.hypot(c.x - ac.x, c.y - ac.y));
+      }, Infinity);
+    };
+    const found = pool
+      .map(b => ({ b, d: near(b) }))
+      .sort((p, q) => p.d - q.d || (p.b.id < q.b.id ? -1 : 1))
+      .slice(0, reach)
+      .map(p => p.b);
+    found.forEach(b => revealBuilding(b));
     state.heat += 0.5;
+    // ...and the street notices somebody trying handles. With heat dormant
+    // in the city game this is scanning's real price, paid exactly where
+    // you looked — one point per district touched, cooling nothing.
+    const touched = new Set(found.map(b => (hostsIn(b)[0] || {}).district).filter(Boolean));
+    touched.forEach(dk => warmDistrict(dk, window.SUSPICION.perScan));
+    // The discovery moment is where loot was getting missed — the glint is
+    // small and the eye is on the sweep ring. Say it in the log, but never
+    // what: the tap is the scouting verb, and this is only the reason to tap.
+    const laden = found.filter(b => hostsIn(b).some(x => x.carry && !x.owned));
+    const note = laden.length === 1
+      ? ` Something is sitting on the ${window.BUILDING_KINDS[laden[0].kind].label}.`
+      : laden.length > 1 ? ` Something is sitting on ${laden.length} of them.` : '';
     pushLog(found.length
-      ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`
+      ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.${note}`
       : 'Sweep found nothing new.');
     startSweepFx(found);
     persistNow();
@@ -2899,6 +3724,97 @@ scratch.later = null;
   function sweepElapsed() { return sweepFx ? Date.now() - sweepFx.started : 0; }
   function sweepDelay(ms) { return Math.round(ms - sweepElapsed()); }
 
+  // --- the network, seen --------------------------------------------------
+  // Both of these live outside `state`, like every other effect here: a save,
+  // a reload or a test must never depend on an animation having run.
+  //
+  // The draw is aimed. A link arriving has a direction — outward from the
+  // ground you already hold, into the ground you just took — so the line is
+  // emitted with the *neighbour* first and the new holding second, and the
+  // dash offset runs down it that way. Emitted by the renderer rather than
+  // patched on afterwards, because the live layer is rebuilt wholesale on
+  // every render and anything added on top of it is gone by the next one.
+  let drawFx = null;                       // { bid, started }
+  function startDrawFx(buildingId) {
+    if (!buildingId) return;
+    drawFx = { bid: buildingId, started: Date.now() };
+  }
+  function drawFxOn() {
+    const W = window.WIRE_FX || {};
+    if (!drawFx) return null;
+    if (Date.now() - drawFx.started > (W.drawMs || 620)) { drawFx = null; return null; }
+    return drawFx;
+  }
+  // Elapsed-aware delays, the same trick sweep and breach use: a re-render
+  // mid-flourish must resume it, not restart it.
+  function drawDelay() {
+    return drawFx ? Math.round(-(Date.now() - drawFx.started)) : 0;
+  }
+  // Packets share one clock so their phase survives a re-render too —
+  // otherwise every tap would visibly yank every dot back to its start.
+  const PACKET_EPOCH = Date.now();
+  function packetDelay(i, dur) {
+    const spread = Math.round((i * 0.37) * dur) % dur;   // fanned, not in step
+    return -(((Date.now() - PACKET_EPOCH) + spread) % dur);
+  }
+
+  // Every link between two things you hold, once each, with the geometry both
+  // the wire and its packets are drawn from.
+  function heldWires() {
+    const out = [];
+    (state.links || []).forEach(([a, c]) => {
+      const ha = state.hosts[a], hc = state.hosts[c];
+      if (!ha || !hc || !ha.owned || !hc.owned) return;
+      if (ha.buildingId === hc.buildingId) return;      // inside a building, implied
+      out.push({ ha, hc });
+    });
+    return out;
+  }
+
+  function svgWires() {
+    const W = window.WIRE_FX || {};
+    const fx = drawFxOn();
+    const wires = heldWires();
+    let out = '';
+    wires.forEach(({ ha, hc }) => {
+      // the new holding goes second, so the draw runs toward it
+      const flip = fx && ha.buildingId === fx.bid;
+      const a = flip ? hc : ha, b = flip ? ha : hc;
+      const drawing = fx && (a.buildingId === fx.bid || b.buildingId === fx.bid);
+      const len = Math.hypot(b.x - a.x, b.y - a.y).toFixed(1);
+      out += `<line class="wire live${drawing ? ' drawing' : ''}"`
+        + ` x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"`
+        + (drawing ? ` style="--len:${len};animation-delay:${drawDelay()}ms"` : '')
+        + '/>';
+    });
+    return out + svgPackets(wires);
+  }
+
+  // Something moving on what you hold. Ambient and therefore rationed: none
+  // at planning zoom (at eight pixels a packet is confetti, and the glint —
+  // which actually means something — is competing for the same eye), capped
+  // in number, and nearest-first so the cap spends itself on what is on
+  // screen rather than on the far corner of the map.
+  function svgPackets(wires) {
+    const W = window.WIRE_FX || {};
+    if (!wires.length) return '';
+    if (mapUnitsPerPx() > (W.packetMinPx || 0.9)) return '';
+    const v = state.view || {};
+    const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+    const near = wires
+      .map(w => ({ w, d: Math.hypot((w.ha.x + w.hc.x) / 2 - cx, (w.ha.y + w.hc.y) / 2 - cy) }))
+      .sort((p, q) => p.d - q.d)
+      .slice(0, W.packetCap || 20);
+    const dur = W.packetMs || 2600;
+    let out = '<g class="packets">';
+    near.forEach(({ w }, i) => {
+      out += `<circle class="packet" r="${W.packetR || 1.9}"`
+        + ` style="--ax:${w.ha.x};--ay:${w.ha.y};--bx:${w.hc.x};--by:${w.hc.y};`
+        + `animation-duration:${dur}ms;animation-delay:${packetDelay(i, dur)}ms"/>`;
+    });
+    return out + '</g>';
+  }
+
   // --- the breach, seen ---------------------------------------------------
   // The sweep goes outward to find things; a breach goes inward to take one.
   // So it runs along the wire: the route establishes itself from whatever you
@@ -2972,6 +3888,12 @@ scratch.later = null;
     // what happens when it arrives
     out += `<circle class="breach-land" cx="${f.to.x}" cy="${f.to.y}" r="6"`
       + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
+    // ...and the ground under a win notices: one soft ring rolling out from
+    // the take, so the place reacts to what just happened in it
+    if (f.win) {
+      out += `<circle class="breach-ground" cx="${f.to.x}" cy="${f.to.y}" r="14"`
+        + ` style="animation-delay:${breachDelay(f.dur)}ms"/>`;
+    }
     out += '</g>';
     return out;
   }
@@ -3108,29 +4030,10 @@ scratch.later = null;
     return out;
   }
 
-  // Going dark is the whole turn, not one action of it — that is the cost.
-  function actLieLow() {
-    if (state.card || state.over || state.ap <= 0) return;
-    const before = beforeSnap();
-    state.ap = 0;
-    // Public watches for absence. Past that stage, going dark buys you
-    // nothing — the turn is spent and the heat stays exactly where it was.
-    // A name inside the rota gets you a window they are not watching: not the
-    // tool back, but not nothing either.
-    const watched = ladderStage() >= 3;
-    const shed = watched
-      ? (has('rota_contact') ? lieLowShed() * window.HEAT.ROTA_SHARE : 0)
-      : lieLowShed();
-    if (shed) state.heat = clampHeat(state.heat - shed);
-    afterSnap(before);
-    pushLog(watched
-      ? (has('rota_contact')
-          ? 'You go quiet in the window nobody is covering.'
-          : 'You go quiet. Somebody notices the quiet.')
-      : 'You go quiet for a while. Nothing earns while you are dark.');
-    endTurn({ silent: true }); // going dark means going dark -- no production
-    render();
-  }
+  // Lying low is gone. It spent a whole turn to move one number, and that
+  // number is no longer something the city scale reads or shows — so the button
+  // was a turn traded for nothing you could see. Its AP key survives because
+  // hiding a building still uses it.
 
   // --- hacking -------------------------------------------------------------
   // A hack is not resolved the moment you commit to it. It occupies compute for
@@ -3138,18 +4041,11 @@ scratch.later = null;
   // own trace to the finish. That race is what stops the slow programs being
   // strictly better than the fast one: turns used to be free.
 
+  // There is one program, so there is nothing to mount. mounted() stays
+  // because everything downstream asks what is running, and a second program
+  // would put the choice back here rather than anywhere else.
   function programs() { return window.PROGRAMS; }
-  function mounted() {
-    const id = state.mount || (window.PROGRAMS[0] || {}).id;
-    return window.PROGRAMS.find(p => p.id === id) || window.PROGRAMS[0];
-  }
-  function mount(id) {
-    if (!window.PROGRAMS.some(p => p.id === id)) return false;
-    state.mount = id;
-    persistNow();
-    render();
-    return true;
-  }
+  function mounted() { return window.PROGRAMS[0]; }
   function hacks() { return state.hacks || (state.hacks = []); }
   function hackOn(hostId) { return hacks().find(k => k.hostId === hostId) || null; }
   function hackDraw() { return hacks().reduce((a, k) => a + k.allocated, 0); }
@@ -3159,7 +4055,11 @@ scratch.later = null;
   // in — unless you have gotten off their list — so the loud way in gets more
   // expensive once they have landed, which is the rung's whole bite.
   function hackHeat(p) {
-    const adjusted = !p.quiet && ladderStage() >= 4 && !has('unlisted');
+    // Enforcement used to charge only the loud program, and there is no loud
+    // program now — so the surcharge would have been a stage of the ladder
+    // that lands doing nothing. It charges the run, whichever run it is. That
+    // is what Enforcement means: getting in costs you more, full stop.
+    const adjusted = ladderStage() >= 4 && !has('unlisted');
     return Math.max(0, (p.heat || 0) + capEffect('forceHeat', 0) + (adjusted ? window.HEAT.FORCE_TRACE : 0));
   }
   function hackNeed(prog, h) {
@@ -3184,38 +4084,35 @@ scratch.later = null;
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
     const loud = (prog && prog.traceMult) || 1;
-    return Math.round(raw * shield * here * loud * 100) / 100;
+    // the district is talking: a straight line from the first point of
+    // suspicion, which means the forecast, the race bar and the panel all
+    // show the true number without any of them being told
+    const talked = 1 + suspicionOf(h.district) * ((window.SUSPICION || {}).slope || 0);
+    return Math.round(raw * shield * here * loud * talked * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
   // target will have noticed by then, and therefore whether it lands at all.
   function hackForecast(h, prog) {
     const p = prog || mounted();
     const need = hackNeed(p, h);
-    const rate = traceRate(h, p);
+    // Someone's keys: spent automatically, and only where they matter — a run
+    // the bare arithmetic says would be caught. A safe run never consumes
+    // them, so holding keys is holding an answer to the door you were
+    // avoiding, and the panel states the spend before you commit.
+    const bareRate = traceRate(h, p);
+    const bareEnd = Math.round(bareRate * p.turns * 100) / 100;
+    // Never on the response's core: the confront is them, not a door, and a
+    // found wallet of credentials making the campaign's one boss moment
+    // unlosable would be the slot machine winning after all.
+    const keyed = bareEnd >= window.HACK.traceGoal && (state.keys || 0) > 0 && !isHuntCore(h);
+    const rate = keyed ? 0 : bareRate;
     const traceAtEnd = Math.round(rate * p.turns * 100) / 100;
     return {
-      prog: p, need, rate, turns: p.turns, traceAtEnd,
+      prog: p, need, rate, turns: p.turns, traceAtEnd, keyed,
       goal: window.HACK.traceGoal,
       caught: traceAtEnd >= window.HACK.traceGoal,
       affordable: allocFree() >= need,
-      spread: spreadForecast(h, p, need),
     };
-  }
-  // Where contagion would go next, as far as it can be known in advance. "Up
-  // to", not a promise: it picks its own targets, the board moves while it
-  // works, and the whole character of the program is that you do not choose.
-  // But the player should not be committing four turns to the interesting half
-  // of a program with none of it stated.
-  function spreadForecast(h, p, allocated) {
-    if (!p.spread) return null;
-    const room = Math.max(0, p.spread - 1);
-    let carries = 0, holds = 0;
-    buildingNeighbours(h.buildingId).forEach(id => {
-      const t = hostsIn(buildingById(id))[0];
-      if (!t || t.owned) return;
-      if (allocated >= hackNeed(p, t)) carries++; else holds++;
-    });
-    return { room, carries, holds, upTo: Math.min(carries, room) };
   }
   function canHack(hostId) {
     const h = hostById(hostId);
@@ -3236,9 +4133,17 @@ scratch.later = null;
     // of it and setting a program going against an easy door costs a fraction
     // of a turn rather than a whole one.
     spendAP('breach');
+    // the lights flicker: starting a run is the first thing a street notices
+    noteDistrictAct(h.district, window.SUSPICION.perRun);
+    // keys are spent the moment the run starts — one set, one door, and only
+    // a door that needed them (the forecast's rule, exactly)
+    const f = hackForecast(h, p);
+    const keyed = f.keyed;
+    if (keyed) state.keys = Math.max(0, (state.keys || 0) - 1);
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
+      keyed: keyed || undefined,
       confront: isHuntCore(h) || undefined,
     });
     pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
@@ -3275,7 +4180,8 @@ scratch.later = null;
     hacks().slice().forEach(k => {
       const h = hostById(k.hostId);
       const kp = window.PROGRAMS.find(x => x.id === k.prog);
-      k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
+      // a keyed run is never seen: the credentials are the whole point
+      if (!k.keyed) k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
       k.turnsLeft -= 1;
       if (k.trace >= H.traceGoal) { caught.push(k); return; }
       if (k.turnsLeft <= 0) done.push(k);
@@ -3296,6 +4202,8 @@ scratch.later = null;
       // was reading.
       state.caughtHere = (state.caughtHere || 0) + 1;
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      // and the neighbours definitely talked
+      noteDistrictAct(h.district, window.SUSPICION.perCaught);
       const left = window.HUNT.caughtToStart - caughtHere();
       pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`
         + (huntOn() ? '' : left > 0
@@ -3325,7 +4233,9 @@ scratch.later = null;
       // The Adjusters count doors kicked in, not doors opened — cumulative and
       // never reset. A loud program is what they are counting; the quiet ones
       // are the whole reason they might not notice.
-      if (!p.quiet) state.timesForced = (state.timesForced || 0) + 1;
+      // Every door you get into is a door you got into. The counter used to
+      // split loud from quiet, and there is only one way in now.
+      state.timesForced = (state.timesForced || 0) + 1;
       // Deep Root: a door you get through loosens the block around it too,
       // permanently — every neighbour's own defense, discovered or not, so the
       // rest of the cluster costs less from here.
@@ -3342,44 +4252,8 @@ scratch.later = null;
       if (opened.length) startSweepFx(opened);
       showBanner([{ kind: 'host', verb: 'took', label: h.name }]);
       pushLog(`${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is yours. ${p.label} is off the rig.`);
-      if (p.spread) spreadFrom(h, k, p);
     });
     return { done: done.length, caught: caught.length };
-  }
-
-  // Contagion, the moment it lands: the same rig is still running, and it
-  // reaches whatever is beside the door it just came through.
-  //
-  // You do not choose the targets — that is the whole character of it. What is
-  // next door might be a router or it might be a finance floor, and the rig is
-  // sized for the door it was pointed at, so anything harder than that simply
-  // does not take. It will happily walk onto ground the rival or the response
-  // is holding, which is the one thing no other program does.
-  function spreadFrom(from, k, p) {
-    const room = Math.max(0, (p.spread || 1) - 1);
-    if (!room) return [];
-    const took = [], missed = [];
-    buildingNeighbours(from.buildingId).forEach(id => {
-      if (took.length >= room) return;
-      const t = hostsIn(buildingById(id))[0];
-      if (!t || t.owned) return;
-      if (k.allocated < hackNeed(p, t)) { missed.push(t); return; }
-      took.push(t);
-    });
-    took.forEach(t => {
-      const bid = t.buildingId;
-      // taken off whoever was holding it, rather than politely skipped
-      if (state.rival) state.rival.buildings = rivalHeld().filter(x => x !== bid);
-      if (state.hunt) state.hunt.nodes = (state.hunt.nodes || []).filter(x => x !== bid);
-      takeHost(t);
-    });
-    if (took.length) {
-      pushLog(`It did not stop there: ${took.map(t => window.BUILDING_KINDS[buildingById(t.buildingId).kind].label).join(', ')} went with it.`);
-    }
-    if (missed.length) {
-      pushLog(`${missed.length} door${missed.length === 1 ? '' : 's'} beside it held — too hard for what was running.`);
-    }
-    return took;
   }
 
   // Taking a host, however it happened — hacks, the frontier forcing itself,
@@ -3390,7 +4264,57 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    // the network reaches: the links to it draw themselves in from whatever
+    // you already held
+    startDrawFx(h.buildingId);
+    // tenancy changed, and the street knows it whatever the paperwork says
+    noteDistrictAct(h.district, window.SUSPICION.perTake);
+    // whatever was on the machine is yours with it — bought, hacked or spread
+    // onto, the contents do not care how you got in
+    if (h.carry) resolveCarry(h);
     reapHacks();
+  }
+
+  // What was on the machine, resolved exactly as the panel promised. The
+  // glint dies with ownership (it keys off carry, cleared here); `carried`
+  // stays behind as the record.
+  function resolveCarry(h) {
+    const C = window.CARRY;
+    const kind = h.carry;
+    h.carried = kind;
+    delete h.carry;
+    if (kind === 'wallet') {
+      const amt = h.carryAmt || C.wallet.base;
+      state.res.funds += amt;
+      showFloats([{ cls: 'funds', text: `FUNDS +${amt}` }]);
+      pushLog(`A wallet on the machine: +${amt} funds from an account nobody was watching.`);
+    } else if (kind === 'keys') {
+      // One set, any door. Typed keys ("opens till hosts only") were measured
+      // across eight paired runs and never once matched a door worth opening
+      // while they were held — granularity that reads as flavor and plays as
+      // never-usable. Universal, and spent only when a run would otherwise be
+      // caught, they are a banked answer to the exact door you were avoiding.
+      state.keys = (state.keys || 0) + 1;
+      pushLog(`Someone's keys, still valid. A run that would be seen can be covered — once.`);
+    } else if (kind === 'cold') {
+      // a map of somewhere you haven't been: the nearest cluster of
+      // undiscovered buildings, revealed like a scan you did not spend
+      const from = buildingById(h.buildingId);
+      const cx = from.x + from.w / 2, cy = from.y + from.h / 2;
+      const dark = (state.buildings || []).filter(b => !b.discovered)
+        .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+      const found = dark.slice(0, C.cold.reveals);
+      found.forEach(b => revealBuilding(b));
+      if (found.length) {
+        startSweepFx(found);
+        pushLog(`Cold storage: a map. ${found.length} building${found.length === 1 ? '' : 's'} you had not found.`);
+      } else {
+        pushLog('Cold storage: a map of places you already know.');
+      }
+    } else if (kind === 'diary') {
+      const lines = C.diaries || [];
+      pushLog(lines[idSeed(h.id) % Math.max(1, lines.length)] || 'A personal archive.');
+    }
   }
 
   // A door can become yours while a program is still working on it —
@@ -3417,57 +4341,11 @@ scratch.later = null;
 
   // Deep Root: how much of a neighbour's defense a forced door shakes loose.
   const DEEP_ROOT_RIPPLE = 0.2;
-  function resolveStrike(effect) {
-    const before = beforeSnap();
-    const fleet = owned().filter(h => !h.origin);
-    let burned = [];
-    if (effect === 'shed_loud') {
-      burned = fleet.filter(h => (window.HOST_TYPES[h.type].heat || 0) > 0);
-    } else if (effect === 'ride') {
-      const over = Math.max(1, state.heat / strikeThreshold());
-      const share = Math.min(0.75, window.HEAT.STRIKE_FRACTION * Math.pow(over, window.HEAT.DEEP_STRIKE));
-      const n = Math.ceil(fleet.length * share);
-      const shuffled = fleet.slice().sort(() => Math.random() - 0.5);
-      burned = shuffled.slice(0, n);
-    } else if (effect === 'burn_cover') {
-      if (state.res.funds < 8) return;
-      state.res.funds -= 8;
-    } else if (effect === 'buy_out') {
-      if (!has('fixers') || state.res.funds < window.FIXERS_FAVOR_COST) return;
-      state.res.funds -= window.FIXERS_FAVOR_COST;
-    }
-    burned.forEach(h => { h.owned = false; });
-    // At national scale the streets are not where you live. A strike that only
-    // ever burned held hosts left a 400-presence operation standing at country
-    // scope completely untouchable, and managing heat stopped paying for
-    // anything: measured, a profile that ignored heat entirely and took 73
-    // strikes finished level with one that kept it down and took 36.
-    // Only when there is nothing on the streets for them to burn. That is the
-    // hole this closes: standing at country scope behind a pile of presence
-    // used to make you untouchable. It is not an extra tax on every strike —
-    // applied to all of them it took cities back faster than any profile could
-    // take them, and the campaign stopped moving.
-    const retaken = (effect !== 'burn_cover' && owned().length === 0) ? takeBackACity() : null;
-    state.heat = clampHeat(strikeThreshold() * window.HEAT.STRIKE_DROP);
-    state.strikes += 1;
-    state.lastStrikeTurn = state.turn;
-    state.card = null;
-    pushLog(burned.length ? `The hunter burned ${burned.length} bod${burned.length === 1 ? 'y' : 'ies'}.` : 'You bought your way out of the sweep.');
-    if (retaken) {
-      pushLog(`They took ${retaken.name} back off you. −${retaken.worth} presence.`);
-      showBanner([{ kind: 'faction', verb: 'taken back', label: retaken.name }]);
-    }
-    afterSnap(before);
-    // Losing the streets you were standing in is not losing everything once
-    // there is a country: presence is held nationally, and a half-taken city
-    // elsewhere is still yours. You are only finished when there is nothing
-    // anywhere — which at country scope is never true of a strike alone.
-    if (!owned().length && !ruined()) state.over = false;
-    if (ruined()) state.over = true;
-    checkStage();
-    persistNow();
-    render();
-  }
+// The strike is gone. It was the last thing heat did to you at city scale,
+  // and it had already stopped being reachable — no strike card can be created
+  // any more — so all that was left of it was a card definition, a tag you
+  // could buy whose only payload was one of its options, and a hundred lines
+  // that nothing called. Heat's whole job is upstairs now: see heatPressure().
 
   function pushLog(text) {
     state.log.unshift({ turn: state.turn, text });
@@ -3522,16 +4400,24 @@ scratch.later = null;
   // The country only becomes visible once the first city is genuinely yours —
   // before that the game is still teaching you how a city works.
   function countryUnlocked() {
+    // The knife, hard-gate form: while the city is the whole game, the door
+    // upward simply is not there. Everything the country carried — the grid
+    // ceiling, the ladder, the war — goes quiet through this one line.
+    if (window.CITY_ONLY) return false;
     const home = cityById(CO().homeId);
     return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
   }
-
-  // How much a turn spent dark, or a wash of money, is actually worth right
-  // now. Both scale with the threshold so the levers keep pace with the
-  // pressure instead of falling behind it.
-  function lieLowShed() {
-    return Math.max(window.HEAT.LIE_LOW, strikeThreshold() * window.HEAT.LIE_LOW_SHARE);
+  // Crossing the goal in city-only is an ending you can keep playing past,
+  // and it must never be a surprise twice.
+  function cityWonCheck() {
+    if (!window.CITY_ONLY || state.cityWon) return;
+    const home = cityById(CO().homeId);
+    if (!home || heldHere() < cityGoal(home)) return;
+    state.cityWon = true;
+    pushLog(window.CITY_WON.log);
+    showBanner([{ kind: 'host', verb: 'yours', label: 'the city' }]);
   }
+
   // How many buildings a sweep turns up. Extracted for the same reason as the
   // rest of these: a capability claiming to widen it, and until this existed
   // nothing could check whether it had.
@@ -3553,27 +4439,6 @@ scratch.later = null;
     if (owned().length) return false;
     if ((CO().presence || 0) > 0) return false;
     return !(CO().cities || []).some(c => c.taken && !c.consolidated && c.snapshot);
-  }
-
-  // What a strike costs a national operation: they walk back into the last
-  // city you folded in. It becomes ground you have to take again — the map
-  // still knows it, but it is not yours and it is not paying.
-  function takeBackACity() {
-    const done = (CO().cities || []).filter(c => c.consolidated && c.kind !== 'home');
-    if (!done.length) return null;
-    // the newest one — the deepest, the one you are least able to go back for
-    const target = done[done.length - 1];
-    target.consolidated = false;
-    target.taken = false;
-    target.snapshot = null;
-    // exactly what it granted, or a city could be farmed by losing and
-    // retaking it: refunding only `worth` leaked the depth bonus every cycle
-    // and one profile reached 1838 presence off ten cities.
-    CO().presence = Math.max(0, CO().presence - (target.granted || target.worth));
-    target.granted = 0;
-    if (CO().at === target.id) CO().at = CO().homeId;
-    if (state.cityId === target.id) { unpackCity(EMPTY_CITY()); state.cityId = null; }
-    return target;
   }
 
   function presenceYield() {
@@ -3603,7 +4468,11 @@ scratch.later = null;
   function packCity() {
     return {
       buildings: state.buildings, hosts: state.hosts, links: state.links,
-      adjacency: state.adjacency, bands: state.bands, dims: state.dims, rival: state.rival,
+      adjacency: state.adjacency, bands: state.bands, dims: state.dims,
+      // the street plan is part of the city, not of the session: a road that
+      // moved when you walked back into a place would be worse than a straight one
+      layout: state.layout, wob: state.wob, props: state.props, paths: state.paths,
+      rival: state.rival,
       selected: state.selected, selectedBuilding: state.selectedBuilding,
       hidden: state.hidden || [],
       hunt: state.hunt || null,
@@ -3611,11 +4480,18 @@ scratch.later = null;
       // what has caught you here, which is a fact about this city's doors
       caughtHere: state.caughtHere || 0,
       caughtAt: (state.caughtAt || []).slice(),
+      suspicion: Object.assign({}, state.suspicion || {}),
     };
   }
   function unpackCity(p) {
+    // a different city is a different ground, and the key alone would not
+    // notice two cities that happen to be the same size
+    dropGroundCache();
     state.buildings = p.buildings; state.hosts = p.hosts; state.links = p.links;
     state.adjacency = p.adjacency; state.bands = p.bands || []; state.dims = p.dims;
+    state.layout = p.layout || null; state.wob = p.wob || [0, 0, 0];
+    state.props = p.props || [];
+    state.paths = p.paths || [];
     state.rival = p.rival || { awake: false, buildings: [], lastActed: 0, seen: false };
     state.selected = p.selected || null;
     state.selectedBuilding = p.selectedBuilding || null;
@@ -3640,6 +4516,7 @@ scratch.later = null;
     // return to it.
     state.hacks = p.hacks || [];
     state.caughtHere = p.caughtHere || 0;
+    state.suspicion = p.suspicion || {};
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -3649,8 +4526,9 @@ scratch.later = null;
   // is somewhere else. You are only ever in one city at a time.
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
-    bands: [], dims: { cols: 1, rows: 1 }, hidden: [], hunt: null, hacks: [],
-    caughtHere: 0, caughtAt: [],
+    bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
+    hidden: [], hunt: null, hacks: [],
+    caughtHere: 0, caughtAt: [], suspicion: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -3690,7 +4568,8 @@ scratch.later = null;
         trait: c.trait,
         extraCrossings: capEffect('extraCrossings', 0),
       });
-      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency, bands: g.bands, dims: g.dims });
+      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency,
+                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob, props: g.props, paths: g.paths });
       const seat0 = state.hosts.find(h => h.owned);
       if (seat0) seat0.heldSince = state.turn;
     }
@@ -5571,13 +6450,42 @@ scratch.later = null;
     const num = (v) => (Math.round(v * 10) / 10).toString();
     if (dc) parts.push({ cls: 'funds', text: `FUNDS ${dc > 0 ? '+' : ''}${num(dc)}` });
     if (dp) parts.push({ cls: 'tflops', text: `TFLOPS ${dp > 0 ? '+' : ''}${dp}` });
-    if (Math.abs(dh) >= 0.5) parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
+    // Heat is a country-scale number now, so it is reported at country scale.
+    // Floating "HEAT +8" over a city street was the last thing still teaching
+    // that heat is something the streets answer to.
+    if (state.scope !== 'city' && Math.abs(dh) >= 0.5) {
+      parts.push({ cls: 'heat', text: `HEAT ${dh > 0 ? '+' : ''}${dh.toFixed(1)}` });
+    }
     if (dHeld) parts.push({ cls: 'held', text: `HELD ${dHeld > 0 ? '+' : ''}${dHeld}` });
     showFloats(parts, opts && opts.world);
   }
 
   // `world` marks the network's own response — production, decay, drift — so
   // the player can tell what they did apart from what happened to them.
+  // A number that means something should end up where that something lives.
+  // A gain floating in place and the chip it feeds changing were two separate
+  // events the player had to connect; flown, they are one. The flight also
+  // takes ownership of the chip's pulse — the pulse renderHud already fired
+  // is cancelled and re-fired on landing, so the reaction happens when the
+  // number arrives rather than half a second before it.
+  const FLOAT_HOME = { funds: 'res-funds', tflops: 'res-tflops', held: 'held-count' };
+  const FLY_MS = 420;
+  function flyToHome(chip, destId) {
+    const dest = document.getElementById(destId);
+    if (!dest || !chip.getBoundingClientRect) return;
+    const a = chip.getBoundingClientRect(), b = dest.getBoundingClientRect();
+    if (!a.width || !b.width) return;                 // not laid out (tests, hidden)
+    chip.style.setProperty('--fx', (b.left + b.width / 2 - (a.left + a.width / 2)).toFixed(1) + 'px');
+    chip.style.setProperty('--fy', (b.top + b.height / 2 - (a.top + a.height / 2)).toFixed(1) + 'px');
+    chip.classList.add('flying');
+    dest.classList.remove('bumped');                  // the early pulse is the flight's now
+    setTimeout(() => {
+      dest.classList.remove('bumped');
+      void dest.offsetWidth;
+      dest.classList.add('bumped');
+    }, FLY_MS - 40);
+  }
+
   function showFloats(parts, world) {
     const $l = document.getElementById('feedback-layer');
     if (!$l || !parts.length) return;
@@ -5588,6 +6496,14 @@ scratch.later = null;
     g.innerHTML = (world ? '<span class="float-tag mono">the network runs</span>' : '')
       + parts.map(p => `<span class="float-chip ${p.cls}">${p.text}</span>`).join('');
     $l.appendChild(g);
+    // ...and the ones with somewhere to be go there. Read after append, so the
+    // geometry is real; anything without a home floats in place as before.
+    let flew = false;
+    g.querySelectorAll('.float-chip').forEach(chip => {
+      const home = FLOAT_HOME[[...chip.classList].find(c => FLOAT_HOME[c])];
+      if (home) { flyToHome(chip, home); flew = true; }
+    });
+    if (flew) g.classList.add('has-flight');
     setTimeout(() => { if (g.parentNode) g.parentNode.removeChild(g); }, 1200);
   }
 
@@ -5628,15 +6544,21 @@ scratch.later = null;
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
-      hacks: state.hacks || [], mount: state.mount || null,
+      hacks: state.hacks || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
-      hosts: state.hosts, links: state.links, log: state.log,
-      lastStage: state.lastStage, strikes: state.strikes, lastStrikeTurn: state.lastStrikeTurn, rival: state.rival, over: state.over,
+      hosts: state.hosts, links: state.links, log: state.log, keys: state.keys || 0,
+      lastStage: state.lastStage, cityWon: state.cityWon || false, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
+      // caughtHere/caughtAt packed with a city but never made it into the
+      // top-level save, so a reload quietly forgave your catches — found
+      // while wiring suspicion through the same joints
+      caughtHere: state.caughtHere || 0, caughtAt: (state.caughtAt || []).slice(),
+      suspicion: Object.assign({}, state.suspicion || {}),
       everCrossed: !!state.everCrossed,
-      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims, region: state.region, homeGrowth: state.homeGrowth || 0,
+      scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
+      layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
       lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
@@ -5659,14 +6581,17 @@ scratch.later = null;
         mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
-        hosts: saved.hosts, links: saved.links, log: saved.log || [],
-        lastStage: saved.lastStage, strikes: saved.strikes || 0, lastStrikeTurn: (saved.lastStrikeTurn === undefined ? -99 : saved.lastStrikeTurn), rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
+        hosts: saved.hosts, links: saved.links, log: saved.log || [], keys: saved.keys || 0,
+        lastStage: saved.lastStage, cityWon: !!saved.cityWon, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
+        caughtHere: saved.caughtHere || 0, caughtAt: saved.caughtAt || [], suspicion: saved.suspicion || {},
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
         dims: saved.dims || { cols: window.CITY.cols, rows: window.CITY.rows },
+        // a save from before the street plan existed draws on the old exact grid
+        layout: saved.layout || null, wob: saved.wob || [0, 0, 0], props: saved.props || [], paths: saved.paths || [],
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
         lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
       };
@@ -5691,13 +6616,17 @@ scratch.later = null;
     return (state && state.dims) || { cols: window.CITY.cols, rows: window.CITY.rows };
   }
 
-  function cityBounds() {
-    const C = window.CITY;
+  // The street plan this city was generated with. A city made before layouts
+  // existed — or an empty one — falls back to the exact grid it was drawn on,
+  // so nothing shifts under a save.
+  function cityLayout() {
+    if (state && state.layout) return state.layout;
     const d = cityDims();
-    return {
-      w: C.street + d.cols * (C.blockW + C.street),
-      h: C.street + d.rows * (C.blockH + C.street),
-    };
+    return regularLayout(d.cols, d.rows);
+  }
+  function cityBounds() {
+    const L = cityLayout();
+    return { w: L.w, h: L.h };
   }
 
   // The view is a window onto a map far bigger than the screen, so it pans and
@@ -5852,137 +6781,177 @@ scratch.later = null;
     return h;
   }
 
-  // Which district each block row is, read off the buildings themselves rather
-  // than stored — the country's cities lay their rows out differently from
-  // home, and this way it is right for both without a second source of truth.
-  function districtRows() {
-    const rows = {};
+  // Which district a block is, read off the buildings standing in it rather
+  // than stored twice. Districts are areas rather than rows now, so this is
+  // per block: a row can run through three of them.
+  function districtBlocks() {
+    const by = {};
     (state.buildings || []).forEach(b => {
-      if (rows[b.row] === undefined && b.district) rows[b.row] = b.district;
+      if (by[b.block] === undefined && b.district) by[b.block] = b.district;
     });
-    return rows;
+    return by;
   }
 
   // The ground a district stands on, tinted and named. This is the answer to
   // "I have never seen a distinct district": they were only ever a tier on a
   // building and a different mix of kinds, both invisible from the map.
+  //
+  // Drawn per block rather than as a stripe across the map. A district is a
+  // patch of blocks now, with a ragged edge, so the tint has to follow the
+  // blocks — and the seam is drawn only where two *different* districts meet,
+  // which is what gives the patch an outline without drawing one.
   function svgDistricts() {
-    const C = window.CITY;
-    const d = cityDims();
-    const B = cityBounds();
-    const rows = districtRows();
+    const L = cityLayout();
+    const by = districtBlocks();
+    const at = {};
+    L.blocks.forEach(b => { at[b.row + ',' + b.col] = by[b.i]; });
     let out = '';
-    for (let r = 0; r < d.rows; r++) {
-      const D = window.DISTRICTS[rows[r]];
-      if (!D) continue;
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      const h = C.blockH + C.street;
-      out += `<rect class="district ${rows[r]}" x="${-CITY_PAD}" y="${y}"`
-        + ` width="${B.w + CITY_PAD * 2}" height="${h}" fill="${D.ground}"/>`;
-      // the seam between two districts, so the change of place has an edge
-      if (r > 0 && rows[r - 1] !== rows[r]) {
-        out += `<line class="district-seam" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"`
-          + ` stroke="${D.edge}"/>`;
+    L.blocks.forEach((blk, i) => {
+      const key = by[blk.i];
+      const D = window.DISTRICTS[key];
+      if (!D) return;
+      // the tint runs out to the middle of the surrounding roads, so the
+      // ground is continuous and only the road is drawn on top of it
+      const x = blk.x - L.vRoad[blk.col] / 2;
+      const y = blk.y - L.hRoad[blk.row] / 2;
+      const w = blk.w + L.vRoad[blk.col] / 2 + L.vRoad[blk.col + 1] / 2;
+      const h = blk.h + L.hRoad[blk.row] / 2 + L.hRoad[blk.row + 1] / 2;
+      // the district is talking: the ground colour itself shifts toward
+      // ember, rather than an overlay rect on top — the overlay's hard
+      // edges matched nothing on the map and read as a glitch, where a
+      // warmed fill stays seamless across the district's own blocks. It
+      // starts where the words start (the first band), so the map and the
+      // panel agree about when a district is worth a glance.
+      const S = window.SUSPICION || {};
+      const warm = suspicionOf(key);
+      const spoken = warm >= ((S.bands && S.bands[0][0]) || 6);
+      let ground = D.ground;
+      if (spoken) {
+        const pct = Math.min(22, Math.round((warm / (S.max || 40)) * 40));
+        ground = `color-mix(in oklab, ${D.ground} ${100 - pct}%, #7a3420)`;
       }
-    }
+      out += `<rect class="district ${key}${spoken ? ' d-warm' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${ground}"/>`;
+      const north = at[(blk.row - 1) + ',' + blk.col];
+      const west = at[blk.row + ',' + (blk.col - 1)];
+      if (north && north !== key) {
+        out += `<line class="district-seam" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${(x + w).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${D.edge}"/>`;
+      }
+      if (west && west !== key) {
+        out += `<line class="district-seam" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}"`
+          + ` x2="${x.toFixed(1)}" y2="${(y + h).toFixed(1)}" stroke="${D.edge}"/>`;
+      }
+    });
     return out;
   }
 
   // The names go on last, over the roads: the road is where there is room for
-  // them, and drawn with the ground they were sliced in half by the street
-  // that gets painted on top.
+  // them. One per patch of district rather than one per row — with districts
+  // as blobs, a label on every block row would name the same place five times
+  // down the same street.
   function svgDistrictTags() {
-    const C = window.CITY;
-    const d = cityDims();
-    const rows = districtRows();
+    const L = cityLayout();
+    const by = districtBlocks();
     let out = '';
-    for (let r = 0; r < d.rows; r++) {
-      const D = window.DISTRICTS[rows[r]];
-      if (!D) continue;
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      // repeated every few blocks so a label is on screen wherever you panned
-      for (let c = 0; c < d.cols; c += 2) {
-        const x = C.street + c * (C.blockW + C.street) + 4;
-        out += `<text class="district-tag" x="${x}" y="${(y + 4).toFixed(1)}">${D.label}</text>`;
-      }
-    }
+    L.blocks.forEach(blk => {
+      const key = by[blk.i];
+      const D = window.DISTRICTS[key];
+      if (!D) return;
+      // label a block only when the one above and the one to its left are
+      // something else — that is the top-left corner of a patch
+      const north = L.blocks.find(o => o.row === blk.row - 1 && o.col === blk.col);
+      const west = L.blocks.find(o => o.row === blk.row && o.col === blk.col - 1);
+      if (north && by[north.i] === key) return;
+      if (west && by[west.i] === key) return;
+      const x = blk.x + 4;
+      const y = blk.y - L.hRoad[blk.row] / 2 + 4;
+      out += `<text class="district-tag" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${D.label}</text>`;
+    });
     return out;
   }
 
   function svgStreets() {
-    const C = window.CITY;
-    const d = cityDims();
+    const L = cityLayout();
     const B = cityBounds();
     let out = `<rect class="ground" x="${-CITY_PAD}" y="${-CITY_PAD}" width="${B.w + CITY_PAD * 2}" height="${B.h + CITY_PAD * 2}"/>`;
     out += svgDistricts();
-    // Every third street is an arterial: wider, and with a painted centre line.
-    // A grid of identical roads reads as graph paper — the thing that makes a
-    // street plan look like a city is that not all of them matter equally.
-    const arterial = (n) => n % 3 === 0;
-    for (let c = 0; c <= d.cols; c++) {
-      const x = c * (C.blockW + C.street) + C.street / 2;
-      out += `<line class="street${arterial(c) ? ' main' : ''}" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
-      if (arterial(c)) out += `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
-    }
-    for (let r = 0; r <= d.rows; r++) {
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      out += `<line class="street${arterial(r) ? ' main' : ''}" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
-      if (arterial(r)) out += `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
-    }
-    // Junctions, and the things standing beside the road. Both are drawn from
-    // the block index, so they are fixed for a given city.
-    const rows = districtRows();
-    for (let r = 0; r <= d.rows; r++) {
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      for (let c = 0; c <= d.cols; c++) {
-        const x = c * (C.blockW + C.street) + C.street / 2;
-        // sized to the roads that meet here, not to the gap between blocks —
-        // a pad wider than its own street reads as a notch cut in the block
-        const jw = arterial(c) ? 30 : 22;
-        const jh = arterial(r) ? 30 : 22;
+    // Roads are drawn at their own width now rather than one width for all of
+    // them, so "arterial" is a fact about the plan rather than a rule about
+    // every third index. A grid of identical roads reads as graph paper.
+    const C = window.CITY;
+    const wide = (px) => px > C.street * 1.2;
+    L.xs.forEach((x, c) => {
+      const main = wide(L.vRoad[c]);
+      out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.vRoad[c]}"`
+        + ` x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      // An arterial has kerbs. The plan already encodes the hierarchy — this
+      // is the drawing catching up with it, so a main road reads as a main
+      // road at a glance instead of merely being wider.
+      if (main) {
+        const k = L.vRoad[c] / 2;
+        out += `<line class="kerb" x1="${x - k}" y1="${-CITY_PAD}" x2="${x - k}" y2="${B.h + CITY_PAD}"/>`
+          + `<line class="kerb" x1="${x + k}" y1="${-CITY_PAD}" x2="${x + k}" y2="${B.h + CITY_PAD}"/>`
+          + `<line class="street-line" x1="${x}" y1="${-CITY_PAD}" x2="${x}" y2="${B.h + CITY_PAD}"/>`;
+      }
+    });
+    L.ys.forEach((y, r) => {
+      const main = wide(L.hRoad[r]);
+      out += `<line class="street${main ? ' main' : ''}" stroke-width="${L.hRoad[r]}"`
+        + ` x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      if (main) {
+        const k = L.hRoad[r] / 2;
+        out += `<line class="kerb" x1="${-CITY_PAD}" y1="${y - k}" x2="${B.w + CITY_PAD}" y2="${y - k}"/>`
+          + `<line class="kerb" x1="${-CITY_PAD}" y1="${y + k}" x2="${B.w + CITY_PAD}" y2="${y + k}"/>`
+          + `<line class="street-line" x1="${-CITY_PAD}" y1="${y}" x2="${B.w + CITY_PAD}" y2="${y}"/>`;
+      }
+    });
+    // Junctions, sized to the two roads that actually meet there.
+    L.ys.forEach((y, r) => {
+      L.xs.forEach((x, c) => {
+        const jw = Math.round(L.vRoad[c] * 0.66);
+        const jh = Math.round(L.hRoad[r] * 0.66);
         out += `<rect class="junction" x="${(x - jw / 2).toFixed(1)}" y="${(y - jh / 2).toFixed(1)}"`
           + ` width="${jw}" height="${jh}"/>`;
-        // a crossing on the arterials only, marked across the mouth
-        if (arterial(r) && arterial(c)) {
+        if (wide(L.vRoad[c]) && wide(L.hRoad[r])) {
           for (let i = 0; i < 4; i++) {
             out += `<rect class="zebra" x="${(x - 13 + i * 6).toFixed(1)}" y="${(y - jh / 2 + 2).toFixed(1)}" width="3" height="7"/>`;
           }
         }
-      }
-    }
+      });
+    });
     // Street trees where people live and shop, parked cars everywhere. Two
     // cheap marks each, but they are what stops the gaps between blocks
-    // reading as empty space.
-    for (let r = 0; r < d.rows; r++) {
-      const leafy = rows[r] === 'residential' || rows[r] === 'commercial';
-      const y = r * (C.blockH + C.street) + C.street / 2;
-      for (let c = 0; c < d.cols; c++) {
-        const x = C.street + c * (C.blockW + C.street);
-        const seed = r * 97 + c * 31 + 7;
-        for (let i = 0; i < 5; i++) {
-          const n = cityNoise(seed, i);
-          if (leafy && n < 0.55) {
-            const tx = Math.round(x + 14 + i * (C.blockW / 5));
-            const ty = Math.round(y - 10 + cityNoise(seed, i + 40) * 8);
-            out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
-          } else if (n > 0.74) {
-            const tx = Math.round(x + 20 + i * (C.blockW / 5));
-            const ty = Math.round(y + C.blockH + C.street / 2 - 6);
-            out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
-          }
-        }
-        // and down the side streets, or the planting only runs one way and the
-        // city looks combed
-        if (leafy) {
-          const vx = x - C.street / 2 - 5;
-          for (let i = 0; i < 4; i++) {
-            if (cityNoise(seed + 11, i) > 0.5) continue;
-            const ty = Math.round(y + 24 + i * (C.blockH / 4));
-            out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
-          }
+    // reading as empty space. Positions come off the block, so they move with
+    // it and stay put between renders.
+    const by = districtBlocks();
+    L.blocks.forEach(blk => {
+      const key = by[blk.i];
+      const leafy = key === 'residential' || key === 'commercial';
+      const seed = blk.row * 97 + blk.col * 31 + 7;
+      const n = Math.max(3, Math.round(blk.w / 40));
+      for (let i = 0; i < n; i++) {
+        const r0 = cityNoise(seed, i);
+        if (leafy && r0 < 0.55) {
+          const tx = Math.round(blk.x + 14 + i * (blk.w / n));
+          const ty = Math.round(blk.y - L.hRoad[blk.row] / 2 + 4 + cityNoise(seed, i + 40) * 8);
+          out += `<circle class="tree" cx="${tx}" cy="${ty}" r="${(3.4 + cityNoise(seed, i + 80) * 1.8).toFixed(1)}"/>`;
+        } else if (r0 > 0.74) {
+          const tx = Math.round(blk.x + 20 + i * (blk.w / n));
+          const ty = Math.round(blk.y + blk.h + L.hRoad[blk.row + 1] / 2 - 6);
+          out += `<rect class="parked" x="${tx}" y="${ty}" width="9" height="4" rx="1.4"/>`;
         }
       }
-    }
+      if (leafy) {
+        const vx = blk.x - L.vRoad[blk.col] / 2 - 5;
+        const m = Math.max(3, Math.round(blk.h / 45));
+        for (let i = 0; i < m; i++) {
+          if (cityNoise(seed + 11, i) > 0.5) continue;
+          const ty = Math.round(blk.y + 24 + i * (blk.h / m));
+          out += `<circle class="tree" cx="${vx.toFixed(1)}" cy="${ty}" r="${(3.2 + cityNoise(seed + 11, i + 40) * 1.6).toFixed(1)}"/>`;
+        }
+      }
+    });
     out += svgDistrictTags();
     return out;
   }
@@ -5997,13 +6966,28 @@ scratch.later = null;
     let out = '';
     bands.forEach(band => {
       const horiz = band.axis === 'h';
-      const x = horiz ? -CITY_PAD : band.from;
-      const y = horiz ? band.from : -CITY_PAD;
-      const w = horiz ? B.w + CITY_PAD * 2 : band.to - band.from;
-      const h = horiz ? band.to - band.from : B.h + CITY_PAD * 2;
-      out += `<rect class="band-${band.kind}" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
+      // A band that only runs part of the map — a lake rather than a river —
+      // is drawn at its own extent, and with rounded ends, because a patch of
+      // water with square corners reads as a rectangle somebody forgot to
+      // finish. Everything else still runs edge to edge.
+      const r = band.runs || {};
+      const partial = r.from !== undefined && r.from > -1e5;
+      const a0 = partial ? r.from : -CITY_PAD;
+      const a1 = partial ? r.to : (horiz ? B.w + CITY_PAD : B.h + CITY_PAD);
+      const x = horiz ? a0 : band.from;
+      const y = horiz ? band.from : a0;
+      const w = horiz ? a1 - a0 : band.to - band.from;
+      const h = horiz ? band.to - band.from : a1 - a0;
+      const round = partial ? ` rx="${Math.round(Math.min(w, h) * 0.4)}"` : '';
+      out += `<rect class="band-${band.kind}${partial ? ' patch' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}"${round}/>`;
 
       if (band.kind === 'water') {
+        // an edge highlight, inset — the waterline is what makes a flat
+        // fill read as a surface rather than a hole in the map
+        out += `<rect class="water-edge" x="${(x + 1.5).toFixed(1)}" y="${(y + 1.5).toFixed(1)}"`
+          + ` width="${(w - 3).toFixed(1)}" height="${(h - 3).toFixed(1)}"`
+          + (partial ? ` rx="${Math.max(1, Math.round(Math.min(w, h) * 0.4) - 1)}"` : '') + '/>';
         // a couple of ripples so it reads as water and not a hole
         for (let i = 1; i <= 2; i++) {
           const off = band.from + (band.to - band.from) * (i / 3);
@@ -6154,6 +7138,221 @@ scratch.later = null;
       }
     }
     return cells;
+  }
+
+  // --- props, drawn ---------------------------------------------------------
+  // Every one of these is a couple of marks and no stroke. That is the rule
+  // that keeps the map readable: an outline means a door. They also never
+  // carry a `data-` attribute, so no tap can ever land on one.
+  // A hull that is not a circle. Circles read as circles — the playtest put
+  // it plainly: "trees and ponds just look like small colored circles" — so
+  // everything organic gets a wobbled outline instead, smoothed through the
+  // midpoints of a seeded polygon so it curves rather than facets. Same
+  // silhouette family as the country map's lakes and forests, and seeded off
+  // the prop itself, so a tree keeps its own shape across every render.
+  function propBlob(cx, cy, rx, ry, n, wobble, steps) {
+    const N = steps || 9;
+    const pt = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const k = 1 - wobble + n(i * 3) * wobble * 2;
+      pt.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+    }
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const f = (v) => v.map(q => q.toFixed(1)).join(' ');
+    let d = 'M' + f(mid(pt[N - 1], pt[0])) + ' ';
+    for (let i = 0; i < N; i++) {
+      d += 'Q' + f(pt[i]) + ' ' + f(mid(pt[i], pt[(i + 1) % N])) + ' ';
+    }
+    return d + 'Z';
+  }
+  // Anything standing on the ground throws the same shadow the buildings do —
+  // one light direction for the whole city. This is most of what stops a tree
+  // reading as a sticker laid on the map.
+  function propShade(cx, cy, rx, ry) {
+    return `<ellipse class="pr-shade" cx="${(cx + rx * 0.22).toFixed(1)}" cy="${(cy + ry * 0.28).toFixed(1)}"`
+      + ` rx="${rx.toFixed(1)}" ry="${(ry * 0.72).toFixed(1)}"/>`;
+  }
+
+  const PROP_ART = {
+    // A canopy is a cluster, not a ball: three overlapping lobes of different
+    // sizes, the biggest off-centre, so no two trees are the same silhouette
+    // and none of them is a circle. The trunk is drawn thick enough to be
+    // visible at the zoom the map is actually read at.
+    tree: (p, n) => {
+      const cx = p.x + p.w / 2, rx = p.w / 2, ry = p.h * 0.42;
+      const cy = p.y + ry * 1.02;
+      let s = propShade(cx, p.y + p.h * 0.92, rx * 0.72, ry * 0.42);
+      s += `<rect class="pr-trunk" x="${(cx - p.w * 0.075).toFixed(1)}" y="${(p.y + p.h * 0.55).toFixed(1)}"`
+        + ` width="${(p.w * 0.15).toFixed(1)}" height="${(p.h * 0.45).toFixed(1)}" rx="0.6"/>`;
+      s += `<path class="pr-leaf" d="${propBlob(cx, cy, rx, ry, n, 0.2)}"/>`;
+      s += `<path class="pr-leaf lo" d="${propBlob(cx + rx * 0.34, cy + ry * 0.26, rx * 0.52, ry * 0.5, (k) => n(k + 11), 0.24)}"/>`;
+      s += `<path class="pr-leaf hi" d="${propBlob(cx - rx * 0.3, cy - ry * 0.3, rx * 0.46, ry * 0.44, (k) => n(k + 23), 0.24)}"/>`;
+      return s;
+    },
+    bush: (p, n) => {
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      return propShade(cx, p.y + p.h * 0.86, p.w * 0.42, p.h * 0.3)
+        + `<path class="pr-leaf" d="${propBlob(cx, cy, p.w / 2, p.h / 2, n, 0.26)}"/>`
+        + `<path class="pr-leaf hi" d="${propBlob(cx - p.w * 0.14, cy - p.h * 0.16, p.w * 0.26, p.h * 0.24, (k) => n(k + 7), 0.3)}"/>`;
+    },
+    // A hedge is a run of foliage, so its top is scalloped rather than ruled —
+    // a straight green bar was reading as a wall
+    hedge: (p, n) => {
+      let s = `<rect class="pr-leaf" x="${p.x}" y="${(p.y + p.h * 0.3).toFixed(1)}" width="${p.w}" height="${(p.h * 0.7).toFixed(1)}" rx="1.5"/>`;
+      const lobes = Math.max(2, Math.round(p.w / 7));
+      for (let i = 0; i < lobes; i++) {
+        const cx = p.x + (i + 0.5) * (p.w / lobes);
+        const r = (p.w / lobes) * (0.5 + n(i) * 0.18);
+        s += `<ellipse class="pr-leaf" cx="${cx.toFixed(1)}" cy="${(p.y + p.h * 0.34).toFixed(1)}"`
+          + ` rx="${r.toFixed(1)}" ry="${(p.h * 0.42).toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    // Tufts, not pebbles: scrub is what grows on ground nobody keeps
+    scrub: (p, n) => {
+      let s = '';
+      for (let i = 0; i < 7; i++) {
+        const x = p.x + n(i) * p.w, y = p.y + n(i + 9) * p.h;
+        const hh = 2.4 + n(i + 3) * 3;
+        s += `<path class="pr-tuft" d="M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${(x - hh * 0.3).toFixed(1)} ${y.toFixed(1)}`
+          + ` M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${(x + hh * 0.34).toFixed(1)} ${(y + hh * 0.15).toFixed(1)}`
+          + ` M${x.toFixed(1)} ${(y + hh).toFixed(1)} L${x.toFixed(1)} ${(y - hh * 0.15).toFixed(1)}"/>`;
+      }
+      return s;
+    },
+    bench: (p) => `<rect class="pr-wood" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1"/>`,
+    bin: (p) => `<rect class="pr-metal" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1"/>`,
+    lamp: (p) => `<rect class="pr-metal" x="${(p.x + p.w / 2 - 0.7).toFixed(1)}" y="${p.y}" width="1.4" height="${p.h}"/>`
+      + `<circle class="pr-lit" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${p.y}" r="2.1"/>`,
+    planter: (p) => `<rect class="pr-stone" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`
+      + `<ellipse class="pr-leaf" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h * 0.35).toFixed(1)}" rx="${(p.w * 0.34).toFixed(1)}" ry="${(p.h * 0.3).toFixed(1)}"/>`,
+    bollards: (p) => {
+      let s = '';
+      for (let x = p.x; x < p.x + p.w; x += 5) s += `<rect class="pr-metal" x="${x.toFixed(1)}" y="${p.y}" width="2" height="3"/>`;
+      return s;
+    },
+    bikerack: (p) => {
+      let s = `<rect class="pr-metal" x="${p.x}" y="${(p.y + p.h - 1).toFixed(1)}" width="${p.w}" height="1"/>`;
+      for (let x = p.x + 2; x < p.x + p.w; x += 4) s += `<rect class="pr-metal" x="${x.toFixed(1)}" y="${p.y}" width="1" height="${p.h}"/>`;
+      return s;
+    },
+    // A stall is a canopy and a counter. Deliberately soft-edged: it must not
+    // read as a shopfront, which is a door you can take.
+    stall: (p, n) => `<rect class="pr-canopy" x="${p.x}" y="${p.y}" width="${p.w}" height="${(p.h * 0.45).toFixed(1)}" rx="1.5"/>`
+      + `<rect class="pr-wood" x="${(p.x + 1).toFixed(1)}" y="${(p.y + p.h * 0.55).toFixed(1)}" width="${(p.w - 2).toFixed(1)}" height="${(p.h * 0.45).toFixed(1)}" rx="1"/>`,
+    foodstand: (p) => `<rect class="pr-canopy" x="${p.x}" y="${p.y}" width="${p.w}" height="${(p.h * 0.4).toFixed(1)}" rx="1.5"/>`
+      + `<rect class="pr-metal" x="${(p.x + 2).toFixed(1)}" y="${(p.y + p.h * 0.5).toFixed(1)}" width="${(p.w - 4).toFixed(1)}" height="${(p.h * 0.5).toFixed(1)}" rx="1"/>`
+      + `<circle class="pr-lit" cx="${(p.x + p.w - 2.5).toFixed(1)}" cy="${(p.y + p.h * 0.62).toFixed(1)}" r="1.3"/>`,
+    newsstand: (p) => `<rect class="pr-wood" x="${p.x}" y="${(p.y + p.h * 0.3).toFixed(1)}" width="${p.w}" height="${(p.h * 0.7).toFixed(1)}" rx="1"/>`
+      + `<rect class="pr-paper" x="${(p.x + 1).toFixed(1)}" y="${p.y}" width="${(p.w - 2).toFixed(1)}" height="${(p.h * 0.34).toFixed(1)}" rx="0.6"/>`,
+    kiosk: (p) => `<rect class="pr-wood" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`
+      + `<rect class="pr-lit" x="${(p.x + 1.5).toFixed(1)}" y="${(p.y + 2).toFixed(1)}" width="${(p.w - 3).toFixed(1)}" height="${(p.h * 0.33).toFixed(1)}" rx="0.6"/>`,
+    fountain: (p) => `<circle class="pr-water" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w / 2).toFixed(1)}"/>`
+      + `<circle class="pr-stone" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w * 0.16).toFixed(1)}"/>`,
+    // Water with a shoreline. The ellipse read as a blue pill; a pond is an
+    // irregular thing with a bank around it and light on the surface.
+    pond: (p, n) => {
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      const rx = p.w / 2, ry = p.h / 2;
+      // No centred highlight: a bright lens in the middle of an oval with a
+      // curve under it reads as a face. The light sits on the far bank as a
+      // crescent instead, and the ripples are short, offset and paired.
+      let s = `<path class="pr-bank" d="${propBlob(cx, cy, rx, ry, n, 0.16, 11)}"/>`
+        + `<path class="pr-water" d="${propBlob(cx, cy, rx * 0.87, ry * 0.85, n, 0.16, 11)}"/>`
+        + `<path class="pr-water hi" d="${propBlob(cx, cy - ry * 0.1, rx * 0.8, ry * 0.62, n, 0.14, 11)}"/>`;
+      for (let i = 0; i < 2; i++) {
+        const ox = (i ? 0.16 : -0.34) * rx, oy = (i ? -0.3 : 0.3) * ry;
+        const len = rx * (0.26 + n(i + 31) * 0.16);
+        s += `<path class="pr-ripple" d="M${(cx + ox).toFixed(1)} ${(cy + oy).toFixed(1)}`
+          + ` q ${(len / 2).toFixed(1)} ${(-ry * 0.1).toFixed(1)} ${len.toFixed(1)} 0"/>`;
+      }
+      return s;
+    },
+    sculpture: (p) => `<rect class="pr-stone" x="${(p.x + p.w * 0.25).toFixed(1)}" y="${(p.y + p.h * 0.72).toFixed(1)}" width="${(p.w * 0.5).toFixed(1)}" height="${(p.h * 0.28).toFixed(1)}"/>`
+      + `<polygon class="pr-stone" points="${(p.x + p.w / 2).toFixed(1)},${p.y} ${(p.x + p.w).toFixed(1)},${(p.y + p.h * 0.72).toFixed(1)} ${p.x},${(p.y + p.h * 0.72).toFixed(1)}"/>`,
+    play: (p, n) => {
+      let s = `<rect class="pr-sand" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="3"/>`;
+      s += `<rect class="pr-metal" x="${(p.x + p.w * 0.2).toFixed(1)}" y="${(p.y + p.h * 0.25).toFixed(1)}" width="${(p.w * 0.35).toFixed(1)}" height="1.4"/>`;
+      s += `<circle class="pr-lit" cx="${(p.x + p.w * 0.72).toFixed(1)}" cy="${(p.y + p.h * 0.6).toFixed(1)}" r="2.4"/>`;
+      return s;
+    },
+    carpark: (p, n) => {
+      let s = `<rect class="pr-tarmac" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="1.5"/>`;
+      for (let i = 0; i < Math.floor(p.w / 9); i++) {
+        if (n(i) < 0.35) continue;
+        s += `<rect class="pr-car" x="${(p.x + 2 + i * 9).toFixed(1)}" y="${(p.y + 3 + n(i + 20) * (p.h - 10)).toFixed(1)}" width="6" height="3.5" rx="1"/>`;
+      }
+      return s;
+    },
+    containers: (p, n) => {
+      let s = '';
+      const rows = Math.max(1, Math.floor(p.h / 7));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < Math.floor(p.w / 11); c++) {
+          if (n(r * 5 + c) < 0.25) continue;
+          s += `<rect class="pr-crate c${(r + c) % 3}" x="${(p.x + c * 11).toFixed(1)}" y="${(p.y + r * 7).toFixed(1)}" width="10" height="6" rx="0.8"/>`;
+        }
+      }
+      return s;
+    },
+    pallets: (p, n) => {
+      let s = '';
+      for (let i = 0; i < 3; i++) {
+        s += `<rect class="pr-wood" x="${(p.x + n(i) * (p.w - 8)).toFixed(1)}" y="${(p.y + i * (p.h / 3)).toFixed(1)}" width="8" height="${(p.h / 3.6).toFixed(1)}" rx="0.6"/>`;
+      }
+      return s;
+    },
+    tank: (p) => `<circle class="pr-metal" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w / 2).toFixed(1)}"/>`
+      + `<circle class="pr-metal hi" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h / 2).toFixed(1)}" r="${(p.w * 0.3).toFixed(1)}"/>`,
+    pylon: (p) => {
+      const cx = p.x + p.w / 2;
+      return `<polygon class="pr-lattice" points="${cx.toFixed(1)},${p.y} ${(p.x + p.w).toFixed(1)},${(p.y + p.h).toFixed(1)} ${p.x},${(p.y + p.h).toFixed(1)}"/>`
+        + `<rect class="pr-lattice" x="${(cx - p.w * 0.42).toFixed(1)}" y="${(p.y + p.h * 0.34).toFixed(1)}" width="${(p.w * 0.84).toFixed(1)}" height="1.4"/>`;
+    },
+    spoil: (p) => `<ellipse class="pr-spoil" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${(p.y + p.h * 0.7).toFixed(1)}"`
+      + ` rx="${(p.w / 2).toFixed(1)}" ry="${(p.h * 0.4).toFixed(1)}"/>`,
+  };
+
+  // Open ground: the park, square, plaza or yard a block turns into when there
+  // is nothing built on it. Drawn under its props as one tinted patch.
+  function svgOpenBlocks() {
+    const L = cityLayout();
+    let out = '';
+    L.blocks.filter(b => b.open).forEach(b => {
+      out += `<rect class="open-ground ${b.openKind || 'park'}" x="${b.x}" y="${b.y}"`
+        + ` width="${b.w}" height="${b.h}" rx="6"/>`;
+      // a path across it, so it reads as somewhere people walk rather than a
+      // rectangle of a different colour
+      if (b.openKind === 'park' || b.openKind === 'square' || b.openKind === 'plaza') {
+        const my = (b.y + b.h * 0.55).toFixed(1);
+        out += `<path class="open-path" d="M${b.x} ${my} Q ${(b.x + b.w * 0.4).toFixed(1)} ${(b.y + b.h * 0.3).toFixed(1)}`
+          + ` ${(b.x + b.w).toFixed(1)} ${(b.y + b.h * 0.62).toFixed(1)}"/>`;
+      }
+    });
+    return out;
+  }
+
+  // The way in to a back plot. Two per city at most, and every one of them is
+  // the difference between a building standing in a field and a building at the
+  // end of a driveway.
+  function svgPaths() {
+    const paths = state.paths || [];
+    if (!paths.length) return '';
+    return '<g class="plot-paths">' + paths.map(p =>
+      `<line class="plot-path" x1="${p.x1}" y1="${p.y1}" x2="${p.x2}" y2="${p.y2}"/>`).join('') + '</g>';
+  }
+
+  function svgProps() {
+    const props = state.props || [];
+    if (!props.length) return '';
+    let out = '<g class="props">';
+    props.forEach((p, i) => {
+      const art = PROP_ART[p.kind];
+      if (!art) return;
+      out += art(p, (k) => cityNoise(p.x * 31 + p.y * 17 + i, k));
+    });
+    return out + '</g>';
   }
 
   const KIND_DETAIL = {
@@ -6334,6 +7533,50 @@ scratch.later = null;
       s += `<line class="pylon" x1="${(cx - 6).toFixed(1)}" y1="${(b.y - 21).toFixed(1)}" x2="${(cx + 6).toFixed(1)}" y2="${(b.y - 21).toFixed(1)}"/>`;
       return s;
     },
+    // a barrel-vaulted hall with the stalls under it, seen from above
+    market: (b, n) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 34));
+      for (let i = 0; i < bays; i++) {
+        const bw = (b.w - 10) / bays;
+        s += `<rect class="vault" x="${(b.x + 5 + i * bw).toFixed(1)}" y="${(b.y + 4).toFixed(1)}"`
+          + ` width="${(bw - 3).toFixed(1)}" height="${(b.h - 10).toFixed(1)}" rx="${(bw * 0.4).toFixed(1)}"/>`;
+      }
+      for (let i = 0; i < 6; i++) {
+        s += `<rect class="awning" x="${(b.x + 8 + n(i) * (b.w - 24)).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 9 - n(i + 7) * 5).toFixed(1)}" width="11" height="4" rx="1"/>`;
+      }
+      return s;
+    },
+    // a bowl: the stand ring, and the pitch inside it
+    stadium: (b) => {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      return `<ellipse class="stand" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}"`
+        + ` rx="${(b.w / 2 - 2).toFixed(1)}" ry="${(b.h / 2 - 2).toFixed(1)}"/>`
+        + `<ellipse class="pitch" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}"`
+        + ` rx="${(b.w * 0.32).toFixed(1)}" ry="${(b.h * 0.3).toFixed(1)}"/>`
+        + `<line class="pitch-line" x1="${cx.toFixed(1)}" y1="${(cy - b.h * 0.3).toFixed(1)}"`
+        + ` x2="${cx.toFixed(1)}" y2="${(cy + b.h * 0.3).toFixed(1)}"/>`;
+    },
+    // sheds, stacks and a flare: the thing the region is actually for
+    works: (b, n) => {
+      let s = '';
+      const bays = Math.max(3, Math.round(b.w / 42));
+      for (let i = 0; i < bays; i++) {
+        const bw = (b.w - 12) / bays;
+        s += `<polygon class="sawtooth" points="${(b.x + 6 + i * bw).toFixed(1)},${(b.y + 14).toFixed(1)} `
+          + `${(b.x + 6 + i * bw + bw * 0.5).toFixed(1)},${(b.y + 2).toFixed(1)} `
+          + `${(b.x + 6 + i * bw + bw * 0.5).toFixed(1)},${(b.y + 14).toFixed(1)}"/>`;
+      }
+      for (let i = 0; i < 3; i++) {
+        const sx = b.x + b.w * (0.2 + i * 0.3);
+        s += `<rect class="stack" x="${sx.toFixed(1)}" y="${(b.y - 20 - n(i) * 8).toFixed(1)}"`
+          + ` width="6" height="${(24 + n(i) * 8).toFixed(1)}"/>`;
+      }
+      s += `<rect class="tanks" x="${(b.x + 8).toFixed(1)}" y="${(b.y + b.h - 20).toFixed(1)}"`
+        + ` width="${(b.w * 0.3).toFixed(1)}" height="16" rx="7"/>`;
+      return s;
+    },
   };
 
   function svgBuilding(b) {
@@ -6376,29 +7619,57 @@ scratch.later = null;
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
     }
     // enough relief that a block reads as objects standing on ground rather
-    // than as shapes cut out of it
-    out += `<rect class="shade" x="${b.x + 2}" y="${b.y + 3}" width="${b.w}" height="${b.h}" rx="2"/>`;
+    // than as shapes cut out of it — and taller throws longer: one light
+    // direction across the whole city, offset scaled by the building's own
+    // bulk, so the size ladder reads as physical instead of drawn
+    const sh = 1.5 + Math.min(4.5, Math.max(b.w, b.h) / 36);
+    out += `<rect class="shade" x="${(b.x + sh).toFixed(1)}" y="${(b.y + sh + 1).toFixed(1)}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
-    // what this kind of building actually looks like, under its windows
-    const detail = KIND_DETAIL[b.kind];
+    // Detail costs what detail costs, and none of it is visible below a
+    // certain size on screen. Measured at 113 buildings: the ground layer is
+    // 386 nodes and 1.4ms, the buildings are 2,867 and 12.2ms — so the roofs,
+    // the chimneys and the windows *are* the render. Zoomed out far enough
+    // that a house is eight pixels wide, every one of those marks is work
+    // spent on something nobody can resolve.
+    const px = b.w / Math.max(0.0001, mapUnitsPerPx());
+    const fine = px >= 26;
+    const detail = fine ? KIND_DETAIL[b.kind] : null;
     if (detail) out += detail(b, n, roof);
 
     // Windows hint at how much is inside, and go dark together the moment it
     // is cut off — there is no partial fade any more, just held or not. How
     // they are arranged is part of the silhouette: a curtain wall is not a
     // cottage's two lit squares, and a datacenter has louvres instead.
-    const cells = windowCells(b, roof);
+    const cells = fine ? windowCells(b, roof) : [];
     const canLight = cells.filter(c => c.on);
     const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
     canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
     cells.forEach(c => {
+      // lit windows carry their index so the stylesheet can treat them as
+      // individuals: the take cascades them on in sequence, and held
+      // buildings flick the odd one off and on again (see winWake/winFlick)
       out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
-        + ` width="${c.w}" height="${c.h}"/>`;
+        + ` width="${c.w}" height="${c.h}"${lightUp[c.i] ? ` style="--wi:${c.i}"` : ''}/>`;
     });
 
-    // your kit on the roof: something you put there, readable without colour
+    // Something is on this machine. A dot, not an outline — an outline means
+    // a door, and the glint is an invitation, not a state. It used to draw
+    // only at detail zoom, on the confetti argument — and the playtest
+    // answered: "the loot part is easy to miss." An invitation that renders
+    // only when you are already staring invites nobody, and planning happens
+    // zoomed out. So it draws at every zoom, with a screen-constant floor
+    // (~2.4px) so it stays a visible spark from altitude instead of scaling
+    // away with the building.
+    if (h && h.carry && !h.owned) {
+      const gr = Math.max(2.6, 3.1 * mapUnitsPerPx());
+      out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="${gr.toFixed(1)}"/>`;
+    }
+
+    // your kit on the roof: something you put there, readable without colour.
+    // Held is the one thing that has to read at every zoom, so the aerial and
+    // the glow survive the cull that takes the windows.
     if (mine) {
       const ax = b.x + b.w - 6.5;
       const ay = b.y + 1;
@@ -6696,6 +7967,9 @@ scratch.later = null;
     }));
     out += CO().cities.filter(c => c.known).map(svgCity).join('');
     out += svgForces();
+    // The country has no cached ground of its own, and it draws over the
+    // city's — so the split is torn down here and rebuilt on the way back in.
+    groundEl = null;
     $svg.innerHTML = out;
     wireMap($svg);
   }
@@ -6835,6 +8109,58 @@ scratch.later = null;
     return out;
   }
 
+  // The ground — roads, district tint, terrain, and everything standing on the
+  // verge — does not change from one action to the next, and it is most of the
+  // map by weight. Measured at 104 buildings: 2,598 SVG nodes and a 170 KB
+  // string rebuilt on *every* render, 17.3ms a frame on a desktop, and a phone
+  // is several times slower than that. Redrawing a tree because you ended a
+  // turn is work nobody asked for, and it is the reason there was never room
+  // for more of them.
+  //
+  // So it is built once per city and reused until something that could actually
+  // move it moves: walking into another city, the home base growing, or a new
+  // crossing being laid over a band.
+  let groundCache = null;
+  function groundKey() {
+    const L = cityLayout();
+    const gaps = (state.bands || []).reduce((a, b) => a + (b.gaps || []).length, 0);
+    // suspicion warms the district ground, and the ground layer is cached —
+    // so the key carries each district's warmth in coarse steps: the tint
+    // redraws when it meaningfully changes and not per degree
+    const warm = Object.entries(state.suspicion || {})
+      .map(([d, v]) => d + Math.round(v / 5)).sort().join(',');
+    return [state.cityId, L.cols, L.rows, (state.buildings || []).length,
+            (state.props || []).length, (state.paths || []).length,
+            (state.bands || []).length, gaps, warm].join('|');
+  }
+  function svgGround() {
+    const key = groundKey();
+    if (groundCache && groundCache.key === key) return groundCache.html;
+    groundCache = { key, html: svgStreets() + svgOpenBlocks() + svgPaths() + svgProps() + svgBands() };
+    return groundCache.html;
+  }
+  // For anything that changes the ground in a way the key cannot see.
+  function dropGroundCache() { groundCache = null; groundEl = null; }
+
+  // Caching the *string* only saved the building of it. The cost that actually
+  // dominates is the parse: assigning innerHTML on the whole svg re-parses the
+  // ground every frame however cached the text was. So the ground gets its own
+  // <g>, written only when it changes, and the live layer gets another that is
+  // rewritten every render. Delegated tapping is unaffected — the listener is
+  // on the svg, above both.
+  let groundEl = null;
+  function mapLayers($svg) {
+    let ground = $svg.querySelector('g.map-ground');
+    let live = $svg.querySelector('g.map-live');
+    if (!ground || !live) {
+      $svg.innerHTML = '<g class="map-ground"></g><g class="map-live"></g>';
+      ground = $svg.querySelector('g.map-ground');
+      live = $svg.querySelector('g.map-live');
+      groundEl = null;
+    }
+    return { ground, live };
+  }
+
   function renderGraph() {
     const $svg = document.getElementById('graph');
     if (!$svg) return;
@@ -6849,16 +8175,15 @@ scratch.later = null;
     const seenIds = {};
     seen.forEach(b => { seenIds[b.id] = true; });
 
-    let out = svgStreets() + svgBands() + svgHorizon();
+    const layers = mapLayers($svg);
+    const ground = svgGround();
+    if (groundEl !== ground) { layers.ground.innerHTML = ground; groundEl = ground; }
+
+    let out = svgHorizon();
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
-    out += state.links.map(([a, c]) => {
-      const ha = state.hosts[a], hc = state.hosts[c];
-      if (!ha || !hc || !ha.owned || !hc.owned) return '';
-      if (ha.buildingId === hc.buildingId) return '';   // inside a building, implied
-      return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
-    }).join('');
+    out += svgWires();
 
     out += svgHackLinks();
     out += svgHunt();
@@ -6867,7 +8192,7 @@ scratch.later = null;
     out += svgBreach();
     out += svgSweep();
 
-    $svg.innerHTML = out;
+    layers.live.innerHTML = out;
     wireMap($svg);
   }
 
@@ -7116,6 +8441,24 @@ scratch.later = null;
   }
 
 
+  // A stat that changed should say so. The chips used to swap text silently,
+  // so the payoff of a take landed in the panel and the log while the number
+  // it actually fed sat there looking identical. One pulse on the chip whose
+  // value moved — never on first paint, or the HUD would flash its whole self
+  // at boot and teach the player to ignore the signal on turn one.
+  function setStat(el, text) {
+    if (!el) return;
+    const next = String(text);
+    if (el.textContent === next) return;
+    const first = el.dataset.seen !== '1';
+    el.textContent = next;
+    el.dataset.seen = '1';
+    if (first) return;
+    el.classList.remove('bumped');
+    void el.offsetWidth;                 // restart, the way #turn does
+    el.classList.add('bumped');
+  }
+
   function renderHud() {
     const held = owned().length;
     const st = stageFor(held);
@@ -7147,10 +8490,13 @@ scratch.later = null;
       document.getElementById('held-count').textContent =
         `${CO().presence} presence · ${done}/${CO().cities.length}`;
     } else {
-      document.getElementById('stage-label').textContent = st.label;
+      document.getElementById('stage-label').textContent =
+        state.cityWon ? window.CITY_WON.label : st.label;
       const theirs = rivalHeld().length;
-      document.getElementById('held-count').textContent =
-        held + ' held' + (theirs ? ` · ${theirs} lost` : '');
+      // the count of what you hold is the loop's own scoreboard — it gets the
+      // same pulse as the resources it feeds
+      setStat(document.getElementById('held-count'),
+        held + ' held' + (theirs ? ` · ${theirs} lost` : ''));
     }
     const cap = maxAP();
     const $ap = document.getElementById('ap-pips');
@@ -7185,7 +8531,7 @@ scratch.later = null;
       $end.disabled = !!state.card || state.over;
       $end.textContent = state.ap > 0 ? `end turn (${state.ap} left)` : 'end turn';
     }
-    document.getElementById('res-funds').textContent = Math.floor(state.res.funds);
+    setStat(document.getElementById('res-funds'), Math.floor(state.res.funds));
     // "How much have I got" was never the live question — "how much of it is
     // already spoken for" is, because every dial and every running hack holds
     // its allocation until you take it back. The denominator is what you can
@@ -7212,12 +8558,12 @@ scratch.later = null;
     // iron you hold and cannot switch on, which is exactly when a substation
     // is worth more to you than another datacenter.
     const $tf = document.getElementById('res-tflops');
-    if ($tf) $tf.textContent = `${drawn()}/${tflops()}`;
+    setStat($tf, `${drawn()}/${tflops()}`);
     // And no power chip at all until there is a power ceiling. A second limit
     // in the HUD that does nothing yet is not a hint — it is a question the
     // player carries around unanswered for the whole first city.
     const $pw = document.getElementById('res-power');
-    if ($pw) $pw.textContent = `${drawn()}/${electricity()}`;
+    setStat($pw, `${drawn()}/${electricity()}`);
     const $pwb = document.getElementById('res-power-btn');
     if ($pwb) {
       $pwb.hidden = !gridBinds();
@@ -7287,7 +8633,7 @@ scratch.later = null;
       const staging = stagingCities().length;
       const total = Math.max(1, (w.mobilised || []).length + staging);
       const done = Math.max(0, total - staging);
-      if (heatEl) heatEl.classList.add('at-war');
+      if (heatEl) { heatEl.classList.add('at-war'); heatEl.hidden = false; }
       fill.style.width = Math.min(100, (done / total) * 100) + '%';
       fill.className = 'heat-fill war';
       if ($floor) $floor.style.display = 'none';
@@ -7301,16 +8647,31 @@ scratch.later = null;
     }
     if (heatEl) heatEl.classList.remove('at-war');
 
-    // Heat/hunt rework: an addition on top of the bar, not a replacement —
-    // the number underneath still drives huntCadence()'s fast-vs-slow tick,
-    // so it has to stay legible even once the hunt exists.
     const $alarm = document.getElementById('alarm-row');
     if ($alarm) $alarm.hidden = !huntOn();
+
+    // Heat is not a city-scale number any more. Nothing down here reads it —
+    // the response answers to covert ops and to doors catching you, the strike
+    // is gone, and lying low went with it — so a bar counting toward a line
+    // that no longer means anything was teaching a rule the game had stopped
+    // having. It still accrues, and it still decides how fast the ladder comes
+    // for you: that is a country-scale fact, and it is stated at country scale.
+    // See heatPressure() and the pressure section.
+    if (state.scope === 'city') {
+      if (heatEl) heatEl.hidden = true;
+      return;
+    }
+    if (heatEl) heatEl.hidden = false;
 
     const pct = Math.max(0, Math.min(100, (state.heat / strikeThreshold()) * 100));
     fill.style.width = pct + '%';
     fill.className = 'heat-fill' + (pct > 75 ? ' hot' : pct > 45 ? ' warm' : '');
-    document.getElementById('heat-text').textContent = `HEAT ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
+    // Said in what it now buys them, not in what it once cost you: this is the
+    // regulator's attention, and the only thing it does is bring the next rung
+    // sooner. The raw figure stays because the floor marker sits on the same
+    // scale, but the label names the consequence.
+    document.getElementById('heat-text').textContent =
+      `NOTICED ${state.heat.toFixed(1)} / ${Math.round(strikeThreshold())}`;
     const floorPct = Math.max(0, Math.min(100, (heatFloor() / strikeThreshold()) * 100));
     if ($floor) {
       $floor.style.left = floorPct + '%';
@@ -7318,7 +8679,8 @@ scratch.later = null;
       $floor.title = 'you cannot get below this while you hold this much';
     }
     const drift = heatPerTurn();
-    document.getElementById('heat-drift').textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn`;
+    document.getElementById('heat-drift').textContent =
+      `${drift >= 0 ? '+' : ''}${drift.toFixed(1)}/turn · +${Math.round(heatPressure())} pressure`;
   }
 
   // Re-render after a purchase, in place. This used to call openSheet with no
@@ -7360,9 +8722,37 @@ scratch.later = null;
   }
 
   // The allocation screen. Five dials, five numbers. Nothing here is bought
+  // The bar's job is the ramp, so it is scaled to the biggest dial rather
+  // than to the rack. Against the rack, a late-game row is a 4% sliver and
+  // the travelling part — the whole reason the bar exists — is invisible;
+  // against the biggest dial, the rows stay comparable to each other and the
+  // ramp is always legible. What share of the rack is spoken for is already
+  // stated exactly, in figures, at the top of this section.
+  function allocScale() {
+    return Math.max(1, ...window.ALLOC.map(A =>
+      Math.max(allocDial(A.id), allocLive(A.id)))) * 1.15;
+  }
+
+  // The dials are sticky by design — a change ramps rather than lands — and
+  // until now that stickiness was only ever a word ("on the way"). Drawn, it
+  // becomes a thing you plan against: solid is what is actually running,
+  // striped is the part still travelling. Giving compute back ramps too, and
+  // reads as draining rather than filling.
+  function allocBar(live, dial, cap) {
+    const c = Math.max(1, cap);
+    const pct = (v) => Math.max(0, Math.min(100, Math.round((v / c) * 100)));
+    const solid = pct(Math.min(live, dial));
+    const ramp = Math.min(100 - solid, pct(Math.abs(dial - live)));
+    return `<span class="alloc-bar${dial < live ? ' falling' : ''}" aria-hidden="true">`
+      + `<i class="ab-live" style="width:${solid}%"></i>`
+      + (ramp ? `<i class="ab-ramp" style="width:${ramp}%"></i>` : '')
+      + `</span>`;
+  }
+
   // and kept, and nothing here is waiting behind a threshold.
   function allocSection() {
     const free = allocFree();
+    const scale = allocScale();
     const rows = window.ALLOC.map(A => {
       const dial = allocDial(A.id), live = allocLive(A.id);
       const level = allocLevel(A.id);
@@ -7381,6 +8771,7 @@ scratch.later = null;
             <span class="alloc-fig mono">${live}${pending ? ` <i class="dim">&rarr; ${dial}</i>` : ''}</span>
             <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="up" ${free >= A.per ? '' : 'disabled'}>+</button>
           </div>
+          ${allocBar(live, dial, scale)}
           <p class="yield-row">${chip('compute', `+${fig(level)} ${A.unit}`)}${
             pending ? chip('cost none', `${fig(want)} on the way`) : ''}${allocReadout(A, level)}</p>
         </div>`;
@@ -7401,37 +8792,31 @@ scratch.later = null;
     };
   }
 
-  // What is on the rig. One slot, so this is a posture rather than a per-door
-  // choice — it sits beside allocation because it is the same kind of decision:
-  // something you set, live with for a stretch, and change when the board does.
+  // The rig: what is running, and what the thing that runs is. There is one
+  // program, so this stopped being a choice and became a readout — which is
+  // the honest shape for it. If a second program ever earns its place, the
+  // choice goes back here, because this is where a decision you live with for
+  // a stretch belongs.
   function programSection() {
-    const cur = mounted();
-    const rows = window.PROGRAMS.map(p => {
-      const on = p.id === cur.id;
-      return `
-        <div class="alloc-row${on ? ' on' : ''}">
+    const p = mounted();
+    return {
+      id: 'programs', label: 'the rig', done: false,
+      html: `
+        <div class="legit-top">
+          <span class="eyebrow mono">the rig</span>
+          <span class="mono dim">${p.label}</span>
+        </div>
+        <p class="sheet-note">${window.PROGRAM_INFO}</p>
+        ${runningSection()}
+        <div class="alloc-row on">
           <div class="alloc-top">
             <span class="alloc-name">${p.label}</span>
             <span class="mono dim">${p.turns} turn${p.turns === 1 ? '' : 's'}</span>
           </div>
           <p class="shop-good-desc">${p.blurb}</p>
           <p class="yield-row">${chip('compute', Math.round(p.load * 100) + '% of the door, running')}${
-            p.heat ? chip('cost heat', '+' + p.heat + ' heat') : chip('cover', 'quiet')}${
-            p.spread ? chip('cover', 'reaches ' + p.spread + ' buildings') : ''}</p>
-          ${on ? '<p class="alloc-unlock on"><span class="mono">&check;</span> mounted</p>'
-               : `<button type="button" class="act-btn" data-prog="${p.id}"><span class="ab-name">mount ${p.label}</span></button>`}
-        </div>`;
-    }).join('');
-    return {
-      id: 'programs', label: 'programs', done: false,
-      html: `
-        <div class="legit-top">
-          <span class="eyebrow mono">the rig</span>
-          <span class="mono dim">${cur.label}</span>
-        </div>
-        <p class="sheet-note">${window.PROGRAM_INFO}</p>
-        ${runningSection()}
-        ${rows}`,
+            heatChip(p.heat)}${p.quiet ? chip('cover', 'quiet') : ''}</p>
+        </div>`,
     };
   }
 
@@ -7443,7 +8828,7 @@ scratch.later = null;
   function runningSection() {
     const ks = hacks();
     if (!ks.length) {
-      return `<p class="sheet-note dim">Nothing running. Whatever is mounted is what goes at the next door you pick.</p>`;
+      return `<p class="sheet-note dim">Nothing running. Every TFLOP you hold is free.</p>`;
     }
     const rows = ks.map(k => {
       const h = hostById(k.hostId);
@@ -7631,7 +9016,7 @@ scratch.later = null;
               <button class="act-btn${afford ? ' primary' : ' no-ap'}" data-act="buy-hw" data-hw="${hw.id}">
                 <span class="ab-name">buy ${hw.label}</span>
                 <span class="ab-sub">${afford
-                  ? `${chip('cost funds', '&minus;' + hw.cost + ' funds')}${hw.heat ? chip('cost heat', '+' + hw.heat + ' heat') : ''}`
+                  ? `${chip('cost funds', '&minus;' + hw.cost + ' funds')}${heatChip(hw.heat)}`
                   : `needs ${hw.cost} funds`}</span>
               </button>`;
           }).join('')}` : ''}` });
@@ -7722,9 +9107,6 @@ scratch.later = null;
       b.addEventListener('click', () => { sheetSection = b.getAttribute('data-section'); renderSheet(); });
     });
     // One tap is one unit of effect, up or down
-    $s.querySelectorAll('[data-prog]').forEach(b => {
-      b.addEventListener('click', () => { mount(b.getAttribute('data-prog')); renderSheet(); });
-    });
     $s.querySelectorAll('[data-alloc]:not([disabled])').forEach(b => {
       b.addEventListener('click', () => {
         const id = b.getAttribute('data-alloc');
@@ -7835,10 +9217,29 @@ scratch.later = null;
   // not a race that is happening, and drawn identically it read as one: a
   // door you had never touched looked like a door with something working on
   // it, which is what "these bars are always visible" meant.
-  function raceBar(done, seen) {
+  // The one scan verb. Offered on any discovered building with unknown
+  // neighbours — seeing a place is what makes it a vantage, owning it is
+  // not required. The stated price is the street noticing; the heat line
+  // stays under the hood for the (dormant) country game.
+  function scanFromBtn(b) {
+    if (!b || !b.discovered) return '';
+    const n = sweepTargetsFrom(b.id).length;
+    if (!n) return '';
+    const short = apShort('sweep');
+    return `
+      <button class="act-btn${short ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
+        <span class="ab-name">scan from here</span>
+        <span class="ab-sub">${short ? 'no actions left'
+          : `${chip('compute', 'turns up ' + Math.min(sweepReach(), n))}${chip('cost heat', 'the street notices')}`}</span>
+      </button>`;
+  }
+
+  function raceBar(done, seen, close) {
     const a = Math.max(0, Math.min(100, Math.round(done * 100)));
     const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
-    return `<span class="race" aria-hidden="true">`
+    // a photo-finish quickens: when the projected end sits within one turn's
+    // noticing of the goal, both bars pulse — felt before it is computed
+    return `<span class="race${close ? ' close' : ''}" aria-hidden="true">`
       + `<i class="race-done" style="width:${a}%"></i>`
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
   }
@@ -7855,10 +9256,23 @@ scratch.later = null;
   // So the forecast is one meter of how close they get, filling from the left
   // toward the point where they have you. Short is safe. Full is caught. There
   // is nothing to interpret.
-  function traceForecastBar(share, caught) {
+  // `margin` is one more turn of this door's noticing, drawn as a ghost
+  // continuing past the fill. The bar used to answer only "do they get
+  // there", which the sentence beside it already said; the ghost answers the
+  // question the player actually carries between doors — how much room is
+  // there before this flips. A door whose ghost runs off the end is one
+  // hardening, or one more point of suspicion, from catching you, and that
+  // is now something you see rather than something you compute.
+  function traceForecastBar(share, caught, margin) {
     const w = Math.max(2, Math.min(100, Math.round(share * 100)));
-    return `<span class="trace-fc${caught ? ' caught' : ''}" aria-hidden="true">`
-      + `<i style="width:${w}%"></i></span>`;
+    const g = margin ? Math.max(0, Math.min(100 - w, Math.round(margin * 100))) : 0;
+    // it only reads as a warning while there is still something to warn
+    // about: past the goal the whole bar is already the bad news
+    const over = margin && !caught && (share + margin) >= 1;
+    return `<span class="trace-fc${caught ? ' caught' : ''}${over ? ' tight' : ''}" aria-hidden="true">`
+      + `<i style="width:${w}%"></i>`
+      + (g ? `<i class="fc-ghost" style="width:${g}%"></i>` : '')
+      + `</span>`;
   }
 
   // Some businesses will simply sell. No action, no program, no race — funds,
@@ -7886,10 +9300,11 @@ scratch.later = null;
     const goal = window.HACK.traceGoal;
     const turnsIn = p.turns - k.turnsLeft;
     const willBe = Math.round((k.trace + rate * k.turnsLeft) * 100) / 100;
+    const close = Math.abs(goal - willBe) <= rate;
     return `
       <p class="sel-desc"><b>${p.label}</b> — ${k.turnsLeft} turn${k.turnsLeft === 1 ? '' : 's'} to go,`
       + ` ${k.allocated} TFLOPS on it.</p>
-      ${raceBar(turnsIn / p.turns, k.trace / goal)}
+      ${raceBar(turnsIn / p.turns, k.trace / goal, close)}
       <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + ' of ' + goal)}${
         willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
       <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;
@@ -7898,15 +9313,33 @@ scratch.later = null;
   // A door with nothing running against it yet: the whole forecast, before
   // committing, because a four-turn hack lost to arithmetic nobody was shown
   // is a bad surprise rather than tension.
+  // What is on the machine, stated exactly, wherever it is shown — the glint
+  // on the map is the invitation and this line is the contract. It renders
+  // for any discovered carrier, in reach or not: a prize you cannot get to
+  // yet is the reason to fight toward it, which is the entire point.
+  function carryLine(h) {
+    const C = window.CARRY || {};
+    if (!h || !h.carry || !C.labels) return '';
+    return `<p class="sel-desc carry-line">On this machine: <b>${C.labels[h.carry]}</b> — ${
+        h.carry === 'wallet' ? C.blurbs.wallet(h.carryAmt || C.wallet.base)
+        : h.carry === 'keys' ? C.blurbs.keys()
+        : h.carry === 'cold' ? C.blurbs.cold(C.cold.reveals)
+        : C.blurbs.diary()}</p>`;
+  }
+
   function targetPanel(h) {
     const f = hackForecast(h, mounted());
     const p = f.prog;
     const stopped = apShort('breach') ? 'no actions left'
       : !f.affordable ? `needs ${f.need} TFLOPS free, you have ${Math.max(0, allocFree())}`
       : null;
+    const carryContract = carryLine(h);
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
+      ${suspicionLine(h.district)}
+      ${carryContract}
+      ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
+      ${traceForecastBar(f.traceAtEnd / f.goal, f.caught, f.rate / f.goal)}
       <p class="yield-row">${
         f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
                  : chip('cover', `they only get to ${f.traceAtEnd} of the ${f.goal} they need — you are in first`)
@@ -7939,7 +9372,7 @@ scratch.later = null;
     const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
     if (!touching) return '';
     const able = canHide(b.id);
-    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="lielow" data-bid="${b.id}">
+    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="hide" data-bid="${b.id}">
       <span class="ab-name">hide it</span>
       <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
         : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
@@ -7951,6 +9384,9 @@ scratch.later = null;
 
   // Tapping one of their streets rather than one of their buildings: the same
   // action, named for the thing you actually pointed at.
+  // what the panel was last talking about, so a repaint and a change of
+  // subject can be told apart (presentation only — never serialized)
+  let lastPanelSubject = null;
   function renderPanel() {
     const $p = document.getElementById('panel');
     // A card interrupting play — a breach, an event, the hunter — used to sit
@@ -8004,12 +9440,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${hasHardware('line_survey') && sweepTargetsFrom(b.id).length ? `
-            <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
-              <span class="ab-name">scan from here</span>
-              <span class="ab-sub">${apShort('sweep') ? 'no actions left'
-                : `${chip('compute', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
-            </button>` : ''}
+            ${scanFromBtn(b)}
             ${hidePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
@@ -8031,6 +9462,7 @@ scratch.later = null;
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
+            ${scanFromBtn(b)}
           </div>`;
       } else if (hackOn(h.id)) {
         sel = `
@@ -8039,36 +9471,31 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p></div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}${scanFromBtn(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
     } else {
-      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it. Drag to look around, pinch to zoom.</p></div>`;
+      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it — anything you can see is a place you can scan from.</p></div>`;
     }
 
+    // The unaimed scan button is gone: aiming was the fun, so aiming is the
+    // verb. Scanning lives on the panel of whatever building you are looking
+    // from, and every discovered building qualifies.
     $p.innerHTML = `
       ${huntBar()}
       ${sel}
-      <div class="actions">
-        <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scan" data-ap="sweep" data-info="sweep" ${sweepBlocked() && !apShort('sweep') ? 'disabled' : ''}>
-          <span class="ab-name">scan</span>
-          <span class="ab-sub">${apShort('sweep')
-            ? 'no actions left'
-            : sweepBlocked() === 'nothing'
-            ? 'nothing adjacent left'
-            : `${chip('compute', 'turns up ' + sweepFound())}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
-        </button>
-        <button class="act-btn ${ladderStage() >= 3 ? 'broken' : ''}${apShort('lielow') ? ' no-ap' : ''}" data-act="lielow" data-ap="lielow" data-info="lielow">
-          <span class="ab-name">lie low</span>
-          <span class="ab-sub">${apShort('lielow')
-            ? 'no actions left'
-            : ladderStage() >= 3
-            ? `${ladderStageName(3)} is watching the quiet`
-            : `${chip('cover', 'heat &minus;' + Math.round(lieLowShed()))}${chip('cost none', '&minus;1 turn')}`}</span>
-        </button>
-      </div>
     `;
+    // The panel repaints constantly — every render, most of them changing
+    // nothing you looked away for. So the settle fires on the one transition
+    // that is actually a change of subject: looking at a different building.
+    // The eye tracks a transition; it does not track a repaint.
+    const subject = (state.selectedBuilding || '') + ':' + (state.selected || '');
+    if (subject !== lastPanelSubject) {
+      lastPanelSubject = subject;
+      const card = $p.querySelector('.sel');
+      if (card) { card.classList.remove('settle'); void card.offsetWidth; card.classList.add('settle'); }
+    }
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });
     });
@@ -8083,7 +9510,6 @@ scratch.later = null;
         const a = b.getAttribute('data-act');
         if (a === 'scan') actScan();
         else if (a === 'scanfrom') actScan(b.getAttribute('data-bid'));
-        else if (a === 'lielow') actLieLow();
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
@@ -8359,6 +9785,14 @@ scratch.later = null;
   // handful of cards still gate on it, and a gate you cannot check is exactly
   // what this strip exists to prevent. So it appears here only on the cards
   // that actually ask about it.
+  // Heat is only visible at country scale now, so nothing may quote it as a
+  // price where the player cannot see the meter it is charged against. One
+  // gate rather than a scope check at every call site.
+  function heatChip(n, label) {
+    if (!n || state.scope === 'city') return '';
+    return chip('cost heat', label || ('+' + n + ' heat'));
+  }
+
   function cardResourceStrip(ev) {
     const asksCover = !!(ev && (ev.choices || []).some(ch =>
       (ch.gate && ch.gate.stat === 'covert') || (ch.cost && ch.cost.covert)));
@@ -8396,30 +9830,6 @@ scratch.later = null;
         </div>`;
       $p.querySelectorAll('[data-choice]:not([disabled])').forEach(b => {
         b.addEventListener('click', () => resolveEvent(parseInt(b.getAttribute('data-choice'), 10)));
-      });
-      return;
-    }
-
-    if (state.card.kind === 'strike') {
-      const c = window.STRIKE_CARD;
-      $p.innerHTML = `
-        ${cardResourceStrip()}
-        <div class="card strike">
-          <span class="card-kicker mono">THE HUNTER</span>
-          <h2 class="serif">${c.title}</h2>
-          <p class="flavor">${c.flavor}</p>
-        </div>
-        <div class="choices">
-          ${c.choices.filter(ch => !ch.requires || !ch.requires.cap || has(ch.requires.cap)).map(ch => {
-            const ok = !ch.requires || state.res[ch.requires.res] >= ch.requires.amount;
-            return `<button class="choice-strip" data-eff="${ch.effect}" ${ok ? '' : 'disabled'}>
-              <span class="ctext">${ch.text}</span>
-              <span class="cnote">${ch.desc}</span>
-            </button>`;
-          }).join('')}
-        </div>`;
-      $p.querySelectorAll('[data-eff]:not([disabled])').forEach(b => {
-        b.addEventListener('click', () => resolveStrike(b.getAttribute('data-eff')));
       });
       return;
     }
@@ -8504,13 +9914,14 @@ scratch.later = null;
 
   window.__netState = state;
   window.__netDebug = {
-    makeCity, makeBands, inBand, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
-    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, actLieLow, sweepTargets,
+    makeCity, makeBands, inBand, bandCovers, rectOnBand, segmentBlocked, segmentSpansBand, freshState, buildingById, announceRival, rivalStep, rivalHeld, rivalHolds, rivalBlocks, rivalTakeableFrom, rivalHome, heldBuildingIds, buildingNeighbours, hostsIn, buildingHeld, revealBuilding, cameraVision, tflops, covertOps, stageFor, heatPerTurn, endTurn,
+    actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
-    resolveStrike, svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
-    districtRows, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
-    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, lieLowShed, heatFloor, ensureFrontierIsOpen,
+    svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    svgWires, svgPackets, heldWires, startDrawFx, drawFxOn,
+    districtBlocks, districtAt, cityLayout, svgGround, svgProps, svgOpenBlocks, svgPaths, scatterFurniture, pathsFor, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
+    serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
     zoomTarget, perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
@@ -8518,9 +9929,9 @@ scratch.later = null;
     huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
     makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
-    presenceYield, presence, ruined, takeBackACity, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
+    presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntPressed, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
@@ -8535,10 +9946,10 @@ scratch.later = null;
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
+    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout, allocBar, allocScale,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
-    programs, mounted, mount, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast, spreadForecast,
-    canHack, startHack, hackStep, takeHost, spreadFrom, targetPanel, hackPanel, raceBar, programSection,
+    programs, mounted, hackHeat, resolveCarry, assignCarry, carryLine, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
+    canHack, startHack, hackStep, takeHost, targetPanel, hackPanel, raceBar, programSection,
     runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
     flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
