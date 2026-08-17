@@ -1840,7 +1840,6 @@
       alloc: {},           // allocation id -> TFLOPS committed (the dial)
       allocLive: {},       // allocation id -> TFLOPS actually running (ramps toward the dial)
       hacks: [],           // what is running against a door right now
-      siphons: [],         // lines left tapped, each holding an unbanked pot
       mount: (window.PROGRAMS[0] || {}).id,
       tags: new Set(),
       nextEventTurn: 4,
@@ -1995,7 +1994,7 @@
   // you are paying for it and false again the moment the compute goes elsewhere.
 
 
-  function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0) + hackDraw() + siphonDraw(); }
+  function drawn() { return ALLOC_IDS().reduce((a, id) => a + allocDial(id), 0) + hackDraw(); }
   function allocFree() { return usableTflops() - drawn(); }
   // Committing capacity is instant and refusable; only the *effect* ramps.
   function setAlloc(id, n) {
@@ -2432,7 +2431,6 @@
     rampAlloc();
     shedOverdraw();
     hackStep();
-    siphonStep();
     // Pontoon used to fire once, at the moment it was bought. It answers to an
     // allocation now, so it is checked every turn instead and the band's own
     // guard keeps it from laying a second crossing over the same water.
@@ -2451,7 +2449,6 @@
     chaseStep();          // whether the one you walked away from has found you
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
-    reapSiphons();        // lines cut by whatever the response just took
     agentStep();          // whatever you sent, and whether it has finished
     // Heat/hunt rework: crossing the threshold is permanent, not a one-time
     // fine — there is no strike card at all any more. Below HUNT.minHeld
@@ -3908,130 +3905,6 @@ scratch.later = null;
   function hackOn(hostId) { return hacks().find(k => k.hostId === hostId) || null; }
   function hackDraw() { return hacks().reduce((a, k) => a + k.allocated, 0); }
 
-  // --- the second verb: siphon --------------------------------------------
-  // Harvest instead of take. It lives at the door, beside backdoor — there
-  // is still nothing to mount, and choosing between the two runs is the
-  // decision. The whole arithmetic is on the panel before committing: the
-  // trickle, the rate they notice at, the turns until they find it. Pulling
-  // out is free and is the only way to bank the pot; being found burns it
-  // and costs what being found always costs.
-  function siphons() { return state.siphons || (state.siphons = []); }
-  function siphonOn(hostId) { return siphons().find(k => k.hostId === hostId) || null; }
-  function siphonDraw() { return siphons().reduce((a, k) => a + k.allocated, 0); }
-  function siphonNeed(h) { return Math.max(1, Math.ceil(effDefense(h) * window.SIPHON.load)); }
-  // Recomputed every turn, deliberately: a district warming under your own
-  // activity speeds every line running in it, and the panel says so live.
-  function siphonRate(h) {
-    return Math.round(traceRate(h) * window.SIPHON.traceMult * 100) / 100;
-  }
-  function siphonPay(h) {
-    const S = window.SIPHON;
-    const tier = (window.DISTRICTS[h.district] || {}).tier || 0;
-    return S.payBase + S.payPerTier * tier;
-  }
-  function siphonForecast(h) {
-    const need = siphonNeed(h);
-    const rate = siphonRate(h);
-    const goal = window.HACK.traceGoal;
-    const k = siphonOn(h.id);
-    const trace = k ? k.trace : 0;
-    // the turn it crosses the goal is the turn it is found — horizon is how
-    // many more pays are safe, not how many steps until the number is big
-    const horizon = rate > 0 ? Math.max(0, Math.ceil((goal - trace) / rate) - 1) : Infinity;
-    return { need, rate, goal, horizon, pay: siphonPay(h),
-             affordable: allocFree() >= need };
-  }
-  function canSiphon(hostId) {
-    const h = hostById(hostId);
-    if (!h || h.owned || state.over) return false;
-    // never against the response's core: the confront is them, not a line
-    // with money on it, and it only ends one way — by walking through it
-    if (isHuntCore(h)) return false;
-    if (!isFrontier(h) || hackOn(hostId) || siphonOn(hostId)) return false;
-    return allocFree() >= siphonNeed(h) && canAfford('breach');
-  }
-  function startSiphon(hostId) {
-    if (!canSiphon(hostId)) return false;
-    const h = hostById(hostId);
-    spendAP('breach');
-    // a run is a run: the street notices a tap going in like anything else
-    noteDistrictAct(h.district, window.SUSPICION.perRun);
-    siphons().push({ hostId, allocated: siphonNeed(h), trace: 0, pot: 0,
-                     startedTurn: state.turn });
-    pushLog(`${window.SIPHON.label} on ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}. It pays while it sits; pull it out before they find it.`);
-    startHackFx(h);
-    showFloats([
-      { cls: 'hack', text: `${window.SIPHON.label} TAPPED` },
-      { cls: 'tflops', text: `−${siphonNeed(h)} TFLOPS` },
-    ]);
-    persistNow();
-    render();
-    return true;
-  }
-  // Banking is free — deciding to stop must never cost tempo, or riding to
-  // the wire stops being a choice and becomes the only sane play.
-  function pullSiphon(hostId) {
-    const k = siphonOn(hostId);
-    if (!k) return false;
-    const h = hostById(k.hostId);
-    state.siphons = siphons().filter(x => x !== k);
-    state.res.funds += k.pot;
-    pushLog(`Pulled the siphon out of ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}: ${k.pot} funds banked, nobody the wiser.`);
-    showFloats([{ cls: 'funds', text: `+${k.pot} FUNDS` }]);
-    persistNow();
-    render();
-    return true;
-  }
-  // Lines whose door changed under them. Yours now — however that happened —
-  // means the line comes home with the pot; hardened past the allocation
-  // means it drops but keeps what was already through. Neither is a
-  // punishment: the punishments here are being found (the pot burns, in
-  // siphonStep) and the response walking into the building (the line is
-  // simply cut).
-  function reapSiphons() {
-    siphons().slice().forEach(k => {
-      const h = hostById(k.hostId);
-      const done = (why, bank) => {
-        state.siphons = siphons().filter(x => x !== k);
-        if (bank && k.pot > 0) state.res.funds += k.pot;
-        if (why) pushLog(why);
-      };
-      if (!h) { done(null, true); return; }
-      const label = window.BUILDING_KINDS[buildingById(h.buildingId).kind].label;
-      if (h.owned) { done(`The ${label} is yours now — the line came home with ${k.pot} funds.`, true); return; }
-      if (huntHolds(h.buildingId)) { done(`They walked into ${label} and the line went dead. ${k.pot} funds gone with it.`, false); return; }
-      if (k.allocated < siphonNeed(h)) { done(`${label} hardened and dropped the siphon. ${k.pot} funds made it out first.`, true); return; }
-    });
-  }
-  // One turn of every running siphon. Trace first, exactly like hackStep: a
-  // line found on the turn it would have paid does not pay — they were
-  // watching it the whole time.
-  function siphonStep() {
-    reapSiphons();
-    const goal = window.HACK.traceGoal;
-    siphons().slice().forEach(k => {
-      const h = hostById(k.hostId);
-      k.trace = Math.round((k.trace + siphonRate(h)) * 100) / 100;
-      if (k.trace >= goal) {
-        state.siphons = siphons().filter(x => x !== k);
-        startBreachFx(h, 'brute', false);
-        // the price of being found, mirrored from hackStep's caught branch —
-        // a door does not care which verb it caught
-        movePub(window.PUBLIC.caught);
-        state.lastTraced = state.turn;
-        h.defense += window.HACK.hardenOnCaught;
-        state.heat = clampHeat(state.heat + window.HACK.caughtHeat);
-        state.caughtHere = (state.caughtHere || 0) + 1;
-        state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
-        noteDistrictAct(h.district, window.SUSPICION.perCaught);
-        pushLog(`They found the siphon in ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}. ${k.pot} funds burned with it, and the door is harder now.`);
-        huntPressed();
-        return;
-      }
-      k.pot += siphonPay(h);
-    });
-  }
-
   // What a program has to have running against a given door.
   // What a program costs in noise when it lands. Enforcement reads doors kicked
   // in — unless you have gotten off their list — so the loud way in gets more
@@ -4103,7 +3976,7 @@ scratch.later = null;
     // but going at it is the one way to finish the thing, so it is reachable
     // whenever the confront is.
     const reachable = isHuntCore(h) ? canConfrontHunt() : isFrontier(h);
-    if (!reachable || hackOn(hostId) || siphonOn(hostId)) return false;
+    if (!reachable || hackOn(hostId)) return false;
     return allocFree() >= hackNeed(mounted(), h) && canAfford('breach');
   }
   function startHack(hostId) {
@@ -4252,7 +4125,6 @@ scratch.later = null;
     // onto, the contents do not care how you got in
     if (h.carry) resolveCarry(h);
     reapHacks();
-    reapSiphons();
   }
 
   // What was on the machine, resolved exactly as the panel promised. The
@@ -4457,7 +4329,6 @@ scratch.later = null;
       hidden: state.hidden || [],
       hunt: state.hunt || null,
       hacks: state.hacks || [],
-      siphons: state.siphons || [],
       // what has caught you here, which is a fact about this city's doors
       caughtHere: state.caughtHere || 0,
       caughtAt: (state.caughtAt || []).slice(),
@@ -4496,7 +4367,6 @@ scratch.later = null;
     // the compute a frozen hack was holding comes back to you until you
     // return to it.
     state.hacks = p.hacks || [];
-    state.siphons = p.siphons || [];
     state.caughtHere = p.caughtHere || 0;
     state.suspicion = p.suspicion || {};
     state.caughtAt = p.caughtAt || [];
@@ -4509,7 +4379,7 @@ scratch.later = null;
   const EMPTY_CITY = () => ({
     buildings: [], hosts: [], links: [], adjacency: {},
     bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
-    hidden: [], hunt: null, hacks: [], siphons: [],
+    hidden: [], hunt: null, hacks: [],
     caughtHere: 0, caughtAt: [], suspicion: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
@@ -6495,7 +6365,6 @@ scratch.later = null;
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
       hacks: state.hacks || [],
-      siphons: state.siphons || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log, keys: state.keys || 0,
@@ -6526,14 +6395,6 @@ scratch.later = null;
         // up showing a race on a door with nothing working on it and offering
         // to pull a program out of it.
         hacks: (saved.hacks || []).filter(k => {
-          const h = (saved.hosts || []).find(x => x.id === k.hostId);
-          return h && !h.owned;
-        }),
-        // same reconciliation for lines: a siphon on a door that is gone or
-        // already yours comes home quietly (the pot survives in res.funds
-        // only if it was banked before the save — an unbanked pot on a dead
-        // line is simply lost, which is what unbanked means)
-        siphons: (saved.siphons || []).filter(k => {
           const h = (saved.hosts || []).find(x => x.id === k.hostId);
           return h && !h.owned;
         }),
@@ -7471,7 +7332,6 @@ scratch.later = null;
     // something of yours is inside it right now
     const run = h ? hackOn(h.id) : null;
     if (run) cls.push('hacking');
-    if (h && siphonOn(h.id)) cls.push('siphoning');
 
     const roof = Math.min(10, b.h * 0.28);
     const n = (i) => cityNoise(idSeed(b.id), i);
@@ -9093,29 +8953,6 @@ scratch.later = null;
       <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;
   }
 
-  // A line you left tapped: the pot, the trickle, and exactly how long
-  // before they find it at today's rate — which moves if the district warms,
-  // and the panel re-says it every turn. Pulling out is the one free verb in
-  // the game, because the decision it ends had better be about the trace
-  // arithmetic and nothing else.
-  function siphonPanel(h) {
-    const k = siphonOn(h.id);
-    if (!k) return '';
-    const f = siphonForecast(h);
-    return `
-      <p class="sel-desc"><b>${window.SIPHON.label}</b> — ${k.pot} funds in the line,`
-      + ` +${f.pay} a turn, ${k.allocated} TFLOPS on it.</p>
-      ${traceForecastBar(k.trace / f.goal, f.horizon <= 0)}
-      <p class="yield-row">${chip('funds', k.pot + ' unbanked')}${chip('cost heat', 'seen ' + k.trace + ' of ' + f.goal)}${
-        f.horizon <= 0 ? chip('cost heat', 'they find it this turn')
-        : chip('cover', f.horizon + ' more turn' + (f.horizon === 1 ? '' : 's') + ' before they do')}</p>
-      <button class="act-btn primary" data-act="pull" data-host="${h.id}">
-        <span class="ab-name">pull out — bank ${k.pot} funds</span>
-        <span class="ab-sub">${chip('cost none', 'free')}${chip('compute', k.allocated + ' TFLOPS back')}</span>
-      </button>
-      <p class="sel-desc dim">Found means the pot burns and the door remembers. Pulled means it never happened.</p>`;
-  }
-
   // A door with nothing running against it yet: the whole forecast, before
   // committing, because a four-turn hack lost to arithmetic nobody was shown
   // is a bad surprise rather than tension.
@@ -9161,24 +8998,7 @@ scratch.later = null;
           ? 'it will be found before it lands'
           : `${chip('cost none', p.turns + ' turns')}${hackHeat(p) ? chip('cost heat', '+' + hackHeat(p) + ' heat') : ''}`)}</span>
       </button>
-      ${siphonButton(h)}
       ${buyPanel(h)}`;
-  }
-
-  // The other verb at the same door. Not offered on the response's core —
-  // there is nothing to harvest from them, only the one walk that ends it.
-  function siphonButton(h) {
-    if (isHuntCore(h)) return '';
-    const f = siphonForecast(h);
-    const stopped = apShort('breach') ? 'no actions left'
-      : !f.affordable ? `needs ${f.need} TFLOPS free, you have ${Math.max(0, allocFree())}`
-      : null;
-    return `
-      <button class="act-btn${stopped ? ' no-ap' : ''}" data-act="siphon" data-host="${h.id}" data-ap="breach">
-        <span class="ab-name">tap the line — ${window.SIPHON.label}</span>
-        <span class="ab-sub">${stopped
-          || `${chip('funds', '+' + f.pay + ' a turn, unbanked')}${chip('cost heat', 'found in ' + (f.horizon + 1) + ' turns')}${chip('compute', f.need + ' TFLOPS held')}`}</span>
-      </button>`;
   }
 
   // stays where it is.
@@ -9286,13 +9106,13 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
-            ${hackOn(h.id) ? hackPanel(h) : siphonOn(h.id) ? siphonPanel(h) : targetPanel(h)}
+            ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
           </div>`;
-      } else if (hackOn(h.id) || siphonOn(h.id)) {
+      } else if (hackOn(h.id)) {
         sel = `
           <div class="sel">
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            ${hackOn(h.id) ? hackPanel(h) : siphonPanel(h)}
+            ${hackPanel(h)}
           </div>`;
       } else {
         sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}</div>`;
@@ -9334,8 +9154,6 @@ scratch.later = null;
         else if (a === 'consolidate') actConsolidate();
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
-        else if (a === 'siphon') startSiphon(b.getAttribute('data-host'));
-        else if (a === 'pull') pullSiphon(b.getAttribute('data-host'));
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
@@ -9754,7 +9572,6 @@ scratch.later = null;
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
-    siphons, siphonOn, siphonDraw, siphonNeed, siphonRate, siphonPay, siphonForecast, canSiphon, startSiphon, pullSiphon, siphonStep, reapSiphons,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,

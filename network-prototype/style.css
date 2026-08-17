@@ -1153,10 +1153,6 @@ footer .build { opacity: .55; font-size: 10px; }
    under attack never eats the selection's own outline */
 .bldg.hacking .body { stroke-dasharray: 3 3; animation: hackEdge 1400ms ease-in-out infinite; }
 .bldg.hacking:not(.sel) .body { stroke: var(--compute); }
-/* a tapped line: same running-edge language as a hack, in the money's
-   colour — slower, because nothing about it is racing */
-.bldg.siphoning .body { stroke-dasharray: 2 4; animation: hackEdge 2200ms ease-in-out infinite; }
-.bldg.siphoning:not(.sel) .body { stroke: var(--funds); }
 @keyframes hackEdge {
   0%, 100% { opacity: .55; }
   50%      { opacity: 1; }
@@ -1207,7 +1203,6 @@ footer .build { opacity: .55; font-size: 10px; }
   .hack-packet-wrap, .hack-open { display: none; }
   .hack-wire { animation: none; opacity: .7; }
   .bldg.hacking .body { animation: none; }
-  .bldg.siphoning .body { animation: none; }
   .bldg.breached.took.force, .bldg.breached.took.quiet,
   .bldg.breached.took.buy, .bldg.breached.bounced {
     animation: foundFlash 420ms ease-out both var(--breach-land);
