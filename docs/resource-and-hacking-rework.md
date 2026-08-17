@@ -1031,8 +1031,12 @@ free. Three misses, each a dial, none a redesign:
 
 ## The second verb — tried and retired
 
-siphon.exe shipped, tuned tempo-neutral against paired boards, and died in
-the playtest inside a day: "babysitting for a bit of funds." The full
+siphon.exe shipped, tuned tempo-neutral against bot runs, and died in
+the playtest inside a day: "babysitting for a bit of funds." (A correction
+for the record: those probes were labeled "paired" but were not — the
+harness's deserialize returns a state and only setState installs it, so
+each run drew its own board. Independent samples, honest means, wrong
+label. The scan rework's determinism test is what caught it.) The full
 autopsy is in `docs/ideas/systems.md` §A; the sentence that survives it:
 **push-your-luck cannot exist in a perfect-information game** — a player
 who checks the panel is never surprised, so the luck reduces to a
@@ -1041,6 +1045,37 @@ configuration) and it was mis-read as discipline working when it was the
 tension being absent. Reverted whole; the one-program game stands. Any
 future second verb must act on a different object than the door, because
 the race already owns the door.
+
+## The sweep, aimed — the last dice leave resolution
+
+The zero-opportunity-cost finding had two halves. Suspicion answered "no
+price"; this answers "no control": scan found new buildings at random, so
+even a player who wanted a route had nothing to steer with. The fix is
+three moves, all in one verb:
+
+- **Deterministic.** The sweep reveals the *nearest* unknown buildings —
+  nearest to the building you swept from, or nearest to anything you hold —
+  ties broken by id. Same board, same sweep, same ground, every time. This
+  was the last place randomness lived in resolution rather than
+  generation; the covenant now holds everywhere.
+- **Aimed, for everyone.** "Scan from here" was line.survey's mechanic, a
+  20-fund unlock. It is the base verb now — route control cannot be
+  something the game sells back to the player when choosing a route is the
+  missing decision. line.survey is retired; the grid hardware family runs
+  two tiers deep and the test suite says so on purpose.
+- **Priced where you looked.** A sweep warms each district it touches by
+  one point — someone trying handles is activity too. It warms *without*
+  cooling elsewhere (a separate joint from the rotation rule): if sweeps
+  fed noteDistrictAct, mashing scan in a far district would be a suspicion
+  coolant, which is exactly backwards. With heat dormant in the city game,
+  this is looking's only real price, and it is spatial like everything
+  else.
+
+The determinism test earned its keep immediately: it caught that the
+harness's deserialize returns a state and only setState installs it —
+which means earlier "paired board" probes were actually independent
+samples wearing the wrong label (means honest, pairing fictional). Probes
+from here on restore boards properly.
 
 ## Not changing
 

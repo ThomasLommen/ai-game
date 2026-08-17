@@ -724,6 +724,12 @@ window.SUSPICION = {
   perRun: 2,        // starting a run in a district: someone saw the lights flicker
   perTake: 3,       // a take there, however done: tenancy changed and the street knows
   perCaught: 6,     // getting caught there: the neighbours definitely talked
+  // A sweep warms the street it touches — looking is activity too, and with
+  // heat dormant in the city game this is scanning's only real price. It
+  // warms WITHOUT cooling anywhere else (see warmDistrict): if sweeps fed
+  // the rotation rule, mashing scan in a far district would be a suspicion
+  // coolant, which is exactly backwards.
+  perScan: 1,
   // Cooling has to genuinely reward rotation. At 1.2 the whole city warmed
   // no matter how you played — a rotator's own acts heat by ~5 and cool the
   // other three districts by 3.6 total, so even perfect rotation saturated

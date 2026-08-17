@@ -600,12 +600,11 @@ window.HARDWARE = [
   //
   // Gated lower than the other families because grid buildings are rarer: a
   // feeder pillar or two is a normal opening, six of them is not.
-  {
-    id: 'line_survey', family: 'grid', tier: 1, heldAt: 1, cost: 20, heat: 0,
-    label: 'line.survey', effect: {},
-    mechanic: true, // scan from a building you choose, rather than anywhere on the frontier
-    blurb: 'Somebody walked the lines and wrote down what they went past. You can decide where to look instead of taking what turns up.',
-  },
+  // line.survey retired: scanning from a building you choose became the base
+  // verb when the sweep went aimed-and-deterministic — route control cannot
+  // be a 20-fund unlock when choosing a route is the game's missing
+  // decision. A hardware slot that sells a core verb back to the player is
+  // the worst kind of upgrade.
   {
     id: 'pontoon_kit', family: 'grid', tier: 2, heldAt: 2, cost: 44, heat: 2,
     label: 'pontoon.kit', effect: {},

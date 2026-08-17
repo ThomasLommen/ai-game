@@ -2543,7 +2543,11 @@ test('the rules that left the dials are all still reachable, from their new home
     assert.ok(deck.includes(`'${t}'`) || deck.includes(`"${t}"`),
       `${t} left the dials and no card hands it out`);
   });
-  ['line_survey', 'pontoon_kit'].forEach(id => {
+  // line.survey left the shelf the other way: aiming a sweep became the
+  // base verb, so the rule it sold is now simply the rule
+  assert.ok(!window.HARDWARE.find(x => x.id === 'line_survey'),
+    'line.survey is still selling the base verb back to the player');
+  ['pontoon_kit'].forEach(id => {
     const hw = window.HARDWARE.find(x => x.id === id);
     assert.ok(hw, `${id} is not on the shelf`);
     assert.ok(hw.mechanic, `${id} changes a rule and does not say so`);
@@ -7212,7 +7216,7 @@ test('caps: the report is derived, so it cannot lie about what happened', () => 
   assert.equal(d.readoutDiff(before, before).length, 0, 'and nothing when nothing moves');
 });
 
-test('caps: Survey aims a sweep at one building instead of anywhere held', () => {
+test('scan: aiming a sweep at one building is the base verb, not a capability', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
@@ -7240,15 +7244,73 @@ test('caps: Survey aims a sweep at one building instead of anywhere held', () =>
   s.res.funds = 1000;
   s.ap = 5;
 
-  // without Survey, sweeping from a specific building is not a thing —
-  // the global pool includes both candidates
+  // the global pool includes both candidates — aiming is what narrows it
   assert.ok(d.sweepTargets().some(b => b.id === nA) && d.sweepTargets().some(b => b.id === nB),
     'both candidates sit in the untargeted pool');
 
-  grantHw(d, 'line_survey');
+  // no hardware, no grant: aiming the sweep is the base verb now
   d.actScan(bA);
   assert.equal(d.buildingById(nA).discovered, true, 'the building off the chosen one turned up');
   assert.equal(d.buildingById(nB).discovered, false, 'the one off the other building was left alone');
+});
+
+test('scan: the last dice left resolution — the sweep finds what is nearest, every time', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const saved = JSON.parse(JSON.stringify(d.serialize()));
+  const sweep = () => {
+    const { window: W } = loadNetwork({ cityOnly: true });
+    const d2 = W.__netDebug;
+    // deserialize returns a state; setState is what installs it — a probe
+    // that forgets the second half quietly runs on its own random city
+    d2.setState(d2.deserialize(JSON.parse(JSON.stringify(saved))));
+    d2.state.ap = 5;
+    d2.actScan();
+    return d2.state.buildings.filter(b => b.discovered).map(b => b.id).sort().join(',');
+  };
+  const first = sweep();
+  // the same board swept twice reveals the same ground — no dice anywhere
+  assert.equal(sweep(), first, 'two sweeps of one board found different ground');
+  // and what it revealed is the nearest of the pool, not a lucky draw
+  const { window: W } = loadNetwork({ cityOnly: true });
+  const d3 = W.__netDebug;
+  d3.setState(d3.deserialize(JSON.parse(JSON.stringify(saved))));
+  const pool = d3.sweepTargets();
+  d3.state.ap = 5;
+  const before = new Set(d3.state.buildings.filter(b => b.discovered).map(b => b.id));
+  d3.actScan();
+  const revealed = d3.state.buildings.filter(b => b.discovered && !before.has(b.id));
+  const mid = b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  const anchorList = d3.state.hosts.filter(h => h.owned).map(h => d3.buildingById(h.buildingId));
+  const dist = b => anchorList.reduce((best, a) => {
+    const c = mid(b), ac = mid(a);
+    return Math.min(best, Math.hypot(c.x - ac.x, c.y - ac.y));
+  }, Infinity);
+  const worstRevealed = Math.max(...revealed.map(dist));
+  const skipped = pool.filter(b => !revealed.some(r => r.id === b.id));
+  skipped.forEach(b => assert.ok(dist(b) >= worstRevealed - 0.001,
+    'the sweep skipped nearer ground for farther ground'));
+});
+
+test('scan: looking warms the street it touched, and cools nothing anywhere', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 5;
+  d.noteDistrictAct('industrial', 10);   // a far district, already warm
+  const before = d.suspicionOf('industrial');
+  const b0 = new Set(s.buildings.filter(b => b.discovered).map(b => b.id));
+  d.actScan();
+  const revealed = s.buildings.filter(b => b.discovered && !b0.has(b.id));
+  assert.ok(revealed.length, 'the sweep found nothing to price');
+  const touched = new Set(revealed.map(b => (d.hostsIn(b)[0] || {}).district).filter(Boolean));
+  touched.forEach(dk => assert.ok(d.suspicionOf(dk) >= window.SUSPICION.perScan,
+    `the sweep touched ${dk} and the street did not notice`));
+  // and the warm far district was not cooled by looking — a sweep is not
+  // the rotation rule, or scan-mashing becomes a coolant
+  if (!touched.has('industrial')) {
+    assert.equal(d.suspicionOf('industrial'), before, 'looking cooled a district it never touched');
+  }
 });
 
 test('caps: Pontoon reveals ground past a settled holding, once it has matured', () => {
@@ -7774,7 +7836,10 @@ test('hardware: four families, three tiers apiece, each gated a rung higher', ()
   });
   Object.keys(families).forEach(fam => {
     const tiers = families[fam].map(hw => hw.tier).sort();
-    assert.deepEqual(tiers, [1, 2, 3], `${fam} does not offer three clean tiers`);
+    // grid runs [2,3]: its tier 1 was line.survey, and that mechanic became
+    // the base sweep — a family selling a core verb was the wrong shelf
+    assert.deepEqual(tiers, fam === 'grid' ? [2, 3] : [1, 2, 3],
+      `${fam} does not offer its clean tiers`);
     const byTier = families[fam].slice().sort((a, b) => a.tier - b.tier);
     for (let i = 1; i < byTier.length; i++) {
       assert.ok(byTier[i].heldAt > byTier[i - 1].heldAt, `${fam} tier ${byTier[i].tier} is not a higher bar than the last`);
@@ -8446,8 +8511,11 @@ test('carry: keys cover exactly the runs that needed them, and travel with you',
   const s = d.state;
   s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
   s.buildings.forEach(b => { b.discovered = true; });
-  const keyer = s.hosts.find(h => h.carry === 'keys');
-  assert.ok(keyer, 'keys somewhere on the board');
+  // not every board rolls a keys carrier (~14% share across three pools) —
+  // plant one rather than flake on the draw; resolveCarry is what is under
+  // test, not the lottery
+  let keyer = s.hosts.find(h => h.carry === 'keys');
+  if (!keyer) { keyer = s.hosts.find(h => !h.origin); keyer.carry = 'keys'; }
   d.resolveCarry(keyer);
   assert.equal(s.keys, 1, 'the keys were not kept');
 

@@ -116,7 +116,13 @@ each trait is a printed rule, not a hidden die:
 - Measure: scan-and-route bots vs blind bots; trait presence should open a
   gap. Keep total traits ≤6 — past that, scanning becomes reading.
 
-## D. Intel — promote scan to a decision ★
+## D. Intel — promote scan to a decision ★ — AIMED SWEEP SHIPPED
+
+The base slice is in (see the rework doc's "The sweep, aimed"): the sweep
+is deterministic nearest-first, aimable from any held building without
+hardware, and priced in district warmth. Deep scan is mostly moot — the
+tap already states contents and arithmetic for free. Intercepts remain
+live as a candidate once the response deepens.
 
 Scan is near-free and always correct: mash it. Make looking a choice:
 

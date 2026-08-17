@@ -2625,6 +2625,18 @@
       if (!state.suspicion[d]) delete state.suspicion[d];
     });
   }
+  // Warmth without the rotation rule. A sweep is someone trying handles on
+  // one street — the street notices, but it is not the kind of moving-around
+  // that makes the last street forget you. If looking fed noteDistrictAct's
+  // cooling, mashing scan in a far district would be a suspicion coolant,
+  // which is exactly backwards.
+  function warmDistrict(district, amount) {
+    if (!district || !amount || !window.SUSPICION) return;
+    const S = window.SUSPICION;
+    const tidy = (v) => Math.round(v * 10) / 10;
+    state.suspicion = state.suspicion || {};
+    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+  }
   // The panel's phrase and the exact figure, from the first band. Words come
   // in bands; the arithmetic never does — below the first band the panel is
   // silent and the forecast still quotes the true rate.
@@ -3561,7 +3573,10 @@ scratch.later = null;
   }
 
   function actScan(fromId) {
-    const pool = (fromId != null && hasHardware('line_survey')) ? sweepTargetsFrom(fromId) : sweepTargets();
+    // Aimed for everyone: scanning from a chosen building was line.survey's
+    // whole mechanic, and it is the base verb now — route control cannot be
+    // an unlock when choosing a route is the game's missing decision.
+    const pool = fromId != null ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
     spendAP('sweep');
@@ -3569,15 +3584,34 @@ scratch.later = null;
     // little heat on you, which is what stops it being a button you mash.
     state.heat = clampHeat(state.heat + window.SCAN_HEAT);
     const reach = sweepReach();
-    const targets = pool.slice();
-    const found = [];
-    for (let i = 0; i < reach && targets.length; i++) {
-      const idx = Math.floor(Math.random() * targets.length);
-      const b = targets.splice(idx, 1)[0];
-      revealBuilding(b);
-      found.push(b);
-    }
+    // The last dice in resolution died here. The sweep finds what is
+    // nearest — nearest to the building you swept from, or nearest to
+    // anything you hold — ties broken by id so the same board sweeps the
+    // same. Where the frontier grows is now entirely a matter of where you
+    // stand when you look, which is what makes a route a choice.
+    const anchors = fromId != null
+      ? [buildingById(fromId)].filter(Boolean)
+      : Object.keys(heldBuildingIds()).map(buildingById).filter(Boolean);
+    const mid = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    const near = (b) => {
+      const c = mid(b);
+      return anchors.reduce((best, a) => {
+        const ac = mid(a);
+        return Math.min(best, Math.hypot(c.x - ac.x, c.y - ac.y));
+      }, Infinity);
+    };
+    const found = pool
+      .map(b => ({ b, d: near(b) }))
+      .sort((p, q) => p.d - q.d || (p.b.id < q.b.id ? -1 : 1))
+      .slice(0, reach)
+      .map(p => p.b);
+    found.forEach(b => revealBuilding(b));
     state.heat += 0.5;
+    // ...and the street notices somebody trying handles. With heat dormant
+    // in the city game this is scanning's real price, paid exactly where
+    // you looked — one point per district touched, cooling nothing.
+    const touched = new Set(found.map(b => (hostsIn(b)[0] || {}).district).filter(Boolean));
+    touched.forEach(dk => warmDistrict(dk, window.SUSPICION.perScan));
     // The discovery moment is where loot was getting missed — the glint is
     // small and the eye is on the sweep ring. Say it in the log, but never
     // what: the tap is the scouting verb, and this is only the reason to tap.
@@ -9080,7 +9114,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${hasHardware('line_survey') && sweepTargetsFrom(b.id).length ? `
+            ${sweepTargetsFrom(b.id).length ? `
             <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
               <span class="ab-name">scan from here</span>
               <span class="ab-sub">${apShort('sweep') ? 'no actions left'
