@@ -2625,12 +2625,13 @@
       if (!state.suspicion[d]) delete state.suspicion[d];
     });
   }
-  // The panel's phrase and the exact figure, from the first point. Words come
-  // in bands; the arithmetic never does.
+  // The panel's phrase and the exact figure, from the first band. Words come
+  // in bands; the arithmetic never does — below the first band the panel is
+  // silent and the forecast still quotes the true rate.
   function suspicionLine(district) {
     const S = window.SUSPICION;
     const v = suspicionOf(district);
-    if (!S || v < 1) return '';
+    if (!S || !S.bands.length || v < S.bands[0][0]) return '';
     let phrase = '';
     S.bands.forEach(([at, words]) => { if (v >= at) phrase = words; });
     const pct = Math.round(v * S.slope * 100);
@@ -3577,8 +3578,15 @@ scratch.later = null;
       found.push(b);
     }
     state.heat += 0.5;
+    // The discovery moment is where loot was getting missed — the glint is
+    // small and the eye is on the sweep ring. Say it in the log, but never
+    // what: the tap is the scouting verb, and this is only the reason to tap.
+    const laden = found.filter(b => hostsIn(b).some(x => x.carry && !x.owned));
+    const note = laden.length === 1
+      ? ` Something is sitting on the ${window.BUILDING_KINDS[laden[0].kind].label}.`
+      : laden.length > 1 ? ` Something is sitting on ${laden.length} of them.` : '';
     pushLog(found.length
-      ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.`
+      ? `Swept the street: ${found.map(b => window.BUILDING_KINDS[b.kind].label).join(', ')}.${note}`
       : 'Sweep found nothing new.');
     startSweepFx(found);
     persistNow();
@@ -6628,16 +6636,22 @@ scratch.later = null;
       const y = blk.y - L.hRoad[blk.row] / 2;
       const w = blk.w + L.vRoad[blk.col] / 2 + L.vRoad[blk.col + 1] / 2;
       const h = blk.h + L.hRoad[blk.row] / 2 + L.hRoad[blk.row + 1] / 2;
-      out += `<rect class="district ${key}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
-        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${D.ground}"/>`;
-      // the district is talking: the ground itself warms, from the first
-      // point — pressure lives on the map, not in a meter
+      // the district is talking: the ground colour itself shifts toward
+      // ember, rather than an overlay rect on top — the overlay's hard
+      // edges matched nothing on the map and read as a glitch, where a
+      // warmed fill stays seamless across the district's own blocks. It
+      // starts where the words start (the first band), so the map and the
+      // panel agree about when a district is worth a glance.
+      const S = window.SUSPICION || {};
       const warm = suspicionOf(key);
-      if (warm >= 1) {
-        const op = Math.min(0.3, (warm / ((window.SUSPICION || {}).max || 40)) * 0.3);
-        out += `<rect class="d-warm" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
-          + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" opacity="${op.toFixed(3)}"/>`;
+      const spoken = warm >= ((S.bands && S.bands[0][0]) || 6);
+      let ground = D.ground;
+      if (spoken) {
+        const pct = Math.min(22, Math.round((warm / (S.max || 40)) * 40));
+        ground = `color-mix(in oklab, ${D.ground} ${100 - pct}%, #7a3420)`;
       }
+      out += `<rect class="district ${key}${spoken ? ' d-warm' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${ground}"/>`;
       const north = at[(blk.row - 1) + ',' + blk.col];
       const west = at[blk.row + ',' + (blk.col - 1)];
       if (north && north !== key) {
@@ -7361,11 +7375,16 @@ scratch.later = null;
     });
 
     // Something is on this machine. A dot, not an outline — an outline means
-    // a door, and the glint is an invitation, not a state. It draws only at
-    // detail zoom: route planning happens close in, and at eight pixels wide
-    // a glint is confetti.
-    if (fine && h && h.carry && !h.owned) {
-      out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="2.1"/>`;
+    // a door, and the glint is an invitation, not a state. It used to draw
+    // only at detail zoom, on the confetti argument — and the playtest
+    // answered: "the loot part is easy to miss." An invitation that renders
+    // only when you are already staring invites nobody, and planning happens
+    // zoomed out. So it draws at every zoom, with a screen-constant floor
+    // (~2.4px) so it stays a visible spark from altitude instead of scaling
+    // away with the building.
+    if (h && h.carry && !h.owned) {
+      const gr = Math.max(2.1, 2.4 * mapUnitsPerPx());
+      out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="${gr.toFixed(1)}"/>`;
     }
 
     // your kit on the roof: something you put there, readable without colour.

@@ -8318,14 +8318,24 @@ test('suspicion: a straight line into the forecast, no cliff anywhere', () => {
   assert.equal(d.suspicionOf(dk), S.max);
 });
 
-test('suspicion: the panel speaks from the first point, and not before', () => {
+test('suspicion: the words wait for the second visit — one run is not a story', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
+  const S = window.SUSPICION;
   assert.equal(d.suspicionLine('commercial'), '', 'a quiet district is being talked about');
-  d.noteDistrictAct('commercial', 2);
+  // one visit — a run and a take — says nothing. The playtest found the
+  // first band at 1 put the phrase on 90% of doors, and a phrase everything
+  // wears is wallpaper.
+  d.noteDistrictAct('commercial', S.perRun + S.perTake);
+  assert.equal(d.suspicionLine('commercial'), '',
+    'a single visit already has the street talking');
+  assert.ok(S.bands[0][0] > S.perRun + S.perTake,
+    'the first band is inside one visit');
+  // the second visit crosses the line, and the words arrive with the figure
+  d.noteDistrictAct('commercial', S.perRun);
   const line = d.suspicionLine('commercial');
   assert.ok(line.includes('People mention it'), 'the first band has the wrong words: ' + line);
-  assert.ok(line.includes('4% faster'), 'the exact figure is missing: ' + line);
+  assert.ok(line.includes('15% faster'), 'the exact figure is missing: ' + line);
 });
 
 test('suspicion: it is a fact about here — packs, saves, and warms the ground', () => {
@@ -8346,7 +8356,12 @@ test('suspicion: it is a fact about here — packs, saves, and warms the ground'
   const k0 = d.svgGround();
   d.noteDistrictAct('commercial', 15);
   assert.notEqual(d.svgGround(), k0, 'the ground never warms');
-  assert.ok(d.svgGround().includes('d-warm'), 'warmth is not drawn at all');
+  // the warmth is the district fill itself, shifted — never an overlay rect
+  // whose hard edges match nothing on the map
+  const g = d.svgGround();
+  assert.ok(g.includes('d-warm'), 'warmth is not drawn at all');
+  assert.ok(/class="district commercial d-warm"[^>]*color-mix/.test(g),
+    'the warm ground is not the fill itself');
 });
 
 // --- what's on the machine -------------------------------------------------
@@ -8498,9 +8513,34 @@ test('carry: the glint is an invitation, not an outline, and dies with ownership
   let svg = d.svgBuilding(b);
   assert.ok(svg.includes('class="glint"'), 'a discovered carrier shows no glint');
   assert.ok(!/glint"[^/]*stroke/.test(svg), 'the glint has an outline — outlines mean doors');
+  // and it survives altitude — planning happens zoomed out, and "easy to
+  // miss" was the playtest's verdict on the fine-zoom-only version. The
+  // radius floors at a screen size, so it grows in map units as you rise.
+  s.view = { x: b.x - 1800, y: b.y - 1800, w: 3600, h: 3600 };
+  svg = d.svgBuilding(b);
+  assert.ok(svg.includes('class="glint"'), 'the glint is culled at planning zoom');
+  const far = parseFloat(svg.match(/glint"[^>]*r="([\d.]+)"/)[1]);
+  assert.ok(far > 2.1, 'the glint scales away with the building at altitude');
+  s.view = { x: b.x - 40, y: b.y - 40, w: 140, h: 140 };
   d.takeHost(carrier);
   svg = d.svgBuilding(b);
   assert.ok(!svg.includes('class="glint"'), 'the glint survived being taken');
+});
+
+test('carry: the sweep says when it turned something up, and never what', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  // load every machine, so whatever the sweep happens to reveal is laden —
+  // the discovery moment was where loot got missed, so the log now points
+  // at it. It names the building, never the contents: the tap stays the
+  // scouting verb, and the log line is only the reason to tap.
+  s.hosts.forEach(h => { if (!h.owned) { h.carry = 'wallet'; h.carryAmt = 5; } });
+  s.ap = 9;
+  d.actScan();
+  const line = s.log[0].text;
+  assert.ok(/Something is sitting on/.test(line), 'the sweep kept the find to itself: ' + line);
+  assert.ok(!/wallet/i.test(line), 'the log spoiled the contents');
 });
 
 test('hack: there is one way in, and nothing to pick between at the door', () => {

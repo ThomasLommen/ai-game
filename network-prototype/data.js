@@ -741,9 +741,15 @@ window.SUSPICION = {
   slope: 0.022,
   max: 40,
   // the phrase for the panel, by how warm it is — bands for words only,
-  // never for the arithmetic
+  // never for the arithmetic. The first band started at 1, and the playtest
+  // read it back plainly: one run anywhere (perRun 2) put the phrase on the
+  // panel, over 90% of doors wore it, and a phrase everything wears is
+  // wallpaper. A single visit (run + take = 5) now says nothing — the words
+  // start at the second visit, where the arithmetic starts being worth a
+  // glance. The multiplier itself still runs from the first point, and the
+  // forecast quotes it; only the words wait.
   bands: [
-    [1,  'people mention it'],
+    [6,  'people mention it'],
     [12, 'the district is talking'],
     [26, 'everyone here is watching'],
   ],

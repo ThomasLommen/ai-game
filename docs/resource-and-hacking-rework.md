@@ -1004,6 +1004,31 @@ One pre-existing bug surfaced while wiring the save: `caughtHere` and
 save, so a reload quietly forgave your catches. Fixed, with a test that
 saves and restores a catch.
 
+## The first pure-city playtest — three dials
+
+The verdict on the whole: more engaging, the player actually reads the
+board now, and buying came alive once backdooring everything stopped being
+free. Three misses, each a dial, none a redesign:
+
+- **"People mention it" was on 90% of doors.** The first band started at
+  suspicion 1, and one run anywhere (perRun 2) crosses that — a phrase
+  everything wears is wallpaper. The band now starts at 6: a single visit
+  (run + take = 5) says nothing, the words arrive with the second visit.
+  Only the words moved — the multiplier still runs from the first point and
+  the forecast still quotes it, so the arithmetic is untouched and the
+  flip table stands.
+- **Loot was easy to miss.** Two causes: the glint drew only at full
+  detail zoom (planning happens zoomed out), and the discovery moment had
+  nothing to say. The glint now draws at every zoom with a screen-constant
+  floor (~2.4px) so it stays a spark from altitude, and the sweep log says
+  when it turned up a laden machine — the building, never the contents.
+  The tap stays the scouting verb; the log line is only the reason to tap.
+- **The warm ground looked bad.** It was an overlay rect at up to 0.3
+  opacity whose hard edges matched nothing. Now the district fill itself
+  mixes toward ember (capped at 22%), seamless across the district's own
+  blocks, and it starts where the words start — the map and the panel
+  agree about when a district is worth a glance.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
