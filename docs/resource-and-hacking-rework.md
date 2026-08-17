@@ -884,6 +884,57 @@ half of the argument against decorative stations: a thing that looks like
 somewhere you could get into has to be somewhere you can get into. A test asserts
 no landmark id collides with a prop id, in either direction.
 
+## What's on the machine — loot, slice one
+
+The playtest after the subtraction round found the thing the subtraction was
+for: the loop held, and it held *too* smoothly. "Scan, tap, backdoor, repeat —
+the player doesn't look at anything else." Probed: 59% of turns end because AP
+is spent and 32% because no door is in reach — neither requires reading a
+stat — and only 9.2% of offered doors could even lose the race, none of which
+ever need taking. The game had a proven compulsion loop with an inert decision
+layer on top: **no tap could ever be wrong, so nothing ever needed reading.**
+
+The fix chosen (from `docs/ideas/`, one thing at a time): loot. Every machine
+can have contents, because that is what the fantasy always implied.
+
+The laws, from the design lens: contents are rolled **at generation** and
+packed with the city — randomness upstream, never in resolution. **Kinds, not
+grades** — no rarity colors, no shard economy; the old game's graded loot is
+dead and stays dead. And **scouting beats gambling**: a discovered carrier
+shows a glint, and tapping it states exactly what is there — even out of
+reach, *especially* out of reach, because a prize you cannot get to yet is the
+reason to fight toward it.
+
+Four kinds: **a wallet** (funds, exact amount stated), **someone's keys**
+(a run that would be caught is covered instead — trace stays at zero, spent
+automatically and only when needed, never on the response's core), **cold
+storage** (reveals the nearest cluster you haven't found), and **someone's
+diary** (nothing; a paragraph; the best one). ~14% of eligible hosts carry;
+landmarks always do; street furniture never does.
+
+The tuning was measured at every step and twice reversed itself:
+
+- **Uniform placement failed.** A glint-chasing bot's run was
+  indistinguishable from an easiest-door bot's over eight paired boards
+  (+0.1 carriers). Contents sprinkled everywhere land on doors everyone takes
+  anyway. So placement is weighted toward *defended* doors (~75% sit above
+  their board's median defense): the diary is behind the door that would
+  catch you, which is what finally makes the forecast bar worth reading.
+- **Typed keys failed.** "Opens till hosts only" never once matched a door
+  worth opening while held, across eight runs. Universal, need-only spending
+  replaced it.
+- **The honest verdict of the final probe:** chasing prizes now costs real
+  tempo (−105 funds over 40 bot turns), so the pull is priced — a pull with
+  no price is not a decision. But a flat-valuation bot cannot value a map, a
+  banked answer, or a paragraph, so whether the glint makes a *human* lift
+  their eyes is exactly what the next playtest answers. That is the question
+  this slice was built to ask.
+
+One bug the probes caught that play would have: landmarks are grown and slid
+after the scatter, so they could end up marooned mid-lot — the biggest
+building in the city, off every frontage. Any landmark that settles away from
+the street now gets a drive to the kerb, like any back plot.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

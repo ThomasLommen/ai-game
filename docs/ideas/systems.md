@@ -53,7 +53,11 @@ reuses everything.
 - Answers: covert.ops is the only stealth lever; a per-run choice would
   let a specific door be tip-toed.
 
-## B. Loot — "what's on the machine" ★
+## B. Loot — "what's on the machine" ★ — SLICE ONE SHIPPED
+
+Slice one is in (see the rework doc's "What's on the machine"): four kinds,
+glints, the panel contract, keys as need-only cover, placement weighted behind
+the race. Awaiting the human playtest verdict before any second slice.
 
 The single biggest missing payoff. Taking a building currently yields the
 building. The fantasy says every machine should have *contents* — and the

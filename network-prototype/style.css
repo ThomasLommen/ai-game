@@ -772,6 +772,14 @@ footer .build { opacity: .55; font-size: 10px; }
 .street { stroke: #1b2320; stroke-linecap: square; }
 .street.main { stroke: #202a26; }
 .street-line { stroke: #2b3a34; stroke-width: 1; stroke-dasharray: 8 12; opacity: .55; }
+/* Something is on this machine. The funds colour, softly pulsing, no stroke —
+   it must invite a tap without ever competing with the states that matter
+   (held, hunted, next-up). Dies with ownership. */
+.bldg .glint { fill: var(--funds); opacity: .85; animation: glintPulse 2.6s ease-in-out infinite; }
+@keyframes glintPulse { 0%, 100% { opacity: .85; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .bldg .glint { animation: none; } }
+.carry-line b { color: var(--funds); }
+
 /* --- props ---------------------------------------------------------------
    Everything standing on the map that is not a door. Two rules hold the whole
    thing together and they are enforced here rather than by care:

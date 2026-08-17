@@ -190,6 +190,41 @@
     return out;
   }
 
+  // --- what's on the machine ------------------------------------------------
+  // Contents are decided here, at generation, and never again — randomness
+  // upstream, resolution deterministic, which is the covenant. Carriers are
+  // chosen by ranking hosts against a seed rather than rolling per host, so
+  // the share is a bound and not a hope, and a landmark always carries: the
+  // biggest thing in the city is never an empty box.
+  function assignCarry(hostList, seed) {
+    const C = window.CARRY;
+    if (!C) return;
+    const eligible = hostList.filter(h => !h.origin && (C.pools[h.type] || []).length);
+    // Weighted toward the harder doors, deliberately. Measured with uniform
+    // placement: a glint-chasing bot's run was indistinguishable from an
+    // easiest-door bot's (+0.1 carriers over 8 paired boards), because
+    // contents mostly landed on doors both would take anyway. The pull only
+    // works when the prize sits behind the race — the diary is on the machine
+    // that would catch you, and that is what finally makes the forecast bar
+    // worth reading.
+    const ranked = eligible
+      .map((h, i) => ({ h, r: cityNoise(seed, i * 13 + 5) / (1 + h.defense / C.pullDefense) }))
+      .sort((a, b) => a.r - b.r);
+    const want = Math.round(eligible.length * C.share);
+    const carriers = ranked.slice(0, want).map(x => x.h);
+    hostList.filter(h => h.landmark && (C.pools[h.type] || []).length)
+      .forEach(h => { if (carriers.indexOf(h) === -1) carriers.push(h); });
+    carriers.forEach((h, i) => {
+      const pool = C.pools[h.type];
+      h.carry = pool[Math.floor(cityNoise(seed, i * 7 + 3) * pool.length)] || pool[0];
+      if (h.carry === 'wallet') {
+        const tier = h.ring || 0;
+        h.carryAmt = Math.round((C.wallet.base + tier * C.wallet.perTier)
+          * (h.landmark ? C.wallet.landmarkMult : 1));
+      }
+    });
+  }
+
   // --- the street plan ----------------------------------------------------
   // The blocks and the roads between them, as explicit geometry rather than
   // arithmetic on one block size. Everything that draws the ground reads this,
@@ -736,6 +771,21 @@
       });
     })();
 
+    // A landmark is grown and slid after the scatter — dodging the terrain
+    // and everything already standing — so it can end up off every frontage:
+    // the biggest building in the city, marooned in the middle of its lot,
+    // which is precisely the complaint the frontage pass existed to fix. Any
+    // landmark that settled away from the street gets a drive to the kerb,
+    // by the same rule a back plot does.
+    buildings.filter(b => b.landmark).forEach(b => {
+      const blk = layout.blocks.find(k => k.i === b.block);
+      if (!blk) return;
+      const gap = Math.min(b.x - blk.x, (blk.x + blk.w) - (b.x + b.w),
+                           b.y - blk.y, (blk.y + blk.h) - (b.y + b.h));
+      if (gap <= C.edgeInset + 4) return;
+      paths.push(...pathsFor(blk, layout, [Object.assign({}, b, { back: true })]));
+    });
+
     // Scenery last, and after the landmarks in particular: placing a landmark
     // grows the building it lands on, so anything scattered before that was
     // clear of it and then was not. Measured as a tree standing inside a
@@ -777,6 +827,9 @@
       b.hostIds = [h.id];
       b.hostId = h.id;
     });
+
+    // what is on these machines — decided now, carried forever
+    assignCarry(hosts, (layout.seed || 1) + 17);
 
     // --- links ---------------------------------------------------------
     const byId = {};
@@ -1228,6 +1281,9 @@
         b.hostIds = [h.id];
         b.hostId = h.id;
       });
+
+      // the new ground's machines have contents too, off the same seed
+      assignCarry(newHosts, ((state.layout && state.layout.seed) || 1) + startRow * 31);
 
       // append first, so link indices are stable and final before any get used
       const hostIndex = {};
@@ -1790,6 +1846,7 @@
       links: g.links,
       selected: null,
       selectedBuilding: null,
+      keys: 0,         // credentials found on machines, spent one door at a time
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
@@ -3841,10 +3898,20 @@ scratch.later = null;
   function hackForecast(h, prog) {
     const p = prog || mounted();
     const need = hackNeed(p, h);
-    const rate = traceRate(h, p);
+    // Someone's keys: spent automatically, and only where they matter — a run
+    // the bare arithmetic says would be caught. A safe run never consumes
+    // them, so holding keys is holding an answer to the door you were
+    // avoiding, and the panel states the spend before you commit.
+    const bareRate = traceRate(h, p);
+    const bareEnd = Math.round(bareRate * p.turns * 100) / 100;
+    // Never on the response's core: the confront is them, not a door, and a
+    // found wallet of credentials making the campaign's one boss moment
+    // unlosable would be the slot machine winning after all.
+    const keyed = bareEnd >= window.HACK.traceGoal && (state.keys || 0) > 0 && !isHuntCore(h);
+    const rate = keyed ? 0 : bareRate;
     const traceAtEnd = Math.round(rate * p.turns * 100) / 100;
     return {
-      prog: p, need, rate, turns: p.turns, traceAtEnd,
+      prog: p, need, rate, turns: p.turns, traceAtEnd, keyed,
       goal: window.HACK.traceGoal,
       caught: traceAtEnd >= window.HACK.traceGoal,
       affordable: allocFree() >= need,
@@ -3869,9 +3936,15 @@ scratch.later = null;
     // of it and setting a program going against an easy door costs a fraction
     // of a turn rather than a whole one.
     spendAP('breach');
+    // keys are spent the moment the run starts — one set, one door, and only
+    // a door that needed them (the forecast's rule, exactly)
+    const f = hackForecast(h, p);
+    const keyed = f.keyed;
+    if (keyed) state.keys = Math.max(0, (state.keys || 0) - 1);
     hacks().push({
       hostId, prog: p.id, allocated: hackNeed(p, h),
       turnsLeft: p.turns, trace: 0, startedTurn: state.turn,
+      keyed: keyed || undefined,
       confront: isHuntCore(h) || undefined,
     });
     pushLog(`${p.label} running against ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label}.`);
@@ -3908,7 +3981,8 @@ scratch.later = null;
     hacks().slice().forEach(k => {
       const h = hostById(k.hostId);
       const kp = window.PROGRAMS.find(x => x.id === k.prog);
-      k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
+      // a keyed run is never seen: the credentials are the whole point
+      if (!k.keyed) k.trace = Math.round((k.trace + traceRate(h, kp)) * 100) / 100;
       k.turnsLeft -= 1;
       if (k.trace >= H.traceGoal) { caught.push(k); return; }
       if (k.turnsLeft <= 0) done.push(k);
@@ -3989,7 +4063,52 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    // whatever was on the machine is yours with it — bought, hacked or spread
+    // onto, the contents do not care how you got in
+    if (h.carry) resolveCarry(h);
     reapHacks();
+  }
+
+  // What was on the machine, resolved exactly as the panel promised. The
+  // glint dies with ownership (it keys off carry, cleared here); `carried`
+  // stays behind as the record.
+  function resolveCarry(h) {
+    const C = window.CARRY;
+    const kind = h.carry;
+    h.carried = kind;
+    delete h.carry;
+    if (kind === 'wallet') {
+      const amt = h.carryAmt || C.wallet.base;
+      state.res.funds += amt;
+      showFloats([{ cls: 'funds', text: `FUNDS +${amt}` }]);
+      pushLog(`A wallet on the machine: +${amt} funds from an account nobody was watching.`);
+    } else if (kind === 'keys') {
+      // One set, any door. Typed keys ("opens till hosts only") were measured
+      // across eight paired runs and never once matched a door worth opening
+      // while they were held — granularity that reads as flavor and plays as
+      // never-usable. Universal, and spent only when a run would otherwise be
+      // caught, they are a banked answer to the exact door you were avoiding.
+      state.keys = (state.keys || 0) + 1;
+      pushLog(`Someone's keys, still valid. A run that would be seen can be covered — once.`);
+    } else if (kind === 'cold') {
+      // a map of somewhere you haven't been: the nearest cluster of
+      // undiscovered buildings, revealed like a scan you did not spend
+      const from = buildingById(h.buildingId);
+      const cx = from.x + from.w / 2, cy = from.y + from.h / 2;
+      const dark = (state.buildings || []).filter(b => !b.discovered)
+        .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+      const found = dark.slice(0, C.cold.reveals);
+      found.forEach(b => revealBuilding(b));
+      if (found.length) {
+        startSweepFx(found);
+        pushLog(`Cold storage: a map. ${found.length} building${found.length === 1 ? '' : 's'} you had not found.`);
+      } else {
+        pushLog('Cold storage: a map of places you already know.');
+      }
+    } else if (kind === 'diary') {
+      const lines = C.diaries || [];
+      pushLog(lines[idSeed(h.id) % Math.max(1, lines.length)] || 'A personal archive.');
+    }
   }
 
   // A door can become yours while a program is still working on it —
@@ -6174,7 +6293,7 @@ scratch.later = null;
       hacks: state.hacks || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
-      hosts: state.hosts, links: state.links, log: state.log,
+      hosts: state.hosts, links: state.links, log: state.log, keys: state.keys || 0,
       lastStage: state.lastStage, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
@@ -6203,7 +6322,7 @@ scratch.later = null;
         mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
-        hosts: saved.hosts, links: saved.links, log: saved.log || [],
+        hosts: saved.hosts, links: saved.links, log: saved.log || [], keys: saved.keys || 0,
         lastStage: saved.lastStage, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
@@ -7160,6 +7279,14 @@ scratch.later = null;
       out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
         + ` width="${c.w}" height="${c.h}"/>`;
     });
+
+    // Something is on this machine. A dot, not an outline — an outline means
+    // a door, and the glint is an invitation, not a state. It draws only at
+    // detail zoom: route planning happens close in, and at eight pixels wide
+    // a glint is confetti.
+    if (fine && h && h.carry && !h.owned) {
+      out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="2.1"/>`;
+    }
 
     // your kit on the roof: something you put there, readable without colour.
     // Held is the one thing that has to read at every zoom, so the aerial and
@@ -8724,14 +8851,31 @@ scratch.later = null;
   // A door with nothing running against it yet: the whole forecast, before
   // committing, because a four-turn hack lost to arithmetic nobody was shown
   // is a bad surprise rather than tension.
+  // What is on the machine, stated exactly, wherever it is shown — the glint
+  // on the map is the invitation and this line is the contract. It renders
+  // for any discovered carrier, in reach or not: a prize you cannot get to
+  // yet is the reason to fight toward it, which is the entire point.
+  function carryLine(h) {
+    const C = window.CARRY || {};
+    if (!h || !h.carry || !C.labels) return '';
+    return `<p class="sel-desc carry-line">On this machine: <b>${C.labels[h.carry]}</b> — ${
+        h.carry === 'wallet' ? C.blurbs.wallet(h.carryAmt || C.wallet.base)
+        : h.carry === 'keys' ? C.blurbs.keys()
+        : h.carry === 'cold' ? C.blurbs.cold(C.cold.reveals)
+        : C.blurbs.diary()}</p>`;
+  }
+
   function targetPanel(h) {
     const f = hackForecast(h, mounted());
     const p = f.prog;
     const stopped = apShort('breach') ? 'no actions left'
       : !f.affordable ? `needs ${f.need} TFLOPS free, you have ${Math.max(0, allocFree())}`
       : null;
+    const carryContract = carryLine(h);
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
+      ${carryContract}
+      ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
       ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
       <p class="yield-row">${
         f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
@@ -8865,7 +9009,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p></div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -9338,7 +9482,7 @@ scratch.later = null;
     electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
     allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
-    programs, mounted, hackHeat, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
+    programs, mounted, hackHeat, resolveCarry, assignCarry, carryLine, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
     canHack, startHack, hackStep, takeHost, targetPanel, hackPanel, raceBar, programSection,
     runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
     war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,

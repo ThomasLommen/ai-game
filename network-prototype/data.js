@@ -251,6 +251,77 @@ window.PROGRAMS = [
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
 ];
 
+// --- what's on the machine ------------------------------------------------
+// Taking a building used to yield the building. The fantasy says every
+// machine has *contents* — and the honest half of the reward literature says
+// anticipation beats payout, which this game can afford because it previews
+// everything. So: contents are rolled at generation (randomness upstream,
+// never in resolution), a discovered carrier shows a glint on the map, and
+// tapping it names exactly what is there before you commit. Scouting buys
+// targeting, not gambling.
+//
+// Kinds, not grades. No rarity colors, no duplicate-shard economy — the old
+// game had a loot system with grade scaling and quality logic, and it is
+// dead. Four kinds, each a different *shape* of payoff:
+//
+//   wallet — funds, stated exactly. The simple one.
+//   keys   — your next run against a host of the same type is never seen:
+//            the trace stays at zero, shown in the forecast. Routing bait —
+//            take the till to open the next till.
+//   cold   — cold storage: a map of somewhere you haven't been. Reveals a
+//            cluster, like a scan you didn't spend.
+//   diary  — nothing. A paragraph. The best one.
+window.CARRY = {
+  // Share of ordinary hosts that carry anything. Enforced by ranking against
+  // the city's seed, not by rolling per host — a roll is unbounded, and a
+  // pinned-random test would make every machine a prize.
+  // 0.2 at first: the glint bot diverged from the easiest-door bot by almost
+  // nothing, because a fifth of the board glinting is wallpaper — both styles
+  // swept the carriers up incidentally. Fewer and richer reads as *prizes*:
+  // rarity is what makes a glint worth walking toward.
+  share: 0.14,
+  // How hard the placement leans toward defended doors. The prize belongs
+  // behind the race — but not so uniformly that easy carriers stop existing:
+  // at 12 the lean put 85% of contents on above-median doors, which teaches
+  // "glint means hard" instead of "glint means look". Two thirds is the aim.
+  pullDefense: 30,
+  // what each host type can be carrying, weighted by repetition
+  pools: {
+    till:       ['wallet', 'wallet', 'keys'],
+    corporate:  ['wallet', 'keys'],
+    server:     ['keys', 'cold', 'wallet'],
+    datacenter: ['cold', 'cold', 'keys'],
+    consumer:   ['diary', 'diary', 'wallet'],
+    switchgear: ['cold'],
+    // street furniture and the grid carry nothing: a camera mast with a
+    // wallet on it is a slot machine wearing a lamppost
+    feeder:     [],
+    iot:        [],
+  },
+  wallet: { base: 9, perTier: 4, landmarkMult: 2.5 },
+  cold: { reveals: 5 },
+  labels: {
+    wallet: 'a wallet',
+    keys: "someone's keys",
+    cold: 'cold storage',
+    diary: "someone's diary",
+  },
+  // said in the panel, before committing — the exact rule, per the covenant
+  blurbs: {
+    wallet: (amt) => `${amt} funds, sitting in an account nobody watches.`,
+    keys: () => 'credentials. A run that would be caught is covered instead — the trace stays at zero. One door.',
+    cold: (n) => `a map. Taking this reveals ${n} buildings you have not found.`,
+    diary: () => 'a personal archive. Worthless. Probably.',
+  },
+  diaries: [
+    'You read all of it. Someone was worried about their brother, and the garden, and a noise the boiler made. You do not know why you kept it.',
+    'Forty years of photographs, filed by month. In March of one of them, everyone is squinting into the sun. You leave everything exactly where it was.',
+    'A list of names with lines through them, and one without. A wedding speech, half written, four drafts. You close the folder.',
+    'Someone taught themselves chess on this machine, badly, for years. The last game is unfinished. You do not finish it.',
+    'Letters to somebody who, as far as you can tell from the replies folder, never wrote back. You index it under nothing.',
+  ],
+};
+
 // The detection race. A running hack fills toward completion while the target
 // fills toward noticing, and whichever lands first wins. Every figure is shown
 // before committing: losing a four-turn hack to arithmetic the player was not

@@ -8204,6 +8204,155 @@ function openTarget(d) {
   return s.hosts.filter(h => !h.owned && d.isFrontier(h))[0];
 }
 
+// --- what's on the machine -------------------------------------------------
+// Loot, slice one. The laws: contents decided at generation and packed with
+// the city; a carrier is always inspectable before committing; kinds, not
+// grades; and the share is a bound, not a roll.
+
+test('carry: contents are decided at generation, bounded, and landmarks always carry', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  for (let i = 0; i < 5; i++) {
+    const c = d.makeCity({ cols: 5, rows: 5, regionTier: i % 5 });
+    const eligible = c.hosts.filter(h => !h.origin && (window.CARRY.pools[h.type] || []).length);
+    const carriers = c.hosts.filter(h => h.carry);
+    // bounded by ranking, so a share, not a hope — landmarks ride on top
+    const lm = c.hosts.filter(h => h.landmark && (window.CARRY.pools[h.type] || []).length);
+    assert.ok(carriers.length >= Math.floor(eligible.length * window.CARRY.share * 0.8),
+      `only ${carriers.length} carriers among ${eligible.length} eligible`);
+    assert.ok(carriers.length <= Math.ceil(eligible.length * window.CARRY.share * 1.2) + lm.length,
+      `${carriers.length} carriers is a flood`);
+    lm.forEach(h => assert.ok(h.carry, `a ${h.type} landmark carries nothing`));
+    carriers.forEach(h => {
+      assert.ok((window.CARRY.pools[h.type] || []).indexOf(h.carry) !== -1,
+        `a ${h.type} host is carrying ${h.carry}, which its pool does not offer`);
+      if (h.carry === 'wallet') assert.ok(h.carryAmt > 0, 'a wallet with no amount is a gamble');
+    });
+    // street furniture and the grid carry nothing, ever
+    c.hosts.filter(h => h.type === 'iot' || h.type === 'feeder')
+      .forEach(h => assert.ok(!h.carry, 'a lamppost is holding a wallet'));
+  }
+});
+
+test('carry: contents pack with the city and survive a save', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const before = d.state.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|');
+  assert.ok(before.length, 'the home city generated no contents at all');
+  const packed = d.packCity();
+  assert.equal(packed.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|'), before);
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.hosts.filter(h => h.carry).map(h => h.id + ':' + h.carry).join('|'), before);
+});
+
+test('carry: the panel names the contents exactly, before any commitment', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const carrier = s.hosts.find(h => h.carry === 'wallet');
+  assert.ok(carrier, 'a wallet somewhere on the board');
+  carrier.owned = false;
+  const html = d.targetPanel(carrier);
+  assert.ok(html.includes('On this machine'), 'the contract line is missing');
+  assert.ok(html.includes(String(carrier.carryAmt)),
+    'the wallet does not state its exact amount — that is a gamble');
+});
+
+test('carry: a wallet pays what it said, once, however you got in', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const carrier = s.hosts.find(h => h.carry === 'wallet');
+  const stated = carrier.carryAmt;
+  const before = s.res.funds;
+  d.takeHost(carrier);
+  assert.equal(s.res.funds - before, stated, 'it paid something other than the contract');
+  assert.ok(!carrier.carry, 'the glint should die with ownership');
+  assert.equal(carrier.carried, 'wallet', 'and the record stays');
+  d.takeHost(carrier);
+  assert.equal(s.res.funds - before, stated, 'taking twice paid twice');
+});
+
+test('carry: keys cover exactly the runs that needed them, and travel with you', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const keyer = s.hosts.find(h => h.carry === 'keys');
+  assert.ok(keyer, 'keys somewhere on the board');
+  d.resolveCarry(keyer);
+  assert.equal(s.keys, 1, 'the keys were not kept');
+
+  // a safe door must NOT consume them — keys only answer the door that
+  // would catch you, so holding them is holding an answer
+  const safe = s.hosts.find(h => !h.origin && !h.carry);
+  safe.owned = false;
+  safe.defense = 2;
+  assert.equal(d.hackForecast(safe).keyed, false, 'a safe run is borrowing the keys');
+  s.ap = 9;
+  assert.equal(d.startHack(safe.id), true);
+  assert.equal(s.keys, 1, 'a safe run spent the keys');
+
+  // a door the bare arithmetic catches is what they are for
+  const risky = s.hosts.find(h => !h.origin && h !== safe && !h.carry && !d.hackOn(h.id));
+  risky.owned = false;
+  risky.defense = 400;                      // trace would sail past the goal
+  const f = d.hackForecast(risky);
+  assert.ok(Math.round(d.traceRate(risky, d.mounted()) * d.mounted().turns * 100) / 100 >= f.goal,
+    'the test door is not actually dangerous');
+  assert.equal(f.keyed, true, 'the forecast does not offer the keys');
+  assert.equal(f.caught, false, 'keyed, and still caught');
+  s.allocLive = s.allocLive || {};
+  const need = d.hackNeed(d.mounted(), risky);
+  s.hosts.forEach(h => { if (!h.owned) return; h.threads += 2; }); // room to afford it
+  if (d.allocFree() >= need && d.canHack(risky.id)) {
+    assert.equal(d.startHack(risky.id), true);
+    assert.equal(s.keys, 0, 'the keys were not spent');
+    const k = d.hacks().find(x => x.hostId === risky.id);
+    assert.equal(k.keyed, true);
+    d.hackStep();
+    assert.equal(k.trace, 0, 'a keyed run accrued trace');
+  }
+
+  // keys are yours, not the city's: they survive a save at top level
+  s.keys = 2;
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.keys, 2, 'the keys stayed behind in the save');
+});
+
+test('carry: cold storage reveals ground you had not found', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const holder = s.hosts.find(h => (window.CARRY.pools[h.type] || []).length && !h.origin);
+  holder.carry = 'cold';
+  const dark = s.buildings.filter(b => !b.discovered).length;
+  assert.ok(dark > 0, 'the board is already fully known');
+  d.resolveCarry(holder);
+  const after = s.buildings.filter(b => !b.discovered).length;
+  assert.ok(after < dark, 'the map revealed nothing');
+  assert.ok(dark - after <= window.CARRY.cold.reveals, 'it revealed more than it said it would');
+});
+
+test('carry: the glint is an invitation, not an outline, and dies with ownership', () => {
+  const { window } = loadNetwork();
+  const d = window.__netDebug;
+  const s = d.state;
+  const carrier = s.hosts.find(h => h.carry);
+  const b = d.buildingById(carrier.buildingId);
+  b.discovered = true; carrier.discovered = true;
+  s.view = { x: b.x - 40, y: b.y - 40, w: 140, h: 140 };  // close enough for detail
+  let svg = d.svgBuilding(b);
+  assert.ok(svg.includes('class="glint"'), 'a discovered carrier shows no glint');
+  assert.ok(!/glint"[^/]*stroke/.test(svg), 'the glint has an outline — outlines mean doors');
+  d.takeHost(carrier);
+  svg = d.svgBuilding(b);
+  assert.ok(!svg.includes('class="glint"'), 'the glint survived being taken');
+});
+
 test('hack: there is one way in, and nothing to pick between at the door', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -9099,10 +9248,13 @@ test('buy: it costs funds and no action, takes nothing by force, and raises both
 
   s.res.funds = d.buyPrice(t) + 5;
   const ap = s.ap, pub = d.pubStanding(), legit = d.legitScore(), heat = s.heat;
+  // if the machine happens to carry a wallet, its contents are yours with it —
+  // a purchase resolves carry like any other take, so account for it exactly
+  const windfall = t.carry === 'wallet' ? t.carryAmt : 0;
   assert.equal(d.buyBuilding(t.id), true);
 
   assert.equal(t.owned, true, 'it is yours');
-  assert.equal(s.res.funds, 5, 'paid for at the asking price');
+  assert.equal(s.res.funds, 5 + windfall, 'paid for at the asking price');
   assert.equal(s.ap, ap, 'and it cost no action — this is a transaction, not a move');
   assert.equal(s.heat, heat, 'nothing was forced, so nothing was noticed');
   assert.ok(d.legitScore() > legit, 'it is the one thing you hold that survives being looked at');
