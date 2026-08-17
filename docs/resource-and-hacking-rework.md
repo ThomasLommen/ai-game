@@ -1181,6 +1181,59 @@ the trap that once made `.street` ignore its own painted road widths. Now
 scoped as `.trace-fc i.fc-ghost`, with a test that reads the stylesheet
 and pins it.
 
+## The greenery, and the last of the visuals
+
+The playtest on the scenery: "trees and ponds and greenery just look like
+small colored circles scattered around, and they are really small compared
+to the houses." Both halves were literally true. A tree was 7–12 units
+against a 26–35 house — a shrub in a pot — and it was drawn as a circle
+with a smaller circle on it.
+
+- **Sized against the buildings they stand next to.** Trees are 14–23
+  wide and 15–25 tall now, ponds 34–58 across, with pads grown to match so
+  they still stand clear. Prop counts held (measured either side: ~660 →
+  ~720 per city), so nothing starved for space.
+- **Nothing organic is a circle any more.** Canopies, bushes and ponds are
+  wobbled hulls — a seeded polygon smoothed through its own midpoints,
+  the same silhouette family as the country map's lakes — so no two trees
+  share an outline. A canopy is three overlapping lobes in three tones
+  rather than one flat fill, with a visible trunk.
+- **Everything on the ground throws a shadow**, in the same light
+  direction the buildings now use. This is most of what stops scenery
+  reading as stickers laid on the map.
+- **Scrub is tufts, hedges are scalloped, ponds have a bank.** The pond's
+  centred highlight and single curved ripple were making a face; the light
+  moved to the far bank and the ripples are short, offset and paired.
+
+And the last rows of the visuals menu:
+
+- **A gain flies to the chip it feeds.** A number floating in place and
+  the stat changing were two events the player had to connect. The flight
+  also takes ownership of the chip's pulse — the early one is cancelled
+  and re-fired on landing — so the reaction happens when the number
+  arrives rather than half a second before it. The float group holds still
+  while a chip is in flight, or its own drift would land the number short.
+- **The allocation ramp is drawn.** The dials are sticky by design and the
+  stickiness was only ever the words "on the way". Solid is what is
+  running, striped is what is still travelling, and handing compute back
+  drains in grey rather than filling in the dial's colour. Scaled to the
+  biggest dial rather than the rack: against a 386-TFLOPS rack every row
+  is a 4% sliver and the ramp — the whole point — cannot be seen.
+
+**Deliberately not shipped: the turn-resolve beat.** A half-second where
+the world "resolves" before the turn lands would give the boundary weight,
+and it is the one idea on the list whose own entry warns it becomes a tax.
+End-turn is the most-pressed button in the game; a pause paid dozens of
+times a session buys a feeling that the turn tick and the world's own
+float chips already deliver. Recorded as considered and declined, not
+missed.
+
+Also worth recording: the stroke-scoping trap bit for the third and fourth
+time this pass. `.props *` blanks every stroke in the props group, so the
+new tufts and ripples had to be scoped as `.props .pr-tuft`; `.alloc-bar i`
+would have eaten the ramp stripes the way `.trace-fc i` ate the forecast
+ghost. All four are now pinned by stylesheet-reading tests.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

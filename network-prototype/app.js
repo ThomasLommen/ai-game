@@ -6368,6 +6368,30 @@ scratch.later = null;
 
   // `world` marks the network's own response — production, decay, drift — so
   // the player can tell what they did apart from what happened to them.
+  // A number that means something should end up where that something lives.
+  // A gain floating in place and the chip it feeds changing were two separate
+  // events the player had to connect; flown, they are one. The flight also
+  // takes ownership of the chip's pulse — the pulse renderHud already fired
+  // is cancelled and re-fired on landing, so the reaction happens when the
+  // number arrives rather than half a second before it.
+  const FLOAT_HOME = { funds: 'res-funds', tflops: 'res-tflops', held: 'held-count' };
+  const FLY_MS = 420;
+  function flyToHome(chip, destId) {
+    const dest = document.getElementById(destId);
+    if (!dest || !chip.getBoundingClientRect) return;
+    const a = chip.getBoundingClientRect(), b = dest.getBoundingClientRect();
+    if (!a.width || !b.width) return;                 // not laid out (tests, hidden)
+    chip.style.setProperty('--fx', (b.left + b.width / 2 - (a.left + a.width / 2)).toFixed(1) + 'px');
+    chip.style.setProperty('--fy', (b.top + b.height / 2 - (a.top + a.height / 2)).toFixed(1) + 'px');
+    chip.classList.add('flying');
+    dest.classList.remove('bumped');                  // the early pulse is the flight's now
+    setTimeout(() => {
+      dest.classList.remove('bumped');
+      void dest.offsetWidth;
+      dest.classList.add('bumped');
+    }, FLY_MS - 40);
+  }
+
   function showFloats(parts, world) {
     const $l = document.getElementById('feedback-layer');
     if (!$l || !parts.length) return;
@@ -6378,6 +6402,14 @@ scratch.later = null;
     g.innerHTML = (world ? '<span class="float-tag mono">the network runs</span>' : '')
       + parts.map(p => `<span class="float-chip ${p.cls}">${p.text}</span>`).join('');
     $l.appendChild(g);
+    // ...and the ones with somewhere to be go there. Read after append, so the
+    // geometry is real; anything without a home floats in place as before.
+    let flew = false;
+    g.querySelectorAll('.float-chip').forEach(chip => {
+      const home = FLOAT_HOME[[...chip.classList].find(c => FLOAT_HOME[c])];
+      if (home) { flyToHome(chip, home); flew = true; }
+    });
+    if (flew) g.classList.add('has-flight');
     setTimeout(() => { if (g.parentNode) g.parentNode.removeChild(g); }, 1200);
   }
 
@@ -8601,9 +8633,37 @@ scratch.later = null;
   }
 
   // The allocation screen. Five dials, five numbers. Nothing here is bought
+  // The bar's job is the ramp, so it is scaled to the biggest dial rather
+  // than to the rack. Against the rack, a late-game row is a 4% sliver and
+  // the travelling part — the whole reason the bar exists — is invisible;
+  // against the biggest dial, the rows stay comparable to each other and the
+  // ramp is always legible. What share of the rack is spoken for is already
+  // stated exactly, in figures, at the top of this section.
+  function allocScale() {
+    return Math.max(1, ...window.ALLOC.map(A =>
+      Math.max(allocDial(A.id), allocLive(A.id)))) * 1.15;
+  }
+
+  // The dials are sticky by design — a change ramps rather than lands — and
+  // until now that stickiness was only ever a word ("on the way"). Drawn, it
+  // becomes a thing you plan against: solid is what is actually running,
+  // striped is the part still travelling. Giving compute back ramps too, and
+  // reads as draining rather than filling.
+  function allocBar(live, dial, cap) {
+    const c = Math.max(1, cap);
+    const pct = (v) => Math.max(0, Math.min(100, Math.round((v / c) * 100)));
+    const solid = pct(Math.min(live, dial));
+    const ramp = Math.min(100 - solid, pct(Math.abs(dial - live)));
+    return `<span class="alloc-bar${dial < live ? ' falling' : ''}" aria-hidden="true">`
+      + `<i class="ab-live" style="width:${solid}%"></i>`
+      + (ramp ? `<i class="ab-ramp" style="width:${ramp}%"></i>` : '')
+      + `</span>`;
+  }
+
   // and kept, and nothing here is waiting behind a threshold.
   function allocSection() {
     const free = allocFree();
+    const scale = allocScale();
     const rows = window.ALLOC.map(A => {
       const dial = allocDial(A.id), live = allocLive(A.id);
       const level = allocLevel(A.id);
@@ -8622,6 +8682,7 @@ scratch.later = null;
             <span class="alloc-fig mono">${live}${pending ? ` <i class="dim">&rarr; ${dial}</i>` : ''}</span>
             <button type="button" class="alloc-btn" data-alloc="${A.id}" data-step="up" ${free >= A.per ? '' : 'disabled'}>+</button>
           </div>
+          ${allocBar(live, dial, scale)}
           <p class="yield-row">${chip('compute', `+${fig(level)} ${A.unit}`)}${
             pending ? chip('cost none', `${fig(want)} on the way`) : ''}${allocReadout(A, level)}</p>
         </div>`;
@@ -9795,7 +9856,7 @@ scratch.later = null;
     backlash, yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout,
+    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout, allocBar, allocScale,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, hackHeat, resolveCarry, assignCarry, carryLine, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
     canHack, startHack, hackStep, takeHost, targetPanel, hackPanel, raceBar, programSection,

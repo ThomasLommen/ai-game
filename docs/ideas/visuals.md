@@ -21,11 +21,23 @@ hardening loss and the forecast margin ghost (§B), directional
 size-scaled shadows, softer district seams and road kerbs (§D), and the
 chip pulse plus panel settle (§E).
 
-Still open, and each still a sitting: the wire draw and the number flying
-to its chip (§A), §C traffic-on-wires (blocked — links are data, not
-drawn wires, so dots would travel through nothing), §D horizon twinkle
-(country-gated, dormant), §E's tactile allocation dials and turn-resolve
-beat, and §F sound (deferred — the user has ideas).
+Also shipped since: the number flying to its chip (§A.4), the allocation
+ramp drawn as a ghost (§E), and a full pass on scenery — greenery sized
+against the buildings, wobbled hulls instead of circles, ground shadows,
+tufted scrub, scalloped hedges and ponds with banks.
+
+What is left, and why:
+
+- **the wire draw (§A.3)** and **traffic on your wires (§C)** — both
+  blocked on the same fact: links are data, not drawn lines. Nothing on
+  the map is a wire, so there is nothing to draw along. Unblocking them
+  means first deciding whether the map should show your network as lines
+  at all — a design question, not a polish one.
+- **the turn-resolve beat (§E)** — considered and declined. A pause on
+  the most-pressed button in the game is a tax paid every turn; see the
+  rework doc.
+- **horizon twinkle (§D)** — country-gated, so dormant along with it.
+- **sound (§F)** — deferred at the user's request; they have ideas.
 
 A building becoming yours is the loop's payoff and currently gets a
 color change, a banner and a log line. The full Nijman treatment, in order

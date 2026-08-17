@@ -243,6 +243,28 @@ body {
 .float-chip.tflops { color: var(--tflops); border-color: color-mix(in srgb, var(--tflops) 55%, transparent); }
 .float-chip.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 55%, transparent); }
 .float-chip.held { color: var(--ink); }
+/* A gain with somewhere to be goes there: a small lift, then a travel to the
+   chip it feeds, shrinking as it lands. The group's own floatUp drifts the
+   whole stack upward, which would compound with the flight and land it short
+   — so a group carrying a flight holds still and lets its children move. */
+.float-group.has-flight { animation: floatHold 1.2s ease-out forwards; }
+@keyframes floatHold {
+  0%   { opacity: 0; transform: translateY(8px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.float-chip.flying {
+  animation: floatFly 420ms cubic-bezier(.36, 0, .2, 1) forwards;
+}
+@keyframes floatFly {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+  20%  { opacity: 1; transform: translate(0, -3px) scale(1.05); }
+  100% { opacity: 0; transform: translate(var(--fx, 0), var(--fy, 0)) scale(.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-chip.flying { animation: none; opacity: 1; }
+}
 @keyframes floatUp {
   0% { opacity: 0; transform: translateY(8px) scale(.94); }
   15% { opacity: 1; transform: translateY(0) scale(1); }
@@ -2040,6 +2062,29 @@ footer .build { opacity: .55; font-size: 10px; }
   border: 1px dashed var(--line); border-radius: 4px;
   overflow: hidden;
 }
+/* What a dial is actually running, and what is still on its way there. Same
+   grammar as the forecast's margin: solid happened, stripes have not yet.
+   Scoped past the bare element selector on purpose — a plain `.ab-ramp`
+   would lose to `.alloc-bar i` the way `.fc-ghost` did. */
+.alloc-bar {
+  display: flex; height: 5px; margin: 4px 0 6px;
+  border-radius: 3px; overflow: hidden; background: var(--line);
+}
+.alloc-bar i { display: block; height: 100%; }
+.alloc-bar i.ab-live { background: var(--compute); }
+.alloc-bar i.ab-ramp {
+  background: repeating-linear-gradient(115deg,
+    color-mix(in srgb, var(--compute) 55%, transparent) 0 3px,
+    color-mix(in srgb, var(--compute) 12%, transparent) 3px 6px);
+}
+/* handing compute back drains rather than fills, so it is not the dial's
+   own colour arriving */
+.alloc-bar.falling i.ab-ramp {
+  background: repeating-linear-gradient(115deg,
+    color-mix(in srgb, var(--ink-dim) 40%, transparent) 0 3px,
+    transparent 3px 6px);
+}
+
 .trace-fc { display: flex; }
 .trace-fc i {
   display: block; height: 100%;
