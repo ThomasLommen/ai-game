@@ -8695,6 +8695,94 @@ test('forecast: the bar shows the margin, and reddens when one turn would lose i
     'the ghost background is not scoped past .trace-fc i and will lose to it');
 });
 
+// --- the network, seen -------------------------------------------------------
+// Held links were always drawn; what was missing was a link *arriving* and
+// anything discrete travelling one. Both are presentation only.
+
+function wiredUp(d) {
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const seat = s.hosts.find(h => h.owned);
+  const held = new Set([seat.buildingId]);
+  for (let i = 0; i < 30 && held.size < 6; i++) {
+    [...held].forEach(bid => (s.adjacency[bid] || []).forEach(nb => { if (held.size < 6) held.add(nb); }));
+  }
+  let target = null;
+  [...held].forEach(bid => (s.adjacency[bid] || []).forEach(nb => { if (!held.has(nb) && !target) target = nb; }));
+  s.hosts.forEach(h => { if (held.has(h.buildingId)) h.owned = true; });
+  return target;
+}
+
+test('wires: taking a building draws the link in, toward the new holding', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const target = wiredUp(d);
+  assert.ok(target, 'the board needs a neighbour to take');
+  assert.ok(!/drawing/.test(d.svgWires()), 'a settled network is drawing itself');
+
+  const h = s.hosts.find(x => x.buildingId === target);
+  d.takeHost(h);
+  const svg = d.svgWires();
+  const drawn = (svg.match(/wire live drawing/g) || []).length;
+  assert.ok(drawn > 0, 'the new link did not draw');
+
+  // direction matters: the line runs from the ground you held toward the
+  // ground you just took, because that is the way the dash offset travels
+  const line = svg.match(/<line class="wire live drawing"[^/]*\/>/)[0];
+  const x2 = +line.match(/x2="([-\d.]+)"/)[1], y2 = +line.match(/y2="([-\d.]+)"/)[1];
+  assert.ok(Math.abs(x2 - h.x) < 0.01 && Math.abs(y2 - h.y) < 0.01,
+    'the draw runs away from the new holding instead of into it');
+  // it carries its own length, or the dash trick cannot work
+  assert.ok(/--len:[\d.]+/.test(line), 'the draw has no length to run down');
+});
+
+test('wires: the flourish is presentation — it expires and never saves', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const target = wiredUp(d);
+  const h = d.state.hosts.find(x => x.buildingId === target);
+  d.takeHost(h);
+  assert.ok(d.drawFxOn(), 'nothing is drawing right after a take');
+  assert.equal(d.serialize().drawFx, undefined, 'the flourish went into the save');
+  // and it lets go on its own, rather than marking that wire forever
+  d.startDrawFx(target);
+  const W = window.WIRE_FX;
+  const fx = d.drawFxOn();
+  fx.started -= W.drawMs + 50;                 // wind it past its own duration
+  assert.equal(d.drawFxOn(), null, 'the draw never finishes');
+  assert.ok(!/drawing/.test(d.svgWires()), 'a finished draw is still marked');
+});
+
+test('wires: packets are rationed — capped, and gone when you pull back', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  wiredUp(d);
+  const wires = d.heldWires();
+  assert.ok(wires.length, 'no held wires to carry anything');
+  const W = window.WIRE_FX;
+
+  // close in: packets, and never more than the cap however much you hold
+  const b = d.buildingById(s.hosts.find(h => h.owned).buildingId);
+  s.view = { x: b.x - 90, y: b.y - 90, w: 190, h: 190 };
+  const close = d.svgPackets(wires);
+  assert.ok(/class="packet"/.test(close), 'nothing travels a network you hold');
+  assert.ok((close.match(/class="packet"/g) || []).length <= W.packetCap,
+    'the packet cap is not a cap');
+  // each carries both ends and a phase, so a re-render resumes rather than
+  // yanking every dot back to its start
+  assert.ok(/--ax:[-\d.]+;--ay:[-\d.]+;--bx:[-\d.]+;--by:[-\d.]+/.test(close),
+    'a packet does not know where it is going');
+  assert.ok(/animation-delay:-\d+ms/.test(close), 'packets restart on every render');
+
+  // pulled back to plan: none at all. At that zoom a packet is confetti, and
+  // the glint — which means something — is competing for the same eye.
+  s.view = { x: b.x - 2000, y: b.y - 2000, w: 4000, h: 4000 };
+  assert.equal(d.svgPackets(wires), '', 'packets survive being zoomed away from');
+});
+
 test('greenery is a mass, not a dot: hulls, shadows, and strokes that survive', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;

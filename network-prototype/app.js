@@ -3724,6 +3724,97 @@ scratch.later = null;
   function sweepElapsed() { return sweepFx ? Date.now() - sweepFx.started : 0; }
   function sweepDelay(ms) { return Math.round(ms - sweepElapsed()); }
 
+  // --- the network, seen --------------------------------------------------
+  // Both of these live outside `state`, like every other effect here: a save,
+  // a reload or a test must never depend on an animation having run.
+  //
+  // The draw is aimed. A link arriving has a direction — outward from the
+  // ground you already hold, into the ground you just took — so the line is
+  // emitted with the *neighbour* first and the new holding second, and the
+  // dash offset runs down it that way. Emitted by the renderer rather than
+  // patched on afterwards, because the live layer is rebuilt wholesale on
+  // every render and anything added on top of it is gone by the next one.
+  let drawFx = null;                       // { bid, started }
+  function startDrawFx(buildingId) {
+    if (!buildingId) return;
+    drawFx = { bid: buildingId, started: Date.now() };
+  }
+  function drawFxOn() {
+    const W = window.WIRE_FX || {};
+    if (!drawFx) return null;
+    if (Date.now() - drawFx.started > (W.drawMs || 620)) { drawFx = null; return null; }
+    return drawFx;
+  }
+  // Elapsed-aware delays, the same trick sweep and breach use: a re-render
+  // mid-flourish must resume it, not restart it.
+  function drawDelay() {
+    return drawFx ? Math.round(-(Date.now() - drawFx.started)) : 0;
+  }
+  // Packets share one clock so their phase survives a re-render too —
+  // otherwise every tap would visibly yank every dot back to its start.
+  const PACKET_EPOCH = Date.now();
+  function packetDelay(i, dur) {
+    const spread = Math.round((i * 0.37) * dur) % dur;   // fanned, not in step
+    return -(((Date.now() - PACKET_EPOCH) + spread) % dur);
+  }
+
+  // Every link between two things you hold, once each, with the geometry both
+  // the wire and its packets are drawn from.
+  function heldWires() {
+    const out = [];
+    (state.links || []).forEach(([a, c]) => {
+      const ha = state.hosts[a], hc = state.hosts[c];
+      if (!ha || !hc || !ha.owned || !hc.owned) return;
+      if (ha.buildingId === hc.buildingId) return;      // inside a building, implied
+      out.push({ ha, hc });
+    });
+    return out;
+  }
+
+  function svgWires() {
+    const W = window.WIRE_FX || {};
+    const fx = drawFxOn();
+    const wires = heldWires();
+    let out = '';
+    wires.forEach(({ ha, hc }) => {
+      // the new holding goes second, so the draw runs toward it
+      const flip = fx && ha.buildingId === fx.bid;
+      const a = flip ? hc : ha, b = flip ? ha : hc;
+      const drawing = fx && (a.buildingId === fx.bid || b.buildingId === fx.bid);
+      const len = Math.hypot(b.x - a.x, b.y - a.y).toFixed(1);
+      out += `<line class="wire live${drawing ? ' drawing' : ''}"`
+        + ` x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"`
+        + (drawing ? ` style="--len:${len};animation-delay:${drawDelay()}ms"` : '')
+        + '/>';
+    });
+    return out + svgPackets(wires);
+  }
+
+  // Something moving on what you hold. Ambient and therefore rationed: none
+  // at planning zoom (at eight pixels a packet is confetti, and the glint —
+  // which actually means something — is competing for the same eye), capped
+  // in number, and nearest-first so the cap spends itself on what is on
+  // screen rather than on the far corner of the map.
+  function svgPackets(wires) {
+    const W = window.WIRE_FX || {};
+    if (!wires.length) return '';
+    if (mapUnitsPerPx() > (W.packetMinPx || 0.9)) return '';
+    const v = state.view || {};
+    const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+    const near = wires
+      .map(w => ({ w, d: Math.hypot((w.ha.x + w.hc.x) / 2 - cx, (w.ha.y + w.hc.y) / 2 - cy) }))
+      .sort((p, q) => p.d - q.d)
+      .slice(0, W.packetCap || 20);
+    const dur = W.packetMs || 2600;
+    let out = '<g class="packets">';
+    near.forEach(({ w }, i) => {
+      out += `<circle class="packet" r="${W.packetR || 1.9}"`
+        + ` style="--ax:${w.ha.x};--ay:${w.ha.y};--bx:${w.hc.x};--by:${w.hc.y};`
+        + `animation-duration:${dur}ms;animation-delay:${packetDelay(i, dur)}ms"/>`;
+    });
+    return out + '</g>';
+  }
+
   // --- the breach, seen ---------------------------------------------------
   // The sweep goes outward to find things; a breach goes inward to take one.
   // So it runs along the wire: the route establishes itself from whatever you
@@ -4173,6 +4264,9 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    // the network reaches: the links to it draw themselves in from whatever
+    // you already held
+    startDrawFx(h.buildingId);
     // tenancy changed, and the street knows it whatever the paperwork says
     noteDistrictAct(h.district, window.SUSPICION.perTake);
     // whatever was on the machine is yours with it — bought, hacked or spread
@@ -8089,12 +8183,7 @@ scratch.later = null;
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
-    out += state.links.map(([a, c]) => {
-      const ha = state.hosts[a], hc = state.hosts[c];
-      if (!ha || !hc || !ha.owned || !hc.owned) return '';
-      if (ha.buildingId === hc.buildingId) return '';   // inside a building, implied
-      return `<line class="wire live" x1="${ha.x}" y1="${ha.y}" x2="${hc.x}" y2="${hc.y}"/>`;
-    }).join('');
+    out += svgWires();
 
     out += svgHackLinks();
     out += svgHunt();
@@ -9830,6 +9919,7 @@ scratch.later = null;
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
     svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    svgWires, svgPackets, heldWires, startDrawFx, drawFxOn,
     districtBlocks, districtAt, cityLayout, svgGround, svgProps, svgOpenBlocks, svgPaths, scatterFurniture, pathsFor, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
     maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,

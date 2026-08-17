@@ -1234,6 +1234,38 @@ new tufts and ripples had to be scoped as `.props .pr-tuft`; `.alloc-bar i`
 would have eaten the ramp stripes the way `.trace-fc i` ate the forecast
 ghost. All four are now pinned by stylesheet-reading tests.
 
+## The network, seen — wires that arrive and carry
+
+A correction first, because it was stated twice and wrongly: held links
+were **always** drawn — dashed lines whose dashes drift. The claim that
+"links are data, not drawn wires" came from a bad search and it made two
+items look blocked that never were. Mocked against the real map, both were
+shipped:
+
+- **The wire draws on a take.** When a building becomes yours the links to
+  it draw themselves in, and the direction is the point: the renderer
+  emits the *neighbour* first and the new holding second, so the line runs
+  from the ground you held into the ground you just took. The network
+  visibly reaches. It fires once per take, on the loop's payoff moment,
+  and costs nothing when nothing is happening.
+- **Packets on your own wires.** Something discrete travelling between
+  buildings you hold. Purely ambient, and therefore rationed: capped at
+  20, chosen nearest-the-view-centre first so the cap is spent on what is
+  on screen, and drawn only while the map is close enough that buildings
+  are drawing their own detail. That last line is not a new arbitrary
+  number — the default view sits at 1.08 map units per pixel, which is
+  exactly where a 28-wide house meets the 26-pixel detail cutoff. Close
+  in the city is a place and traffic belongs to it; pulled back it is a
+  plan, and a plan does not need traffic on it.
+
+Both are emitted by the renderer rather than patched on after it — the
+live layer is rebuilt wholesale on every render, so anything added on top
+is gone by the next one (the mockups learned this the hard way). And both
+carry an elapsed-aware negative `animation-delay`, the same trick the
+sweep and the breach already use, so a re-render mid-flourish resumes it
+instead of restarting: without that, every tap would yank every packet
+back to its start.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

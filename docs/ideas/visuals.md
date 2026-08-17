@@ -28,11 +28,11 @@ tufted scrub, scalloped hedges and ponds with banks.
 
 What is left, and why:
 
-- **the wire draw (§A.3)** and **traffic on your wires (§C)** — both
-  blocked on the same fact: links are data, not drawn lines. Nothing on
-  the map is a wire, so there is nothing to draw along. Unblocking them
-  means first deciding whether the map should show your network as lines
-  at all — a design question, not a polish one.
+- ~~**the wire draw (§A.3)** and **traffic on your wires (§C)**~~ —
+  **both shipped.** They were written up here as blocked on "links are
+  data, not drawn lines," which was simply wrong: held links have always
+  been drawn as drifting dashed lines. Nothing was blocked. See the
+  rework doc's "The network, seen".
 - **the turn-resolve beat (§E)** — considered and declined. A pause on
   the most-pressed button in the game is a tax paid every turn; see the
   rework doc.

@@ -275,6 +275,32 @@ window.PROGRAMS = [
     blurb: 'A little at a time, from somewhere nobody watches. Cheap and quiet, and exposed the whole way — a door that watches closely will find it before it lands.' },
 ];
 
+// --- the network, seen ----------------------------------------------------
+// Held links have always been drawn — dashed, with the dashes drifting. Two
+// things were missing and both are about the network being a live thing
+// rather than a diagram: nothing discrete ever travelled it, and a new link
+// simply appeared rather than arriving.
+window.WIRE_FX = {
+  // The draw: when a building becomes yours, every link to it draws itself
+  // outward from the neighbour. One flourish per take, on the loop's own
+  // payoff moment, so it costs nothing when nothing is happening.
+  drawMs: 620,
+  // Packets: something moving on the wires you own. Purely ambient, and
+  // therefore capped hard — the frame already has glints (which mean
+  // something), warm ground and props competing for the eye, and unbounded
+  // motion is how a busy map becomes an unreadable one.
+  packetMs: 2600,        // one end to the other
+  packetCap: 20,         // most that may ever be alive at once
+  // ...and none at all once the map is pulled back past the zoom where
+  // buildings stop drawing their own detail. Measured: the default view sits
+  // at 1.08 map units per pixel, which is exactly where a 28-wide house hits
+  // the 26-pixel detail cutoff — so this is the same line, not a second
+  // arbitrary one. Close in, the city is a place and packets belong to it;
+  // pulled back it is a plan, and a plan does not need traffic on it.
+  packetMinPx: 1.15,
+  packetR: 1.9,
+};
+
 // --- what's on the machine ------------------------------------------------
 // Taking a building used to yield the building. The fantasy says every
 // machine has *contents* — and the honest half of the reward literature says

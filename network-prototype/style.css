@@ -1435,6 +1435,41 @@ footer .build { opacity: .55; font-size: 10px; }
   animation: wireFlow 1.9s linear infinite;
 }
 @keyframes wireFlow { to { stroke-dashoffset: -12; } }
+/* A link arriving. It runs from the ground you held toward the ground you
+   just took — the renderer emits the endpoints in that order — and hands
+   over to the ordinary drifting wire when it lands. Scoped past `.wire.live`
+   so the flow dasharray does not win over the draw's own. */
+.wire.live.drawing {
+  stroke: color-mix(in srgb, var(--cover) 92%, white);
+  stroke-width: 2.4;
+  stroke-dasharray: var(--len) var(--len);
+  animation: wireDraw 620ms cubic-bezier(.3, 0, .2, 1) both;
+}
+@keyframes wireDraw {
+  from { stroke-dashoffset: var(--len); }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Something on the wires you own. Ambient, rationed in the renderer, and the
+   first thing to go when motion is unwelcome — a still packet would be a
+   lie about a thing whose whole meaning is that it moves. */
+.packets { pointer-events: none; }
+.packet {
+  fill: color-mix(in srgb, var(--cover) 80%, white);
+  animation-name: packetRun;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes packetRun {
+  0%   { transform: translate(calc(var(--ax) * 1px), calc(var(--ay) * 1px)); opacity: 0; }
+  12%  { opacity: .85; }
+  88%  { opacity: .85; }
+  100% { transform: translate(calc(var(--bx) * 1px), calc(var(--by) * 1px)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .packets { display: none; }
+  .wire.live.drawing { animation: none; stroke-dasharray: 7 5; }
+}
 
 /* a soft halo in the role's colour, so your territory reads at a glance */
 .bldg .glow { fill: none; stroke-width: 3.5; opacity: 0; }
