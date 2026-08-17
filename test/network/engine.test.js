@@ -281,24 +281,54 @@ test('breach: a frontier that is already open is left alone', () => {
 // relatively *cheaper* the deeper the campaign went, and the other two got
 // relatively pricier. Three routes meant to stay comparable should not drift
 // apart like that.
-test('sweeping cannot reveal the map: discovery follows territory, not sight', () => {
-  // regression guard for a real exploit — discovery used to spread from any
-  // *discovered* host, so a player could reveal all 30 hosts from the start
-  // node without ever taking anything.
-  const { window } = loadNetwork();
+test('sweeping scouts past territory now, and the turn budget is the leash', () => {
+  // The old rule here — discovery follows territory, not sight — died in
+  // playtest: aiming was the fun, and needing to *take* a door before you
+  // could look again kept stalling the search loop into waiting. The
+  // exploit the old rule guarded (revealing the map for free) stays
+  // guarded by price instead: every sweep costs an action and warms the
+  // street it touches, so sight is bounded by turns spent looking.
+  const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
-  const total = d.state.hosts.length;
-
-  for (let i = 0; i < 60; i++) {
-    d.state.res.funds = 999;          // money must not be the thing limiting this
+  const s = d.state;
+  const startTotal = s.buildings.length;
+  let sweeps = 0;
+  for (let guard = 0; guard < 300; guard++) {
+    s.card = null;                     // a card mid-loop blocks every action
     if (d.sweepBlocked() === 'nothing') break;
-    if (d.state.ap <= 0) { d.actEndTurn(); continue; }  // budget, not sight, is the other limiter
+    if (s.ap <= 0) { d.actEndTurn(); continue; }
+    const before = s.buildings.filter(b => b.discovered).length;
     d.actScan();
+    if (s.buildings.filter(b => b.discovered).length > before) sweeps++;
   }
-  const discovered = d.state.hosts.filter(h => h.discovered).length;
+  const discovered = s.buildings.filter(b => b.discovered).length;
   assert.equal(d.owned().length, 1, 'still holding only the origin');
-  assert.ok(discovered < total / 2, `revealed ${discovered}/${total} without taking anything`);
-  assert.equal(d.sweepBlocked(), 'nothing', 'sweep reports itself exhausted rather than idling');
+  // sight now genuinely outruns territory — the opposite of the old assert
+  assert.ok(discovered > startTotal / 2,
+    `territory still bounds sight: ${discovered}/${startTotal} from a scouting chain`);
+  // ...but never outruns what was paid for it
+  assert.ok(discovered <= sweeps * d.sweepReach() + 4,
+    `${discovered} revealed on ${sweeps} sweeps — sight the budget never bought`);
+  assert.ok(sweeps >= 8, 'the map came cheap');
+});
+
+test('scan: a discovered building is a vantage — owning it is not required', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // wire a two-hop chain by hand: held -> known -> unknown
+  const seat = s.hosts.find(h => h.owned);
+  const bSeat = seat.buildingId;
+  const others = s.buildings.filter(b => b.id !== bSeat);
+  const mid2 = others[0], far = others[1];
+  s.adjacency[bSeat] = [mid2.id];
+  s.adjacency[mid2.id] = [bSeat, far.id];
+  s.adjacency[far.id] = [mid2.id];
+  s.buildings.forEach(b => { b.discovered = (b.id === bSeat); });
+  mid2.discovered = true;                  // seen once, never taken
+  s.ap = 5;
+  d.actScan(mid2.id);
+  assert.equal(far.discovered, true, 'a known building could not be looked from');
 });
 
 test('scanning is free, unlimited, and costs heat instead', () => {

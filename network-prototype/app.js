@@ -3534,11 +3534,19 @@ scratch.later = null;
   function sweepTargetsFrom(bid) {
     return buildingNeighbours(bid).map(buildingById).filter(b => b && !b.discovered);
   }
+  // Anything unknown next to anything KNOWN — not merely next to anything
+  // held. Playtest: aiming was the fun, but a vantage needed owning, so the
+  // search loop kept stalling on "take something first" — turns spent
+  // waiting to be allowed to look. Seeing a building is what makes it a
+  // place you can look from; owning it was never the load-bearing part.
+  // The cost of a deep scouting chain is real anyway: an action per hop,
+  // and every sweep warms the street it touches.
   function sweepTargets() {
-    const held = heldBuildingIds();
+    const seen = {};
+    (state.buildings || []).forEach(b => { if (b.discovered) seen[b.id] = true; });
     return (state.buildings || []).filter(b => {
       if (b.discovered) return false;
-      return buildingNeighbours(b.id).some(id => held[id]);
+      return buildingNeighbours(b.id).some(id => seen[id]);
     });
   }
 
@@ -3575,7 +3583,13 @@ scratch.later = null;
   function actScan(fromId) {
     // Aimed for everyone: scanning from a chosen building was line.survey's
     // whole mechanic, and it is the base verb now — route control cannot be
-    // an unlock when choosing a route is the game's missing decision.
+    // an unlock when choosing a route is the game's missing decision. Any
+    // DISCOVERED building is a vantage: the scan button on the panel is the
+    // whole verb, and the search loop chains sweep to sweep without waiting
+    // for a take. (The no-argument form survives for the harness's bots; the
+    // UI no longer offers it.)
+    const from = fromId != null ? buildingById(fromId) : null;
+    if (fromId != null && (!from || !from.discovered)) return;
     const pool = fromId != null ? sweepTargetsFrom(fromId) : sweepTargets();
     if (!canAfford('sweep')) return;
     if (!pool.length) return;                     // nothing to find — don't burn an action
@@ -8941,10 +8955,29 @@ scratch.later = null;
   // not a race that is happening, and drawn identically it read as one: a
   // door you had never touched looked like a door with something working on
   // it, which is what "these bars are always visible" meant.
-  function raceBar(done, seen) {
+  // The one scan verb. Offered on any discovered building with unknown
+  // neighbours — seeing a place is what makes it a vantage, owning it is
+  // not required. The stated price is the street noticing; the heat line
+  // stays under the hood for the (dormant) country game.
+  function scanFromBtn(b) {
+    if (!b || !b.discovered) return '';
+    const n = sweepTargetsFrom(b.id).length;
+    if (!n) return '';
+    const short = apShort('sweep');
+    return `
+      <button class="act-btn${short ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
+        <span class="ab-name">scan from here</span>
+        <span class="ab-sub">${short ? 'no actions left'
+          : `${chip('compute', 'turns up ' + Math.min(sweepReach(), n))}${chip('cost heat', 'the street notices')}`}</span>
+      </button>`;
+  }
+
+  function raceBar(done, seen, close) {
     const a = Math.max(0, Math.min(100, Math.round(done * 100)));
     const b = Math.max(0, Math.min(100 - a, Math.round(seen * 100)));
-    return `<span class="race" aria-hidden="true">`
+    // a photo-finish quickens: when the projected end sits within one turn's
+    // noticing of the goal, both bars pulse — felt before it is computed
+    return `<span class="race${close ? ' close' : ''}" aria-hidden="true">`
       + `<i class="race-done" style="width:${a}%"></i>`
       + `<i class="race-seen" style="width:${b}%"></i></span>`;
   }
@@ -9128,12 +9161,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${sweepTargetsFrom(b.id).length ? `
-            <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
-              <span class="ab-name">scan from here</span>
-              <span class="ab-sub">${apShort('sweep') ? 'no actions left'
-                : `${chip('compute', 'turns up ' + Math.min(sweepReach(), sweepTargetsFrom(b.id).length))}${chip('cost heat', '+' + window.SCAN_HEAT + ' heat')}`}</span>
-            </button>` : ''}
+            ${scanFromBtn(b)}
             ${hidePanel(b)}
           </div>`;
       } else if (huntBlocks(h)) {
@@ -9155,6 +9183,7 @@ scratch.later = null;
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
+            ${scanFromBtn(b)}
           </div>`;
       } else if (hackOn(h.id)) {
         sel = `
@@ -9163,27 +9192,20 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}${scanFromBtn(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
     } else {
-      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it. Drag to look around, pinch to zoom.</p></div>`;
+      sel = `<div class="sel"><p class="sel-desc dim">Tap a building to act on it — anything you can see is a place you can scan from.</p></div>`;
     }
 
+    // The unaimed scan button is gone: aiming was the fun, so aiming is the
+    // verb. Scanning lives on the panel of whatever building you are looking
+    // from, and every discovered building qualifies.
     $p.innerHTML = `
       ${huntBar()}
       ${sel}
-      <div class="actions">
-        <button class="act-btn${apShort('sweep') ? ' no-ap' : ''}" data-act="scan" data-ap="sweep" data-info="sweep" ${sweepBlocked() && !apShort('sweep') ? 'disabled' : ''}>
-          <span class="ab-name">scan</span>
-          <span class="ab-sub">${apShort('sweep')
-            ? 'no actions left'
-            : sweepBlocked() === 'nothing'
-            ? 'nothing adjacent left'
-            : chip('compute', 'turns up ' + sweepFound())}</span>
-        </button>
-      </div>
     `;
     $p.querySelectorAll('[data-info]').forEach(b => {
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); showInfo(window.ACTION_INFO[b.getAttribute('data-info')]); });

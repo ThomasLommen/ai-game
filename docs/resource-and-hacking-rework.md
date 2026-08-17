@@ -1077,6 +1077,31 @@ which means earlier "paired board" probes were actually independent
 samples wearing the wrong label (means honest, pairing fictional). Probes
 from here on restore boards properly.
 
+## The sweep unchained — sight follows attention
+
+The aimed scan landed ("really engaging and fun") with one stall in it:
+a vantage had to be *owned*, so when every held building's neighbours were
+known, the player was forced back to the unaimed button or left waiting
+for a take to extend their eyes — turns spent waiting to be allowed to
+look. Two changes:
+
+- **Any discovered building is a vantage.** Seeing a place is what makes
+  it somewhere you can look from; owning it was never the load-bearing
+  part. The search loop now chains sweep to sweep — scout the street,
+  then scout from what you found — without a take in between.
+- **The unaimed button is dead.** Aiming was the fun, so aiming is the
+  verb: scanning lives on the panel of the building you are looking from,
+  offered on every discovered building with unknown neighbours. (The
+  engine keeps a no-argument sweep for the harness's bots.)
+
+This deliberately overturns an old rule — "discovery follows territory,
+not sight" — whose regression test guarded a real exploit from the era
+when scanning was free. The exploit stays dead by *price* instead: every
+hop costs an action and warms the street it touches, so deep scouting
+chains spend the turn budget the old rule spent on waiting. The test now
+asserts the opposite direction and the leash: sight outruns territory,
+and never outruns what was paid for it.
+
 ## The city moves — juice, slice one
 
 From `docs/ideas/visuals.md`, the items that pay per loop rather than per
