@@ -16,8 +16,12 @@ takes no taps.
 
 Shipped from this list (rework doc, "The city moves"): the impact pause,
 the window cascade, the district ground ring, held-window flicker (§C),
-and the waterline + drifting ripples (§D). Still open here: the wire
-draw, the number flying to its chip, and everything in §B/§E/§F.
+the waterline + drifting ripples (§D), the race photo-finish pulse and
+the hardening loss (§B), directional size-scaled shadows and softer
+district seams (§D). Still open: the wire draw, the number flying to its
+chip, §B's forecast collision ghost, §C traffic (needs drawn wires),
+§D road curbs and horizon twinkle (country-gated), all of §E, and §F
+sound (deferred — the user has ideas).
 
 A building becoming yours is the loop's payoff and currently gets a
 color change, a banner and a log line. The full Nijman treatment, in order

@@ -7404,8 +7404,11 @@ scratch.later = null;
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
     }
     // enough relief that a block reads as objects standing on ground rather
-    // than as shapes cut out of it
-    out += `<rect class="shade" x="${b.x + 2}" y="${b.y + 3}" width="${b.w}" height="${b.h}" rx="2"/>`;
+    // than as shapes cut out of it — and taller throws longer: one light
+    // direction across the whole city, offset scaled by the building's own
+    // bulk, so the size ladder reads as physical instead of drawn
+    const sh = 1.5 + Math.min(4.5, Math.max(b.w, b.h) / 36);
+    out += `<rect class="shade" x="${(b.x + sh).toFixed(1)}" y="${(b.y + sh + 1).toFixed(1)}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
     // Detail costs what detail costs, and none of it is visible below a
@@ -7445,7 +7448,7 @@ scratch.later = null;
     // (~2.4px) so it stays a visible spark from altitude instead of scaling
     // away with the building.
     if (h && h.carry && !h.owned) {
-      const gr = Math.max(2.1, 2.4 * mapUnitsPerPx());
+      const gr = Math.max(2.6, 3.1 * mapUnitsPerPx());
       out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="${gr.toFixed(1)}"/>`;
     }
 
@@ -9025,10 +9028,11 @@ scratch.later = null;
     const goal = window.HACK.traceGoal;
     const turnsIn = p.turns - k.turnsLeft;
     const willBe = Math.round((k.trace + rate * k.turnsLeft) * 100) / 100;
+    const close = Math.abs(goal - willBe) <= rate;
     return `
       <p class="sel-desc"><b>${p.label}</b> — ${k.turnsLeft} turn${k.turnsLeft === 1 ? '' : 's'} to go,`
       + ` ${k.allocated} TFLOPS on it.</p>
-      ${raceBar(turnsIn / p.turns, k.trace / goal)}
+      ${raceBar(turnsIn / p.turns, k.trace / goal, close)}
       <p class="yield-row">${chip('compute', turnsIn + '/' + p.turns + ' done')}${chip('cost heat', 'seen ' + k.trace + ' of ' + goal)}${
         willBe >= goal ? chip('cost heat', 'they get there first') : chip('cover', 'you get there first')}</p>
       <p class="sel-desc dim">Running until it lands or they find it. The rig stays on it.</p>`;

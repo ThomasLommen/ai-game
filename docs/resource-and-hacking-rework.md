@@ -1130,6 +1130,27 @@ All of it is CSS on nodes that already existed, every animation has a
 reduced-motion path that is a clean instant state, and windows only render
 at detail zoom anyway, so the ambient set stays small on screen.
 
+Slice two, from the same list plus the playtest's "the glint is still
+easy to miss":
+
+- **The contract line catches the eye.** The loot line in the panel wears
+  a gold bar down its side and a gold-leaning tint — the thing to snag on
+  while flipping quickly through buildings, which is exactly how the
+  playtest said loot was being missed. The glint itself also breathes
+  size now, not just light (a dot that only dims disappears into a busy
+  frame), and its screen floor came up a little.
+- **The photo-finish quickens.** When a running race's projected end sits
+  within one turn's noticing of the goal, both bars pulse. The tension is
+  felt before it is computed.
+- **A loss hardens the door, drawn.** On a bounce the outline thickens in
+  the race's red and recedes to rest — bad news as withdrawal, not alarm,
+  which is the game's grammar.
+- **Taller throws longer.** One light direction across the city, shadow
+  offset scaled by the building's own bulk — the size ladder reads as
+  physical instead of drawn.
+- **District seams softened.** The ragged wobble marks the border now; a
+  hard line over a ragged edge read as a mistake in both.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
