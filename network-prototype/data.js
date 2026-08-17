@@ -97,6 +97,30 @@ window.AP = {
   costs: { sweep: 1, breach: 1 },
 };
 
+// --- the knife, hard-gate form ------------------------------------------
+// The country layer — regions, travel, consolidation, presence, the ladder,
+// agents, the mirror, the chase, the war — is gated off, not deleted. The
+// playtests never left city one, and the player put the question plainly:
+// the fun that has been verified all lives in the city, so the city gets to
+// be the whole game while that theory is tested. One flag, one choke point
+// (countryUnlocked), everything downstream goes quiet on its own: the grid
+// never binds, the ladder never fires, the war never opens.
+//
+// Dormant, not dead, on purpose. Everything else this project cut had been
+// measured dead first; the country is unmeasured-but-alive, so it keeps its
+// code and its tests (the test harness loads with the gate open) while the
+// pure city game decides whether it ever comes back — most likely redesigned
+// smaller if it does. If the verdict is that the city alone is the game, the
+// real deletion happens then, with a playtest behind it.
+window.CITY_ONLY = true;
+
+// What reaching the goal means while the city is the game: not a door to a
+// bigger map — an ending you can keep playing past.
+window.CITY_WON = {
+  label: 'the city is yours',
+  log: 'That is enough of it. Whatever this was for, the city answers to you now — what is left out there is detail. You keep working, because that is what you are.',
+};
+
 // --- the grid ----------------------------------------------------------
 // Everything you run draws power. TFLOPS is how much hardware you have;
 // electricity is how much of it you can switch on at once. The usable figure
@@ -680,6 +704,49 @@ window.HOST_NAMES = {
   datacenter: ['DC-CORE', 'RACK', 'COLO', 'FABRIC', 'TIER3'],
   feeder:     ['FEEDER', 'PILLAR', 'LV-BOX', 'SPUR'],
   switchgear: ['SWITCHGEAR', 'BUSBAR', 'HV-YARD', 'GRID-N', 'TRANSFORMER'],
+};
+
+// --- the district is talking --------------------------------------------
+// The city-one pressure pick, built to two constraints from play. One:
+// "waiting for suspicion to drop is trivial" — so waiting does nothing.
+// Suspicion cools only through your activity in OTHER districts; attention
+// follows you, and if you go still it just stays where it last was, chewing.
+// Two: "suddenly making the trace faster after the player is comfortable
+// ignoring it breaks the loop" — so there is no threshold anywhere. The
+// multiplier is a straight line from the very first point, it feeds
+// traceRate directly, and therefore every forecast bar in the game shows
+// the true number automatically. It exists from turn one; there is never a
+// comfortable phase to be ambushed out of.
+//
+// Not a meter. It lives on the map (the district ground warms) and in the
+// panel (a phrase and the exact percentage), per the traps list.
+window.SUSPICION = {
+  perRun: 2,        // starting a run in a district: someone saw the lights flicker
+  perTake: 3,       // a take there, however done: tenancy changed and the street knows
+  perCaught: 6,     // getting caught there: the neighbours definitely talked
+  // Cooling has to genuinely reward rotation. At 1.2 the whole city warmed
+  // no matter how you played — a rotator's own acts heat by ~5 and cool the
+  // other three districts by 3.6 total, so even perfect rotation saturated
+  // and the camper still won on tempo. At 2, rotation is net-cooling and
+  // camping saturates alone.
+  coolPerAct: 2,
+  // Tuned to the door population, not to a feel. Doors are bimodal by host
+  // type: consumer and iot never flip inside the cap (nobody notices another
+  // laptop), corporate and heavy servers are caught bare until covert.ops is
+  // paid — the band suspicion actually moves is tills and light servers, the
+  // bread-and-butter commercial doors. At 0.022 the median till flips at
+  // suspicion ~12, which is exactly where the phrase changes to "the district
+  // is talking": the words and the arithmetic agree on purpose. Cap 40 is a
+  // stated worst case of 1.88x. Still a straight line, no knee anywhere.
+  slope: 0.022,
+  max: 40,
+  // the phrase for the panel, by how warm it is — bands for words only,
+  // never for the arithmetic
+  bands: [
+    [1,  'people mention it'],
+    [12, 'the district is talking'],
+    [26, 'everyone here is watching'],
+  ],
 };
 
 // Trace/strike model, ported from src/core/network.js.

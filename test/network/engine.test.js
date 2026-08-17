@@ -8204,6 +8204,151 @@ function openTarget(d) {
   return s.hosts.filter(h => !h.owned && d.isFrontier(h))[0];
 }
 
+// --- the knife, hard-gate form ----------------------------------------------
+// The shipped game is city one, whole. The country is dormant, not deleted —
+// these tests load with { cityOnly: true } to test what ships; everything
+// else in this file loads with the gate open so the dormant machinery keeps
+// its coverage and cannot rot.
+
+test('city-only: the door upward is simply not there', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  assert.equal(d.countryUnlocked(), false, 'holding everything opened the country');
+  assert.equal(d.gridBinds(), false, 'the grid ceiling exists without the country');
+  assert.equal(d.setScope('country'), false, 'the scope switch worked anyway');
+});
+
+test('city-only: the goal is an ending you can keep playing past', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.ok(!s.cityWon, 'won before anything happened');
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(s.cityWon, true, 'the goal came and went unremarked');
+  assert.ok(s.log.some(l => l.text === window.CITY_WON.log), 'and unsaid');
+
+  // once — it must never be a surprise twice
+  const said = s.log.filter(l => l.text === window.CITY_WON.log).length;
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(s.log.filter(l => l.text === window.CITY_WON.log).length, said);
+
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.cityWon, true, 'the ending did not survive a save');
+});
+
+// --- the district is talking -------------------------------------------------
+// Suspicion, built to two constraints from play: waiting must not work, and
+// there must never be a cliff.
+
+test('suspicion: acting warms here and cools there — waiting cools nothing', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+
+  d.noteDistrictAct('commercial', 10);
+  // the second act already cools the first district — every act cools every
+  // other district, including this one
+  d.noteDistrictAct('business', 4);
+  assert.equal(d.suspicionOf('commercial'), 10 - S.coolPerAct);
+  assert.equal(d.suspicionOf('business'), 4);
+
+  // and a third act cools both of the others by exactly the rule
+  d.noteDistrictAct('residential', S.perRun);
+  assert.equal(d.suspicionOf('commercial'), 10 - S.coolPerAct * 2);
+  assert.equal(d.suspicionOf('business'), 4 - S.coolPerAct);
+
+  // and doing nothing at all does nothing at all — attention stays where it
+  // last was; you cannot wait a district quiet
+  const before = JSON.stringify(s.suspicion);
+  for (let i = 0; i < 6; i++) { s.card = null; d.endTurn({ silent: true }); }
+  assert.equal(JSON.stringify(s.suspicion), before, 'idle turns cooled the city');
+});
+
+test('suspicion: the sources are the loop itself', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  const t = s.hosts.find(h => !h.origin && h.district);
+  t.owned = false;
+  s.ap = 9;
+
+  const d0 = d.suspicionOf(t.district);
+  assert.equal(d.startHack(t.id), true);
+  assert.equal(d.suspicionOf(t.district), Math.min(S.max, d0 + S.perRun),
+    'starting a run went unnoticed');
+  for (let i = 0; i < d.mounted().turns; i++) d.hackStep();
+  assert.equal(t.owned, true);
+  assert.ok(d.suspicionOf(t.district) >= d0 + S.perRun + S.perTake - 0.001,
+    'a take went unnoticed');
+});
+
+test('suspicion: a straight line into the forecast, no cliff anywhere', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const t = s.hosts.find(h => !h.owned && h.district === 'commercial')
+    || s.hosts.find(h => !h.owned && h.district);
+  const dk = t.district;
+
+  const base = d.traceRate(t);
+  d.noteDistrictAct(dk, 10);
+  const at10 = d.traceRate(t);
+  d.noteDistrictAct(dk, 10);
+  const at20 = d.traceRate(t);
+  // exact slope, both steps — the same line, no knee
+  assert.ok(Math.abs(at10 - base * (1 + 10 * S.slope)) < 0.02, `at 10: ${at10} vs ${base * (1 + 10 * S.slope)}`);
+  assert.ok(Math.abs(at20 - base * (1 + 20 * S.slope)) < 0.02, `at 20: ${at20} vs ${base * (1 + 20 * S.slope)}`);
+  // and the forecast is downstream of traceRate, so it says the true number
+  const f = d.hackForecast(t);
+  assert.equal(f.rate, at20, 'the forecast is quoting the quiet number');
+
+  // capped, so the worst case is stated and finite
+  d.noteDistrictAct(dk, 999);
+  assert.equal(d.suspicionOf(dk), S.max);
+});
+
+test('suspicion: the panel speaks from the first point, and not before', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  assert.equal(d.suspicionLine('commercial'), '', 'a quiet district is being talked about');
+  d.noteDistrictAct('commercial', 2);
+  const line = d.suspicionLine('commercial');
+  assert.ok(line.includes('People mention it'), 'the first band has the wrong words: ' + line);
+  assert.ok(line.includes('4% faster'), 'the exact figure is missing: ' + line);
+});
+
+test('suspicion: it is a fact about here — packs, saves, and warms the ground', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.noteDistrictAct('commercial', 12);
+  assert.equal(d.packCity().suspicion.commercial, 12, 'it does not pack with the city');
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(back.suspicion.commercial, 12, 'it does not survive a save');
+
+  // ...and neither did caughtHere, it turns out — found wiring this through
+  s.caughtHere = 2; s.caughtAt = ['b1'];
+  const again = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(again.caughtHere, 2, 'a reload forgives your catches');
+
+  // the cached ground layer redraws when warmth meaningfully changes
+  const k0 = d.svgGround();
+  d.noteDistrictAct('commercial', 15);
+  assert.notEqual(d.svgGround(), k0, 'the ground never warms');
+  assert.ok(d.svgGround().includes('d-warm'), 'warmth is not drawn at all');
+});
+
 // --- what's on the machine -------------------------------------------------
 // Loot, slice one. The laws: contents decided at generation and packed with
 // the city; a carrier is always inspectable before committing; kinds, not

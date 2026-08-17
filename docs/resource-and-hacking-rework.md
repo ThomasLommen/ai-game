@@ -935,6 +935,75 @@ after the scatter, so they could end up marooned mid-lot — the biggest
 building in the city, off every frontage. Any landmark that settles away from
 the street now gets a drive to the kerb, like any back plot.
 
+## The knife — the country is gated off
+
+The subtraction round kept finding the same suspect: everything that was
+"redundant and unnecessary for the player" lived above the city. Heat, the
+ladder, the grid, agents, the mirror, the chase, the war — a second game
+stapled on top of the one being played. The playtest plan is a long run of
+the *pure city game*, so the country is now hard-gated off rather than
+deleted: `window.CITY_ONLY = true` in data, and `countryUnlocked()` returns
+false before any other check. That single choke point is deliberately the
+only cut — every country system goes dormant behind it rather than dying,
+so a one-line flip brings it all back if the playtest misses it. Real
+deletion is a decision for after the playtest, not before.
+
+With the door upward gone, the city needed an ending: reaching the home
+share goal now sets a "the city is yours" beat — a banner, a log line, a
+stage label — and then lets you keep playing. An ending you can keep
+playing past, because the loop is the point.
+
+Tests default the gate *open* (`load-network.js` flips it off unless a test
+asks for `cityOnly`), so the dormant country machinery keeps its full test
+coverage while it sleeps.
+
+## The district is talking — suspicion
+
+The other measured hole: nothing pushes back for the first ~35 turns, and
+with the country gated, nothing pushes back ever. The user's constraints
+were exact: waiting out a meter is trivial (so waiting must not help), and
+a sudden trace cliff after the player has learned to ignore the number
+breaks the loop (so no thresholds in the arithmetic).
+
+The shape that satisfies both: each district accumulates suspicion from
+your activity *in it* — starting a run warms it a little, taking a door
+more, getting caught most — and cools **only through activity in other
+districts**. Ending turns does nothing. The pressure is spatial: you don't
+wait it out, you route around it. The multiplier into `traceRate` is a
+straight line (`1 + suspicion × slope`), no cliff anywhere; the band words
+on the panel ("people mention it" / "the district is talking" / "everyone
+here is watching") are commentary on the same number the arithmetic uses,
+and the panel prints the exact figure next to the phrase — words and
+arithmetic agree.
+
+Tuning was a three-step walk, measured with a flip table (for each door
+type: does the race forecast flip from safe to caught as the district
+warms?):
+
+- slope 0.02 — easy doors never flipped at any reachable suspicion. A tax
+  on doors nobody was taking; pressure in name only.
+- slope 0.035 — the median till flipped at suspicion ≈ 8, before the panel
+  even changed phrase. The words lied about the danger.
+- **slope 0.022** — the till flips right around suspicion 12, exactly where
+  the phrase becomes "the district is talking." The words now *mean* the
+  flip. Across the bands a till goes 3% → 76% → 100% caught; consumer/iot
+  doors never flip (they stay the quiet fallback); server-and-up were
+  always caught bare and stay that way.
+- coolPerAct 1.2 made rotation pointless — a district-rotating bot peaked
+  *higher* than a camper because everything warmed regardless. At **2**,
+  rotation is net-cooling: the camper gets caught more, neither stalls,
+  which was the acceptance test from the idea document.
+
+The warmed ground is painted on the map — a low ember tint over the
+district, bucketed into the ground cache key so the cached layer redraws
+when a district's warmth meaningfully changes. The suspicion line renders
+in the target panel whether or not the door is in reach.
+
+One pre-existing bug surfaced while wiring the save: `caughtHere` and
+`caughtAt` were packed with the city but never written into the top-level
+save, so a reload quietly forgave your catches. Fixed, with a test that
+saves and restores a catch.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

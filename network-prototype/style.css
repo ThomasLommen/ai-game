@@ -817,6 +817,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .pr-lattice{ fill: #232a2c; opacity: .55; }
 .pr-spoil  { fill: #23201a; opacity: .8; }
 
+/* The district is talking. Warmth on the ground itself — never an outline,
+   never a meter. Opacity is set inline, a straight line from the first point
+   of suspicion to the cap, because a threshold you can see coming is the
+   whole difference between pressure and ambush. */
+.d-warm { fill: #7a3420; pointer-events: none; }
+.susp-line { color: color-mix(in srgb, var(--heat) 70%, var(--ink)); }
+
 /* The driveway to a back plot. Wide, soft and low-contrast: it is a surface,
    not a line, and it must never be mistaken for a wire between two buildings —
    which is the one other thing on this map drawn as a stroke between points. */

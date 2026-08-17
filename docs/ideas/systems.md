@@ -127,7 +127,14 @@ Scan is near-free and always correct: mash it. Make looking a choice:
 - Measure: bot with deep-scan targeting vs without; and check scan count
   per turn *falls* (it should become punctuation, not rhythm).
 
-## E. Pressure in the first city ★ (pick exactly one)
+## E. Pressure in the first city ★ (pick exactly one) — SUSPICION SHIPPED
+
+Neighborhood suspicion is in (see the rework doc's "The district is
+talking"), with two changes forced by playtest reasoning: decay is
+activity-in-other-districts only (waiting cools nothing — waiting out a
+meter is trivial), and the trace multiplier is a straight line with no
+threshold (a sudden cliff after the player learns to ignore the number
+breaks the loop). The landlord and brownouts stay on the shelf.
 
 The measured hole: nothing pushes back for the first ~35 turns. The
 candidates are alternatives, not a set — one, dialed in, per the method.
@@ -191,7 +198,12 @@ arrival *states its rules* on the panel, keeping the covenant:
 - Measure: time-to-confront in bot runs should spread out; today it is
   either immediate or never.
 
-## I. The country layer
+## I. The country layer — CURRENTLY GATED OFF
+
+The whole layer is behind `CITY_ONLY` (hard gate, one choke point in
+`countryUnlocked()`) for the pure-city playtest. Everything below assumes
+the gate reopens; whether it does — or the country is truly deleted — is
+the playtest's biggest question.
 
 - **routes as things [M]** — travel between cities currently costs AP and
   nothing else. Roads with character (the coast road, the pass) that carry

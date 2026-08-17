@@ -44,7 +44,9 @@ Gaps, also per measurement:
 - **City one has almost no pressure.** Heat is country-scale now, the ladder
   gates on footprint (~0 in the first city), and the hunt arrived in only
   3 of 10 forty-turn bot runs. The proven-fun loop currently runs against
-  nothing that pushes back.
+  nothing that pushes back. *(Since answered: district suspicion shipped —
+  see `systems.md` §E. And the country layer is now hard-gated off for the
+  pure-city playtest — see §I — so the city game is the whole game.)*
 - **The rig holds one program**, so the mount decision is gone — by design,
   awaiting the second program that earns its place.
 - **Scan is nearly free**, so it is a reflex, not a decision.

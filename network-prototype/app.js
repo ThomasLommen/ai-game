@@ -1852,6 +1852,7 @@
       selected: null,
       selectedBuilding: null,
       keys: 0,         // credentials found on machines, spent one door at a time
+      suspicion: {},   // how warm each district is — a fact about here
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
@@ -2459,6 +2460,7 @@
     // a leftover test) must not sit there blocking every other card forever.
     if (state.card && state.card.kind === 'strike') state.card = null;
     if (!warOn() && !huntOn()) huntStart();
+    cityWonCheck();
     if (!state.card && (state.forced || []).length) {
       // a report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -2601,6 +2603,39 @@
   // brings the response, and it is a fact about *here* — it packs with the
   // city and does not travel.
   function caughtHere() { return state.caughtHere || 0; }
+  // How warm a district is. A fact about here — packs with the city.
+  function suspicionOf(district) {
+    return (state.suspicion && state.suspicion[district]) || 0;
+  }
+  // Acting somewhere warms that district and cools every other one. Waiting
+  // cools nothing at all — attention has nothing new to look at, so it stays
+  // where it last was. That is the whole rule: camping is priced, waiting is
+  // worthless, rotation is the play.
+  function noteDistrictAct(district, amount) {
+    if (!district || !window.SUSPICION) return;
+    const S = window.SUSPICION;
+    // one decimal, always — float drift here would surface as "38.00000004%
+    // faster" in the panel, and the panel is a contract
+    const tidy = (v) => Math.round(v * 10) / 10;
+    state.suspicion = state.suspicion || {};
+    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+    Object.keys(state.suspicion).forEach(d => {
+      if (d === district) return;
+      state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - S.coolPerAct));
+      if (!state.suspicion[d]) delete state.suspicion[d];
+    });
+  }
+  // The panel's phrase and the exact figure, from the first point. Words come
+  // in bands; the arithmetic never does.
+  function suspicionLine(district) {
+    const S = window.SUSPICION;
+    const v = suspicionOf(district);
+    if (!S || v < 1) return '';
+    let phrase = '';
+    S.bands.forEach(([at, words]) => { if (v >= at) phrase = words; });
+    const pct = Math.round(v * S.slope * 100);
+    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.</p>`;
+  }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
     if (owned().length < window.HUNT.minHeld) return null;
@@ -3896,7 +3931,11 @@ scratch.later = null;
     // everything faster, which is where that trait's bite moved to
     const here = (cityTrait() || {}).traceMult || 1;
     const loud = (prog && prog.traceMult) || 1;
-    return Math.round(raw * shield * here * loud * 100) / 100;
+    // the district is talking: a straight line from the first point of
+    // suspicion, which means the forecast, the race bar and the panel all
+    // show the true number without any of them being told
+    const talked = 1 + suspicionOf(h.district) * ((window.SUSPICION || {}).slope || 0);
+    return Math.round(raw * shield * here * loud * talked * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
   // target will have noticed by then, and therefore whether it lands at all.
@@ -3941,6 +3980,8 @@ scratch.later = null;
     // of it and setting a program going against an easy door costs a fraction
     // of a turn rather than a whole one.
     spendAP('breach');
+    // the lights flicker: starting a run is the first thing a street notices
+    noteDistrictAct(h.district, window.SUSPICION.perRun);
     // keys are spent the moment the run starts — one set, one door, and only
     // a door that needed them (the forecast's rule, exactly)
     const f = hackForecast(h, p);
@@ -4008,6 +4049,8 @@ scratch.later = null;
       // was reading.
       state.caughtHere = (state.caughtHere || 0) + 1;
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      // and the neighbours definitely talked
+      noteDistrictAct(h.district, window.SUSPICION.perCaught);
       const left = window.HUNT.caughtToStart - caughtHere();
       pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`
         + (huntOn() ? '' : left > 0
@@ -4068,6 +4111,8 @@ scratch.later = null;
     h.heldSince = state.turn;
     state.everHeld = Math.max(state.everHeld || 0, owned().length);
     revealBuilding(buildingById(h.buildingId));
+    // tenancy changed, and the street knows it whatever the paperwork says
+    noteDistrictAct(h.district, window.SUSPICION.perTake);
     // whatever was on the machine is yours with it — bought, hacked or spread
     // onto, the contents do not care how you got in
     if (h.carry) resolveCarry(h);
@@ -4199,8 +4244,22 @@ scratch.later = null;
   // The country only becomes visible once the first city is genuinely yours —
   // before that the game is still teaching you how a city works.
   function countryUnlocked() {
+    // The knife, hard-gate form: while the city is the whole game, the door
+    // upward simply is not there. Everything the country carried — the grid
+    // ceiling, the ladder, the war — goes quiet through this one line.
+    if (window.CITY_ONLY) return false;
     const home = cityById(CO().homeId);
     return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
+  }
+  // Crossing the goal in city-only is an ending you can keep playing past,
+  // and it must never be a surprise twice.
+  function cityWonCheck() {
+    if (!window.CITY_ONLY || state.cityWon) return;
+    const home = cityById(CO().homeId);
+    if (!home || heldHere() < cityGoal(home)) return;
+    state.cityWon = true;
+    pushLog(window.CITY_WON.log);
+    showBanner([{ kind: 'host', verb: 'yours', label: 'the city' }]);
   }
 
   // How many buildings a sweep turns up. Extracted for the same reason as the
@@ -4265,6 +4324,7 @@ scratch.later = null;
       // what has caught you here, which is a fact about this city's doors
       caughtHere: state.caughtHere || 0,
       caughtAt: (state.caughtAt || []).slice(),
+      suspicion: Object.assign({}, state.suspicion || {}),
     };
   }
   function unpackCity(p) {
@@ -4300,6 +4360,7 @@ scratch.later = null;
     // return to it.
     state.hacks = p.hacks || [];
     state.caughtHere = p.caughtHere || 0;
+    state.suspicion = p.suspicion || {};
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -4311,7 +4372,7 @@ scratch.later = null;
     buildings: [], hosts: [], links: [], adjacency: {},
     bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
     hidden: [], hunt: null, hacks: [],
-    caughtHere: 0, caughtAt: [],
+    caughtHere: 0, caughtAt: [], suspicion: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -6299,9 +6360,14 @@ scratch.later = null;
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log, keys: state.keys || 0,
-      lastStage: state.lastStage, rival: state.rival, over: state.over,
+      lastStage: state.lastStage, cityWon: state.cityWon || false, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
       war: state.war || null, seen: state.seen || [], forced: state.forced || [], everHeld: state.everHeld || 0, timesForced: state.timesForced || 0, hunt: state.hunt || null,
+      // caughtHere/caughtAt packed with a city but never made it into the
+      // top-level save, so a reload quietly forgave your catches — found
+      // while wiring suspicion through the same joints
+      caughtHere: state.caughtHere || 0, caughtAt: (state.caughtAt || []).slice(),
+      suspicion: Object.assign({}, state.suspicion || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -6328,9 +6394,10 @@ scratch.later = null;
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
         tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [], keys: saved.keys || 0,
-        lastStage: saved.lastStage, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
+        lastStage: saved.lastStage, cityWon: !!saved.cityWon, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
+        caughtHere: saved.caughtHere || 0, caughtAt: saved.caughtAt || [], suspicion: saved.suspicion || {},
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -6563,6 +6630,14 @@ scratch.later = null;
       const h = blk.h + L.hRoad[blk.row] / 2 + L.hRoad[blk.row + 1] / 2;
       out += `<rect class="district ${key}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
         + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${D.ground}"/>`;
+      // the district is talking: the ground itself warms, from the first
+      // point — pressure lives on the map, not in a meter
+      const warm = suspicionOf(key);
+      if (warm >= 1) {
+        const op = Math.min(0.3, (warm / ((window.SUSPICION || {}).max || 40)) * 0.3);
+        out += `<rect class="d-warm" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+          + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" opacity="${op.toFixed(3)}"/>`;
+      }
       const north = at[(blk.row - 1) + ',' + blk.col];
       const west = at[blk.row + ',' + (blk.col - 1)];
       if (north && north !== key) {
@@ -7750,9 +7825,14 @@ scratch.later = null;
   function groundKey() {
     const L = cityLayout();
     const gaps = (state.bands || []).reduce((a, b) => a + (b.gaps || []).length, 0);
+    // suspicion warms the district ground, and the ground layer is cached —
+    // so the key carries each district's warmth in coarse steps: the tint
+    // redraws when it meaningfully changes and not per degree
+    const warm = Object.entries(state.suspicion || {})
+      .map(([d, v]) => d + Math.round(v / 5)).sort().join(',');
     return [state.cityId, L.cols, L.rows, (state.buildings || []).length,
             (state.props || []).length, (state.paths || []).length,
-            (state.bands || []).length, gaps].join('|');
+            (state.bands || []).length, gaps, warm].join('|');
   }
   function svgGround() {
     const key = groundKey();
@@ -8098,7 +8178,8 @@ scratch.later = null;
       document.getElementById('held-count').textContent =
         `${CO().presence} presence · ${done}/${CO().cities.length}`;
     } else {
-      document.getElementById('stage-label').textContent = st.label;
+      document.getElementById('stage-label').textContent =
+        state.cityWon ? window.CITY_WON.label : st.label;
       const theirs = rivalHeld().length;
       document.getElementById('held-count').textContent =
         held + ' held' + (theirs ? ` · ${theirs} lost` : '');
@@ -8879,6 +8960,7 @@ scratch.later = null;
     const carryContract = carryLine(h);
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
+      ${suspicionLine(h.district)}
       ${carryContract}
       ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
       ${traceForecastBar(f.traceAtEnd / f.goal, f.caught)}
@@ -9014,7 +9096,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -9470,7 +9552,7 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntPressed, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
