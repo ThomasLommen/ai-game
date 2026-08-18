@@ -8534,16 +8534,15 @@ test('suspicion: it is a fact about here — packs, saves, and warms the ground'
   const again = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   assert.equal(again.caughtHere, 2, 'a reload forgives your catches');
 
-  // the cached ground layer redraws when warmth meaningfully changes
+  // The ground used to warm toward ember here; that wash is dead by decision
+  // — suspicion is drawn as the ladder now (lights, people, the helicopter)
+  // and the ground stays the ground however warm the street is.
   const k0 = d.svgGround();
   d.noteDistrictAct('commercial', 15);
-  assert.notEqual(d.svgGround(), k0, 'the ground never warms');
-  // the warmth is the district fill itself, shifted — never an overlay rect
-  // whose hard edges match nothing on the map
-  const g = d.svgGround();
-  assert.ok(g.includes('d-warm'), 'warmth is not drawn at all');
-  assert.ok(/class="district commercial d-warm"[^>]*color-mix/.test(g),
-    'the warm ground is not the fill itself');
+  d.dropGroundCache();
+  assert.equal(d.svgGround(), k0, 'the ground is warming again — the wash is meant to be dead');
+  // warmth is drawn by the ladder now — the lamps pool where the street is warm
+  assert.ok(/lamp-pool/.test(d.svgSuspicionLight()), 'warmth is not drawn at all');
 });
 
 // --- what's on the machine -------------------------------------------------
@@ -10345,6 +10344,112 @@ test('cards: a card cannot show you a place you have not found', () => {
   assert.ok($p.innerHTML.includes(`data-bldg="${b.id}"`),
     'a building you have found is still not on its own card');
   s.card = null;
+});
+
+// --- the suspicion ladder: lights, people, the helicopter ------------------
+
+test('suspicion: the ladder is discrete and stands on the named bands', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const bands = window.SUSPICION.bands.map(b => b[0]);
+  s.suspicion = {};
+  assert.equal(d.suspBand('commercial'), 0);
+  bands.forEach((at, i) => {
+    s.suspicion.commercial = at - 0.1;
+    assert.equal(d.suspBand('commercial'), i, `just under band ${i + 1}`);
+    s.suspicion.commercial = at;
+    assert.equal(d.suspBand('commercial'), i + 1, `at band ${i + 1}`);
+  });
+});
+
+test('suspicion: the ground never turns red again', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const cold = d.svgGround();
+  s.suspicion = { commercial: 39, residential: 39, business: 39, industrial: 39 };
+  d.dropGroundCache();
+  const hot = d.svgGround();
+  assert.ok(!/7a3420|color-mix|d-warm/.test(hot), 'the wash is back');
+  assert.equal(hot, cold, 'the ground still changes with suspicion — it must not');
+});
+
+test('suspicion: band one is the lights — lamps pool, and the windows come on', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.suspicion = {};
+  assert.equal(d.svgSuspicionLight(), '', 'a quiet city has pooled lamplight');
+
+  s.suspicion.commercial = 7;
+  const light = d.svgSuspicionLight();
+  assert.ok(/lamp-pool/.test(light), 'a warm street pools no lamplight');
+
+  // the windows of the people who live there, in sodium, never in your blue
+  const b = s.buildings.find(x => x.district === 'commercial' && d.hostsIn(x).length
+    && d.hostsIn(x)[0].defense && !d.hostsIn(x)[0].owned);
+  s.view = { x: b.x - 100, y: b.y - 80, w: 220, h: 180 };   // close enough for windows
+  const art = d.svgBuilding(b);
+  assert.ok(/win awake/.test(art), 'nobody in a warm district is awake');
+  assert.ok(!/win lit/.test(art), "a stranger's building is wearing your light");
+
+  // ...and your own buildings never wear theirs
+  const mineB = s.buildings.find(x => d.hostsIn(x)[0]);
+  d.hostsIn(mineB)[0].owned = true;
+  s.suspicion[mineB.district] = 20;
+  assert.ok(!/win awake/.test(d.svgBuilding(mineB)), 'a held building is lying awake at itself');
+});
+
+test('suspicion: band two is the people, and they are faceless', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.suspicion = { commercial: 7 };
+  assert.equal(d.svgSuspicionMarks(), '', 'people turned out one band early');
+  s.suspicion.commercial = 13;
+  const marks = d.svgSuspicionMarks();
+  assert.ok(/susp-mark/.test(marks), 'the district is talking and the street is empty');
+  assert.ok(/van|fig/.test(marks), 'the marks are neither vans nor people');
+  // deterministic: the same street twice is the same street
+  assert.equal(d.svgSuspicionMarks(), marks, 'the people shuffle between repaints');
+});
+
+test('suspicion: one helicopter, and it never lies', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.suspicion = {};
+  assert.equal(d.svgHeli(), '', 'a quiet city has a helicopter in it');
+  s.suspicion.commercial = 13;
+  assert.equal(d.svgHeli(), '', 'the helicopter turned out below the top band');
+
+  // top band, no response: it patrols the warmest district
+  s.suspicion.commercial = 27;
+  s.suspicion.residential = 30;
+  const patrol = d.svgHeli();
+  assert.ok(/heli patrol/.test(patrol), 'top band and nothing patrols');
+  assert.equal((patrol.match(/heli-craft/g) || []).length, 1, 'more than one machine in the sky');
+
+  // the response walking outranks any patrol: the spotlight rests on the
+  // building it takes next — the previewed fact, made diegetic
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.huntSeed((x) => 'in ' + x);
+  const nx = d.huntNext();
+  if (nx) {
+    const b = d.buildingById(nx);
+    const hover = d.svgHeli();
+    assert.ok(/heli hover/.test(hover), 'the response walks and the helicopter is elsewhere');
+    assert.ok(hover.includes(`translate(${(b.x + b.w / 2).toFixed(1)} ${(b.y + b.h / 2).toFixed(1)})`),
+      'the spotlight is not on the building the response takes next');
+  }
+});
+
+test('suspicion: the sky holds still for reduced motion', () => {
+  assert.ok(/prefers-reduced-motion[^}]*\{[^{]*\.heli/s.test(STYLE_CSS.replace(/\n/g, ' ')),
+    'the helicopter ignores prefers-reduced-motion');
 });
 
 // --- the deck as objects: frames, backs, and the turn ---------------------

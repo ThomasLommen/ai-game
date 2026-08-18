@@ -2677,6 +2677,30 @@
   // The panel's phrase and the exact figure, from the first band. Words come
   // in bands; the arithmetic never does — below the first band the panel is
   // silent and the forecast still quotes the true rate.
+  // The ladder: which rung of the named bands a district stands on. The
+  // visual language is discrete on purpose — each band adds one specific
+  // thing (1: the lights, 2: the people, 3: the helicopter), so the map can
+  // be read the way the card kinds can, while the exact figure stays in the
+  // panel where the covenant keeps it.
+  function suspBand(district) {
+    const S = window.SUSPICION;
+    if (!S || !S.bands) return 0;
+    const v = suspicionOf(district);
+    let n = 0;
+    S.bands.forEach(([at]) => { if (v >= at) n++; });
+    return n;
+  }
+  // The district a prop stands in: the nearest building's. Props were
+  // scattered per block but never told which district the block was in.
+  function propDistrict(p) {
+    let best = null, bd = Infinity;
+    (state.buildings || []).forEach(b => {
+      const d = distToRect(p.x, p.y, b.x, b.y, b.w, b.h);
+      if (d < bd) { bd = d; best = b.district; }
+    });
+    return best;
+  }
+
   function suspicionLine(district) {
     const S = window.SUSPICION;
     const v = suspicionOf(district);
@@ -7430,22 +7454,12 @@ scratch.later = null;
       const y = blk.y - L.hRoad[blk.row] / 2;
       const w = blk.w + L.vRoad[blk.col] / 2 + L.vRoad[blk.col + 1] / 2;
       const h = blk.h + L.hRoad[blk.row] / 2 + L.hRoad[blk.row + 1] / 2;
-      // the district is talking: the ground colour itself shifts toward
-      // ember, rather than an overlay rect on top — the overlay's hard
-      // edges matched nothing on the map and read as a glitch, where a
-      // warmed fill stays seamless across the district's own blocks. It
-      // starts where the words start (the first band), so the map and the
-      // panel agree about when a district is worth a glance.
-      const S = window.SUSPICION || {};
-      const warm = suspicionOf(key);
-      const spoken = warm >= ((S.bands && S.bands[0][0]) || 6);
-      let ground = D.ground;
-      if (spoken) {
-        const pct = Math.min(22, Math.round((warm / (S.max || 40)) * 40));
-        ground = `color-mix(in oklab, ${D.ground} ${100 - pct}%, #7a3420)`;
-      }
-      out += `<rect class="district ${key}${spoken ? ' d-warm' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
-        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${ground}"/>`;
+      // The ground never changes colour for suspicion any more. A red wash
+      // painted the whole quarter for a thing that lives in lamps, windows
+      // and the people out watching — those carry it now (see the suspicion
+      // ladder), and the panel keeps the exact figure it always had.
+      out += `<rect class="district ${key}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"`
+        + ` width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${D.ground}"/>`;
       const north = at[(blk.row - 1) + ',' + blk.col];
       const west = at[blk.row + ',' + (blk.col - 1)];
       if (north && north !== key) {
@@ -8307,11 +8321,25 @@ scratch.later = null;
     const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
     canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
+    // People live in these buildings whether or not you do, and when the
+    // street is warm they lie awake — more windows on the warmer it gets.
+    // Sodium, never your compute blue. Stable per building, so the city does
+    // not flicker between repaints.
+    const wake = {};
+    if (!drawingInset && !mine) {
+      const share = [0, 0.2, 0.4, 0.62][suspBand(b.district)] || 0;
+      if (share > 0) {
+        const nWake = Math.max(1, Math.round(canLight.length * share));
+        canLight.slice()
+          .sort((p, q) => cityNoise(idSeed(b.id), p.i) - cityNoise(idSeed(b.id), q.i))
+          .slice(0, nWake).forEach(c => { wake[c.i] = true; });
+      }
+    }
     cells.forEach(c => {
       // lit windows carry their index so the stylesheet can treat them as
       // individuals: the take cascades them on in sequence, and held
       // buildings flick the odd one off and on again (see winWake/winFlick)
-      out += `<rect class="win${lightUp[c.i] ? ' lit' : ''}" x="${c.x}" y="${c.y}"`
+      out += `<rect class="win${lightUp[c.i] ? ' lit' : wake[c.i] ? ' awake' : ''}" x="${c.x}" y="${c.y}"`
         + ` width="${c.w}" height="${c.h}"${lightUp[c.i] ? ` style="--wi:${c.i}"` : ''}/>`;
     });
 
@@ -8480,6 +8508,99 @@ scratch.later = null;
   }
 
 
+
+  // --- the suspicion ladder, drawn -----------------------------------------
+  // Rung one: the lights. A watched street's lamps pool light on the ground,
+  // and (in svgBuilding) the windows of buildings that are not yours come on
+  // late — the district lying awake. Sodium, never your compute blue, so
+  // whose light it is stays readable at a glance.
+  function svgSuspicionLight() {
+    if (state.scope !== 'city') return '';
+    const pools = [];
+    (state.props || []).forEach(p => {
+      if (p.kind !== 'lamp') return;
+      const band = suspBand(propDistrict(p));
+      if (band < 1) return;
+      const r = [0, 9, 12, 15][band];
+      pools.push(`<circle class="lamp-pool" cx="${(p.x + p.w / 2).toFixed(1)}" cy="${p.y}" r="${r}"/>`);
+    });
+    if (!pools.length) return '';
+    return `<g class="susp-light"><defs>`
+      + `<radialGradient id="lampPool"><stop offset="0" stop-color="#e8c27a" stop-opacity=".34"/>`
+      + `<stop offset="1" stop-color="#e8c27a" stop-opacity="0"/></radialGradient>`
+      + `</defs>${pools.join('')}</g>`;
+  }
+
+  // Rung two: the people. A van parked where a van has no business overnight,
+  // somebody standing on a corner not going anywhere. Faceless at this
+  // height, deterministic per district so they do not shuffle between turns.
+  function svgSuspicionMarks() {
+    if (state.scope !== 'city') return '';
+    const out = [];
+    Object.keys(window.DISTRICTS || {}).forEach(dk => {
+      const band = suspBand(dk);
+      if (band < 2) return;
+      const bs = (state.buildings || []).filter(b => b.district === dk && b.discovered);
+      if (!bs.length) return;
+      const n = Math.min(band >= 3 ? 4 : 2, bs.length);
+      for (let i = 0; i < n; i++) {
+        const b = bs[(i * 7 + 3) % bs.length];
+        const nz = (k) => cityNoise(idSeed(b.id) + 91, k);
+        if (i % 2 === 0) {
+          const vx = b.x - 17 - nz(1) * 4, vy = b.y + b.h - 5;
+          out.push(`<g class="susp-mark"><rect class="van" x="${vx.toFixed(1)}" y="${vy.toFixed(1)}" width="13" height="5.5" rx="1.4"/>`
+            + `<rect class="van-glass" x="${(vx + 9.6).toFixed(1)}" y="${(vy + 1.1).toFixed(1)}" width="2.4" height="1.9"/></g>`);
+        } else {
+          const fx = b.x + b.w + 4 + nz(2) * 3, fy = b.y + b.h - 4.6;
+          out.push(`<g class="susp-mark"><rect class="fig" x="${fx.toFixed(1)}" y="${fy.toFixed(1)}" width="2.1" height="4.6" rx="1"/>`
+            + `<circle class="fig" cx="${(fx + 1.05).toFixed(1)}" cy="${(fy - 0.9).toFixed(1)}" r="1.1"/></g>`);
+        }
+      }
+    });
+    return out.length ? `<g class="susp-people">${out.join('')}</g>` : '';
+  }
+
+  // Rung three: the helicopter. One machine, ever, and it never lies: while
+  // the response is walking, its spotlight rests on the building the response
+  // takes next — the map's most important warning made diegetic (the dry
+  // next-up outline stays underneath it). With no response walking, it
+  // patrols the warmest district only once that district is at the top band.
+  function svgHeli() {
+    if (state.scope !== 'city') return '';
+    let cx = null, cy = null, mode = null;
+    if (huntOn()) {
+      const nx = huntNext();
+      const b = nx ? buildingById(nx) : null;
+      if (b) { cx = b.x + b.w / 2; cy = b.y + b.h / 2; mode = 'hover'; }
+    }
+    if (!mode) {
+      let best = null, bestV = 0;
+      Object.keys(window.DISTRICTS || {}).forEach(dk => {
+        if (suspBand(dk) >= 3 && suspicionOf(dk) > bestV) { best = dk; bestV = suspicionOf(dk); }
+      });
+      if (best) {
+        const bs = (state.buildings || []).filter(b => b.district === best);
+        if (bs.length) {
+          cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / bs.length;
+          cy = bs.reduce((a, b) => a + b.y + b.h / 2, 0) / bs.length;
+          mode = 'patrol';
+        }
+      }
+    }
+    if (!mode) return '';
+    const glyph = `<g class="heli-craft">`
+      + `<ellipse class="spot" cx="0" cy="0" rx="12" ry="6.5"/>`
+      + `<path class="spot-beam" d="M14 -30 L-8 0 L8 0 Z"/>`
+      + `<ellipse class="heli-body" cx="14" cy="-30" rx="3.2" ry="1.7"/>`
+      + `<path class="heli-tail" d="M17 -30 L21.5 -30"/>`
+      + `<line class="heli-rotor" x1="8.5" y1="-30" x2="19.5" y2="-30"/>`
+      + `</g>`;
+    return `<g class="heli ${mode}" transform="translate(${cx.toFixed(1)} ${cy.toFixed(1)})">`
+      + `<defs><radialGradient id="spotPool"><stop offset="0" stop-color="#f2dca6" stop-opacity=".6"/>`
+      + `<stop offset="1" stop-color="#f2dca6" stop-opacity="0"/></radialGradient></defs>`
+      + (mode === 'patrol' ? `<g class="heli-orbit"><g transform="translate(34 0)">${glyph}</g></g>` : glyph)
+      + `</g>`;
+  }
 
   // Panning and zooming only move the window — the city itself does not change.
   // So they write the viewBox and nothing else, coalesced to one write per
@@ -8983,10 +9104,13 @@ scratch.later = null;
 
     out += svgHackLinks();
     out += svgHunt();
+    out += svgSuspicionLight();
+    out += svgSuspicionMarks();
     out += seen.map(svgBuilding).join('');
     out += svgSelection();
     out += svgBreach();
     out += svgSweep();
+    out += svgHeli();
 
     layers.live.innerHTML = out;
     wireMap($svg);
@@ -10978,7 +11102,8 @@ scratch.later = null;
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     blocks, waiting, trayFree, offerCard, openWaiting, cardFrame, cardBack, cardSigil,
-    markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
+    suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,

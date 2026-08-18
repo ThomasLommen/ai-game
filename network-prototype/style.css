@@ -1402,6 +1402,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg .roof { fill: #1a2320; }
 .bldg .win  { fill: #1e2724; }
 .bldg .win.lit { fill: color-mix(in srgb, var(--compute) 55%, #1e2724); }
+/* somebody in there is awake, and it is not you: sodium, never compute blue */
+.bldg .win.awake { fill: color-mix(in srgb, #e8c27a 42%, #1e2724); }
 .bldg .btag {
   fill: var(--muted); font-size: 7.5px; text-anchor: middle;
   font-family: ui-monospace, Menlo, monospace;
@@ -2699,6 +2701,37 @@ footer .build { opacity: .55; font-size: 10px; }
 /* the ending view: quieter than the question was */
 .card.after .card-kicker { opacity: .6; }
 .card.after .flavor { color: var(--ink); }
+
+/* ---- the suspicion ladder --------------------------------------------
+   The red wash is dead. Suspicion is drawn as a ladder instead, one thing
+   per band: 1 the lights, 2 the people, 3 the helicopter. The exact figure
+   stays in the panel; the map does the mood. */
+.lamp-pool { fill: url(#lampPool); pointer-events: none; }
+.susp-mark { pointer-events: none; }
+.susp-mark .van { fill: #1c2421; stroke: #39433d; stroke-width: .7; }
+.susp-mark .van-glass { fill: #26313a; }
+.susp-mark .fig { fill: #101512; stroke: #39433d; stroke-width: .5; }
+
+/* one machine, ever — and it never lies (see svgHeli) */
+.heli { pointer-events: none; }
+.heli .spot { fill: url(#spotPool); animation: spotBreathe 2600ms ease-in-out infinite; }
+.heli .spot-beam { fill: #f2dca6; opacity: .08; }
+.heli .heli-body { fill: #171f1c; stroke: #4a554f; stroke-width: .7; }
+.heli .heli-tail { stroke: #4a554f; stroke-width: 1; }
+.heli .heli-rotor {
+  stroke: #9aa39c; stroke-width: .8; opacity: .9;
+  transform-box: fill-box; transform-origin: center;
+  animation: rotorSpin 340ms linear infinite;
+}
+.heli.patrol .heli-orbit { animation: heliOrbit 32s linear infinite; }
+.heli.hover .heli-craft { animation: heliBob 3400ms ease-in-out infinite alternate; }
+@keyframes rotorSpin { to { transform: rotate(180deg); } }
+@keyframes heliOrbit { to { transform: rotate(360deg); } }
+@keyframes heliBob { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }
+@keyframes spotBreathe { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .heli .heli-rotor, .heli.patrol .heli-orbit, .heli.hover .heli-craft, .heli .spot { animation: none; }
+}
 
 /* the building an open card is about: the map acknowledging the deck.
    Dashes at a walk, not an alarm — it is a pointer, not a threat. */

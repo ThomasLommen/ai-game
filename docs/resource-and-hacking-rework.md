@@ -1693,6 +1693,30 @@ the old flat panel style, which broke the deck's own register mid-moment.
 The end of the run gets the world's last word: serif verdict inside a
 gold-threaded frame.
 
+### The suspicion ladder
+
+The red district wash is dead — a colour poured over a whole quarter for a
+thing that lives in lamps, windows and the people out watching. Suspicion is
+drawn as a **discrete ladder** now, one thing per named band, so the map is
+read the way the card kinds are while the exact figure stays in the panel
+where the covenant keeps it:
+
+| band | the street at night |
+| --- | --- |
+| 1 &middot; *people mention it* | **the lights** — lamps pool sodium light on the ground, and the windows of buildings that are not yours come on late. Sodium, never your compute blue: your light comes from your windows, theirs from the street. |
+| 2 &middot; *the district is talking* | **the people** — a van parked where a van has no business overnight, somebody on a corner not going anywhere. Faceless at this height, deterministic per district so they do not shuffle between turns. |
+| 3 &middot; *everyone here is watching* | **the helicopter.** |
+
+**The helicopter never lies.** One machine, ever. While the response is
+walking, it outranks any patrol and its spotlight rests on the building the
+response takes next — the map's most important warning made diegetic, with
+the dry `next-up` outline still underneath it. With no response walking it
+patrols the warmest district, only once that district is at the top band.
+Rotor, orbit and spotlight all hold still under `prefers-reduced-motion`.
+
+One old test asserted the ground *does* warm; it now asserts the wash stays
+dead and the lamps carry it instead.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
