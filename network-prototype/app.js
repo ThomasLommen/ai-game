@@ -3622,7 +3622,8 @@ scratch.later = null;
     // The ending keeps the card's own design — it is the same moment
     // finishing, not a different one starting.
     state.card = afterText
-      ? { kind: 'after', evKind: ev.kind || null, title: cardText(ev.title, subject), text: afterText }
+      ? { kind: 'after', evKind: ev.kind || null, subject,
+          title: cardText(ev.title, subject), text: afterText }
       : null;
     pushLog(`${cardText(ev.title, subject)} — ${ch.text}.` + (afterText ? ` ${afterText}` : ''));
 
@@ -7751,6 +7752,11 @@ scratch.later = null;
     },
   };
 
+  // Drawn into a card's own little viewBox rather than onto the map: detail is
+  // never culled (the inset is always "close up", whatever the map zoom is
+  // doing), and the subject marking is left off — inside a card about this
+  // building, pointing at it would be pointing at itself.
+  let drawingInset = false;
   function svgBuilding(b) {
     const h = hostsIn(b)[0];
     const theirs = rivalHolds(b.id);
@@ -7778,9 +7784,13 @@ scratch.later = null;
     // something of yours is inside it right now
     const run = h ? hackOn(h.id) : null;
     if (run) cls.push('hacking');
-    // the building an open card is about — a card that names a place the map
-    // does not acknowledge reads less real, not more
-    if (state.card && state.card.subject && state.card.subject.buildingId === b.id) cls.push('card-subject');
+    // The building an open card is about — a card that names a place the map
+    // does not acknowledge reads less real, not more. A card with only a
+    // district for a subject lights the whole district instead, so "something
+    // is happening" always resolves to "something is happening *there*".
+    const cs = !drawingInset && state.card ? state.card.subject : null;
+    if (cs && cs.buildingId === b.id) cls.push('card-subject');
+    else if (cs && !cs.buildingId && cs.district && b.district === cs.district) cls.push('card-district');
 
     const roof = Math.min(10, b.h * 0.28);
     const n = (i) => cityNoise(idSeed(b.id), i);
@@ -7789,6 +7799,13 @@ scratch.later = null;
     if (bf) styles.push(`--breach-land:${breachDelay(bf.dur)}ms`);
     let out = `<g class="${cls.join(' ')}" data-bldg="${b.id}"`
       + (styles.length ? ` style="${styles.join(';')}"` : '') + '>';
+    // the ring the map wears while a card is talking about this building —
+    // drawn whether or not you hold it, since a card is just as likely to be
+    // about somewhere you have never been inside
+    if (cls.includes('card-subject')) {
+      out += `<rect class="subject-ring" x="${(b.x - 5).toFixed(1)}" y="${(b.y - 5).toFixed(1)}"`
+        + ` width="${(b.w + 10).toFixed(1)}" height="${(b.h + 10).toFixed(1)}" rx="6"/>`;
+    }
     // a soft halo in the role's colour, so what you hold reads at a glance
     if (mine) {
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
@@ -7807,7 +7824,7 @@ scratch.later = null;
     // the chimneys and the windows *are* the render. Zoomed out far enough
     // that a house is eight pixels wide, every one of those marks is work
     // spent on something nobody can resolve.
-    const px = b.w / Math.max(0.0001, mapUnitsPerPx());
+    const px = drawingInset ? 999 : b.w / Math.max(0.0001, mapUnitsPerPx());
     const fine = px >= 26;
     const detail = fine ? KIND_DETAIL[b.kind] : null;
     if (detail) out += detail(b, n, roof);
@@ -7838,7 +7855,7 @@ scratch.later = null;
     // (~2.4px) so it stays a visible spark from altitude instead of scaling
     // away with the building.
     if (h && h.carry && !h.owned) {
-      const gr = Math.max(2.6, 3.1 * mapUnitsPerPx());
+      const gr = drawingInset ? 2.6 : Math.max(2.6, 3.1 * mapUnitsPerPx());
       out += `<circle class="glint" cx="${(b.x + b.w - 4).toFixed(1)}" cy="${(b.y + 4).toFixed(1)}" r="${gr.toFixed(1)}"/>`;
     }
 
@@ -7856,6 +7873,27 @@ scratch.later = null;
     if (run) out += svgRaceMark(b, run);
     out += '</g>';
     return out;
+  }
+
+  // The card about a building carries the building. Not an icon standing in
+  // for it — the same shopfront that is on your map, drawn by the same code
+  // into its own small viewBox. No deck bought off a shelf can do this, which
+  // is exactly the point: it is the one card art that is about *your* city.
+  function svgBuildingCard(b) {
+    if (!b) return '';
+    // The silhouette runs well above the footprint — chimneys, stacks, an
+    // aerial — and the kind label sits below it. Frame the lot, then square
+    // the box so nothing is stretched by preserveAspectRatio's letterboxing.
+    const pad = 4 + Math.max(b.w, b.h) * 0.08;
+    let x0 = b.x - pad, y0 = b.y - pad - 18;
+    let w = b.w + pad * 2, h = b.h + pad * 2 + 18 + 14;
+    const side = Math.max(w, h);
+    x0 -= (side - w) / 2; y0 -= (side - h) / 2;
+    drawingInset = true;
+    let art = '';
+    try { art = svgBuilding(b); } finally { drawingInset = false; }
+    return `<svg class="card-inset" viewBox="${x0.toFixed(1)} ${y0.toFixed(1)} ${side.toFixed(1)} ${side.toFixed(1)}"`
+      + ` preserveAspectRatio="xMidYMid meet" aria-hidden="true">${art}</svg>`;
   }
 
 
@@ -9576,6 +9614,15 @@ scratch.later = null;
     // city; taking the whole screen for the single most frequent tap in the
     // game would slow down the core loop it is supposed to be quick to reach.
     $p.classList.toggle('card-open', !state.over && !!state.card && state.card.kind !== 'breach');
+    // A card about a place no longer covers the place. The map stays on screen,
+    // dimmed, with the subject the brightest thing on it, and the card sits at
+    // the bottom of the screen rather than over the top of the city — so
+    // "something is happening" reads as "something is happening *there*".
+    const lit = !state.over && !!state.card && state.card.kind !== 'breach'
+      && !!state.card.subject && state.scope !== 'country';
+    $p.classList.toggle('in-city', lit);
+    const $gw = document.getElementById('graph-wrap');
+    if ($gw) $gw.classList.toggle('card-lit', lit);
     // A breach stays in the panel rather than going full screen, but its
     // choices still have to fit next to a map that does not move — so the
     // HUD above it gives up some of its own room instead.
@@ -10025,15 +10072,25 @@ scratch.later = null;
       // A delivered beat — one option, nothing actually being decided — is
       // not the same size of event as the response arriving.
       const beat = ev.choices.length === 1 ? ' beat' : '';
+      // The building this is about, drawn onto the card — but only one that is
+      // actually on your map. A card cannot show you a place you have not
+      // found; that would be the deck telling you where to go.
+      const sb = subject && subject.buildingId ? buildingById(subject.buildingId) : null;
+      const inset = sb && sb.discovered ? svgBuildingCard(sb) : '';
       $p.innerHTML = `
         ${cardResourceStrip(ev)}
-        <div class="card event${K ? ' k-' + ev.kind : ''}${beat}">
+        <div class="card event${K ? ' k-' + ev.kind : ''}${beat}${inset ? ' has-inset' : ''}">
           <div class="card-head">
             <span class="card-kicker mono">${kicker}</span>
             ${K ? `<span class="card-mark mono">${K.label}</span>` : ''}
           </div>
-          <h2 class="serif">${cardText(ev.title, subject)}</h2>
-          <p class="flavor">${cardText(ev.flavor, subject)}</p>
+          <div class="card-body">
+            <div class="card-words">
+              <h2 class="serif">${cardText(ev.title, subject)}</h2>
+              <p class="flavor">${cardText(ev.flavor, subject)}</p>
+            </div>
+            ${inset}
+          </div>
         </div>
         <div class="choices">
           ${ev.choices.map((ch, i) => {
@@ -10128,10 +10185,24 @@ scratch.later = null;
     soundMood();
     // A card about a place walks the map there, once, when it opens. The
     // deck and the map pointing at each other is the whole point of subjects.
-    const ck = state.card && state.card.subject ? (state.card.eventId || '') + ':' + (state.card.subject.buildingId || state.card.subject.district || '') : null;
-    if (ck && ck !== lastCardFocus && state.card.subject.buildingId) {
-      const b = buildingById(state.card.subject.buildingId);
-      if (b) focusOn([{ x: b.x + b.w / 2, y: b.y + b.h / 2 }]);
+    // The ending carries the same subject as the question did, so the walk is
+    // keyed on the place rather than on the card — the map holds still while a
+    // card resolves instead of jumping back for one tap.
+    const ck = state.card && state.card.subject
+      ? (state.card.subject.buildingId || state.card.subject.district || '') : null;
+    if (ck && ck !== lastCardFocus) {
+      const sj = state.card.subject;
+      const bs = sj.buildingId
+        ? [buildingById(sj.buildingId)].filter(Boolean)
+        : (state.buildings || []).filter(b => b.discovered && b.district === sj.district);
+      // One point, always — the middle of what the card is about. Framing a
+      // whole district's worth of buildings zooms the map out to the city,
+      // which is the opposite of walking somewhere.
+      if (bs.length) {
+        const cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / bs.length;
+        const cy = bs.reduce((a, b) => a + b.y + b.h / 2, 0) / bs.length;
+        focusOn([{ x: cx, y: cy }]);
+      }
     }
     lastCardFocus = ck;
     renderGraph();
@@ -10164,7 +10235,7 @@ scratch.later = null;
     actScan, startSweepFx, startBreachFx, focusOn, sweepDelay, breachDelay, sweepTargets,
     startHackFx, hackFxOn, svgHackLinks, svgRaceMark, routeOrigin,
     defenseOf, strikeThreshold, eventContext, eligibleEvents, drawEvent, eventById, choiceUsable, shortOf, openChoices, duePlanted, resolveEvent,
-    svgSelection, svgBuilding, svgStreets, svgDistricts, svgDistrictTags,
+    svgSelection, svgBuilding, svgBuildingCard, svgStreets, svgDistricts, svgDistrictTags,
     svgWires, svgPackets, heldWires, startDrawFx, drawFxOn,
     districtBlocks, districtAt, cityLayout, svgGround, svgProps, svgOpenBlocks, svgPaths, scatterFurniture, pathsFor, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,

@@ -10215,6 +10215,110 @@ test('cards: the ending keeps the card design it belongs to', () => {
   d.state.card = null;
 });
 
+test('cards: a card about a place does not cover the place', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  const $gw = window.document.getElementById('graph-wrap');
+  const b = s.buildings[3];
+
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  d.render();
+  assert.ok($p.classList.contains('in-city'), 'the card is not sitting in the city');
+  assert.ok($gw.classList.contains('card-lit'), 'the map did not step back for the card');
+
+  // ...and a card about nothing in particular has no place to point at, so it
+  // keeps the whole screen
+  s.card = { kind: 'event', eventId: 'compound_interest', subject: null };
+  d.render();
+  assert.ok(!$p.classList.contains('in-city'), 'a card with no subject is pretending to have one');
+  assert.ok(!$gw.classList.contains('card-lit'), 'the map dimmed for a card about nowhere');
+  s.card = null;
+  d.render();
+  assert.ok(!$gw.classList.contains('card-lit'), 'the map stayed dim after the card closed');
+});
+
+test('cards: exactly one thing on the map is what the card is about', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const b = s.buildings[5];
+
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  const marked = s.buildings.filter(x => /\bcard-subject\b/.test(d.svgBuilding(x)));
+  assert.equal(marked.length, 1, 'more than one building claims to be the subject');
+  assert.equal(marked[0].id, b.id, 'the wrong building is lit');
+
+  // a card about a district lights the district instead — never nothing
+  const dk = b.district;
+  s.card = { kind: 'event', eventId: 'district_talking', subject: { district: dk } };
+  const inDk = s.buildings.filter(x => x.district === dk);
+  const others = s.buildings.filter(x => x.district !== dk);
+  assert.ok(inDk.every(x => /\bcard-district\b/.test(d.svgBuilding(x))), 'a district card left its own street dark');
+  assert.ok(others.every(x => !/\bcard-district\b/.test(d.svgBuilding(x))), 'a district card lit somebody else\'s street');
+  s.card = null;
+});
+
+test('cards: the card about a building carries that building, drawn', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const b = s.buildings.find(x => x.kind === 'shop') || s.buildings[2];
+  b.discovered = true;
+  const svg = d.svgBuildingCard(b);
+  assert.ok(/^<svg class="card-inset"/.test(svg), 'the inset is not an svg of its own');
+  assert.ok(svg.includes(`data-bldg="${b.id}"`), 'the inset is not the actual building');
+  assert.ok(svg.includes(b.kind), "the inset does not carry the building's kind");
+  // it is the real art: the same call the map makes, so the same marks
+  assert.ok(svg.includes('class="body"') && svg.includes('class="roof"'), 'the inset is a placeholder, not the building');
+  // ...and the inset never points at itself
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  assert.ok(!d.svgBuildingCard(b).includes('card-subject'),
+    'the inset marks itself as the subject of the card it is on');
+  assert.ok(!d.svgBuildingCard(b).includes('subject-ring'), 'the inset drew the map ring');
+  // and detail is never culled in an inset, whatever the map zoom is doing
+  s.view = { x: 0, y: 0, w: 4000, h: 4000 };
+  assert.ok(d.svgBuildingCard(b).includes('class="win'), 'the inset lost its detail to the map zoom');
+  s.card = null;
+});
+
+test('cards: a found card can always say which machine', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.slice(0, 6).forEach(h => { h.owned = true; h.discovered = true; });
+  // "found" means: on a machine you hold. A found card that cannot name the
+  // machine is the kind promising a place it does not have — which is the
+  // "somewhere, something" vagueness the rework went after.
+  const queued = ['the_diary', 'someones_keys', 'cold_archive'];   // handed a subject by the loop
+  window.EVENTS.filter(e => e.kind === 'found' && queued.indexOf(e.id) < 0).forEach(ev => {
+    assert.equal(typeof ev.subject, 'function', `${ev.id} is a found card with nowhere to be found`);
+    const sj = d.safeSubject(ev);
+    assert.ok(sj && sj.buildingId, `${ev.id} could not name a machine you hold`);
+    const b = d.buildingById(sj.buildingId);
+    assert.ok(b, `${ev.id} named a building that is not on the map`);
+  });
+});
+
+test('cards: a card cannot show you a place you have not found', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  const b = s.buildings.find(x => !x.discovered) || s.buildings[7];
+  b.discovered = false;
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  d.render();
+  assert.ok(!$p.innerHTML.includes('card-inset'),
+    'the card drew a building the player has never seen — that is the deck giving directions');
+  b.discovered = true;
+  d.render();
+  assert.ok($p.innerHTML.includes('card-inset'), 'a building you have found is still not on its own card');
+  s.card = null;
+});
+
 test('deck: no living card moves the retired heat meter', () => {
   const { window } = loadNetwork({ cityOnly: true });
   // heat is a country-scale number the knife gated off; a city card that still

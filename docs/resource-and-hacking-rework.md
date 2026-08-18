@@ -1457,6 +1457,41 @@ Four tests hold the line: every living card has a designed kind, five is a
 hard ceiling and every kind is used, the rendered card wears its kind and
 never a verdict, and an ending keeps the design of the card it belongs to.
 
+### The card is in the city
+
+A card about a place used to cover the place. Now, when a card has a subject:
+
+- **the map stays on screen.** Everything steps back to about a third opacity
+  except the thing the card is about, which is left exactly as it was — so the
+  subject is the brightest object on screen without being repainted. A
+  district subject lights the whole district instead of one building.
+- **the card sits at the bottom**, with barely any scrim over the city. End
+  turn and the footer go off screen while a card is up, so there is nothing
+  under the card that needs painting over, and the card drops its own copy of
+  the resource row — the real one is visible above it.
+- **the card carries the building, drawn.** `svgBuildingCard()` runs the same
+  `svgBuilding()` the map runs, into its own small viewBox: the same shopfront
+  that is on your map, on the card about it. Detail is never culled in an
+  inset whatever the map zoom is doing, and the inset does not mark itself as
+  its own subject.
+- **it arrives rather than appears** — one short rise on the breach's timing,
+  the choices a beat behind it.
+- **it never shows you a place you have not found.** An undiscovered building
+  gets no inset; a card that drew one would be the deck giving directions.
+
+The map walks to the subject as one point — the building, or the middle of the
+district. Framing every building in a district zoomed the map out to the whole
+city, which is the opposite of walking somewhere. The ending carries the same
+subject as the question did, so the city holds still while a card resolves.
+
+Four **found** cards had no subject at all, which is the one kind that cannot
+do without one — "on a machine you hold" has to be able to say which machine.
+`EV_HELD` picks one of your holdings, preferring the right sort (the
+photographs want something doing arithmetic, the strange traffic wants a
+router), and their flavor now names it. 35 of 48 living cards now put
+themselves in the city; the rest are about your whole network, which has no
+address.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

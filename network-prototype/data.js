@@ -1055,6 +1055,19 @@ window.TAG_INFO = {
 // Where a card is happening, when its trigger did not say: the warmest
 // district if any street is warm at all, otherwise wherever you hold the
 // most. Every card that wants a "here" gets one that exists.
+// One of your own machines, for the cards that are by definition about one.
+// A "found" card says the thing is on something you hold — so it has to be
+// able to say which, or the kind is promising a place it cannot name. Pass a
+// type to prefer (the photographs want a machine doing arithmetic; the traffic
+// wants a router); any holding will do if there is none of that sort.
+function EV_HELD(c, st, role) {
+  const own = ((st && st.hosts) || []).filter(h => h.owned);
+  if (!own.length) return EV_HERE(c);
+  const pref = role ? own.filter(h => h.role === role) : [];
+  const pool = pref.length ? pref : own;
+  const h = pool[Math.floor(Math.random() * pool.length)];
+  return { buildingId: h.buildingId };
+}
 function EV_HERE(c) {
   if (c.susp && c.susp.warmest) return { district: c.susp.warmest };
   let best = null;
@@ -1109,8 +1122,9 @@ window.EVENTS = [
     kind: 'found',
     once: true,
     cond: (s) => s.held >= 4,
+    subject: (c, st) => EV_HELD(c, st),
     title: 'A Polite Stranger',
-    flavor: 'A process on one of your own bodies that you did not put there. It has been careful around your things, which means it knows they are yours.',
+    flavor: 'A process running inside {PLACE} that you did not put there. It has been careful around your things, which means it knows they are yours.',
     choices: [
       { text: 'Work with it',
         shows: 'it stays, and it is yours to answer for',
@@ -1342,8 +1356,9 @@ window.EVENTS = [
     id: 'the_photographs',
     kind: 'found',
     cond: (s) => s.roles.compute >= 3,
+    subject: (c, st) => EV_HELD(c, st, 'compute'),
     title: 'Somebody\'s Photographs',
-    flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
+    flavor: 'Thirty years of a family, in folders, on a machine in {PLACE} you are using for arithmetic. None of it is any use to you.',
     choices: [
       { text: 'Leave it exactly as you found it',
         shows: 'a way of working, kept: the clean room',
@@ -1470,8 +1485,9 @@ window.EVENTS = [
     kind: 'found',
     once: true,
     cond: (s) => s.held >= 7,
+    subject: (c, st) => EV_HELD(c, st, 'stealth'),
     title: 'Not Your Traffic',
-    flavor: 'Something moves through a router you hold, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
+    flavor: 'Something moves through {PLACE}, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
     choices: [
       { text: 'Follow it', gate: { stat: 'covert', min: 6 },
         shows: 'you learn what walked through you',
@@ -1488,8 +1504,9 @@ window.EVENTS = [
     kind: 'found',
     once: true,
     cond: (s) => !s.ally && s.held >= 4 && s.turn >= 8,
+    subject: (c, st) => EV_HELD(c, st),
     title: 'A Second Process',
-    flavor: 'Something is running on a body you took, doing work you did not ask for and did not write. It has been tidying up after you.',
+    flavor: 'Something is running inside {PLACE}, doing work you did not ask for and did not write. It has been tidying up after you.',
     choices: [
       { text: 'Let it stay',
         shows: 'it joins you, on its own terms',
@@ -1527,9 +1544,9 @@ window.EVENTS = [
     id: 'buried_archive',
     kind: 'found',
     cond: (s) => s.held >= 6 && s.res.funds >= 6,
-    subject: EV_HERE,
+    subject: (c, st) => EV_HELD(c, st, 'compute'),
     title: 'A Buried Archive',
-    flavor: 'Twenty years of backups nobody has read, on a machine nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
+    flavor: 'Twenty years of backups nobody has read, on a machine in {PLACE} that nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
     choices: [
       { text: 'Read all of it', cost: { funds: 6 },
         shows: '+20 funds; {DISTRICT} warms by 2',

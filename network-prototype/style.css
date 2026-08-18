@@ -686,6 +686,98 @@ footer .build { opacity: .55; font-size: 10px; }
 .card.event.k-someone .flavor { color: var(--ink); }
 .card.event.k-someone .card-mark { color: var(--ink-dim); }
 
+/* ---- the card is in the city ----------------------------------------
+   A card about a place used to cover the place. Now the map stays on screen
+   with everything but the subject dimmed, and the card sits at the bottom —
+   so "something is happening" reads as "something is happening *there*".
+   Only cards with a subject do this; a card about nothing in particular has
+   no reason to point at the map, and still takes the screen. */
+#panel.card-open.in-city {
+  justify-content: flex-end;
+  /* Barely a scrim. With end turn and the footer taken off screen there is
+     nothing under here to paint over, so the city keeps its own light and the
+     only thing dimming it is the map stepping back (below). */
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    transparent 48%,
+    color-mix(in srgb, var(--bg) 55%, transparent) 62%,
+    var(--bg) 74%);
+  padding-bottom: max(var(--safe-bottom), 14px);
+}
+/* The HUD the card used to carry is now on screen behind it, undimmed — so
+   the card stops carrying its own copy rather than showing your funds twice. */
+#panel.card-open.in-city .card-res { display: none; }
+/* Nothing below the card should show through it. End turn and the footer hint
+   are not part of this moment; they come back when the card closes. */
+#panel.card-open ~ #turn-row,
+#panel.card-open ~ footer { visibility: hidden; }
+/* Tighter, because it is now sharing the screen with the city rather than
+   replacing it — and what it must not do is push the map off the top. */
+#panel.card-open.in-city .card { padding: 13px 15px 15px; }
+#panel.card-open.in-city .card h2 { margin: 6px 0 6px; font-size: 19px; }
+#panel.card-open.in-city .card h2.serif { font-size: 19px; }
+#panel.card-open.in-city .card .flavor { font-size: 13px; line-height: 1.5; }
+#panel.card-open.in-city .choices { gap: 6px; margin-top: 8px; }
+#panel.card-open.in-city .choice-strip { padding: 9px 12px; gap: 4px; }
+#panel.card-open.in-city .card-res { margin-bottom: 10px; }
+
+/* The city, holding still while it is talked about. Everything steps back
+   except the thing the card is about — which is left exactly as it was, so
+   the subject is the brightest object on screen without being repainted. */
+#graph-wrap.card-lit .bldg { opacity: .34; }
+#graph-wrap.card-lit .wire,
+#graph-wrap.card-lit .hunt-web,
+#graph-wrap.card-lit .street-line { opacity: .42; transition: opacity 260ms ease; }
+#graph-wrap.card-lit .map-ground { opacity: .62; transition: opacity 260ms ease; }
+#graph-wrap.card-lit .bldg.card-district { opacity: .88; }
+#graph-wrap.card-lit .bldg.card-subject { opacity: 1; }
+#graph-wrap .bldg { transition: opacity 260ms ease; }
+/* the subject wears a ring while its card is open — the map acknowledging
+   the deck out loud, at a walk rather than as an alarm */
+.subject-ring {
+  fill: none;
+  stroke: var(--item, #c9a15c);
+  stroke-width: 1.3;
+  opacity: .8;
+  animation: subjectRing 2400ms ease-in-out infinite;
+}
+@keyframes subjectRing { 0%, 100% { opacity: .38; } 50% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .subject-ring { animation: none; } }
+
+/* the building itself, drawn onto the card in its own viewBox by the same
+   code that draws the map. The same shopfront, on the card about it. */
+.card-body { display: flex; align-items: flex-start; gap: 12px; }
+.card-words { min-width: 0; flex: 1 1 auto; }
+.card-inset {
+  flex: 0 0 auto;
+  width: 92px; height: 92px;
+  margin-top: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: visible;
+}
+.card-inset .btag { font-size: 7px; }
+.card-inset .bldg { cursor: default; }
+@media (max-width: 340px) {
+  .card-body { display: block; }
+  .card-inset { float: right; width: 68px; height: 68px; margin: 0 0 6px 10px; }
+}
+
+/* It arrives rather than appearing — one short rise, on the breach's timing.
+   A card that blinks into existence is a dialog; a card that comes up out of
+   the city is a thing that happened in it. */
+@keyframes cardArrive {
+  from { opacity: 0; transform: translateY(16px) scale(.986); }
+  to   { opacity: 1; transform: none; }
+}
+#panel.card-open .card { animation: cardArrive 240ms cubic-bezier(.2,.7,.3,1) both; }
+#panel.card-open .choices { animation: cardArrive 260ms cubic-bezier(.2,.7,.3,1) 60ms both; }
+@media (prefers-reduced-motion: reduce) {
+  #panel.card-open .card, #panel.card-open .choices { animation: none; }
+  #graph-wrap.card-lit .bldg, #graph-wrap .bldg { transition: none; }
+}
+
 /* The size hierarchy. A delivered beat — one option, nothing actually being
    decided — should not take the same screen as the response arriving. The
    big ones keep the full width on purpose: a hierarchy needs a top. */

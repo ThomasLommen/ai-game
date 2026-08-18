@@ -79,22 +79,22 @@ reading heraldry instead of a card. The ceiling is now a test.
 
 ---
 
-## Stage 2 — The card is in the city *(one session)*
+## Stage 2 — The card is in the city *(one session)* — **SHIPPED**
 
-Today the card covers the map completely. Instead:
+The map stays on screen and steps back; the subject keeps its own light and
+wears a ring. The card sits at the bottom under barely any scrim, drops its
+duplicate resource row, and carries a `svgBuildingCard()` inset — the same
+`svgBuilding()` the map runs, into its own viewBox. It arrives on one short
+rise. An undiscovered building gets no inset.
 
-- the map **dims** rather than disappears, and the card's subject stays lit
-  and marked — "something is happening" becomes "something is happening
-  **there**"
-- the card carries a **drawn inset of the actual building**, rendered with
-  `svgBuilding()` in its own small viewBox. The same shopfront that is on
-  your map, on the card about it. No other deck can do this.
-- the card **arrives** from its subject rather than appearing — one short
-  motion, reusing the breach/sweep timing grammar
+The map walks to the subject as a single point; framing a whole district's
+buildings zoomed out to the city, which is the opposite of going there. Four
+**found** cards had no subject, which that kind cannot do without — `EV_HELD`
+gives them one. 35 of 48 living cards now put themselves in the city.
 
-**Check:** with a subject, the map is visible behind the card and the subject
-is the brightest thing on screen; the inset matches the building's real art.
-Verified at 390px, because a floating card plus a map is a phone-space risk.
+**Check, done:** shot at 390px — building subject, district subject, ending,
+and the no-subject card that correctly still takes the screen. Five tests hold
+it, including "a card cannot show you a place you have not found".
 
 ---
 
