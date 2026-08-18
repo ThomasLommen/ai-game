@@ -10110,6 +10110,37 @@ test('deck: every living card previews its choices and resolves them', () => {
   assert.ok(checked >= 40, 'the living deck shrank unexpectedly');
 });
 
+test('deck: no tag a card hands out is a hollow promise', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  // Three tags were heat-only — and once choices started *stating* what they
+  // grant, an inert tag stopped being merely useless and became an explicit
+  // lie. Every tag the living deck can grant has to change something the city
+  // game actually reads.
+  const granted = new Set();
+  window.EVENTS.slice(0, 48).forEach(e => e.choices.forEach(c => {
+    (String(c.apply).match(/tags\.add\('([a-z_]+)'\)/g) || [])
+      .forEach(m => granted.add(m.match(/'([a-z_]+)'/)[1]));
+  }));
+  assert.ok(granted.size >= 5, 'the deck stopped handing out tags at all');
+
+  const src = [d.noteDistrictAct, d.takeHost, d.actScan, d.traceRate, d.covertOps,
+               d.tflops, d.sweepReach, d.defenseOf, d.huntStep]
+    .map(f => String(f)).join('\n');
+  // ...plus the whole app source, since a tag may be read anywhere
+  const app = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/app.js'), 'utf8');
+  granted.forEach(tag => {
+    const reads = new RegExp(`has\\('${tag}'\\)`).test(app);
+    assert.ok(reads, `${tag} is granted by a card and read by no rule`);
+    // and the rule that reads it must not be heat-only — heat is gated off,
+    // so a tag whose every mention sits on a heat line does nothing
+    const lines = app.split('\n').filter(l => l.includes(`has('${tag}')`));
+    const allHeat = lines.every(l => /heat/i.test(l));
+    assert.ok(!allHeat, `${tag} is only ever read on a heat line, and heat is gated off`);
+  });
+});
+
 test('deck: no living card moves the retired heat meter', () => {
   const { window } = loadNetwork({ cityOnly: true });
   // heat is a country-scale number the knife gated off; a city card that still

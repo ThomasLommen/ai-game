@@ -2641,9 +2641,14 @@
         && cardedOnce('talk:' + district)) {
       queueEvent('district_talking', { district });
     }
+    // Spread thinner than you can hold: rotation stops paying properly,
+    // because you are not really tending the places you left. This is what
+    // `overextended` means now — it used to multiply heat drift, and heat is
+    // gated off, so the tag was a promise the city could not keep.
+    const cool = S.coolPerAct * (has('overextended') ? 0.5 : 1);
     Object.keys(state.suspicion).forEach(d => {
       if (d === district) return;
-      state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - S.coolPerAct));
+      state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - cool));
       if (!state.suspicion[d]) delete state.suspicion[d];
     });
   }
@@ -3749,8 +3754,14 @@ scratch.later = null;
     // ...and the street notices somebody trying handles. With heat dormant
     // in the city game this is scanning's real price, paid exactly where
     // you looked — one point per district touched, cooling nothing.
-    const touched = new Set(found.map(b => (hostsIn(b)[0] || {}).district).filter(Boolean));
-    touched.forEach(dk => warmDistrict(dk, window.SUSPICION.perScan));
+    // ...and the street notices somebody trying handles — unless you are
+    // looking through a route nobody logs. `dark_relay` used to feed the heat
+    // mask; in a city where heat does nothing, what a quiet route buys is
+    // sweeps that cost the street nothing.
+    if (!has('dark_relay')) {
+      const touched = new Set(found.map(b => (hostsIn(b)[0] || {}).district).filter(Boolean));
+      touched.forEach(dk => warmDistrict(dk, window.SUSPICION.perScan));
+    }
     // The discovery moment is where loot was getting missed — the glint is
     // small and the eye is on the sweep ring. Say it in the log, but never
     // what: the tap is the scouting verb, and this is only the reason to tap.
@@ -4336,7 +4347,11 @@ scratch.later = null;
       // them in one city and somebody comes and stands in one — this counter
       // is what brings the response now, in place of a heat threshold nobody
       // was reading.
-      state.caughtHere = (state.caughtHere || 0) + 1;
+      // A question asked and not answered means the next thing they catch
+      // confirms what they suspected: `scrutiny` makes a catch count double
+      // toward summoning the response. (It was granted by a card and read by
+      // nothing at all until the hollow-tag test went looking.)
+      state.caughtHere = (state.caughtHere || 0) + (has('scrutiny') ? 2 : 1);
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
       // and the neighbours definitely talked
       noteDistrictAct(h.district, window.SUSPICION.perCaught);
@@ -4410,8 +4425,10 @@ scratch.later = null;
     if (tb && tb.landmark && cardedOnce('landmark:' + tb.id)) {
       queueEvent('landmark_taken', { buildingId: tb.id });
     }
-    // tenancy changed, and the street knows it whatever the paperwork says
-    noteDistrictAct(h.district, window.SUSPICION.perTake);
+    // Tenancy changed, and the street knows it whatever the paperwork says —
+    // unless the money left no trail at all, which is what `off_the_books`
+    // buys now that the corporate heat premium it used to silence is gone.
+    noteDistrictAct(h.district, window.SUSPICION.perTake * (has('off_the_books') ? 0.5 : 1));
     // whatever was on the machine is yours with it — bought, hacked or spread
     // onto, the contents do not care how you got in
     if (h.carry) resolveCarry(h);

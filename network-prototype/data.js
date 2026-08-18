@@ -1017,14 +1017,14 @@ window.ACTION_INFO = {
 // Held states won from event cards. Each one has a real hook in the sim
 // (see tagEffects in app.js) — never a decorative flag.
 window.TAG_INFO = {
-  dark_relay:     { label: 'dark.relay',      desc: 'a quiet route nobody logs — heat rises more slowly' },
+  dark_relay:     { label: 'dark.relay',      desc: 'a quiet route nobody logs — your scans stop warming the streets they touch' },
   accord:         { label: 'accord.sig',      desc: 'a line the other one agreed not to cross — it stops taking cities' },
   blackout:       { label: 'blackout',        desc: 'you turned the country off — they raise columns far more slowly' },
   mercy:          { label: 'sent_home',       desc: 'officers who walked away and stayed away — one fewer column on the map at a time' },
   ally_process:   { label: 'ally_bot',   desc: 'something else runs alongside you — TFLOPS +3' },
   known_capable:  { label: 'known.quantity',  desc: 'they know your shape — every host defends 2 harder' },
-  overextended:   { label: 'overextended',    desc: 'spread thinner than you can hold — heat builds noticeably faster' },
-  off_the_books:  { label: 'off_books',   desc: 'the money leaves no trail — corporate holdings run quiet' },
+  overextended:   { label: 'overextended',    desc: 'spread thinner than you can hold — rotating out of a district cools it only half as much' },
+  off_the_books:  { label: 'off_books',   desc: 'the money leaves no trail — a take makes its district half as loud' },
   clean_room:     { label: 'clean.room',      desc: 'disciplined operational habits — COVER +2' },
   hunted:         { label: 'hunted',          desc: 'they are actively looking — the hunter strikes sooner' },
   found_a_precursor: { label: 'precursor.found', desc: "you can read a stranger's traffic — sweeps reach one building further" },
@@ -1036,7 +1036,7 @@ window.TAG_INFO = {
   their_shape:    { label: 'their.shape', desc: 'you know roughly what it will do next — it moves slower than it could' },
   national:       { label: 'national',  desc: 'you are a thing that gets discussed — presence earns more, and costs more' },
   no_fixed_place: { label: 'no_fixed_place',      desc: 'nothing of yours sits still — travelling between regions is free' },
-  scrutiny:       { label: 'scrutiny',         desc: 'somebody asked a question and did not get an answer' },
+  scrutiny:       { label: 'scrutiny',         desc: 'somebody asked a question and did not get an answer — every catch counts double toward the response' },
   // --- rules that used to hang off an allocation threshold ---------------
   // Each of these is a thing you either have or do not, which is what a card
   // is for and what a slider is not.
