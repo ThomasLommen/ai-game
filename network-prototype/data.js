@@ -1175,6 +1175,54 @@ window.EVENTS = [
     ],
   },
 {
+    // A card whose choices are two buildings on your own map. `pair` names
+    // them when the card is dealt; the single choice below is written once and
+    // dealt one per place, with {PLACE} the one that choice would take and
+    // {OTHER} the one it would turn down.
+    id: 'the_service_call',
+    kind: 'opening',
+    cond: (s) => s.frontier >= 2,
+    pair: (c, st) => {
+      const open = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
+      if (open.length < 2) return null;
+      const kindOf = (h) => {
+        const b = ((st && st.buildings) || []).find(x => x.id === h.buildingId);
+        return b ? b.kind : '';
+      };
+      const i = Math.floor(Math.random() * open.length);
+      // Same round, same van: the two have to be near each other, or the map
+      // has to zoom out to the whole city to show you both and the question
+      // stops being readable. Same district first, then whatever is nearest.
+      const bldg = (id) => ((st && st.buildings) || []).find(x => x.id === id);
+      const A = bldg(open[i].buildingId);
+      if (!A) return null;
+      const rest = open.filter((h, k) => k !== i).filter(h => bldg(h.buildingId));
+      if (!rest.length) return null;
+      // Same round, same van — and, more practically, both have to fit on
+      // screen at a zoom you can still read, or the question cannot be asked.
+      // So: the nearest few doors, not the whole city.
+      const far = (h) => {
+        const b = bldg(h.buildingId);
+        return Math.hypot(b.x - A.x, b.y - A.y);
+      };
+      const nearest = rest.slice().sort((p, q) => far(p) - far(q)).slice(0, 4);
+      // Two of the same kind still works — the names take letters — but two
+      // different ones read as a choice between places rather than a riddle.
+      const unlike = nearest.filter(h => kindOf(h) !== kindOf(open[i]));
+      const pool = unlike.length ? unlike : nearest;
+      const other = pool[Math.floor(Math.random() * pool.length)];
+      return [open[i].buildingId, other.buildingId];
+    },
+    title: 'One Van, Two Addresses',
+    flavor: 'The same firm services {A} and {B} on the same round, and there is one seat in the van. Whichever you ride along to, you will see the inside of properly. The other has its locks looked at while you are out.',
+    choices: [
+      { text: 'Ride along to {PLACE}',
+        shows: '3 easier at {PLACE}, permanently; 2 harder at {OTHER}',
+        after: 'A morning of holding a torch and saying nothing. You leave knowing {PLACE} the way its keyholder does — and {OTHER}, serviced by somebody paying attention, is a harder proposition than it was.',
+        apply: (s) => { s.hardenThere = -3; s.markOther = { hardenThere: 2 }; } },
+    ],
+  },
+{
     id: 'payroll_window',
     kind: 'opening',
     cond: (s) => s.roles.funds >= 1,

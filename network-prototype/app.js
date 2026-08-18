@@ -2491,7 +2491,7 @@
       // so a lively stretch is never also a chatty one.
       const ev = drawEvent();
       if (ev) {
-        const subject = ev.subject ? safeSubject(ev) : null;
+        const subject = (ev.subject || ev.pair) ? safeSubject(ev) : null;
         state.card = { kind: 'event', eventId: ev.id, subject };
         noteEventDrawn(ev.id);
       }
@@ -3288,6 +3288,9 @@
       caughtHere: caughtHere(),
       hunt: huntOn(),
       keys: state.keys || 0,
+      // doors standing open on your edge — a card that asks you to choose
+      // between two places needs to know there are two to choose between
+      frontier: state.hosts.filter(isFrontier).length,
       // --- the country, so a card can be about where you are as well as what
       // you hold.
       scope: state.scope,
@@ -3386,7 +3389,11 @@
     const ctx = eventContext();
     return window.EVENTS.filter(e => {
       if (e.once && state.eventsSeen.indexOf(e.id) !== -1) return false;
-      try { return e.cond(ctx); } catch (err) { return false; }
+      try { if (!e.cond(ctx)) return false; } catch (err) { return false; }
+      // A card whose choices are two places cannot be dealt when the map
+      // cannot supply two — its cond is only half the question.
+      if (e.pair) { const s = safeSubject(e); return !!(s && s.pair); }
+      return true;
     });
   }
   // Measured: 9 distinct events across 45 draws a game — you saw the same card
@@ -3460,6 +3467,13 @@
     if (!Object.keys(m).length) delete state.marks[bid];
     return m;
   }
+  // A building stops claiming a back door the moment that street is gone.
+  function forgetOpened(bid, gone) {
+    const m = markOf(bid);
+    if (!m || !m.opened) return;
+    const left = m.opened.filter(x => x !== gone);
+    setMark(bid, 'opened', left.length ? left : null);
+  }
   const baitAt = (bid) => !!(markOf(bid) || {}).bait;
   const watchedAt = (bid) => !!(markOf(bid) || {}).watch;
   const hardenAt = (bid) => ((markOf(bid) || {}).harden) || 0;
@@ -3473,7 +3487,23 @@
   // {PLACE} is the building, {DISTRICT} the district, {LINE} whatever prose
   // the trigger packed in (a diary's line, say).
   function safeSubject(ev) {
+    // A card that asks about the map names two places when it is dealt, and
+    // the choice between them is the card. Same contract as any other
+    // subject: chance happens here, upstream, not when you press the button.
+    if (ev.pair) {
+      try {
+        const two = ev.pair(eventContext(), state) || [];
+        const ok = two.filter(id => buildingById(id));
+        return ok.length === 2 ? { pair: ok } : null;
+      } catch (e) { return null; }
+    }
+    if (!ev.subject) return null;
     try { return ev.subject(eventContext(), state) || null; } catch (e) { return null; }
+  }
+  // A building, by the name the player reads on the map.
+  function bldgName(bid) {
+    const b = buildingById(bid);
+    return b ? 'the ' + (window.BUILDING_KINDS[b.kind] || { label: b.kind }).label : '';
   }
   function subjectNames(subject) {
     const out = { place: '', district: '' };
@@ -3489,10 +3519,50 @@
   function cardText(text, subject) {
     if (!text) return '';
     const n = subjectNames(subject);
+    const pair = (subject && subject.pair) || [];
+    // Two buildings of the same kind make every line of a map question read
+    // "the house … the house". When that happens the names carry the same
+    // letters the map is wearing; when it does not, they stay clean prose.
+    const clash = pair.length === 2 && bldgName(pair[0]) === bldgName(pair[1]);
+    const named = (bid) => {
+      const nm = bldgName(bid);
+      if (!nm || !clash) return nm;
+      const i = pair.indexOf(bid);
+      return i === -1 ? nm : `${nm} (${i === 0 ? 'A' : 'B'})`;
+    };
     return text
-      .replace(/\{PLACE\}/g, n.place || 'the building')
+      .replace(/\{PLACE\}/g, (subject && subject.buildingId && named(subject.buildingId)) || n.place || 'the building')
       .replace(/\{DISTRICT\}/g, n.district || 'the city')
-      .replace(/\{LINE\}/g, (subject && subject.line) || '');
+      .replace(/\{LINE\}/g, (subject && subject.line) || '')
+      // the two places a card asks you to choose between, and — inside one of
+      // those choices — the one you would be turning down
+      .replace(/\{A\}/g, named(pair[0]) || 'one of them')
+      .replace(/\{B\}/g, named(pair[1]) || 'the other')
+      .replace(/\{OTHER\}/g, named(subject && subject.otherId) || 'the other');
+  }
+  // A card that asks about the map carries one choice, written once, and the
+  // engine deals it one per place. The choices ARE the buildings — which is
+  // the deepest the deck and the map can point at each other.
+  function cardChoices(ev, card) {
+    const pair = (card && card.subject && card.subject.pair) || null;
+    if (!ev.pair || !pair || !ev.choices || !ev.choices.length) return ev.choices || [];
+    const tpl = ev.choices[0];
+    return pair.map((bid, i) => Object.assign({}, tpl, {
+      pick: bid,
+      other: pair[1 - i],
+      letter: i === 0 ? 'A' : 'B',
+    }));
+  }
+  // The subject one of those choices would land on: the place it names, with
+  // the one it turns down carried alongside so {OTHER} has something to say.
+  function pickSubject(card, ch) {
+    if (!ch || !ch.pick) return card ? card.subject : null;
+    const b = buildingById(ch.pick);
+    return {
+      buildingId: ch.pick, otherId: ch.other,
+      district: b ? b.district : null,
+      pair: (card.subject || {}).pair || null,
+    };
   }
   // the district a card's effects land in, however the subject was given
   function subjectDistrict(subject) {
@@ -3562,6 +3632,32 @@
     return false;
   }
 
+  // The five verbs, applied to one building. Written once so that the place a
+  // card is about and the place it turned down go through exactly the same
+  // door — a card that asks you to choose between two buildings must not be
+  // able to do something to the loser that it could not do to the winner.
+  function applyMarks(b, spec) {
+    if (!b || !spec) return [];
+    const done = [];
+    for (let i = 0; i < (spec.openLink | 0); i++) {
+      if (openLinkFrom(b.id)) done.push('a way through that was not there before');
+    }
+    for (let i = 0; i < (spec.cutLink | 0); i++) {
+      if (cutLinkAt(b.id)) done.push('a street closed for good');
+    }
+    if (spec.bait) { setMark(b.id, 'bait', true); revealBuilding(b); done.push('a door left open on purpose'); }
+    if (spec.hardenThere) {
+      setMark(b.id, 'harden', hardenAt(b.id) + spec.hardenThere);
+      done.push(spec.hardenThere > 0 ? 'a door that is harder now' : 'a door that gives easier now');
+    }
+    if (spec.watchThere) { setMark(b.id, 'watch', true); revealBuilding(b); done.push('somewhere they would rather look'); }
+    if (done.length) {
+      const nm = (window.BUILDING_KINDS[b.kind] || { label: b.kind }).label;
+      pushLog(`The ${nm} is different now: ${done.join(', ')}.`);
+    }
+    return done;
+  }
+
   // A street closed for good. The one verb here that can hurt the map, so it
   // checks three things: it will not orphan a building, it will not shut your
   // last door, and it will never cut a bridge — the city stays one place you
@@ -3571,8 +3667,13 @@
     if (near.length <= 1) return null;
     const frontierBefore = state.hosts.filter(isFrontier).length;
     const strandedBefore = strandedHosts().length;
+    // A street a card opened is one you went to some trouble for; the cut
+    // takes any other first. If there is no other it can still go — but then
+    // the mark has to stop claiming a route that is not there any more.
+    const mine = ((markOf(bid) || {}).opened) || [];
     const order = near.slice().sort((a, b) =>
-      (state.adjacency[b] || []).length - (state.adjacency[a] || []).length);
+      ((mine.indexOf(a) === -1 ? 0 : 1) - (mine.indexOf(b) === -1 ? 0 : 1))
+      || ((state.adjacency[b] || []).length - (state.adjacency[a] || []).length));
     for (const other of order) {
       if ((state.adjacency[other] || []).length <= 1) continue;   // never orphan
       const beforeA = (state.adjacency[bid] || []).slice();
@@ -3596,6 +3697,8 @@
       // no `until`: repairStreets treats a dateless cut as one you made
       // yourself, and leaves it alone forever
       state.cuts = (state.cuts || []).concat([{ a: bid, b: other }]);
+      forgetOpened(bid, other);
+      forgetOpened(other, bid);
       dropGroundCache();
       return { a: bid, b: other };
     }
@@ -3646,7 +3749,8 @@
     if (!card || card.kind !== 'event') return;
     const ev = eventById(card.eventId);
     if (!ev) { state.card = null; render(); return; }
-    const ch = ev.choices[index];
+    const chs = cardChoices(ev, card);
+    const ch = chs[index];
     if (!ch || !choiceUsable(ch)) return;
 
     const before = beforeSnap();
@@ -3656,8 +3760,11 @@
     // events describe their effects declaratively; these two are board-level
     // outcomes the card can ask for without knowing how the graph works
     const scratch = state;
-    // what the card is about, so effects can land where the words point
-    const subject = card.subject || null;
+    // What the card is about, so effects can land where the words point. On a
+    // card that asked about the map, that is the place you picked — and it is
+    // written back onto the card, so the ending and the map both know.
+    const subject = ch.pick ? pickSubject(card, ch) : (card.subject || null);
+    if (ch.pick) card.subject = subject;
     scratch.here = subjectDistrict(subject);
     scratch.coolHere = 0;
     scratch.warmHere = 0;
@@ -3693,25 +3800,14 @@ scratch.later = null;
     scratch.bait = false;       // a door left open on purpose
     scratch.hardenThere = 0;    // this one door, harder or softer, for good
     scratch.watchThere = false; // where the response would rather walk
+    // ...and, on a card that asked you to choose between two places, what
+    // happens to the one you did not pick. Same five verbs, same shape.
+    scratch.markOther = null;
     ch.apply(scratch);
-    // All five land on the building the card was about — that is the whole
+    // The five land on the building the card was about — that is the whole
     // point of a mark, and it is why they only exist on cards with a subject.
-    const mb = subjectBuilding(subject);
-    if (mb) {
-      const done = [];
-      for (let i = 0; i < (scratch.openLink | 0); i++) { if (openLinkFrom(mb.id)) done.push('a way through that was not there before'); }
-      for (let i = 0; i < (scratch.cutLink | 0); i++) { if (cutLinkAt(mb.id)) done.push('a street closed for good'); }
-      if (scratch.bait) { setMark(mb.id, 'bait', true); revealBuilding(mb); done.push('a door left open on purpose'); }
-      if (scratch.hardenThere) {
-        setMark(mb.id, 'harden', hardenAt(mb.id) + scratch.hardenThere);
-        done.push(scratch.hardenThere > 0 ? 'a door that is harder now' : 'a door that gives easier now');
-      }
-      if (scratch.watchThere) { setMark(mb.id, 'watch', true); revealBuilding(mb); done.push('somewhere they would rather look'); }
-      if (done.length) {
-        const nm = (window.BUILDING_KINDS[mb.kind] || { label: mb.kind }).label;
-        pushLog(`The ${nm} is different now: ${done.join(', ')}.`);
-      }
-    }
+    applyMarks(subjectBuilding(subject), scratch);
+    if (scratch.markOther) applyMarks(buildingById(subject && subject.otherId), scratch.markOther);
     // Suspicion, addressed to the card's own district. Cooling is direct —
     // a card resolving "you went quiet there" is not the rotation rule —
     // and both are clamped by warmDistrict's own arithmetic.
@@ -3790,6 +3886,7 @@ scratch.later = null;
     scratch.bait = false;
     scratch.hardenThere = 0;
     scratch.watchThere = false;
+    scratch.markOther = null;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -7978,7 +8075,11 @@ scratch.later = null;
     // district for a subject lights the whole district instead, so "something
     // is happening" always resolves to "something is happening *there*".
     const cs = !drawingInset && state.card ? state.card.subject : null;
+    // A card asking about two places lights both of them, and letters them, so
+    // "the shopfront or the shopfront" is never the question.
+    const pairIdx = cs && cs.pair && !cs.buildingId ? cs.pair.indexOf(b.id) : -1;
     if (cs && cs.buildingId === b.id) cls.push('card-subject');
+    else if (pairIdx !== -1) cls.push('card-subject', 'card-pick');
     else if (cs && !cs.buildingId && cs.district && b.district === cs.district) cls.push('card-district');
     // What a card did here, still on the map twenty turns later. A mark that
     // could not be seen would be a number pretending to be a place.
@@ -8000,6 +8101,10 @@ scratch.later = null;
     if (cls.includes('card-subject')) {
       out += `<rect class="subject-ring" x="${(b.x - 5).toFixed(1)}" y="${(b.y - 5).toFixed(1)}"`
         + ` width="${(b.w + 10).toFixed(1)}" height="${(b.h + 10).toFixed(1)}" rx="6"/>`;
+      if (pairIdx !== -1) {
+        out += `<text class="pick-tag" x="${(b.x - 5).toFixed(1)}" y="${(b.y - 8).toFixed(1)}">`
+          + `${pairIdx === 0 ? 'A' : 'B'}</text>`;
+      }
     }
     // the marks a card left here, drawn small and permanently
     if (!drawingInset && mk) {
@@ -10282,11 +10387,16 @@ scratch.later = null;
         : (K ? K.kicker : 'WORD REACHES YOU');
       // A delivered beat — one option, nothing actually being decided — is
       // not the same size of event as the response arriving.
-      const beat = ev.choices.length === 1 ? ' beat' : '';
+      // A card that asks about the map deals one choice per place, from a
+      // single template — so the choices ARE the two buildings.
+      const chs = cardChoices(ev, state.card);
+      const asks = !!(chs[0] && chs[0].pick);
+      const beat = chs.length === 1 ? ' beat' : '';
       // The building this is about, drawn onto the card — but only one that is
       // actually on your map. A card cannot show you a place you have not
-      // found; that would be the deck telling you where to go.
-      const sb = subject && subject.buildingId ? buildingById(subject.buildingId) : null;
+      // found; that would be the deck telling you where to go. A card asking
+      // about two places puts the drawing on each choice instead.
+      const sb = !asks && subject && subject.buildingId ? buildingById(subject.buildingId) : null;
       const inset = sb && sb.discovered ? svgBuildingCard(sb) : '';
       $p.innerHTML = `
         ${cardResourceStrip(ev)}
@@ -10303,10 +10413,15 @@ scratch.later = null;
             ${inset}
           </div>
         </div>
-        <div class="choices">
-          ${ev.choices.map((ch, i) => {
+        <div class="choices${asks ? ' asks' : ''}">
+          ${chs.map((ch, i) => {
             const usable = choiceUsable(ch);
             const why = usable ? '' : shortOf(ch);
+            // On a card about two places, everything this choice says is said
+            // about its own building — and it carries that building, drawn,
+            // plus the letter the map is wearing.
+            const cs = ch.pick ? pickSubject(state.card, ch) : subject;
+            const pb = ch.pick ? buildingById(ch.pick) : null;
             // The transparency flip: what a choice does is stated, exactly,
             // the way the panel states a race. Hidden outcomes survive only
             // as the marked `gamble` kind — a gamble that announces itself
@@ -10314,11 +10429,14 @@ scratch.later = null;
             const contracts = [];
             if (why) contracts.push(`<span class="short">${why}</span>`);
             if (ch.cost && ch.cost.funds && usable) contracts.push(`<span class="cshow cost">&minus;${ch.cost.funds} funds</span>`);
-            if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, subject)}</span>`);
+            if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, cs)}</span>`);
             if (ch.gamble) contracts.push('<span class="gamble-tell">could go either way</span>');
-            return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}" data-choice="${i}" ${usable ? '' : 'disabled'}>
-              <span class="ctext">${ch.text}</span>
-              <span class="contracts">${contracts.join('')}</span>
+            return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}${ch.pick ? ' pick' : ''}" data-choice="${i}"${ch.pick ? ` data-pick="${ch.pick}"` : ''} ${usable ? '' : 'disabled'}>
+              ${pb && pb.discovered ? svgBuildingCard(pb) : ''}
+              <span class="cwords">
+                <span class="ctext">${ch.letter ? `<span class="pick-letter mono">${ch.letter}</span>` : ''}${cardText(ch.text, cs)}</span>
+                <span class="contracts">${contracts.join('')}</span>
+              </span>
             </button>`;
           }).join('')}
         </div>`;
@@ -10399,17 +10517,24 @@ scratch.later = null;
     // The ending carries the same subject as the question did, so the walk is
     // keyed on the place rather than on the card — the map holds still while a
     // card resolves instead of jumping back for one tap.
-    const ck = state.card && state.card.subject
-      ? (state.card.subject.buildingId || state.card.subject.district || '') : null;
+    const csub = state.card && state.card.subject;
+    const ck = csub
+      ? (csub.buildingId || (csub.pair || []).join('+') || csub.district || '') : null;
     if (ck && ck !== lastCardFocus) {
       const sj = state.card.subject;
       const bs = sj.buildingId
         ? [buildingById(sj.buildingId)].filter(Boolean)
-        : (state.buildings || []).filter(b => b.discovered && b.district === sj.district);
+        : sj.pair
+          ? sj.pair.map(buildingById).filter(Boolean)
+          : (state.buildings || []).filter(b => b.discovered && b.district === sj.district);
       // One point, always — the middle of what the card is about. Framing a
       // whole district's worth of buildings zooms the map out to the city,
-      // which is the opposite of walking somewhere.
-      if (bs.length) {
+      // which is the opposite of walking somewhere. The exception is a card
+      // asking about two places: there, both of them have to be on screen or
+      // the question cannot be read, so the frame widens to hold them.
+      if (sj.pair && bs.length === 2) {
+        focusOn(bs.map(b => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 })));
+      } else if (bs.length) {
         const cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / bs.length;
         const cy = bs.reduce((a, b) => a + b.y + b.h / 2, 0) / bs.length;
         focusOn([{ x: cx, y: cy }]);
@@ -10459,7 +10584,7 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject,
+    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,

@@ -549,7 +549,10 @@ test('data integrity: every event is reachable, well formed, and references real
   window.EVENTS.forEach(e => {
     assert.ok(e.title && e.flavor, `${e.id} has text`);
     assert.ok(typeof e.cond === 'function', `${e.id} has a condition`);
-    assert.ok(e.choices.length >= (isBeat(e) ? 1 : 2), `${e.id} offers a real choice`);
+    // A card that asks about the map carries one template and is dealt one
+    // choice per place, so its written length is 1 and its real width is 2.
+    const width = e.pair ? 2 : e.choices.length;
+    assert.ok(width >= (isBeat(e) ? 1 : 2), `${e.id} offers a real choice`);
     e.choices.forEach(ch => {
       assert.ok(ch.text, `${e.id} choice has text`);
       assert.ok(typeof ch.apply === 'function', `${e.id} choice has an effect`);
@@ -1830,7 +1833,7 @@ function sampleContexts(window) {
     pub: 0, pubTier: 'unknown',
     // the city game's pressure, which the deck now reads (see the deck rework)
     susp: { by: {}, max: 0, warmest: null, talking: 0, spoken: 6 },
-    caughtHere: 0, hunt: false, keys: 0,
+    caughtHere: 0, hunt: false, keys: 0, frontier: 0,
     grid: { tflops: 5, power: 16, usable: 5, idle: 0, drawn: 0, free: 5, sites: 0,
             covert: 0, dev: 0, intel: 0, agents: 0, ap: 0 },
     rig: { mounted: 'brute', quiet: false, running: 0, sinceTraced: 999 },
@@ -2075,13 +2078,17 @@ function sampleContexts(window) {
   [0, 10, 15, 22, 30].forEach(max => {
     [0, 1, 2].forEach(talking => {
       [0, 2, 4].forEach(caught => {
-        out.push(base({ over: {
-          held: 12, doors: 12, turn: 30,
-          districts: { residential: 3, commercial: 3, business: 2, industrial: 1 },
-          susp: { by: { commercial: max }, max, warmest: max > 0 ? 'commercial' : null, talking, spoken: 6 },
-          caughtHere: caught, hunt: caught >= 3,
-          res: { funds: 40 },
-        } }));
+        // ...and how many doors stand open on your edge, which is what a card
+        // that asks you to choose between two places has to know.
+        [0, 1, 3].forEach(frontier => {
+          out.push(base({ over: {
+            held: 12, doors: 12, turn: 30, frontier,
+            districts: { residential: 3, commercial: 3, business: 2, industrial: 1 },
+            susp: { by: { commercial: max }, max, warmest: max > 0 ? 'commercial' : null, talking, spoken: 6 },
+            caughtHere: caught, hunt: caught >= 3,
+            res: { funds: 40 },
+          } }));
+        });
       });
     });
   });
@@ -2142,7 +2149,8 @@ test('deck: card ids are unique and every card is a real decision', () => {
   window.EVENTS.forEach(e => {
     assert.ok(e.title && e.flavor, `${e.id} has no prose`);
     // drawn cards are decisions; delivered beats (the diary) may be one option
-    assert.ok(e.choices && e.choices.length >= (isBeat(e) ? 1 : 2), `${e.id} is not a choice`);
+    const width = e.pair ? 2 : (e.choices || []).length;
+    assert.ok(e.choices && width >= (isBeat(e) ? 1 : 2), `${e.id} is not a choice`);
     e.choices.forEach((ch, i) => {
       assert.ok(ch.text, `${e.id}[${i}] has no text`);
       assert.equal(typeof ch.apply, 'function', `${e.id}[${i}] does nothing`);
@@ -10149,7 +10157,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 48, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 49, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -10323,6 +10331,120 @@ test('cards: a card cannot show you a place you have not found', () => {
   s.card = null;
 });
 
+// --- cards that ask about the map -----------------------------------------
+
+function askingCard(window, d) {
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  const ev = window.EVENTS.find(e => e.id === 'the_service_call');
+  const subject = d.safeSubject(ev);
+  s.card = { kind: 'event', eventId: ev.id, subject };
+  return { ev, subject };
+}
+
+test('cards: a card can ask about the map, and its choices are the places', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const { ev, subject } = askingCard(window, d);
+  assert.ok(subject && subject.pair && subject.pair.length === 2, 'the card named no pair');
+  assert.equal(ev.choices.length, 1, 'a card that asks about the map is written once, not once per place');
+
+  const chs = d.cardChoices(ev, d.state.card);
+  assert.equal(chs.length, 2, 'the template was not dealt one per place');
+  // joined rather than deep-compared: these arrays are built in the vm's realm,
+  // so a structural compare against a literal fails on prototypes alone
+  assert.equal(chs.map(c => c.pick).join(','), subject.pair.join(','), 'the choices are not the two places');
+  assert.equal(chs.map(c => c.letter).join(''), 'AB', 'the places are not lettered');
+
+  // each choice speaks about its own building, and names the one it turns down
+  chs.forEach((ch, i) => {
+    const cs = d.pickSubject(d.state.card, ch);
+    const mine = d.bldgName(ch.pick), theirs = d.bldgName(ch.other);
+    assert.ok(d.cardText(ch.text, cs).includes(mine.replace(/^the /, '')),
+      `choice ${i} does not name its own place`);
+    assert.notEqual(ch.pick, ch.other, 'a choice turned down the place it picked');
+    if (mine !== theirs) {
+      assert.ok(d.cardText(ch.shows, cs).includes(theirs.replace(/^the /, '')),
+        `choice ${i} does not say what happens to the other one`);
+    }
+  });
+  d.state.card = null;
+});
+
+test('cards: two places of the same kind take the letters the map is wearing', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  // force the ambiguous case: two buildings the map calls the same thing
+  const same = {};
+  s.buildings.forEach(b => { (same[b.kind] = same[b.kind] || []).push(b.id); });
+  const twin = Object.keys(same).find(k => same[k].length >= 2);
+  const pair = same[twin].slice(0, 2);
+  const sub = { pair, buildingId: pair[0], otherId: pair[1] };
+  const line = d.cardText('{PLACE} and {OTHER}', sub);
+  assert.ok(/\(A\)/.test(line) && /\(B\)/.test(line),
+    `two of a kind read as the same place: "${line}"`);
+
+  // ...and two different kinds stay clean prose
+  const other = s.buildings.find(b => b.kind !== twin);
+  const mixed = { pair: [pair[0], other.id], buildingId: pair[0], otherId: other.id };
+  assert.ok(!/\([AB]\)/.test(d.cardText('{PLACE} and {OTHER}', mixed)),
+    'the letters turned up where the names were already distinct');
+});
+
+test('cards: picking one place applies to that one and not the other', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const { subject } = askingCard(window, d);
+  const [a, b] = subject.pair;
+  s.res.funds = 1000;
+  d.resolveEvent(0);                        // ride along to A
+  assert.ok(d.hardenAt(a) < 0, 'the place you picked was not made easier');
+  assert.ok(d.hardenAt(b) > 0, 'the place you turned down was not made harder');
+  // the card now knows which one it was about, so its ending and the map agree
+  assert.equal(s.card && s.card.kind, 'after');
+  assert.equal(s.card.subject.buildingId, a, 'the ending is about the wrong place');
+  s.card = null;
+});
+
+test('cards: a map question is never asked when the map cannot answer it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const ev = window.EVENTS.find(e => e.id === 'the_service_call');
+  // nothing open at all: no pair, and the card is not eligible whatever its cond says
+  s.hosts.forEach(h => { h.discovered = false; h.owned = false; });
+  assert.equal(d.safeSubject(ev), null, 'the card invented two places out of an empty map');
+  assert.ok(d.eligibleEvents().indexOf(ev) === -1, 'a card with no pair was still dealt');
+});
+
+test('cards: both places are lit, lettered, and on screen together', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const { subject } = askingCard(window, d);
+  const [a, b] = subject.pair;
+  const lit = s.buildings.filter(x => /\bcard-subject\b/.test(d.svgBuilding(x)));
+  assert.equal(lit.map(x => x.id).sort().join(','), [a, b].sort().join(','),
+    'the map is not lighting exactly the two places');
+  assert.ok(/>A</.test(d.svgBuilding(d.buildingById(a))), 'the first place is not lettered A');
+  assert.ok(/>B</.test(d.svgBuilding(d.buildingById(b))), 'the second place is not lettered B');
+
+  // and the map actually frames both, or the question cannot be read
+  d.render();
+  const v = s.view;
+  [a, b].forEach(id => {
+    const x = d.buildingById(id);
+    const cx = x.x + x.w / 2, cy = x.y + x.h / 2;
+    assert.ok(cx >= v.x && cx <= v.x + v.w && cy >= v.y && cy <= v.y + v.h,
+      `${id} is off screen while the card is asking about it`);
+  });
+  s.card = null;
+});
+
 // --- marks: the one thing only a card can do ------------------------------
 
 function componentsOfCity(d) {
@@ -10367,9 +10489,11 @@ test('marks: a street a card closed does not come back', () => {
   const d = window.__netDebug;
   const s = d.state;
   s.buildings.forEach(b => { b.discovered = true; });
-  const from = s.buildings.find(b => (s.adjacency[b.id] || []).length >= 2);
-  const done = d.cutLinkAt(from.id);
-  assert.ok(done, 'nowhere in the city had a street to spare');
+  // Not every building has a street to spare — a cut is refused if it would
+  // orphan, strand, or sever the city — so ask around rather than assuming.
+  let done = null;
+  for (const b of s.buildings) { done = d.cutLinkAt(b.id); if (done) break; }
+  assert.ok(done, 'nowhere in the whole city had a street to spare');
   assert.equal((s.adjacency[done.a] || []).indexOf(done.b), -1, 'the street is still there');
   const cuts = (s.cuts || []).length;
   // The Cut's own streets are relaid on a timer; one you made is not.
@@ -10389,7 +10513,10 @@ test('marks: what a card leaves is still there after a save', () => {
   d.setMark(b1.id, 'harden', 4);
   d.setMark(b2.id, 'watch', true);
   const link = d.openLinkFrom(b0.id);
-  const cut = d.cutLinkAt(s.buildings.find(b => (s.adjacency[b.id] || []).length >= 2).id);
+  // somewhere other than b0, so the cut is not quietly undoing the open
+  const cutAt = s.buildings.find(b => b.id !== b0.id && b.id !== (link || {}).b
+    && (s.adjacency[b.id] || []).length >= 2);
+  const cut = cutAt ? d.cutLinkAt(cutAt.id) : null;
 
   const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
   // compared as text: the live state lives in the vm's realm, so a structural
@@ -10401,11 +10528,32 @@ test('marks: what a card leaves is still there after a save', () => {
   assert.equal((back.cuts || []).length, (s.cuts || []).length, 'the record of the cut was lost');
 });
 
+test('marks: a building stops claiming a back door once the street is gone', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  let from = null, link = null;
+  for (const b of s.buildings) { link = d.openLinkFrom(b.id); if (link) { from = b; break; } }
+  assert.ok(link, 'nowhere in the city had a shortcut to open');
+  assert.ok(/not on any plan/.test(d.markLine(from.id)), 'the new street is not claimed');
+
+  // The cut takes any other street first — a route you went to trouble for is
+  // not the one to spend. Cut everything until only the opened one is left.
+  for (let i = 0; i < 40; i++) if (!d.cutLinkAt(from.id)) break;
+  const stillThere = (s.adjacency[from.id] || []).indexOf(link.b) !== -1;
+  assert.equal(/not on any plan/.test(d.markLine(from.id)), stillThere,
+    'the building is claiming a back door that is not there any more');
+});
+
 test('marks: every mark changes a rule, and says so on the building', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
   const s = d.state;
-  const b = s.buildings.find(x => d.hostsIn(x).length);
+  // a door with room to be softened: defenseOf floors at 1, so a weak one
+  // cannot show the full change
+  const b = s.buildings.find(x => (d.hostsIn(x)[0] || {}).defense >= 6)
+    || s.buildings.find(x => d.hostsIn(x).length);
   const h = d.hostsIn(b)[0];
 
   // harder for good, and the door says by how much
@@ -10414,7 +10562,7 @@ test('marks: every mark changes a rule, and says so on the building', () => {
   assert.equal(d.defenseOf(h), base + 4, 'hardening a door did nothing to it');
   assert.ok(/defends 4 harder/.test(d.markLine(b.id)), 'the door does not say it was shored up');
   d.setMark(b.id, 'harden', -2);
-  assert.equal(d.defenseOf(h), base - 2, 'softening a door did nothing to it');
+  assert.equal(d.defenseOf(h), Math.max(1, base - 2), 'softening a door did nothing to it');
   assert.ok(/defends 2 easier/.test(d.markLine(b.id)), 'the door does not say it was weakened');
   d.setMark(b.id, 'harden', null);
 

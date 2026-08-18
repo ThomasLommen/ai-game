@@ -744,6 +744,46 @@ footer .build { opacity: .55; font-size: 10px; }
 @keyframes subjectRing { 0%, 100% { opacity: .38; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .subject-ring { animation: none; } }
 
+/* ---- a card whose choices are places ---------------------------------
+   The deepest the deck and the map can point at each other: the choice is
+   the building. Each strip carries its own building drawn, and the letter
+   the map is wearing over it, so "the shopfront or the shopfront" is never
+   the question. */
+.choices.asks .choice-strip.pick {
+  flex-direction: row;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+}
+.choice-strip.pick .card-inset {
+  width: 62px; height: 62px;
+  flex: 0 0 auto;
+  margin: 0;
+  border-radius: 8px;
+}
+.choice-strip .cwords { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.pick-letter {
+  display: inline-block;
+  min-width: 15px;
+  margin-right: 7px;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--item) 55%, var(--line));
+  border-radius: 4px;
+  color: var(--item);
+  font-size: 10px;
+  text-align: center;
+  vertical-align: 1px;
+}
+/* the same letter, on the map */
+.pick-tag {
+  fill: var(--item);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: end;
+  pointer-events: none;
+}
+
 /* ---- what a card left behind ----------------------------------------
    Marks are permanent and mechanical, so they are drawn permanently: small,
    quiet, and still there twenty turns later. Nothing else in the game can

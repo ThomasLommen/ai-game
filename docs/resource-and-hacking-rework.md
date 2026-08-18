@@ -1533,6 +1533,42 @@ fence, the door that beat you and spent the weekend making sure, the second
 you drawn three streets over for them to chase, and the street the response
 came in by, which you can take out from under both of you.
 
+### Cards ask about the map
+
+The deepest the deck and the map can point at each other: **a card whose
+choices are buildings.** A card declares `pair`, which names two places when
+the card is dealt; its `choices` array holds **one** template, written once,
+and the engine deals it one per place. `{PLACE}` is the place that choice
+would take, `{OTHER}` the one it would turn down, `{A}` and `{B}` both.
+
+Both buildings light on the map and wear letters; each choice strip carries
+its own building drawn, with the same letter. Picking one applies to it and
+the other takes the consequence — through `applyMarks`, the same function, so
+a card can never do something to the place you turned down that it could not
+do to the one you took.
+
+Three things the shot caught that the design did not:
+
+- **Two buildings of the same kind made every line read "the house … the
+  house".** When the two names collide the prose takes the same letters the
+  map is wearing — *the house (A)* — and stays clean when they do not.
+- **A pair across the city zoomed the map out to the whole city**, which is
+  the one case where framing both points is right and still unreadable. The
+  pair is now drawn from the four nearest open doors, which is also what "the
+  same van on the same round" always meant.
+- **"the apartments defends 2 harder"** — the preview now reads *2 harder at
+  {OTHER}*, which survives whatever the map calls the place.
+
+`the_service_call` is the first: one seat in the van, two addresses on the
+round.
+
+One rule the suite pushed back on afterwards: **the cut prefers any street
+over one a card opened**, and if it has to take that one anyway, the building
+stops claiming a back door it no longer has. A mark that outlives the thing it
+describes is worse than no mark. The one you ride along to defends 3 easier for good; the one you skip
+gets its locks looked at and defends 2 harder. No funds, no valence — a
+question about your own map, answered on your own map.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

@@ -114,19 +114,23 @@ through 4,080 cuts. Six tests hold it, including the save round-trip.
 
 ---
 
-## Stage 4 — Cards ask about the map *(one session)*
+## Stage 4 — Cards ask about the map *(one session)* — **SHIPPED**
 
-The deepest integration available: **a card whose choices are map objects.**
+`pair` names two buildings when the card is dealt; the card carries **one**
+choice template and the engine deals it one per place. Both light and wear
+letters on the map; each choice strip carries its own building drawn. The
+place you pick and the place you turn down go through the same `applyMarks`,
+so a card can never do something to the loser it could not do to the winner.
 
-"They are auditing one of these two. Which do you make clean?" — both
-buildings named, both lit on the map while the card is open, each choice
-highlighting its own building. Pick one; the other takes the consequence.
+**Check, done:** shot at 390px — both ringed and lettered, both on screen,
+each strip carrying its own art. Five tests hold it. Three faults the shot
+caught: two buildings of the same kind read as one place (the names now take
+the map's letters), a pair across the city zoomed out past readable (the pair
+is drawn from the four nearest open doors), and "the apartments defends 2
+harder" (previews now read *2 harder at {OTHER}*).
 
-**Check:** the card fires, both buildings light, and picking one applies to
-that one and not the other.
-
-**Depends on:** stage 2 (a visible map to light) and stage 3 (marks worth
-applying). Do not attempt before both.
+`the_service_call` is the first one: one seat in the van, two addresses on the
+round.
 
 ---
 
