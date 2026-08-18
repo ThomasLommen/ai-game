@@ -39,7 +39,7 @@ card reads as part of this game and not as a card game bolted on:
 
 ---
 
-## Stage 0 — Honest again *(half a session)*
+## Stage 0 — Honest again *(half a session)* — **SHIPPED**
 
 Three tags cards hand out are heat-only, so they do nothing in the city
 game — and the previews now *state* them, which makes an explicit promise of
@@ -61,18 +61,21 @@ live rule reads it. No hollow promises, permanently guarded.
 
 ---
 
-## Stage 1 — Cards look like cards *(one session)*
+## Stage 1 — Cards look like cards *(one session)* — **SHIPPED**
 
-Add `kind` to every living card (48 assignments, from the table above) and
-give each kind a real design. Plus a size hierarchy: a `beat` like the diary
-is a small card, not a full-screen interrupt with one button on it.
+All 48 living cards carry a `kind`; each kind has its design in `style.css`,
+and `window.CARD_KINDS` holds the vocabulary. Final split: closing in 13,
+your own 12, an opening 9, found 8, someone 6. Each card names its kind in
+words beside the district, so the language is learnable rather than decoded.
+The diary is the one delivered beat, and renders as a smaller card.
 
-**Check:** a contact sheet screenshot of all five kinds side by side; every
-living card has a kind; no card is colour-coded by whether its outcome is
-good — the settled rule from the grilling.
+**Check, done:** contact sheet shot at 390px, all five side by side and
+plainly distinct. Four tests hold it — every living card has a designed kind,
+five is a hard ceiling and every kind is used, the rendered card wears its
+kind and never a verdict, and an ending keeps its card's design.
 
 **Trap:** five designs is the ceiling. A sixth kind means the player is
-reading heraldry instead of a card.
+reading heraldry instead of a card. The ceiling is now a test.
 
 ---
 
@@ -185,11 +188,14 @@ best single idea in the plan but it is worthless without 2 and 3. Stage 5 is
 the one most likely to need cutting back after a playtest, so it should ship
 last of the mechanical work and be measured hard.
 
-## Open questions for the session
+## The four questions, settled
 
-1. Five kinds, or fold **an opening** into **found** for four?
-2. Do the biggest beats stay full-screen? (My vote: yes — a hierarchy needs
-   a top, and the response arriving should take the whole screen.)
-3. Should map marks be permanent, or expire? (My vote: permanent. A mark you
-   will still see in twenty turns is what makes a card matter.)
-4. Cap on live rules from stage 5 — one, or two?
+1. **Five kinds.** All five earn a design; none is a rounding error, and
+   folding *an opening* into *found* would put a door and a document in the
+   same drawer. Five is also the hard ceiling — a sixth is heraldry.
+2. **The biggest beats stay full-screen.** A hierarchy needs a top. A
+   delivered beat gets a smaller card; the response arriving takes the screen.
+3. **Map marks are permanent.** A mark you will still see in twenty turns is
+   what makes a card matter.
+4. **Two live rules, capped hard.** One is too thin to ever collide; three is
+   a second game.

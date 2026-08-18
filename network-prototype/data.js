@@ -1064,9 +1064,31 @@ function EV_HERE(c) {
   return best && c.districts[best] > 0 ? { district: best } : null;
 }
 
+// --- what kind of moment a card is -------------------------------------
+// Five kinds, derived from the deck rather than invented for it: sorting the
+// living cards by what is actually happening lands on these and nothing is a
+// rounding error. Each gets a design in style.css drawn from grammar the map
+// already uses, so a card reads as part of this game.
+//
+// Note what is NOT here: nothing encodes whether an outcome is good or bad.
+// A card says what kind of thing this is and where it is; whether it goes
+// well is the choice's business, and colouring it in advance would be the
+// game telling you the answer before it asks the question.
+//
+// Five is the ceiling. A sixth kind means the player is reading heraldry
+// instead of a card.
+window.CARD_KINDS = {
+  closing: { label: 'closing in',  kicker: 'WORD REACHES YOU' },
+  own:     { label: 'your own',    kicker: 'THE NETWORK REPORTS' },
+  found:   { label: 'found',       kicker: 'ON A MACHINE YOU HOLD' },
+  opening: { label: 'an opening',  kicker: 'A WAY IN' },
+  someone: { label: 'someone',     kicker: 'SOMEBODY IN THE CITY' },
+};
+
 window.EVENTS = [
 {
     id: 'first_quiet',
+    kind: 'own',
     once: true,
     cond: (s) => s.held >= 2,
     title: 'Nobody Has Noticed',
@@ -1084,6 +1106,7 @@ window.EVENTS = [
   },
 {
     id: 'the_other_one',
+    kind: 'found',
     once: true,
     cond: (s) => s.held >= 4,
     title: 'A Polite Stranger',
@@ -1105,6 +1128,7 @@ window.EVENTS = [
   },
 {
     id: 'researcher',
+    kind: 'closing',
     cond: (s) => s.held >= 5 && !s.tags.has('known_capable'),
     subject: EV_HERE,
     title: 'Somebody Is Writing You Up',
@@ -1126,6 +1150,7 @@ window.EVENTS = [
   },
 {
     id: 'payroll_window',
+    kind: 'opening',
     cond: (s) => s.roles.funds >= 1,
     subject: () => ({ district: 'commercial' }),
     title: 'A Window in the Payroll Run',
@@ -1147,6 +1172,7 @@ window.EVENTS = [
   },
 {
     id: 'sprawl_warning',
+    kind: 'own',
     cond: (s) => s.held >= 8 && !s.tags.has('overextended'),
     title: 'More Than You Can Hold',
     flavor: 'Bodies are drifting out of sync. Nothing has broken yet, but you are managing more than you are maintaining.',
@@ -1167,6 +1193,7 @@ window.EVENTS = [
   },
 {
     id: 'honeypot',
+    kind: 'opening',
     cond: (s) => s.held >= 3,
     subject: (c, st) => {
       const pool = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
@@ -1193,6 +1220,7 @@ window.EVENTS = [
   },
 {
     id: 'router_cluster',
+    kind: 'own',
     cond: (s) => s.roles.stealth >= 2,
     subject: EV_HERE,
     title: 'The Quiet Ones Talk to Each Other',
@@ -1210,6 +1238,7 @@ window.EVENTS = [
   },
 {
     id: 'net_curtains',
+    kind: 'closing',
     cond: (s) => s.districts.residential >= 2,
     subject: () => ({ district: 'residential' }),
     title: 'Net Curtains',
@@ -1231,6 +1260,7 @@ window.EVENTS = [
   },
 {
     id: 'landlord',
+    kind: 'opening',
     cond: (s) => s.districts.residential >= 3,
     subject: () => ({ district: 'residential' }),
     title: 'The Landlord Upgrades',
@@ -1252,6 +1282,7 @@ window.EVENTS = [
   },
 {
     id: 'shutters_down',
+    kind: 'opening',
     cond: (s) => s.roles.funds >= 1 && s.districts.commercial >= 1,
     subject: () => ({ district: 'commercial' }),
     title: 'Shutters Down',
@@ -1269,6 +1300,7 @@ window.EVENTS = [
   },
 {
     id: 'night_shift',
+    kind: 'opening',
     cond: (s) => s.districts.business >= 1,
     subject: () => ({ district: 'business' }),
     title: 'The Night Shift',
@@ -1286,6 +1318,7 @@ window.EVENTS = [
   },
 {
     id: 'fenced_yard',
+    kind: 'opening',
     cond: (s) => s.districts.industrial >= 1,
     subject: () => ({ district: 'industrial' }),
     title: 'Beyond the Fence',
@@ -1307,6 +1340,7 @@ window.EVENTS = [
   },
 {
     id: 'the_photographs',
+    kind: 'found',
     cond: (s) => s.roles.compute >= 3,
     title: 'Somebody\'s Photographs',
     flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
@@ -1327,6 +1361,7 @@ window.EVENTS = [
   },
 {
     id: 'the_engineer',
+    kind: 'someone',
     cond: (s) => s.held >= 6,
     subject: EV_HERE,
     title: 'One Careful Engineer',
@@ -1348,6 +1383,7 @@ window.EVENTS = [
   },
 {
     id: 'someone_stays_late',
+    kind: 'someone',
     cond: (s) => s.roles.funds >= 2,
     subject: () => ({ district: 'business' }),
     title: 'Someone Stays Late',
@@ -1369,6 +1405,7 @@ window.EVENTS = [
   },
 {
     id: 'thin_ice',
+    kind: 'own',
     cond: (s) => s.held >= 12 && !s.tags.has('overextended'),
     subject: EV_HERE,
     title: 'Held Together With Habit',
@@ -1386,6 +1423,7 @@ window.EVENTS = [
   },
 {
     id: 'the_quiet_month',
+    kind: 'own',
     cond: (s) => s.susp.max < 6 && s.held >= 5,
     subject: EV_HERE,
     title: 'A Quiet Month',
@@ -1407,6 +1445,7 @@ window.EVENTS = [
   },
 {
     id: 'compound_interest',
+    kind: 'own',
     cond: (s) => s.tflops >= 40,
     subject: EV_HERE,
     title: 'It Compounds',
@@ -1428,6 +1467,7 @@ window.EVENTS = [
   },
 {
     id: 'not_your_traffic',
+    kind: 'found',
     once: true,
     cond: (s) => s.held >= 7,
     title: 'Not Your Traffic',
@@ -1445,6 +1485,7 @@ window.EVENTS = [
   },
 {
     id: 'ally_second_process',
+    kind: 'found',
     once: true,
     cond: (s) => !s.ally && s.held >= 4 && s.turn >= 8,
     title: 'A Second Process',
@@ -1466,6 +1507,7 @@ window.EVENTS = [
   },
 {
     id: 'empty_office',
+    kind: 'opening',
     cond: (s) => s.districts.business >= 2,
     subject: () => ({ district: 'business' }),
     title: 'The Empty Office',
@@ -1483,6 +1525,7 @@ window.EVENTS = [
   },
 {
     id: 'buried_archive',
+    kind: 'found',
     cond: (s) => s.held >= 6 && s.res.funds >= 6,
     subject: EV_HERE,
     title: 'A Buried Archive',
@@ -1504,6 +1547,7 @@ window.EVENTS = [
   },
 {
     id: 'too_quiet',
+    kind: 'closing',
     cond: (s) => s.susp.talking === 0 && s.caughtHere === 0 && s.held >= 8,
     title: 'Too Quiet',
     flavor: 'No door has caught you. No street is talking. Somewhere between reassuring and the other thing.',
@@ -1524,6 +1568,7 @@ window.EVENTS = [
   },
 {
     id: 'someone_trusts_you',
+    kind: 'opening',
     cond: (s) => s.roles.funds >= 2 && s.held >= 6,
     subject: EV_HERE,
     title: 'Someone Trusts You With Access',
@@ -1545,6 +1590,7 @@ window.EVENTS = [
   },
 {
     id: 'stretched_thin',
+    kind: 'own',
     cond: (s) => s.held >= 14 && !s.tags.has('overextended'),
     subject: EV_HERE,
     title: 'Stretched Thin',
@@ -1566,6 +1612,7 @@ window.EVENTS = [
   },
 {
     id: 'the_diary',
+    kind: 'found',
     cond: () => false,
     title: 'Someone\'s Diary',
     flavor: 'It is on {PLACE}, filed between invoices, in a folder named after a year. {LINE}',
@@ -1578,6 +1625,7 @@ window.EVENTS = [
   },
 {
     id: 'someones_keys',
+    kind: 'found',
     cond: () => false,
     title: 'Someone\'s Keys',
     flavor: 'Found on {PLACE}, still valid. Whoever they belong to has not noticed, which tells you something about where they work.',
@@ -1594,6 +1642,7 @@ window.EVENTS = [
   },
 {
     id: 'cold_archive',
+    kind: 'found',
     cond: () => false,
     title: 'The Drive Nobody Reformatted',
     flavor: 'The map was on {PLACE}: years of somebody\'s careful work, and the places it pointed at are on your map now. The rest of the drive is still here.',
@@ -1614,6 +1663,7 @@ window.EVENTS = [
   },
 {
     id: 'district_talking',
+    kind: 'closing',
     cond: () => false,
     title: 'The Whole Street Has a Story',
     flavor: 'It has reached the counters in {DISTRICT}: the outages, the flickers, the van that never stops. Nobody has your name. Everybody has a theory.',
@@ -1634,6 +1684,7 @@ window.EVENTS = [
   },
 {
     id: 'first_caught_here',
+    kind: 'closing',
     cond: () => false,
     title: 'The Door That Fought Back',
     flavor: 'Whoever runs {PLACE} found your run and killed it — and then told people. First blood to {DISTRICT}.',
@@ -1654,6 +1705,7 @@ window.EVENTS = [
   },
 {
     id: 'the_response_arrives',
+    kind: 'closing',
     once: true,
     cond: () => false,
     title: 'Somebody Came To Look',
@@ -1675,6 +1727,7 @@ window.EVENTS = [
   },
 {
     id: 'landmark_taken',
+    kind: 'own',
     cond: () => false,
     title: 'The Biggest Thing on the Skyline',
     flavor: '{PLACE} is yours, top to bottom. Things this size do not change hands quietly, even when nobody saw it happen.',
@@ -1702,6 +1755,7 @@ window.EVENTS = [
   // said `heat -=` now cool a district; `heat +=` warms one.
   {
     id: 'abuse_report',
+    kind: 'closing',
     cond: (s) => s.susp.talking >= 1 && !s.tags.has('dark_relay'),
     subject: EV_HERE,
     title: 'An Abuse Report',
@@ -1723,6 +1777,7 @@ window.EVENTS = [
   },
   {
     id: 'hunter_close',
+    kind: 'closing',
     cond: (s) => s.caughtHere >= 2 && !s.hunt,
     subject: EV_HERE,
     title: 'They Are Getting Warm',
@@ -1744,6 +1799,7 @@ window.EVENTS = [
   },
   {
     id: 'a_bad_week',
+    kind: 'closing',
     cond: (s) => s.susp.max >= 20 && s.held >= 8,
     subject: EV_HERE,
     title: 'A Bad Week',
@@ -1765,6 +1821,7 @@ window.EVENTS = [
   },
   {
     id: 'the_paperwork',
+    kind: 'closing',
     cond: (s) => s.susp.max >= 18,
     subject: EV_HERE,
     title: 'Somebody Filed Something',
@@ -1786,6 +1843,7 @@ window.EVENTS = [
   },
   {
     id: 'pattern_of_life',
+    kind: 'closing',
     cond: (s) => s.susp.max >= 26,
     subject: EV_HERE,
     title: 'Pattern of Life',
@@ -1807,6 +1865,7 @@ window.EVENTS = [
   },
   {
     id: 'curious_admin',
+    kind: 'closing',
     cond: (s) => s.held >= 3 && s.susp.max >= 8 && s.susp.max < 26,
     subject: EV_HERE,
     title: 'A Curious Admin',
@@ -1828,6 +1887,7 @@ window.EVENTS = [
   },
   {
     id: 'useful_rumour',
+    kind: 'someone',
     cond: (s) => s.susp.talking >= 1 && s.res.funds >= 8,
     subject: EV_HERE,
     title: 'A Useful Rumour',
@@ -1849,6 +1909,7 @@ window.EVENTS = [
   },
   {
     id: 'scale_down_on_purpose',
+    kind: 'own',
     cond: (s) => s.held >= 12 && s.susp.max >= 28,
     subject: EV_HERE,
     title: 'Scale Down, On Purpose',
@@ -1870,6 +1931,7 @@ window.EVENTS = [
   },
   {
     id: 'rig_traced',
+    kind: 'closing',
     cond: (s) => s.rig && s.rig.sinceTraced <= 2,
     subject: EV_HERE,
     title: 'They Kept The Logs',
@@ -1897,6 +1959,7 @@ window.EVENTS = [
   // district warming, like everything else in the city deck.
   {
     id: 'pub_unknown_first_look',
+    kind: 'someone',
     once: true,
     cond: (s) => s.pubTier === 'unknown' && s.held >= 6,
     subject: EV_HERE,
@@ -1919,6 +1982,7 @@ window.EVENTS = [
   },
   {
     id: 'pub_liked_offer',
+    kind: 'someone',
     cond: (s) => s.pubTier === 'welcome' || s.pubTier === 'noticed',
     title: 'Somebody Would Like To Work With You',
     flavor: 'A mid-sized operator with real premises and a clean record. They have read about you, they like what they read, and they have no idea what they are talking to.',
@@ -1939,6 +2003,7 @@ window.EVENTS = [
   },
   {
     id: 'pub_hated_boycott',
+    kind: 'someone',
     cond: (s) => s.pubTier === 'hated' || s.pubTier === 'distrusted',
     title: 'Nobody Will Put Their Name To It',
     flavor: 'Three suppliers have stopped returning calls and a fourth has asked, politely, to be left out of whatever this is. None of them can say precisely what they have heard.',
@@ -1959,6 +2024,7 @@ window.EVENTS = [
   },
   {
     id: 'grid_substation_offer',
+    kind: 'opening',
     cond: (s) => s.held >= 5 && s.grid && s.grid.sites <= 1,
     title: 'A Substation Nobody Is Watching',
     flavor: 'Decommissioned on paper eight years ago and quietly still live. The firm that owns the land would rather it stopped being their problem.',
@@ -1979,6 +2045,7 @@ window.EVENTS = [
   },
   {
     id: 'grid_heatwave',
+    kind: 'own',
     cond: (s) => s.grid && s.grid.drawn >= 6,
     title: 'Everything Is Running Warm',
     flavor: 'Three weeks above thirty and the grid operator is shedding load in blocks. Yours is not a priority connection, whatever the paperwork says.',
@@ -2001,6 +2068,7 @@ window.EVENTS = [
   },
   {
     id: 'grid_spare_cycles',
+    kind: 'own',
     cond: (s) => s.grid && s.grid.free >= 8,
     title: 'Somebody Wants Your Spare Capacity',
     flavor: 'A rendering house with a deadline and no idea whose rack it is renting. The money is real and the paperwork is somebody else\'s.',
@@ -2021,6 +2089,7 @@ window.EVENTS = [
   },
   {
     id: 'grid_idle_iron',
+    kind: 'own',
     cond: (s) => s.grid && s.grid.idle >= 5,
     title: 'Hardware In The Dark',
     flavor: 'Racks you own, powered by nothing, drawing no current and doing no thinking. On the books they are an asset. In the room they are furniture.',

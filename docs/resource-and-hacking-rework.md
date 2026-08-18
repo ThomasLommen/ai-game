@@ -1423,6 +1423,40 @@ system that already exists:
 The capability sheet was rewritten to match. The guard test is permanent, so
 a tag can no longer drift into decoration.
 
+### Cards look like cards
+
+A card was a full screen of text with buttons under it, identical whatever
+was happening. Now every living card carries a **kind**, and each kind has a
+design borrowed from grammar the map already uses — so a card reads as part
+of this game rather than a card game bolted onto it:
+
+| kind | count | the design |
+| --- | --- | --- |
+| **closing in** | 13 | the hardening grammar — a border that thickens, a second edge sitting inside the first. Bad news as withdrawal, never as alarm. |
+| **your own** | 12 | a terminal readout — mono, the compute colour, the hairline the allocation bars rule themselves with |
+| **found** | 8 | a document — a folder tab, a second sheet showing under the first, the gold this game keeps for things worth something |
+| **an opening** | 9 | the map's own dashed "not yet discovered" stroke, with a gap in the top edge. A door standing open, not a page. |
+| **someone** | 6 | a written note — a quotation rule down the side, square where a note tears. Still no face. |
+
+The kinds were **derived, not invented**: sorting the 48 living cards by what
+is actually happening lands on these five, and none is a rounding error. Each
+card also names its kind in words beside the district, so the visual language
+is learnable rather than decoded.
+
+The rule none of them may break: **no design encodes whether the outcome is
+good.** A card says what kind of thing is happening and where. Whether it
+goes well is the choice's business — colouring the verdict in advance would
+be the game answering its own question before asking it.
+
+Size follows suit. A delivered beat — one option, nothing actually being
+decided, like the diary — is a smaller card. The big ones keep the full
+screen on purpose: a hierarchy needs a top, and the response arriving should
+take all of it.
+
+Four tests hold the line: every living card has a designed kind, five is a
+hard ceiling and every kind is used, the rendered card wears its kind and
+never a verdict, and an ending keeps the design of the card it belongs to.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

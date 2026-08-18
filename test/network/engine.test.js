@@ -10141,6 +10141,80 @@ test('deck: no tag a card hands out is a hollow promise', () => {
   });
 });
 
+test('deck: every living card knows what kind of moment it is', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const kinds = window.CARD_KINDS;
+  const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
+  assert.equal(living.length, 48, 'the living deck changed size without this test noticing');
+  living.forEach(e => {
+    assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
+    assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
+  });
+  // Five is the ceiling, and it is a real ceiling: a sixth design means the
+  // player is reading heraldry instead of reading a card.
+  assert.ok(Object.keys(kinds).length <= 5, 'a sixth card kind appeared');
+  // ...and every kind earns its design by being used more than once
+  Object.keys(kinds).forEach(k => {
+    const n = living.filter(e => e.kind === k).length;
+    assert.ok(n >= 4, `${k} is a rounding error (${n} cards) — fold it into another kind`);
+  });
+});
+
+test('cards: the card wears its kind, and never wears a verdict', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+  const seen = new Set();
+  window.EVENTS.filter(e => e.choices.some(c => c.after)).forEach(ev => {
+    d.state.res.funds = 100000;
+    d.state.card = { kind: 'event', eventId: ev.id };
+    d.render();
+    const html = $p.innerHTML;
+    assert.ok(html.includes(`k-${ev.kind}`), `${ev.id} rendered without its kind`);
+    assert.ok(html.includes(window.CARD_KINDS[ev.kind].label),
+      `${ev.id} does not name its kind, so the language cannot be learned`);
+    seen.add(ev.kind);
+    // The settled rule from the grilling: a design says what kind of thing is
+    // happening and where. It must never say how it turns out — the card is
+    // asking a question, not answering it.
+    assert.ok(!/\b(class="[^"]*\b(good|bad|dire|great|boon|danger)\b)/.test(html),
+      `${ev.id} is colour-coded by outcome`);
+  });
+  assert.equal(seen.size, Object.keys(window.CARD_KINDS).length, 'a kind never rendered');
+  d.state.card = null;
+});
+
+test('cards: a delivered beat is a smaller card than a decision', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+  // the diary is one option and no decision; it should not take the same
+  // screen as the response arriving
+  d.state.card = { kind: 'event', eventId: 'the_diary', subject: null };
+  d.render();
+  assert.ok(/class="card event k-found beat"/.test($p.innerHTML), 'the diary is not sized as a beat');
+
+  d.state.card = { kind: 'event', eventId: 'the_response_arrives', subject: null };
+  d.render();
+  assert.ok(!/\bbeat\b/.test($p.innerHTML), 'a card with a real decision was shrunk to a beat');
+  d.state.card = null;
+});
+
+test('cards: the ending keeps the card design it belongs to', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+  const ev = window.EVENTS.find(e => e.id === 'district_talking');
+  d.state.res.funds = 100000;
+  d.state.card = { kind: 'event', eventId: ev.id, subject: { district: 'commercial' } };
+  d.resolveEvent(0);
+  assert.equal(d.state.card && d.state.card.kind, 'after', 'the choice did not resolve into an ending');
+  d.render();
+  assert.ok($p.innerHTML.includes(`k-${ev.kind}`),
+    'the ending dropped the design — it is the same moment finishing, not a new one');
+  d.state.card = null;
+});
+
 test('deck: no living card moves the retired heat meter', () => {
   const { window } = loadNetwork({ cityOnly: true });
   // heat is a country-scale number the knife gated off; a city card that still

@@ -588,7 +588,113 @@ footer .build { opacity: .55; font-size: 10px; }
 .ab-sub { font-size: 10.5px; color: var(--muted); line-height: 1.3; }
 .act-btn.primary .ab-name { color: var(--item); }
 
+/* An unkinded card — the dormant country deck, if the country ever comes
+   back — still looks like the deck it came from. Every living card overrides
+   this with one of the five kinds below. */
 .card.event { border-color: var(--tflops); background: color-mix(in srgb, var(--tflops) 6%, var(--surface)); }
+
+/* ---- the five kinds -------------------------------------------------
+   A card should say what kind of moment it is before a word of it is read.
+   Each design is borrowed from grammar the map already uses, so a card reads
+   as part of this game rather than a card game bolted onto it.
+
+   The one rule none of these may break: nothing here encodes whether the
+   outcome is good. A card states what kind of thing is happening and where —
+   colouring the verdict in advance would be the game answering its own
+   question. */
+.card.event { position: relative; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.card-mark {
+  font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted); opacity: .8; white-space: nowrap;
+}
+.card.event h2 { margin-top: 9px; }
+
+/* closing in — the hardening grammar: a border that thickens, and a second
+   edge sitting inside the first. Bad news as withdrawal, never as alarm. */
+.card.event.k-closing {
+  border-color: color-mix(in srgb, var(--heat) 38%, var(--line));
+  border-top-width: 3px;
+  background: color-mix(in srgb, var(--heat) 5%, var(--surface));
+}
+.card.event.k-closing::after {
+  content: ''; position: absolute; inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--heat) 16%, transparent);
+  border-radius: 12px; pointer-events: none;
+}
+.card.event.k-closing .card-mark { color: color-mix(in srgb, var(--heat) 70%, var(--muted)); }
+
+/* your own — a terminal readout: mono, the compute colour, the hairline the
+   allocation bars rule themselves with. Your network reporting on itself. */
+.card.event.k-own {
+  border-color: color-mix(in srgb, var(--compute) 30%, var(--line));
+  background: color-mix(in srgb, var(--compute) 4%, var(--surface));
+}
+.card.event.k-own .card-head {
+  border-bottom: 1px solid color-mix(in srgb, var(--compute) 22%, var(--line));
+  padding-bottom: 7px;
+}
+.card.event.k-own h2.serif {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17.5px; letter-spacing: -.01em; line-height: 1.3;
+}
+.card.event.k-own .flavor { font-style: normal; }
+.card.event.k-own .card-mark { color: var(--compute); }
+
+/* found — a document: a folder tab, a second sheet showing under the first,
+   and the gold this game keeps for things that are actually worth something */
+.card.event.k-found {
+  border-color: color-mix(in srgb, var(--item) 36%, var(--line));
+  background: color-mix(in srgb, var(--item) 5%, var(--surface));
+}
+.card.event.k-found::before {
+  content: ''; position: absolute; top: -9px; left: 20px;
+  width: 76px; height: 10px;
+  background: color-mix(in srgb, var(--item) 5%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--item) 36%, var(--line));
+  border-bottom: none; border-radius: 7px 7px 0 0;
+}
+.card.event.k-found::after {
+  content: ''; position: absolute; inset: 7px -5px -6px 7px;
+  border: 1px solid color-mix(in srgb, var(--item) 20%, var(--line));
+  border-radius: 15px; z-index: -1; pointer-events: none;
+}
+.card.event.k-found .card-mark { color: var(--item); }
+
+/* an opening — the map's own dashed "not yet discovered" stroke, and a gap
+   in the top edge. A door standing open, not a page. */
+.card.event.k-opening {
+  border: 1px dashed color-mix(in srgb, var(--cover) 48%, var(--line));
+  background: color-mix(in srgb, var(--cover) 4%, var(--surface));
+}
+.card.event.k-opening::before {
+  content: ''; position: absolute; top: -2px; left: 50%;
+  transform: translateX(-50%);
+  width: 92px; height: 4px; background: var(--bg);
+}
+.card.event.k-opening .card-mark { color: var(--cover); }
+
+/* someone — a written note: a quotation rule down the side, square where a
+   note is torn. The one kind with a human hand in it, and per the story
+   rules, still no face. */
+.card.event.k-someone {
+  border-color: color-mix(in srgb, var(--ink-dim) 26%, var(--line));
+  border-left: 4px solid color-mix(in srgb, var(--ink-dim) 58%, var(--line));
+  border-radius: 4px 16px 16px 4px;
+  background: var(--surface);
+}
+.card.event.k-someone .flavor { color: var(--ink); }
+.card.event.k-someone .card-mark { color: var(--ink-dim); }
+
+/* The size hierarchy. A delivered beat — one option, nothing actually being
+   decided — should not take the same screen as the response arriving. The
+   big ones keep the full width on purpose: a hierarchy needs a top. */
+#panel.card-open .card.event.beat,
+#panel.card-open .card.event.beat + .choices { max-width: 384px; }
+.card.event.beat { padding: 14px 16px 16px; }
+.card.event.beat h2 { font-size: 18px; }
+.card.event.beat h2.serif { font-size: 18px; }
+.card.event.beat .flavor { font-size: 13px; }
 
 /* the floor you can never get under while you hold this much */
 .heat-floor {

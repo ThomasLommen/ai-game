@@ -3619,8 +3619,10 @@ scratch.later = null;
     // question, and then numbers, with the fiction never resolving. A choice
     // that carries an `after` line now lands it before the card closes.
     const afterText = ch.after ? cardText(ch.after, subject) : null;
+    // The ending keeps the card's own design — it is the same moment
+    // finishing, not a different one starting.
     state.card = afterText
-      ? { kind: 'after', title: cardText(ev.title, subject), text: afterText }
+      ? { kind: 'after', evKind: ev.kind || null, title: cardText(ev.title, subject), text: afterText }
       : null;
     pushLog(`${cardText(ev.title, subject)} — ${ch.text}.` + (afterText ? ` ${afterText}` : ''));
 
@@ -9986,8 +9988,9 @@ scratch.later = null;
     // It exists because "setup, question, numbers" never resolved — see the
     // deck rework. One tap; cards are rare enough that the beat is earned.
     if (state.card.kind === 'after') {
+      const ak = (window.CARD_KINDS || {})[state.card.evKind] ? ` event k-${state.card.evKind}` : '';
       $p.innerHTML = `
-        <div class="card after">
+        <div class="card after${ak}">
           <span class="card-kicker mono">AND SO</span>
           <h2 class="serif">${state.card.title}</h2>
           <p class="flavor">${state.card.text}</p>
@@ -10012,11 +10015,23 @@ scratch.later = null;
       // the kicker names where this is happening — "SOMETHING HAPPENS" told
       // the player, in so many words, that the deck did not know either
       const names = subjectNames(subject);
-      const kicker = names.district ? names.district.toUpperCase() : 'WORD REACHES YOU';
+      // What kind of moment this is, and where. The design carries the kind;
+      // the mark names it in words so the language is learnable rather than
+      // decoded, and the kicker says where — a card with no district falls
+      // back to a line about its kind, never to "something happens".
+      const K = (window.CARD_KINDS || {})[ev.kind] || null;
+      const kicker = names.district ? names.district.toUpperCase()
+        : (K ? K.kicker : 'WORD REACHES YOU');
+      // A delivered beat — one option, nothing actually being decided — is
+      // not the same size of event as the response arriving.
+      const beat = ev.choices.length === 1 ? ' beat' : '';
       $p.innerHTML = `
         ${cardResourceStrip(ev)}
-        <div class="card event">
-          <span class="card-kicker mono">${kicker}</span>
+        <div class="card event${K ? ' k-' + ev.kind : ''}${beat}">
+          <div class="card-head">
+            <span class="card-kicker mono">${kicker}</span>
+            ${K ? `<span class="card-mark mono">${K.label}</span>` : ''}
+          </div>
           <h2 class="serif">${cardText(ev.title, subject)}</h2>
           <p class="flavor">${cardText(ev.flavor, subject)}</p>
         </div>
