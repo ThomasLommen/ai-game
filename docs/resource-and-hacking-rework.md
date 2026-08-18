@@ -1364,6 +1364,45 @@ chose; the cold-storage reveal likewise starts at the machine the map came
 off. The nearest-held guess survives only for the harness's bots, which
 still sweep without naming a vantage.
 
+## The deck becomes the narrator
+
+The cards had fallen behind the game around them — measured, 79% of the deck
+was keyed to systems the knife gated off, and the living fifth cycled on a
+timer while saying "something happens" over a card that never resolved. The
+full analysis is in `docs/ideas/cards-rework.md`; six decisions came out of
+it, all taken:
+
+- **Endings.** Every living choice carries an `after` line — one sentence, in
+  the voice, shown before the card closes. The card used to end in float
+  chips and a log of the button's label; now the fiction resolves. This alone
+  is the "something happened" complaint, fixed at the root.
+- **Transparency.** What a choice does is stated on the strip (`shows`), the
+  way the panel states a race. Hidden outcomes survive only as the marked
+  `gamble` kind. The deck was the last system in the game that concealed; it
+  has joined the covenant.
+- **The heat ghosts, re-keyed.** ~14 cards conditioned on a meter the knife
+  retired but that still accrues, so they warned about a wolf already shot.
+  They now read district suspicion, the doors that have caught you, the
+  response once it walks — and their effects cool or warm a district instead
+  of moving heat. No living card writes heat.
+- **Triggered draws.** The 4-7 turn timer became an ~8-turn floor; cards are
+  dealt by the loop — a diary read, a district crossing into "talking", the
+  response arriving, a landmark taken, the first catch in a district. In bot
+  play the three most-seen cards are all triggers.
+- **The specific card.** A card can name a real building or district
+  (`subject`, resolved through `{PLACE}` / `{DISTRICT}` / `{LINE}` tokens),
+  and while it is open the map walks there and marks it. The deck and the map
+  finally point at each other.
+- **The dormant country deck.** The 92 cards keyed to the war, the regions,
+  legitimacy, plant, agents and the mirror moved under one marked divider.
+  They return through the same rework if the country does.
+
+48 living cards, every one previewed and resolved. The diary is a delivered
+*beat* — one option, "Close it" — which the "every card is a decision" tests
+now allow for cards whose cond is a pure `() => false`. The census that set
+this in motion, re-run after: distinct cards up, endings on all of them,
+the deck talking about the game that exists.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

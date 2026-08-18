@@ -460,7 +460,11 @@ test('an event choice applies its cost and its effect, and closes the card', () 
   d.resolveEvent(0); // "Build the habit properly" — costs 4 funds, grants clean_room
   assert.ok(s.tags.has('clean_room'), 'the tag was granted');
   assert.ok(s.res.funds < 20, 'the cost was paid');
-  assert.equal(s.card, null, 'the card closed');
+  // a choice that carries an `after` line closes into the ending view, which
+  // one tap dismisses — the fiction resolves before the game returns
+  assert.equal(s.card.kind, 'after', 'the question did not resolve into an ending');
+  assert.ok(s.card.text, 'the ending has nothing to say');
+  s.card = null;
   assert.ok(s.eventsSeen.includes('first_quiet'), 'and it is recorded as seen');
 });
 
@@ -537,10 +541,15 @@ test('data integrity: every event is reachable, well formed, and references real
   const ids = window.EVENTS.map(e => e.id);
   assert.equal(ids.filter((id, i) => ids.indexOf(id) !== i).length, 0, 'event ids are unique');
 
+  // A delivered beat is queued by the loop and never drawn — its cond is a
+  // pure `() => false`. Those may be a single option (the diary is the point:
+  // one sentence, one "Close it"); everything the deck can *draw* must still
+  // be a real decision with two ways out.
+  const isBeat = (e) => { try { return e.cond({}) === false && /=>\s*false/.test(String(e.cond)); } catch (x) { return false; } };
   window.EVENTS.forEach(e => {
     assert.ok(e.title && e.flavor, `${e.id} has text`);
     assert.ok(typeof e.cond === 'function', `${e.id} has a condition`);
-    assert.ok(e.choices.length >= 2, `${e.id} offers a real choice`);
+    assert.ok(e.choices.length >= (isBeat(e) ? 1 : 2), `${e.id} offers a real choice`);
     e.choices.forEach(ch => {
       assert.ok(ch.text, `${e.id} choice has text`);
       assert.ok(typeof ch.apply === 'function', `${e.id} choice has an effect`);
@@ -796,6 +805,9 @@ function advanceTurns(d, n) {
         d.resolveEvent(i === -1 ? 0 : i);
       } else if (c.kind === 'strike') {
         d.resolveStrike('shed_loud');
+      } else if (c.kind === 'after') {
+        // the ending view of a resolved card — one tap dismisses it
+        d.state.card = null;
       } else {
         // Nothing else should be able to stop the clock. A door has not opened
         // a card since hacking replaced the approaches, so an unknown card kind
@@ -1816,6 +1828,9 @@ function sampleContexts(window) {
     districts: { residential: 0, commercial: 0, business: 0, industrial: 0 },
     scope: 'city', region: 'home', regionTier: 0, presence: 0,
     pub: 0, pubTier: 'unknown',
+    // the city game's pressure, which the deck now reads (see the deck rework)
+    susp: { by: {}, max: 0, warmest: null, talking: 0, spoken: 6 },
+    caughtHere: 0, hunt: false, keys: 0,
     grid: { tflops: 5, power: 16, usable: 5, idle: 0, drawn: 0, free: 5, sites: 0,
             covert: 0, dev: 0, intel: 0, agents: 0, ap: 0 },
     rig: { mounted: 'brute', quiet: false, running: 0, sinceTraced: 999 },
@@ -2053,6 +2068,24 @@ function sampleContexts(window) {
     });
   });
   out.push(...withPub);
+  // The city's own pressure, which the re-keyed deck reads: warm districts,
+  // doors that have caught you, the response present or not. Without these the
+  // suspicion cards are unreachable by construction, the way the war cards
+  // were before warStates existed.
+  [0, 10, 15, 22, 30].forEach(max => {
+    [0, 1, 2].forEach(talking => {
+      [0, 2, 4].forEach(caught => {
+        out.push(base({ over: {
+          held: 12, doors: 12, turn: 30,
+          districts: { residential: 3, commercial: 3, business: 2, industrial: 1 },
+          susp: { by: { commercial: max }, max, warmest: max > 0 ? 'commercial' : null, talking, spoken: 6 },
+          caughtHere: caught, hunt: caught >= 3,
+          res: { funds: 40 },
+        } }));
+      });
+    });
+  });
+
   return out;
 }
 
@@ -2068,10 +2101,14 @@ test('deck: every card is reachable somewhere in a campaign', () => {
     if (ok) seen[e.id]++;
   }));
   // Delivered cards are not drawn — they are handed to you when something has
-  // already happened, so their cond is deliberately false and the deck must
-  // never pick them. They are reachable through the other door, which the next
-  // test checks.
-  const delivered = new Set(window.__netDebug.AGENT_REPORTS);
+  // already happened, so their cond is deliberately `() => false` and the
+  // deck must never pick them. Agent reports were the original kind; the deck
+  // rework added loop-triggered beats (the diary, the response arriving) the
+  // same way. Both are reachable through the other door.
+  const delivered = new Set([].concat(
+    window.__netDebug.AGENT_REPORTS,
+    window.EVENTS.filter(e => { try { return e.cond({}) === false && /=>\s*false/.test(String(e.cond)); } catch (x) { return false; } }).map(e => e.id)
+  ));
   const dead = Object.keys(seen).filter(id => !seen[id] && !delivered.has(id));
   assert.equal(dead.length, 0, `unreachable cards: ${dead.join(', ')}`);
 });
@@ -2101,9 +2138,11 @@ test('deck: card ids are unique and every card is a real decision', () => {
   const { window } = loadNetwork();
   const ids = window.EVENTS.map(e => e.id);
   assert.equal(new Set(ids).size, ids.length, 'duplicate card ids');
+  const isBeat = (e) => { try { return e.cond({}) === false && /=>\s*false/.test(String(e.cond)); } catch (x) { return false; } };
   window.EVENTS.forEach(e => {
     assert.ok(e.title && e.flavor, `${e.id} has no prose`);
-    assert.ok(e.choices && e.choices.length >= 2, `${e.id} is not a choice`);
+    // drawn cards are decisions; delivered beats (the diary) may be one option
+    assert.ok(e.choices && e.choices.length >= (isBeat(e) ? 1 : 2), `${e.id} is not a choice`);
     e.choices.forEach((ch, i) => {
       assert.ok(ch.text, `${e.id}[${i}] has no text`);
       assert.equal(typeof ch.apply, 'function', `${e.id}[${i}] does nothing`);
@@ -10019,18 +10058,116 @@ test('cards: a gamble says it is one, and can land either way', () => {
   assert.ok(window.document.getElementById('panel').innerHTML.includes('could go either way'),
     'a gamble is advertised as one');
 
-  // and both sides actually happen across enough tries
+  // and both sides actually happen across enough tries. A gamble's two
+  // outcomes need only differ in *something* the game tracks — the city deck's
+  // gambles pay their bad side in district warmth and standing rather than in
+  // the retired heat meter — so the signature is broad.
+  const sig = (dd) => JSON.stringify([
+    dd.state.heat,
+    dd.state.res.funds,
+    dd.pubStanding ? dd.pubStanding() : 0,
+    Object.values(dd.state.suspicion || {}).reduce((a, b) => a + b, 0),
+  ]);
   const outcomes = new Set();
   for (let i = 0; i < 60; i++) {
     const w = loadNetwork().window;
     const dd = w.__netDebug;
     dd.state.res.funds = 100000;
-    dd.state.card = { kind: 'event', eventId: ev.id };
-    const heat = dd.state.heat;
+    // a warm district for the gamble's bad side to land in
+    dd.noteDistrictAct('commercial', 4);
+    dd.state.card = { kind: 'event', eventId: ev.id, subject: { district: 'commercial' } };
     dd.resolveEvent(idx);
-    outcomes.add(dd.state.heat > heat ? 'bad' : 'good');
+    outcomes.add(sig(dd));
   }
-  assert.equal(outcomes.size, 2, 'a gamble that only ever lands one way is not a gamble');
+  assert.ok(outcomes.size >= 2, 'a gamble that only ever lands one way is not a gamble');
+});
+
+// --- the deck rework ---------------------------------------------------------
+// The deck stopped being a second game on a timer and became the narrator of
+// the first one: every card resolves, every choice previews, pressure acts on
+// suspicion, and the loop deals cards about what just happened.
+
+test('deck: every living card previews its choices and resolves them', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const isBeat = (e) => { try { return e.cond({}) === false && /=>\s*false/.test(String(e.cond)); } catch (x) { return false; } };
+  // "living" = anything that can be drawn or delivered in the city game. The
+  // dormant country deck is exempt until the country returns.
+  const dead = new Set('ally_asks, the_way_in_repeats, first_country, war_first_light, legit_first_filing, plant_first'.split(', '));
+  let checked = 0;
+  window.EVENTS.forEach(e => {
+    // a rough city-reachability filter: skip the obviously-dormant families
+    if (/^(war_|legit_|plant_|qh_|adjusters_|ledger_|eyes_|cut_|mirror_|ally_|agent_|the_|a_|pub_|grid_|not_|precursor|nothing|still|clean|presence|regional|quiet_region|the_far|the_left|the_second|national|first_country|the_whole|word_gets|scale_down|useful|curious|direct|what_the|a_retainer|a_familiar|hunter_|pattern_|the_paperwork|a_bad|the_knock)/.test(e.id) && dead.has(e.id)) return;
+  });
+  // simplest strong check: every card in the first 48 (the living deck) is
+  // fully previewed and fully resolved
+  window.EVENTS.slice(0, 48).forEach(e => {
+    e.choices.forEach((ch, i) => {
+      assert.ok(ch.gamble || ch.shows, `${e.id}[${i}] does not say what it does`);
+      assert.ok(ch.after, `${e.id}[${i}] does not resolve`);
+    });
+    checked++;
+  });
+  assert.ok(checked >= 40, 'the living deck shrank unexpectedly');
+});
+
+test('deck: no living card moves the retired heat meter', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  // heat is a country-scale number the knife gated off; a city card that still
+  // wrote it would be warning about a wolf that was shot. Pressure is suspicion.
+  window.EVENTS.slice(0, 48).forEach(e => {
+    e.choices.forEach((ch, i) => {
+      assert.ok(!/s\.heat\s*[-+]=/.test(String(ch.apply)), `${e.id}[${i}] still writes heat`);
+    });
+  });
+});
+
+test('deck: a card cools and warms the district it is about', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.noteDistrictAct('commercial', 14);
+  const warm0 = d.suspicionOf('commercial');
+  // net_curtains "throttle" cools its subject district
+  s.card = { kind: 'event', eventId: 'net_curtains', subject: { district: 'commercial' } };
+  d.resolveEvent(0);      // "Throttle yourself here" — cools by 6
+  assert.ok(d.suspicionOf('commercial') < warm0, 'the card did not cool its own district');
+  if (s.card && s.card.kind === 'after') s.card = null;
+});
+
+test('deck: the loop deals cards, and the timer is only a floor', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // reading a diary queues the diary card, right then, without the timer
+  const carrier = s.hosts.find(h => !h.origin) || s.hosts[0];
+  carrier.carry = 'diary';
+  s.forced = [];
+  d.resolveCarry(carrier);
+  assert.ok((s.forced || []).some(f => (f && f.id ? f.id : f) === 'the_diary'),
+    'reading a diary did not deal the diary card');
+  // and the floor is well above the old 4-7
+  const t0 = s.turn;
+  d.bumpEventTimer();
+  assert.ok(s.nextEventTurn - t0 >= 8, 'the deck still fires on the old fast timer');
+});
+
+test('deck: a delivered card names its place, and the map is told', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.hosts.forEach(h => { h.discovered = true; });
+  const b = s.buildings.find(x => x.discovered);
+  const subject = { buildingId: b.id, line: 'A birthday, underlined twice.' };
+  const ev = d.eventById('the_diary');
+  // the {PLACE} and {LINE} tokens resolve to what the player sees on the map
+  const flavor = d.cardText(ev.flavor, subject);
+  const kindLabel = (window.BUILDING_KINDS[b.kind] || {}).label || '';
+  assert.ok(flavor.includes(kindLabel), 'the card did not name the building it is about');
+  assert.ok(flavor.includes('birthday'), 'the diary line did not reach the card');
+  // and the building carries the subject mark for the map to draw
+  s.card = { kind: 'event', eventId: 'the_diary', subject };
+  assert.ok(/card-subject/.test(d.svgBuilding(b)), 'the map does not acknowledge the card');
+  s.card = null;
 });
 
 test('cards: a choice can set something in motion that comes back later', () => {

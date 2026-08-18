@@ -1,5 +1,14 @@
 # The deck, measured against the game it now lives in
 
+> **SHIPPED.** All six morning decisions were taken as recommended and are
+> live. Measured after, 8 games x 60 turns: the three most-seen cards are all
+> loop-triggered — `district_talking` (16), `first_caught_here` (8), the diary
+> (7) — the deck narrating the map rather than a timer firing. Every card
+> resolves into an ending; zero living cards touch heat; 48 living cards, all
+> previewed and resolved; the 92-card country deck sits dormant behind a
+> marked divider. What follows is the analysis the decisions came from.
+
+
 Written overnight, as asked, for the morning's session. Everything below
 that is a number was measured against the current build; everything that is
 an opinion is marked as one. The older `cards.md` still holds for card

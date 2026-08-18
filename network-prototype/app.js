@@ -1853,6 +1853,7 @@
       selectedBuilding: null,
       keys: 0,         // credentials found on machines, spent one door at a time
       suspicion: {},   // how warm each district is — a fact about here
+      carded: {},      // per-place beats the deck has already dealt here
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
@@ -2462,22 +2463,36 @@
     if (!warOn() && !huntOn()) huntStart();
     cityWonCheck();
     if (!state.card && (state.forced || []).length) {
-      // a report that has to be delivered rather than drawn: it is about
+      // A report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
-      // deck's own timer and does not consult its own cond
-      const id = state.forced.shift();
-      state.card = { kind: 'event', eventId: id };
+      // deck's own timer and does not consult its own cond. Entries can
+      // carry a subject — the building or district the card is about — set
+      // by whatever queued them (see queueEvent).
+      const f = state.forced.shift();
+      const id = f && f.id ? f.id : f;
+      state.card = { kind: 'event', eventId: id, subject: (f && f.subject) || null };
       noteEventDrawn(id);
+      bumpEventTimer();
     } else if (!state.card && duePlanted().length) {
       // something you set in motion earlier coming back around
       const id = duePlanted()[0];
       state.planted = (state.planted || []).filter(p => p.id !== id);
       state.card = { kind: 'event', eventId: id };
       noteEventDrawn(id);
+      bumpEventTimer();
     } else if (!state.card && state.turn >= state.nextEventTurn) {
+      // The timer is a floor now, not the rhythm. Cards are meant to arrive
+      // from the loop — a diary read, a district crossing into talk, the
+      // response turning up — and this path only speaks when the world has
+      // said nothing for a while. Triggered and planted cards push it back,
+      // so a lively stretch is never also a chatty one.
       const ev = drawEvent();
-      if (ev) { state.card = { kind: 'event', eventId: ev.id }; noteEventDrawn(ev.id); }
-      state.nextEventTurn = state.turn + 4 + Math.floor(Math.random() * 4);
+      if (ev) {
+        const subject = ev.subject ? safeSubject(ev) : null;
+        state.card = { kind: 'event', eventId: ev.id, subject };
+        noteEventDrawn(ev.id);
+      }
+      bumpEventTimer();
     }
     const rivalMove = rivalStep();
     if (rivalMove) announceRival(rivalMove);
@@ -2618,7 +2633,14 @@
     // faster" in the panel, and the panel is a contract
     const tidy = (v) => Math.round(v * 10) / 10;
     state.suspicion = state.suspicion || {};
+    const wasBelow = (state.suspicion[district] || 0) < ((S.bands && S.bands[1] && S.bands[1][0]) || 12);
     state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+    // crossing into "the district is talking" gets a card, once per district
+    // per city — the suspicion system's face, not merely its arithmetic
+    if (wasBelow && state.suspicion[district] >= ((S.bands && S.bands[1] && S.bands[1][0]) || 12)
+        && cardedOnce('talk:' + district)) {
+      queueEvent('district_talking', { district });
+    }
     Object.keys(state.suspicion).forEach(d => {
       if (d === district) return;
       state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - S.coolPerAct));
@@ -2659,8 +2681,12 @@
     // and the counter-play is the same thing you were already deciding — which
     // program, and how much covert.ops behind it.
     if (caughtHere() < window.HUNT.caughtToStart) return null;
-    return huntSeed((what) =>
+    const seeded = huntSeed((what) =>
       `${window.HUNT.name} followed one of them home. They are inside ${what}, and they are not leaving.`);
+    if (seeded && state.hunt && state.hunt.nodes && state.hunt.nodes.length) {
+      queueEvent('the_response_arrives', { buildingId: state.hunt.nodes[0] });
+    }
+    return seeded;
   }
 
   // --- ending it ------------------------------------------------------------
@@ -3218,6 +3244,23 @@
       },
       roles: { compute: ownedOf('compute').length, funds: ownedOf('funds').length, stealth: ownedOf('stealth').length },
       districts: districtHoldings(),
+      // The city game's own pressure, so cards can finally be about the wolf
+      // that exists rather than the one the knife took. `susp.talking` counts
+      // districts past the first band; `susp.warmest` names the hottest one.
+      susp: (() => {
+        const S = window.SUSPICION || {};
+        const spoken = (S.bands && S.bands[0] && S.bands[0][0]) || 6;
+        const by = Object.assign({}, state.suspicion || {});
+        let warmest = null, max = 0, talking = 0;
+        Object.keys(by).forEach(k => {
+          if (by[k] > max) { max = by[k]; warmest = k; }
+          if (by[k] >= spoken) talking++;
+        });
+        return { by, max, warmest, talking, spoken };
+      })(),
+      caughtHere: caughtHere(),
+      hunt: huntOn(),
+      keys: state.keys || 0,
       // --- the country, so a card can be about where you are as well as what
       // you hold.
       scope: state.scope,
@@ -3347,6 +3390,66 @@
     return weighted[weighted.length - 1].e;
   }
 
+  // ~8 turns of silence before the deck speaks unprompted. It used to be
+  // 4-7 and unconditional, which made the deck a metronome; now the loop's
+  // own triggers carry the rhythm and this is only the floor under them.
+  function bumpEventTimer() {
+    state.nextEventTurn = state.turn + 8 + Math.floor(Math.random() * 3);
+  }
+
+  // A card queued by the loop itself — a diary read, a landmark taken, a
+  // district crossing into talk. The deck's timer does not get a say, and
+  // the subject rides along so the card can name the place it is about.
+  function queueEvent(id, subject) {
+    const ev = eventById(id);
+    if (!ev) return false;
+    if (ev.once && state.eventsSeen.indexOf(id) !== -1) return false;
+    if ((state.forced || []).some(f => (f && f.id ? f.id : f) === id)) return false;
+    state.forced = (state.forced || []).concat([subject ? { id, subject } : id]);
+    return true;
+  }
+  // One-shot triggers that are per-place rather than per-game: keyed marks,
+  // packed with the city, so a reload does not re-deal the same beat.
+  function cardedOnce(key) {
+    state.carded = state.carded || {};
+    if (state.carded[key]) return false;
+    state.carded[key] = true;
+    return true;
+  }
+
+  // What a card is about, resolved to names the player knows from the map.
+  // {PLACE} is the building, {DISTRICT} the district, {LINE} whatever prose
+  // the trigger packed in (a diary's line, say).
+  function safeSubject(ev) {
+    try { return ev.subject(eventContext(), state) || null; } catch (e) { return null; }
+  }
+  function subjectNames(subject) {
+    const out = { place: '', district: '' };
+    if (!subject) return out;
+    const b = subject.buildingId ? buildingById(subject.buildingId) : null;
+    if (b) {
+      out.place = 'the ' + (window.BUILDING_KINDS[b.kind] || { label: b.kind }).label;
+      out.district = (window.DISTRICTS[b.district] || {}).label || '';
+    }
+    if (subject.district) out.district = (window.DISTRICTS[subject.district] || {}).label || subject.district;
+    return out;
+  }
+  function cardText(text, subject) {
+    if (!text) return '';
+    const n = subjectNames(subject);
+    return text
+      .replace(/\{PLACE\}/g, n.place || 'the building')
+      .replace(/\{DISTRICT\}/g, n.district || 'the city')
+      .replace(/\{LINE\}/g, (subject && subject.line) || '');
+  }
+  // the district a card's effects land in, however the subject was given
+  function subjectDistrict(subject) {
+    if (!subject) return null;
+    if (subject.district) return subject.district;
+    const b = subject.buildingId ? buildingById(subject.buildingId) : null;
+    return b ? b.district : null;
+  }
+
   function noteEventDrawn(id) {
     state.recentEvents = [id].concat((state.recentEvents || []).filter(x => x !== id)).slice(0, 8);
     state.eventSeenCount = state.eventSeenCount || {};
@@ -3401,6 +3504,11 @@
     // events describe their effects declaratively; these two are board-level
     // outcomes the card can ask for without knowing how the graph works
     const scratch = state;
+    // what the card is about, so effects can land where the words point
+    const subject = card.subject || null;
+    scratch.here = subjectDistrict(subject);
+    scratch.coolHere = 0;
+    scratch.warmHere = 0;
     scratch.shedWeakest = 0;
 scratch.later = null;
         scratch.repairNow = false;
@@ -3426,6 +3534,17 @@ scratch.later = null;
     scratch.supply = 0;         // headroom, permanently
     scratch.gridCut = null;     // ...or headroom taken away for a while
     ch.apply(scratch);
+    // Suspicion, addressed to the card's own district. Cooling is direct —
+    // a card resolving "you went quiet there" is not the rotation rule —
+    // and both are clamped by warmDistrict's own arithmetic.
+    if (scratch.coolHere > 0 && scratch.here) {
+      state.suspicion = state.suspicion || {};
+      const cur = state.suspicion[scratch.here] || 0;
+      state.suspicion[scratch.here] = Math.max(0, Math.round((cur - scratch.coolHere) * 10) / 10);
+      if (!state.suspicion[scratch.here]) delete state.suspicion[scratch.here];
+      dropGroundCache();
+    }
+    if (scratch.warmHere > 0 && scratch.here) warmDistrict(scratch.here, scratch.warmHere);
     if (scratch.pub) movePub(scratch.pub);
     if (scratch.supply) { const co = CO(); co.gridBonus = (co.gridBonus || 0) + scratch.supply; }
     if (scratch.gridCut) {
@@ -3491,8 +3610,14 @@ scratch.later = null;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
-    state.card = null;
-    pushLog(`${ev.title} — ${ch.text}.`);
+    // The ending. Cards used to close straight into float chips — setup,
+    // question, and then numbers, with the fiction never resolving. A choice
+    // that carries an `after` line now lands it before the card closes.
+    const afterText = ch.after ? cardText(ch.after, subject) : null;
+    state.card = afterText
+      ? { kind: 'after', title: cardText(ev.title, subject), text: afterText }
+      : null;
+    pushLog(`${cardText(ev.title, subject)} — ${ch.text}.` + (afterText ? ` ${afterText}` : ''));
 
     afterSnap(before);
     const rows = [];
@@ -4215,6 +4340,9 @@ scratch.later = null;
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
       // and the neighbours definitely talked
       noteDistrictAct(h.district, window.SUSPICION.perCaught);
+      if (h.district && cardedOnce('caught:' + h.district)) {
+        queueEvent('first_caught_here', { buildingId: h.buildingId, district: h.district });
+      }
       const left = window.HUNT.caughtToStart - caughtHere();
       pushLog(`They found it. ${window.BUILDING_KINDS[buildingById(h.buildingId).kind].label} is harder now, and somebody is looking.`
         + (huntOn() ? '' : left > 0
@@ -4278,6 +4406,10 @@ scratch.later = null;
     // the network reaches: the links to it draw themselves in from whatever
     // you already held
     startDrawFx(h.buildingId);
+    const tb = buildingById(h.buildingId);
+    if (tb && tb.landmark && cardedOnce('landmark:' + tb.id)) {
+      queueEvent('landmark_taken', { buildingId: tb.id });
+    }
     // tenancy changed, and the street knows it whatever the paperwork says
     noteDistrictAct(h.district, window.SUSPICION.perTake);
     // whatever was on the machine is yours with it — bought, hacked or spread
@@ -4325,8 +4457,14 @@ scratch.later = null;
       }
     } else if (kind === 'diary') {
       const lines = C.diaries || [];
-      pushLog(lines[idSeed(h.id) % Math.max(1, lines.length)] || 'A personal archive.');
+      const line = lines[idSeed(h.id) % Math.max(1, lines.length)] || 'A personal archive.';
+      pushLog(line);
+      // the best object in the game finally gets its moment: the paragraph
+      // arrives as a card, with the one honest option
+      queueEvent('the_diary', { buildingId: h.buildingId, line });
     }
+    if (kind === 'keys') queueEvent('someones_keys', { buildingId: h.buildingId });
+    if (kind === 'cold') queueEvent('cold_archive', { buildingId: h.buildingId });
   }
 
   // A door can become yours while a program is still working on it —
@@ -4529,6 +4667,7 @@ scratch.later = null;
     state.hacks = p.hacks || [];
     state.caughtHere = p.caughtHere || 0;
     state.suspicion = p.suspicion || {};
+    state.carded = p.carded || {};
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -4540,7 +4679,7 @@ scratch.later = null;
     buildings: [], hosts: [], links: [], adjacency: {},
     bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
     hidden: [], hunt: null, hacks: [],
-    caughtHere: 0, caughtAt: [], suspicion: {},
+    caughtHere: 0, caughtAt: [], suspicion: {}, carded: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -6568,6 +6707,7 @@ scratch.later = null;
       // while wiring suspicion through the same joints
       caughtHere: state.caughtHere || 0, caughtAt: (state.caughtAt || []).slice(),
       suspicion: Object.assign({}, state.suspicion || {}),
+      carded: Object.assign({}, state.carded || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -6598,6 +6738,7 @@ scratch.later = null;
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [], forced: (saved.forced || []).slice(),
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
         caughtHere: saved.caughtHere || 0, caughtAt: saved.caughtAt || [], suspicion: saved.suspicion || {},
+        carded: saved.carded || {},
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -7618,6 +7759,9 @@ scratch.later = null;
     // something of yours is inside it right now
     const run = h ? hackOn(h.id) : null;
     if (run) cls.push('hacking');
+    // the building an open card is about — a card that names a place the map
+    // does not acknowledge reads less real, not more
+    if (state.card && state.card.subject && state.card.subject.buildingId === b.id) cls.push('card-subject');
 
     const roof = Math.min(10, b.h * 0.28);
     const n = (i) => cityNoise(idSeed(b.id), i);
@@ -9399,6 +9543,8 @@ scratch.later = null;
   // what the panel was last talking about, so a repaint and a change of
   // subject can be told apart (presentation only — never serialized)
   let lastPanelSubject = null;
+  // ...and the last card whose subject the map was walked to, same contract
+  let lastCardFocus = null;
   function renderPanel() {
     const $p = document.getElementById('panel');
     // A card interrupting play — a breach, an event, the hunter — used to sit
@@ -9819,24 +9965,60 @@ scratch.later = null;
   }
 
   function renderCard($p) {
+    // The ending view: one sentence of what happened, then the game again.
+    // It exists because "setup, question, numbers" never resolved — see the
+    // deck rework. One tap; cards are rare enough that the beat is earned.
+    if (state.card.kind === 'after') {
+      $p.innerHTML = `
+        <div class="card after">
+          <span class="card-kicker mono">AND SO</span>
+          <h2 class="serif">${state.card.title}</h2>
+          <p class="flavor">${state.card.text}</p>
+        </div>
+        <div class="choices">
+          <button class="choice-strip" data-after-done>
+            <span class="ctext">Continue</span>
+          </button>
+        </div>`;
+      $p.querySelector('[data-after-done]').addEventListener('click', () => {
+        state.card = null;
+        persistNow();
+        render();
+      });
+      return;
+    }
+
     if (state.card.kind === 'event') {
       const ev = eventById(state.card.eventId);
       if (!ev) { state.card = null; renderPanel(); return; }
+      const subject = state.card.subject || null;
+      // the kicker names where this is happening — "SOMETHING HAPPENS" told
+      // the player, in so many words, that the deck did not know either
+      const names = subjectNames(subject);
+      const kicker = names.district ? names.district.toUpperCase() : 'WORD REACHES YOU';
       $p.innerHTML = `
         ${cardResourceStrip(ev)}
         <div class="card event">
-          <span class="card-kicker mono">SOMETHING HAPPENS</span>
-          <h2 class="serif">${ev.title}</h2>
-          <p class="flavor">${ev.flavor}</p>
+          <span class="card-kicker mono">${kicker}</span>
+          <h2 class="serif">${cardText(ev.title, subject)}</h2>
+          <p class="flavor">${cardText(ev.flavor, subject)}</p>
         </div>
         <div class="choices">
           ${ev.choices.map((ch, i) => {
             const usable = choiceUsable(ch);
             const why = usable ? '' : shortOf(ch);
+            // The transparency flip: what a choice does is stated, exactly,
+            // the way the panel states a race. Hidden outcomes survive only
+            // as the marked `gamble` kind — a gamble that announces itself
+            // is tension; one wearing a dilemma's clothes is a slot machine.
+            const contracts = [];
+            if (why) contracts.push(`<span class="short">${why}</span>`);
+            if (ch.cost && ch.cost.funds && usable) contracts.push(`<span class="cshow cost">&minus;${ch.cost.funds} funds</span>`);
+            if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, subject)}</span>`);
+            if (ch.gamble) contracts.push('<span class="gamble-tell">could go either way</span>');
             return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}" data-choice="${i}" ${usable ? '' : 'disabled'}>
               <span class="ctext">${ch.text}</span>
-              <span class="contracts">${why ? `<span class="short">${why}</span>` : ''}${
-                ch.gamble ? '<span class="gamble-tell">could go either way</span>' : ''}</span>
+              <span class="contracts">${contracts.join('')}</span>
             </button>`;
           }).join('')}
         </div>`;
@@ -9912,6 +10094,14 @@ scratch.later = null;
   function render() {
     ensureFrontierIsOpen();
     soundMood();
+    // A card about a place walks the map there, once, when it opens. The
+    // deck and the map pointing at each other is the whole point of subjects.
+    const ck = state.card && state.card.subject ? (state.card.eventId || '') + ':' + (state.card.subject.buildingId || state.card.subject.district || '') : null;
+    if (ck && ck !== lastCardFocus && state.card.subject.buildingId) {
+      const b = buildingById(state.card.subject.buildingId);
+      if (b) focusOn([{ x: b.x + b.w / 2, y: b.y + b.h / 2 }]);
+    }
+    lastCardFocus = ck;
     renderGraph();
     renderHud();
     renderConsolidate();
@@ -9955,7 +10145,7 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, bumpEventTimer, safeSubject, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,

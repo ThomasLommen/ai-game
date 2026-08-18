@@ -2190,6 +2190,24 @@ footer .build { opacity: .55; font-size: 10px; }
    and farm; this tells them the thing they need and leaves the card alone. */
 .choice-strip .short { color: var(--muted); font-size: 11.5px; }
 .choice-strip.gamble { border-style: dashed; }
+/* The transparency flip: what a choice does, stated on the strip the way
+   the panel states a race. The cost reads slightly hot, the outcome cool. */
+.cshow { font-size: 10.5px; color: var(--dim, #869); letter-spacing: .02em; }
+.cshow.cost { color: color-mix(in srgb, var(--heat) 65%, var(--ink)); }
+
+/* the ending view: quieter than the question was */
+.card.after .card-kicker { opacity: .6; }
+.card.after .flavor { color: var(--ink); }
+
+/* the building an open card is about: the map acknowledging the deck.
+   Dashes at a walk, not an alarm — it is a pointer, not a threat. */
+.bldg.card-subject .body {
+  stroke: var(--item, #b9a5e8);
+  stroke-dasharray: 4 3;
+  animation: hackEdge 2000ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .bldg.card-subject .body { animation: none; } }
+
 .choice-strip .gamble-tell {
   color: var(--tflops); font-size: 11.5px; letter-spacing: .02em;
 }

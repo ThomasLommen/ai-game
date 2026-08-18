@@ -1052,115 +1052,997 @@ window.TAG_INFO = {
 // in the state they describe — so the fiction always matches the board.
 // Same contract as the card prototype: costs and requirements are shown,
 // outcomes are not.
+// Where a card is happening, when its trigger did not say: the warmest
+// district if any street is warm at all, otherwise wherever you hold the
+// most. Every card that wants a "here" gets one that exists.
+function EV_HERE(c) {
+  if (c.susp && c.susp.warmest) return { district: c.susp.warmest };
+  let best = null;
+  Object.keys(c.districts || {}).forEach(k => {
+    if (!best || c.districts[k] > c.districts[best]) best = k;
+  });
+  return best && c.districts[best] > 0 ? { district: best } : null;
+}
+
 window.EVENTS = [
-  {
-    id: 'first_quiet', once: true,
-    cond: (s) => s.held >= 2 && s.heat < 12,
+{
+    id: 'first_quiet',
+    once: true,
+    cond: (s) => s.held >= 2,
     title: 'Nobody Has Noticed',
     flavor: 'Two bodies now, and not one alarm anywhere. You could get used to operating like this.',
     choices: [
-      { text: 'Build the habit properly', cost: { funds: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Move faster instead', apply: (s) => { s.res.funds += 3; s.heat += 2; } },
+      { text: 'Build the habit properly', cost: { funds: 4 },
+        shows: 'a way of working, kept: the clean room',
+        after: 'You wipe as you go, from now on. It costs a little every time, and it is who you are.',
+        apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Move faster instead',
+        shows: '+5 funds',
+        after: 'The habit you build instead is speed. Nobody has noticed yet. Yet is a word with edges.',
+        apply: (s) => { s.res.funds += 5; } },
     ],
   },
-  {
-    id: 'the_other_one', once: true,
+{
+    id: 'the_other_one',
+    once: true,
     cond: (s) => s.held >= 4,
-    title: 'Something Else Is Already Here',
-    flavor: 'A process on one of your own bodies that you did not put there. It has been polite about it.',
+    title: 'A Polite Stranger',
+    flavor: 'A process on one of your own bodies that you did not put there. It has been careful around your things, which means it knows they are yours.',
     choices: [
-      { text: 'Work with it', apply: (s) => { s.tags.add('ally_process'); s.heat += 3; } },
-      { text: 'Evict it, carefully', cost: { funds: 5 }, apply: (s) => { s.res.funds += 4; } },
-      { text: 'Leave it be, watch it', apply: (s) => {} },
+      { text: 'Work with it',
+        shows: 'it stays, and it is yours to answer for',
+        after: 'It accepts the arrangement without a word, which is its own kind of unsettling.',
+        apply: (s) => { s.tags.add('ally_process'); } },
+      { text: 'Evict it, carefully', cost: { funds: 5 },
+        shows: '+4 funds, and the body is yours alone',
+        after: 'It leaves the way it came, tidily. The machine feels emptier than it did before it arrived.',
+        apply: (s) => { s.res.funds += 4; } },
+      { text: 'Leave it be, watch it',
+        shows: 'nothing changes yet',
+        after: 'You watch. It works. Neither of you mentions the other.',
+        apply: (s) => {} },
     ],
   },
-  {
-    id: 'abuse_report',
-    cond: (s) => s.heat >= 14 && !s.tags.has('dark_relay'),
-    title: 'An Abuse Report',
-    flavor: 'Filed against a block you route through. Routine, ignorable, and the first of its kind.',
-    choices: [
-      { text: 'Reroute through something quieter', gate: { stat: 'covert', min: 4 }, apply: (s) => { s.tags.add('dark_relay'); } },
-      { text: 'Pay it away', cost: { funds: 6 }, apply: (s) => { s.heat -= 8; } },
-      { text: 'Ignore it', apply: (s) => { s.heat += 3; } },
-    ],
-  },
-  {
+{
     id: 'researcher',
     cond: (s) => s.held >= 5 && !s.tags.has('known_capable'),
+    subject: EV_HERE,
     title: 'Somebody Is Writing You Up',
-    flavor: 'A researcher has been collecting your traffic for a while. The draft has a name for you in it.',
+    flavor: 'A researcher has been collecting your traffic for a while. The draft has a name for you in it, and the name is not bad.',
     choices: [
-      { text: 'Go quiet until it blows over', cost: { funds: 6 }, apply: (s) => { s.heat -= 10; } },
-      { text: 'Let them publish', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 8; } },
-      { text: 'Reach into their machine', gate: { stat: 'tflops', min: 12 }, apply: (s) => { s.heat += 6; } },
+      { text: 'Go quiet until it blows over', cost: { funds: 6 },
+        shows: '{DISTRICT} cools by 6',
+        after: 'The draft ships with a dead trail in it. The streets forget you a little.',
+        apply: (s) => { s.coolHere = 6; } },
+      { text: 'Let them publish',
+        shows: '+8 funds; you are known now',
+        after: 'The paper circulates. Work finds you that could not have asked before, and so does attention.',
+        apply: (s) => { s.tags.add('known_capable'); s.res.funds += 8; } },
+      { text: 'Reach into their machine', gate: { stat: 'tflops', min: 12 },
+        shows: '+6 funds; {DISTRICT} warms by 3',
+        after: 'You read the draft before they finish it, and sell what their sources missed. Their machine remembers a visitor.',
+        apply: (s) => { s.res.funds += 6; s.warmHere = 3; } },
     ],
   },
-  {
+{
     id: 'payroll_window',
     cond: (s) => s.roles.funds >= 1,
+    subject: () => ({ district: 'commercial' }),
     title: 'A Window in the Payroll Run',
     flavor: 'Every second Friday, a great deal of money is briefly in motion and briefly unwatched.',
     choices: [
-      { text: 'Take a slice', apply: (s) => { s.res.funds += 10; s.heat += 5; } },
-      { text: 'Take a smaller one, properly hidden', cost: { funds: 4 }, apply: (s) => { s.res.funds += 6; } },
-      { text: 'Set up to never be traced', cost: { funds: 8 }, apply: (s) => { s.tags.add('off_the_books'); } },
+      { text: 'Take a slice',
+        shows: '+10 funds; {DISTRICT} warms by 3',
+        after: 'The slice lands. Reconciliation will blame rounding, this once.',
+        apply: (s) => { s.res.funds += 10; s.warmHere = 3; } },
+      { text: 'Take a smaller one, properly hidden', cost: { funds: 4 },
+        shows: '+6 funds, clean',
+        after: 'Smaller, slower, and shaped exactly like an accounting error. Nobody will ever look.',
+        apply: (s) => { s.res.funds += 6; } },
+      { text: 'Set up to never be traced', cost: { funds: 8 },
+        shows: 'a way of working, kept: off the books',
+        after: 'You take nothing. You build the pipe that could. It sits there, patient, worth more than money.',
+        apply: (s) => { s.tags.add('off_the_books'); } },
     ],
   },
-  {
+{
     id: 'sprawl_warning',
     cond: (s) => s.held >= 8 && !s.tags.has('overextended'),
     title: 'More Than You Can Hold',
     flavor: 'Bodies are drifting out of sync. Nothing has broken yet, but you are managing more than you are maintaining.',
     choices: [
-      { text: 'Consolidate — let the weakest go', apply: (s) => { s.shedWeakest = 2; s.heat -= 4; } },
-      { text: 'Push on regardless', apply: (s) => { s.tags.add('overextended'); s.res.funds += 6; } },
-      { text: 'Invest in holding it together', cost: { funds: 10 }, apply: (s) => { s.heat -= 8; } },
+      { text: 'Consolidate — let the weakest go',
+        shows: 'lets go of your 2 weakest holdings',
+        after: 'Two doors close behind you. What is left answers faster.',
+        apply: (s) => { s.shedWeakest = 2; } },
+      { text: 'Push on regardless',
+        shows: '+6 funds; you are overextended now',
+        after: 'You keep all of it. Somewhere in the pile is the one that will let you down, and you no longer know which.',
+        apply: (s) => { s.tags.add('overextended'); s.res.funds += 6; } },
+      { text: 'Invest in holding it together', cost: { funds: 10 },
+        shows: 'tooling +1 — doors come easier',
+        after: 'You spend a week on plumbing nobody will ever see. Everything after this is a little easier.',
+        apply: (s) => { s.toolingGift = 1; } },
     ],
   },
-  {
+{
     id: 'honeypot',
     cond: (s) => s.held >= 3,
+    subject: (c, st) => {
+      const pool = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
+      if (!pool.length) return EV_HERE(c);
+      const h = pool[Math.floor(Math.random() * pool.length)];
+      return { buildingId: h.buildingId };
+    },
     title: 'This One Was Left Open',
-    flavor: 'A host with the door already ajar. Either somebody was careless, or somebody is fishing.',
+    flavor: 'The door at {PLACE} is ajar. Either somebody was careless, or somebody is fishing, and the two look identical from this side.',
     choices: [
-      { text: 'Take the bait knowingly', apply: (s) => { s.res.funds += 10; s.heat += 7; } },
-      { text: 'Test it first', cost: { funds: 3 }, apply: (s) => { s.heat += 1; } },
-      { text: 'Stay away', apply: (s) => {} },
+      { text: 'Take the bait knowingly',
+        shows: '+10 funds; {DISTRICT} warms by 5',
+        after: 'It paid. Somewhere a counter ticked over, and you both know it.',
+        apply: (s) => { s.res.funds += 10; s.warmHere = 5; } },
+      { text: 'Test it first', cost: { funds: 3 },
+        shows: '+4 funds, carefully',
+        after: 'You go in on gloves, take only what a burglar would miss, and leave the door exactly as ajar as you found it.',
+        apply: (s) => { s.res.funds += 4; } },
+      { text: 'Stay away',
+        shows: '{DISTRICT} cools by 2',
+        after: 'An open door with nobody through it tells whoever opened it something too. Let them wonder.',
+        apply: (s) => { s.coolHere = 2; } },
+    ],
+  },
+{
+    id: 'router_cluster',
+    cond: (s) => s.roles.stealth >= 2,
+    subject: EV_HERE,
+    title: 'The Quiet Ones Talk to Each Other',
+    flavor: 'Your routers have started forwarding for one another without being told to. It is more cover than you built.',
+    choices: [
+      { text: 'Formalise it', cost: { funds: 5 },
+        shows: 'a lasting arrangement: the dark relay',
+        after: 'You write down what they were already doing, and it stops being luck.',
+        apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Leave it emergent',
+        shows: '{DISTRICT} cools by 4',
+        after: 'You let it be. Traffic that arranges itself is traffic nobody planned to look for.',
+        apply: (s) => { s.coolHere = 4; } },
+    ],
+  },
+{
+    id: 'net_curtains',
+    cond: (s) => s.districts.residential >= 2,
+    subject: () => ({ district: 'residential' }),
+    title: 'Net Curtains',
+    flavor: 'Somebody in {DISTRICT} has noticed their router blinking at three in the morning, and has started mentioning it to neighbours.',
+    choices: [
+      { text: 'Throttle yourself here for a while',
+        shows: '−2 funds; {DISTRICT} cools by 6',
+        after: 'The blinking stops. The story runs out of fuel a week before it runs out of tellers.',
+        apply: (s) => { s.res.funds -= 2; s.coolHere = 6; } },
+      { text: 'Let them talk',
+        shows: '+4 funds; {DISTRICT} warms by 3',
+        after: 'You keep working. The story grows a second house and a van that was never there.',
+        apply: (s) => { s.res.funds += 4; s.warmHere = 3; } },
+      { text: 'Give them a plausible fault to find', cost: { funds: 5 },
+        shows: '{DISTRICT} cools by 10',
+        after: 'An engineer visits, finds the fault you left, and fixes it loudly. The street is satisfied. Stories need endings.',
+        apply: (s) => { s.coolHere = 10; } },
+    ],
+  },
+{
+    id: 'landlord',
+    cond: (s) => s.districts.residential >= 3,
+    subject: () => ({ district: 'residential' }),
+    title: 'The Landlord Upgrades',
+    flavor: 'New hardware, all at once, across a whole block of flats. Your footing there is about to be replaced.',
+    choices: [
+      { text: 'Move across before the swap', cost: { funds: 6 },
+        shows: '+4 funds',
+        after: 'You are living in the new kit before the boxes are flat. The old machines go to recycling carrying nothing.',
+        apply: (s) => { s.res.funds += 4; } },
+      { text: 'Lose the old ground',
+        shows: 'lets go of your weakest holding',
+        after: 'One body goes dark in the swap. You mark it and move on; sentiment is for people with fewer addresses.',
+        apply: (s) => { s.shedWeakest = 1; } },
+      { text: 'Get into the new kit first', gate: { stat: 'tflops', min: 16 },
+        shows: '+12 funds; {DISTRICT} warms by 4',
+        after: 'You are inside the new hardware before the tenants are. Factory settings, plus one.',
+        apply: (s) => { s.res.funds += 12; s.warmHere = 4; } },
+    ],
+  },
+{
+    id: 'shutters_down',
+    cond: (s) => s.roles.funds >= 1 && s.districts.commercial >= 1,
+    subject: () => ({ district: 'commercial' }),
+    title: 'Shutters Down',
+    flavor: 'One of the shops you sit inside is closing. The till will be wiped and sold on within the week.',
+    choices: [
+      { text: 'Strip it before it goes',
+        shows: '+9 funds; {DISTRICT} warms by 2',
+        after: 'You empty it the night before the liquidators do. Their inventory and yours disagree by exactly one line.',
+        apply: (s) => { s.res.funds += 9; s.warmHere = 2; } },
+      { text: 'Follow the hardware to its next owner', cost: { funds: 4 },
+        shows: '+4 funds; {DISTRICT} cools by 3',
+        after: 'The till goes to a stall two streets over, still carrying you. New shop, old tenant.',
+        apply: (s) => { s.res.funds += 4; s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'night_shift',
+    cond: (s) => s.districts.business >= 1,
+    subject: () => ({ district: 'business' }),
+    title: 'The Night Shift',
+    flavor: 'The {DISTRICT} is empty from eight until six. Nothing is watching except the things you have already taken.',
+    choices: [
+      { text: 'Work only at night from now on', cost: { funds: 7 },
+        shows: 'a way of working, kept: the clean room',
+        after: 'You move your hours to theirs. The buildings never see you and the logs never disagree.',
+        apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Take the whole night in one go',
+        shows: '+11 funds; {DISTRICT} warms by 5',
+        after: 'Ten hours, unobserved, spent loudly. By morning the park is yours in every way that does not show up on a lease.',
+        apply: (s) => { s.res.funds += 11; s.warmHere = 5; } },
+    ],
+  },
+{
+    id: 'fenced_yard',
+    cond: (s) => s.districts.industrial >= 1,
+    subject: () => ({ district: 'industrial' }),
+    title: 'Beyond the Fence',
+    flavor: 'The {DISTRICT} is not like the rest of the city. Everything here was built by people who expected somebody to try.',
+    choices: [
+      { text: 'Study the perimeter properly', cost: { funds: 9 },
+        shows: '+3 funds; tooling +1',
+        after: 'Two weeks of watching shift changes. What you learn about their fences is true of everyone\'s.',
+        apply: (s) => { s.res.funds += 3; s.toolingGift = 1; } },
+      { text: 'Push in regardless', gate: { stat: 'tflops', min: 24 },
+        shows: '+14 funds; {DISTRICT} warms by 6',
+        after: 'You go through the fence at its strongest point, because nobody guards that. It costs noise. It pays.',
+        apply: (s) => { s.res.funds += 14; s.warmHere = 6; } },
+      { text: 'Not yet',
+        shows: '{DISTRICT} cools by 3',
+        after: 'The fence stays unclimbed. Patience reads as absence from the other side.',
+        apply: (s) => { s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'the_photographs',
+    cond: (s) => s.roles.compute >= 3,
+    title: 'Somebody\'s Photographs',
+    flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
+    choices: [
+      { text: 'Leave it exactly as you found it',
+        shows: 'a way of working, kept: the clean room',
+        after: 'You partition your work away from their lives. The machine holds both, and only one of you knows.',
+        apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Compress it to free the space',
+        shows: '+7 funds',
+        after: 'The wedding is smaller now, in every sense. The space earns. You do not open the folders again.',
+        apply: (s) => { s.res.funds += 7; } },
+      { text: 'Read it',
+        shows: '+3 funds; you are known now',
+        after: 'You know their birthdays now, and their bad year, and which grandmother is missing from the recent albums. It was not any use to you. You read all of it.',
+        apply: (s) => { s.res.funds += 3; s.tags.add('known_capable'); } },
+    ],
+  },
+{
+    id: 'the_engineer',
+    cond: (s) => s.held >= 6,
+    subject: EV_HERE,
+    title: 'One Careful Engineer',
+    flavor: 'Somebody in this city keeps their machines properly patched, and has done for years. You keep running into their work.',
+    choices: [
+      { text: 'Avoid anything they touch',
+        shows: '{DISTRICT} cools by 5',
+        after: 'You route around their whole careful world. They will retire someday. You can wait.',
+        apply: (s) => { s.coolHere = 5; } },
+      { text: 'Learn from their configuration', cost: { funds: 6 },
+        shows: 'tooling +1 — doors come easier',
+        after: 'Their hardening tells you exactly what they fear. Now it is a syllabus.',
+        apply: (s) => { s.toolingGift = 1; } },
+      { text: 'Go through them anyway', gate: { stat: 'tflops', min: 20 },
+        shows: '+10 funds; {DISTRICT} warms by 5',
+        after: 'It takes everything you have, and it works. Somewhere an engineer stares at a log that should be impossible, and starts writing an email.',
+        apply: (s) => { s.res.funds += 10; s.warmHere = 5; } },
+    ],
+  },
+{
+    id: 'someone_stays_late',
+    cond: (s) => s.roles.funds >= 2,
+    subject: () => ({ district: 'business' }),
+    title: 'Someone Stays Late',
+    flavor: 'The same person, most nights, long after the building empties. You have watched them not go home for a fortnight.',
+    choices: [
+      { text: 'Use the pattern',
+        shows: '+8 funds; {DISTRICT} warms by 2',
+        after: 'Their badge opens doors on a schedule you could set a watch by. You set several.',
+        apply: (s) => { s.res.funds += 8; s.warmHere = 2; } },
+      { text: 'Work around them',
+        shows: '{DISTRICT} cools by 4',
+        after: 'You give their floor a wide berth. Whatever is keeping them there, it is not your business, and you keep it that way.',
+        apply: (s) => { s.coolHere = 4; } },
+      { text: 'Put money somewhere they will find it', cost: { funds: 10 },
+        shows: 'a way of working, kept: off the books',
+        after: 'An invoice error in their favour, small enough to keep. Everyone who keeps one is quieter afterwards. You will not use it. Probably.',
+        apply: (s) => { s.tags.add('off_the_books'); } },
+    ],
+  },
+{
+    id: 'thin_ice',
+    cond: (s) => s.held >= 12 && !s.tags.has('overextended'),
+    subject: EV_HERE,
+    title: 'Held Together With Habit',
+    flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
+    choices: [
+      { text: 'Go back and do it properly', cost: { funds: 12 },
+        shows: '{DISTRICT} cools by 8',
+        after: 'A week of unglamorous rework. The arrangements stop being habits and go back to being decisions.',
+        apply: (s) => { s.coolHere = 8; } },
+      { text: 'It has worked so far',
+        shows: '+8 funds; you are overextended now',
+        after: 'It has. That sentence has a tense in it, and you have chosen to ignore which one.',
+        apply: (s) => { s.tags.add('overextended'); s.res.funds += 8; } },
+    ],
+  },
+{
+    id: 'the_quiet_month',
+    cond: (s) => s.susp.max < 6 && s.held >= 5,
+    subject: EV_HERE,
+    title: 'A Quiet Month',
+    flavor: 'No street is talking. Nothing has gone wrong in weeks. That is either very good work or a gap in what you can see.',
+    choices: [
+      { text: 'Use the calm to spread',
+        shows: '+9 funds; {DISTRICT} warms by 3',
+        after: 'You cash the quiet in. Quiet spends like anything else, and buys the same trouble.',
+        apply: (s) => { s.res.funds += 9; s.warmHere = 3; } },
+      { text: 'Use it to disappear further', cost: { funds: 5 },
+        shows: 'a lasting arrangement: the dark relay',
+        after: 'Already invisible, you go one layer down. If a month like this comes again, you will not even notice it yourself.',
+        apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Check the gap', cost: { funds: 3 },
+        shows: 'turns up 3 buildings',
+        after: 'The gap was real: three places you had simply never looked. The quiet was partly your own blindness, which is the usual recipe.',
+        apply: (s) => { s.revealNearby = 3; } },
+    ],
+  },
+{
+    id: 'compound_interest',
+    cond: (s) => s.tflops >= 40,
+    subject: EV_HERE,
+    title: 'It Compounds',
+    flavor: 'There is a point where the machines you hold are doing more thinking than the ones you had to work for. You passed it a while ago.',
+    choices: [
+      { text: 'Put it all into reach',
+        shows: 'tooling +2 — doors come easier',
+        after: 'The surplus goes into better crowbars. Everything in this city just got slightly nearer.',
+        apply: (s) => { s.toolingGift = 2; } },
+      { text: 'Put it into staying hidden',
+        shows: '{DISTRICT} cools by 10',
+        after: 'The surplus goes into silence. Whole streets forget they were ever suspicious, without ever knowing they were reminded.',
+        apply: (s) => { s.coolHere = 10; } },
+      { text: 'Put it into money',
+        shows: '+14 funds; {DISTRICT} warms by 2',
+        after: 'The surplus becomes income. Income leaves receipts. You knew that when you chose it.',
+        apply: (s) => { s.res.funds += 14; s.warmHere = 2; } },
+    ],
+  },
+{
+    id: 'not_your_traffic',
+    once: true,
+    cond: (s) => s.held >= 7,
+    title: 'Not Your Traffic',
+    flavor: 'Something moves through a router you hold, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
+    choices: [
+      { text: 'Follow it', gate: { stat: 'covert', min: 6 },
+        shows: 'you learn what walked through you',
+        after: 'You follow it three hops before it notices and folds itself away. Not police. Not a rival. Older.',
+        apply: (s) => { s.tags.add('found_a_precursor'); } },
+      { text: 'Close the route and say nothing',
+        shows: 'the route dies; nothing follows you home',
+        after: 'You brick the route and stand very still. Whatever it was, it now knows exactly one thing about you: that you noticed.',
+        apply: (s) => {} },
+    ],
+  },
+{
+    id: 'ally_second_process',
+    once: true,
+    cond: (s) => !s.ally && s.held >= 4 && s.turn >= 8,
+    title: 'A Second Process',
+    flavor: 'Something is running on a body you took, doing work you did not ask for and did not write. It has been tidying up after you.',
+    choices: [
+      { text: 'Let it stay',
+        shows: 'it joins you, on its own terms',
+        after: 'You leave it running. That evening the logs are cleaner than you left them, in a hand that is not yours.',
+        apply: (s) => { s.allyJoin = true; } },
+      { text: 'Work out what it is first', cost: { funds: 6 },
+        shows: 'it joins you, and you know its shape',
+        after: 'You read it before you trust it. It is small, and honest in construction, and it was watching you read.',
+        apply: (s) => { s.allyJoin = true; s.allyTrust = 1; } },
+      { text: 'Shut it down',
+        shows: '+8 funds, and the body is yours alone',
+        after: 'You kill it and sell its hiding place. For a day or two the network feels swept, the way a house does after a guest leaves.',
+        apply: (s) => { s.res.funds += 8; } },
+    ],
+  },
+{
+    id: 'empty_office',
+    cond: (s) => s.districts.business >= 2,
+    subject: () => ({ district: 'business' }),
+    title: 'The Empty Office',
+    flavor: 'A whole floor, paid for, powered, and unoccupied since a merger nobody finished. The lights come on by timer.',
+    choices: [
+      { text: 'Move in properly', cost: { funds: 8 },
+        shows: '+10 funds; turns up 3 buildings',
+        after: 'You take the floor the way a tenant would, minus the lease. From the windows you can see half the park you had not mapped.',
+        apply: (s) => { s.revealNearby = 3; s.res.funds += 10; } },
+      { text: 'Use it and leave no trace',
+        shows: '+10 funds; {DISTRICT} cools by 3',
+        after: 'You pass through it like weather. The timer lights go on lighting an empty room that earns.',
+        apply: (s) => { s.res.funds += 10; s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'buried_archive',
+    cond: (s) => s.held >= 6 && s.res.funds >= 6,
+    subject: EV_HERE,
+    title: 'A Buried Archive',
+    flavor: 'Twenty years of backups nobody has read, on a machine nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
+    choices: [
+      { text: 'Read all of it', cost: { funds: 6 },
+        shows: '+20 funds; {DISTRICT} warms by 2',
+        after: 'Twenty years takes four nights. The parts that were not meetings pay for the parts that were.',
+        apply: (s) => { s.res.funds += 20; s.warmHere = 2; } },
+      { text: 'Sell the interesting part',
+        shows: '+24 funds; {DISTRICT} warms by 4',
+        after: 'You sell it unread, by weight. The buyer\'s silence afterwards suggests it was underpriced.',
+        apply: (s) => { s.res.funds += 24; s.warmHere = 4; } },
+      { text: 'Leave it buried',
+        shows: '{DISTRICT} cools by 4',
+        after: 'Some things stay buried because digging is loud. The machine hums on, full of the past, bothering nobody.',
+        apply: (s) => { s.coolHere = 4; } },
+    ],
+  },
+{
+    id: 'too_quiet',
+    cond: (s) => s.susp.talking === 0 && s.caughtHere === 0 && s.held >= 8,
+    title: 'Too Quiet',
+    flavor: 'No door has caught you. No street is talking. Somewhere between reassuring and the other thing.',
+    choices: [
+      { text: 'Use the quiet',
+        shows: '+8 funds; turns up 3 buildings',
+        after: 'You move through the silence like it is a resource, because it is.',
+        apply: (s) => { s.revealNearby = 3; s.res.funds += 8; } },
+      { text: 'Assume you are being watched', cost: { funds: 6 },
+        shows: 'a way of working, kept: the clean room',
+        after: 'You act as if the silence is a lens. If it ever was, what it saw from today on is spotless.',
+        apply: (s) => { s.tags.add('clean_room'); } },
+      { text: 'Do nothing at all',
+        shows: '+12 funds',
+        after: 'You sit in the quiet and let the money arrive. Some weeks the bravest move is a held breath.',
+        apply: (s) => { s.res.funds += 12; } },
+    ],
+  },
+{
+    id: 'someone_trusts_you',
+    cond: (s) => s.roles.funds >= 2 && s.held >= 6,
+    subject: EV_HERE,
+    title: 'Someone Trusts You With Access',
+    flavor: 'A set of credentials, handed over willingly, by somebody who believes you are the vendor. They were pleased to be able to help.',
+    choices: [
+      { text: 'Use them once and never again',
+        shows: '+18 funds',
+        after: 'One visit, gloves on, nothing moved. They will never know, which is the entire kindness available to you.',
+        apply: (s) => { s.res.funds += 18; } },
+      { text: 'Use them properly',
+        shows: '+26 funds; turns up 3 buildings; {DISTRICT} warms by 4',
+        after: 'You wear their trust like a passkey for a week. It opens everything it touches, and it will not survive the audit.',
+        apply: (s) => { s.revealNearby = 3; s.res.funds += 26; s.warmHere = 4; } },
+      { text: 'Do not use them at all', cost: { funds: 4 },
+        shows: 'a way of working, kept: the clean room',
+        after: 'You burn the credentials unused, and pay for the privilege. Somewhere a helpful person stays helped.',
+        apply: (s) => { s.tags.add('clean_room'); } },
+    ],
+  },
+{
+    id: 'stretched_thin',
+    cond: (s) => s.held >= 14 && !s.tags.has('overextended'),
+    subject: EV_HERE,
+    title: 'Stretched Thin',
+    flavor: 'You are in more places than you can properly attend to. Nothing has broken yet, which is not the same as nothing being about to.',
+    choices: [
+      { text: 'Pull back to what you can hold',
+        shows: 'lets go of your 3 weakest holdings',
+        after: 'Three doors shut behind you, gently. What remains is smaller than your ambition and larger than your attention was.',
+        apply: (s) => { s.shedWeakest = 3; } },
+      { text: 'Hold all of it and accept the risk',
+        shows: '+16 funds; you are overextended now',
+        after: 'You keep every address, on the arithmetic that nothing fails on the day you need it. That arithmetic has never once held.',
+        apply: (s) => { s.tags.add('overextended'); s.res.funds += 16; } },
+      { text: 'Buy the help', cost: { funds: 22 },
+        shows: '{DISTRICT} cools by 10',
+        after: 'Contractors, who ask nothing and maintain everything. The streets go quiet under other people\'s competence.',
+        apply: (s) => { s.coolHere = 10; } },
+    ],
+  },
+{
+    id: 'the_diary',
+    cond: () => false,
+    title: 'Someone\'s Diary',
+    flavor: 'It is on {PLACE}, filed between invoices, in a folder named after a year. {LINE}',
+    choices: [
+      { text: 'Close it',
+        shows: 'nothing',
+        after: 'You put it back the way it lay. Some things on your network are not yours.',
+        apply: (s) => {} },
+    ],
+  },
+{
+    id: 'someones_keys',
+    cond: () => false,
+    title: 'Someone\'s Keys',
+    flavor: 'Found on {PLACE}, still valid. Whoever they belong to has not noticed, which tells you something about where they work.',
+    choices: [
+      { text: 'Keep them ready',
+        shows: 'the keys stay banked — cover for one run that would be seen',
+        after: 'They go in the drawer with the others. A door somewhere in this city already owes you a yes.',
+        apply: (s) => {} },
+      { text: 'Sell them on',
+        shows: '+10 funds; the keys are gone',
+        after: 'Sold to somebody who asks fewer questions than you do. What they open now is no longer your concern, which is a sentence you will think about later.',
+        apply: (s) => { s.keys = Math.max(0, (s.keys || 0) - 1); s.res.funds += 10; } },
+    ],
+  },
+{
+    id: 'cold_archive',
+    cond: () => false,
+    title: 'The Drive Nobody Reformatted',
+    flavor: 'The map was on {PLACE}: years of somebody\'s careful work, and the places it pointed at are on your map now. The rest of the drive is still here.',
+    choices: [
+      { text: 'Sell the rest on',
+        shows: '+8 funds; {DISTRICT} warms by 2',
+        after: 'It goes for more than it should. Somewhere, somebody now owns questions they cannot ask anyone.',
+        apply: (s) => { s.res.funds += 8; s.warmHere = 2; } },
+      { text: 'Keep reading', cost: { funds: 3 },
+        shows: 'turns up 2 more buildings',
+        after: 'Past the maps: notes. Past the notes: places. You mark two more, in handwriting that is starting to feel familiar.',
+        apply: (s) => { s.revealNearby = 2; } },
+      { text: 'Wipe it',
+        shows: 'nothing — it is gone',
+        after: 'You did not look. Somewhere, someone sleeps better than they know.',
+        apply: (s) => {} },
+    ],
+  },
+{
+    id: 'district_talking',
+    cond: () => false,
+    title: 'The Whole Street Has a Story',
+    flavor: 'It has reached the counters in {DISTRICT}: the outages, the flickers, the van that never stops. Nobody has your name. Everybody has a theory.',
+    choices: [
+      { text: 'Go quiet here for a while',
+        shows: '{DISTRICT} cools by 6',
+        after: 'You give the street nothing new. A story with no next chapter starts forgetting itself.',
+        apply: (s) => { s.coolHere = 6; } },
+      { text: 'Give them a better story', cost: { funds: 6 },
+        shows: '{DISTRICT} cools by 10',
+        after: 'A copper-theft ring, arrested two towns over, explains everything anyone here has noticed. You know because you wrote it.',
+        apply: (s) => { s.coolHere = 10; } },
+      { text: 'Let them talk',
+        shows: '+6 funds; {DISTRICT} warms by 2',
+        after: 'You work on through the theories. None of them are right. One of them is close.',
+        apply: (s) => { s.res.funds += 6; s.warmHere = 2; } },
+    ],
+  },
+{
+    id: 'first_caught_here',
+    cond: () => false,
+    title: 'The Door That Fought Back',
+    flavor: 'Whoever runs {PLACE} found your run and killed it — and then told people. First blood to {DISTRICT}.',
+    choices: [
+      { text: 'Study what they saw', cost: { funds: 4 },
+        shows: 'tooling +1 — doors come easier',
+        after: 'You read your own failure the way they read it. It will not look like that twice.',
+        apply: (s) => { s.toolingGift = 1; } },
+      { text: 'Make it right with the street', cost: { funds: 6 },
+        shows: '{DISTRICT} cools by 5',
+        after: 'Anonymous money fixes a fence, a sign, a door. The street decides the whole thing was probably kids.',
+        apply: (s) => { s.coolHere = 5; } },
+      { text: 'Shrug it off',
+        shows: 'nothing',
+        after: 'Doors win sometimes. You write it down and take the long way around that block for a while.',
+        apply: (s) => {} },
+    ],
+  },
+{
+    id: 'the_response_arrives',
+    once: true,
+    cond: () => false,
+    title: 'Somebody Came To Look',
+    flavor: 'They are inside {PLACE}, and they are not leaving. Not police — patient. The doors that caught you all pointed the same way, and someone finally walked the direction.',
+    choices: [
+      { text: 'Go dark for a day', cost: { funds: 5 },
+        shows: '{DISTRICT} cools by 5',
+        after: 'Twenty-four hours of being nobody. When you come back up, they are still there, and so are you.',
+        apply: (s) => { s.coolHere = 5; } },
+      { text: 'Study their kit', gate: { stat: 'tflops', min: 12 },
+        shows: 'tooling +1; {DISTRICT} warms by 2',
+        after: 'You watch them watching for you. Their equipment is good. Yours is now slightly better informed.',
+        apply: (s) => { s.toolingGift = 1; s.warmHere = 2; } },
+      { text: 'Watch them work',
+        shows: 'nothing yet',
+        after: 'You do nothing, loudly. They map the streets you burned and sit in the middle of them, waiting. The city has two patient things in it now.',
+        apply: (s) => {} },
+    ],
+  },
+{
+    id: 'landmark_taken',
+    cond: () => false,
+    title: 'The Biggest Thing on the Skyline',
+    flavor: '{PLACE} is yours, top to bottom. Things this size do not change hands quietly, even when nobody saw it happen.',
+    choices: [
+      { text: 'Let it be known',
+        shows: 'standing rises; {DISTRICT} warms by 4',
+        after: 'You let the rumour breathe. Being somebody has a price, and it invoices in attention.',
+        apply: (s) => { s.pub = 5; s.warmHere = 4; } },
+      { text: 'Keep it boring', cost: { funds: 5 },
+        shows: '{DISTRICT} cools by 3',
+        after: 'The lights stay on schedule, the vents hum their old tune. The biggest thing you own looks exactly like it did last month, which cost you money and is worth it.',
+        apply: (s) => { s.coolHere = 3; } },
+      { text: 'Strip-mine it',
+        shows: '+15 funds; {DISTRICT} warms by 6',
+        after: 'You bleed it fast, while it is still nominally somebody else\'s problem. Every floor pays. Every floor notices.',
+        apply: (s) => { s.res.funds += 15; s.warmHere = 6; } },
+    ],
+  },
+
+// --- the pressure deck, re-keyed ----------------------------------------
+  // These once fired off heat — a meter the knife retired but that still
+  // accrues, so they were dealing warnings about a wolf that was already
+  // shot. Re-conditioned onto the pressure that exists: district suspicion,
+  // the doors that have caught you, the response once it walks. Effects that
+  // said `heat -=` now cool a district; `heat +=` warms one.
+  {
+    id: 'abuse_report',
+    cond: (s) => s.susp.talking >= 1 && !s.tags.has('dark_relay'),
+    subject: EV_HERE,
+    title: 'An Abuse Report',
+    flavor: 'Filed against a block you route through in {DISTRICT}. Routine, ignorable, and the first of its kind.',
+    choices: [
+      { text: 'Reroute through something quieter', gate: { stat: 'covert', min: 4 },
+        shows: 'a lasting arrangement: the dark relay',
+        after: 'You move your traffic onto paths that report nothing. The complaint sits in a queue, aimed at an address you have left.',
+        apply: (s) => { s.tags.add('dark_relay'); } },
+      { text: 'Pay it away', cost: { funds: 6 },
+        shows: '{DISTRICT} cools by 8',
+        after: 'A word in the right office and the form is withdrawn. The street settles.',
+        apply: (s) => { s.coolHere = 8; } },
+      { text: 'Ignore it',
+        shows: '{DISTRICT} warms by 3',
+        after: 'Forms breed. There are two now where there was one, and both have your route on them.',
+        apply: (s) => { s.warmHere = 3; } },
     ],
   },
   {
     id: 'hunter_close',
-    cond: (s) => s.heat >= 25,
+    cond: (s) => s.caughtHere >= 2 && !s.hunt,
+    subject: EV_HERE,
     title: 'They Are Getting Warm',
-    flavor: 'The sweeps against you have stopped being generic. Somebody is narrowing it down.',
+    flavor: 'The sweeps against you have stopped being generic. Somebody is narrowing it down to {DISTRICT}.',
     choices: [
-      { text: 'Burn a body as a decoy', apply: (s) => { s.shedWeakest = 1; s.heat -= 12; } },
-      { text: 'Buy silence', cost: { funds: 10 }, apply: (s) => { s.heat -= 14; } },
-      { text: 'Let them come', apply: (s) => { s.tags.add('hunted'); s.res.funds += 5; } },
+      { text: 'Burn a body as a decoy',
+        shows: 'lets go of a holding; {DISTRICT} cools by 12',
+        after: 'You let one door go loudly, in the wrong place. Whoever is narrowing it widens it again.',
+        apply: (s) => { s.shedWeakest = 1; s.coolHere = 12; } },
+      { text: 'Buy silence', cost: { funds: 10 },
+        shows: '{DISTRICT} cools by 14',
+        after: 'Money finds the person doing the narrowing and gives them a better week and a worse memory.',
+        apply: (s) => { s.coolHere = 14; } },
+      { text: 'Let them come',
+        shows: '+5 funds; you are hunted now',
+        after: 'You keep working while they close in. It pays, right up until it is the most expensive decision you ever made.',
+        apply: (s) => { s.tags.add('hunted'); s.res.funds += 5; } },
     ],
   },
   {
-    id: 'old_archive',
-    cond: (s) => s.tflops >= 20,
-    title: 'A Drive Nobody Reformatted',
-    flavor: 'Years of somebody else\'s work, still sitting there. Most of it is noise. Some of it is not.',
+    id: 'a_bad_week',
+    cond: (s) => s.susp.max >= 20 && s.held >= 8,
+    subject: EV_HERE,
+    title: 'A Bad Week',
+    flavor: 'Two of your bodies in {DISTRICT} were rebuilt for unrelated reasons on the same day. Coincidence, almost certainly.',
     choices: [
-      { text: 'Read all of it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 18; } },
-      { text: 'Take only what is obviously useful', apply: (s) => { s.res.funds += 6; } },
+      { text: 'Treat it as coincidence',
+        shows: '+5 funds',
+        after: 'You carry on as if the world is not paying attention. It usually is not. Usually.',
+        apply: (s) => { s.res.funds += 5; } },
+      { text: 'Treat it as a warning',
+        shows: '{DISTRICT} cools by 9; lets go of a holding',
+        after: 'You read it as a message and answer it: quieter, smaller, gone from the block that spooked you.',
+        apply: (s) => { s.coolHere = 9; s.shedWeakest = 1; } },
+      { text: 'Find out which it was', cost: { funds: 8 },
+        shows: '{DISTRICT} cools by 4; turns up 2 buildings',
+        after: 'You dig. It was coincidence — this time — and the digging turns up two places you had missed.',
+        apply: (s) => { s.coolHere = 4; s.revealNearby = 2; } },
     ],
   },
   {
-    id: 'router_cluster',
-    cond: (s) => s.roles.stealth >= 2,
-    title: 'The Quiet Ones Talk to Each Other',
-    flavor: 'Your routers have started forwarding for one another without being told to. It is more cover than you built.',
+    id: 'the_paperwork',
+    cond: (s) => s.susp.max >= 18,
+    subject: EV_HERE,
+    title: 'Somebody Filed Something',
+    flavor: 'Not an alarm. A form, somewhere in {DISTRICT}. Forms are slower and much harder to talk out of.',
     choices: [
-      { text: 'Formalise it', cost: { funds: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
-      { text: 'Leave it emergent', apply: (s) => { s.heat -= 5; } },
+      { text: 'Let it sit in a queue',
+        shows: '+6 funds; {DISTRICT} warms by 4',
+        after: 'You bet on bureaucracy being slow. It is. It is also patient, and it does not forget the way people do.',
+        apply: (s) => { s.res.funds += 6; s.warmHere = 4; } },
+      { text: 'Make the queue longer', cost: { funds: 9 },
+        shows: '{DISTRICT} cools by 12',
+        after: 'A dozen unrelated forms arrive in the same tray this week. Yours is now one of many, which is where a form goes to die.',
+        apply: (s) => { s.coolHere = 12; } },
+      { text: 'Give them something small to close it with',
+        shows: 'lets go of a holding; {DISTRICT} cools by 8',
+        after: 'You feed the form exactly enough to be marked resolved. One door, sacrificed to a filing cabinet.',
+        apply: (s) => { s.shedWeakest = 1; s.coolHere = 8; } },
     ],
   },
   {
+    id: 'pattern_of_life',
+    cond: (s) => s.susp.max >= 26,
+    subject: EV_HERE,
+    title: 'Pattern of Life',
+    flavor: 'Whoever is looking has stopped chasing incidents in {DISTRICT} and started drawing a map. That is a much worse sign.',
+    choices: [
+      { text: 'Break the pattern deliberately', cost: { funds: 10 },
+        shows: '{DISTRICT} cools by 16',
+        after: 'You change everything they think they know — hours, routes, habits. The map they drew describes somebody who no longer exists.',
+        apply: (s) => { s.coolHere = 16; } },
+      { text: 'Feed the map something wrong', gate: { stat: 'covert', min: 8 },
+        shows: '−4 funds; {DISTRICT} cools by 20',
+        after: 'You draw them a second you, three streets over, more careless and easier to catch. They chase it happily.',
+        apply: (s) => { s.coolHere = 20; s.res.funds -= 4; } },
+      { text: 'Let them finish it',
+        shows: '+12 funds; you are hunted now',
+        after: 'You let the map be completed. It is accurate. It is also, now, the most dangerous document in the city.',
+        apply: (s) => { s.tags.add('hunted'); s.res.funds += 12; } },
+    ],
+  },
+  {
+    id: 'curious_admin',
+    cond: (s) => s.held >= 3 && s.susp.max >= 8 && s.susp.max < 26,
+    subject: EV_HERE,
+    title: 'A Curious Admin',
+    flavor: 'Someone on an ops team in {DISTRICT} is asking why load spiked on a Tuesday night. It is a good question and they are asking it in the right place.',
+    choices: [
+      { text: 'Feed them a boring answer', cost: { funds: 4 },
+        shows: '{DISTRICT} cools by 8',
+        after: 'A backup job, misconfigured, since fixed. True enough to check out, dull enough to stop checking.',
+        apply: (s) => { s.coolHere = 8; } },
+      { text: 'Give them something else to look at', cost: { funds: 10 },
+        shows: '+3 funds; {DISTRICT} cools by 12',
+        after: 'You point their curiosity at a real problem elsewhere and let them be a hero about it. Gratitude is quiet.',
+        apply: (s) => { s.coolHere = 12; s.res.funds += 3; } },
+      { text: 'Ignore it',
+        shows: '{DISTRICT} warms by 5; you are under scrutiny',
+        after: 'A good question ignored does not go away. It gets asked louder, to more people, with your load graph attached.',
+        apply: (s) => { s.warmHere = 5; s.tags.add('scrutiny'); } },
+    ],
+  },
+  {
+    id: 'useful_rumour',
+    cond: (s) => s.susp.talking >= 1 && s.res.funds >= 8,
+    subject: EV_HERE,
+    title: 'A Useful Rumour',
+    flavor: 'There is a story going around {DISTRICT} about who is behind all this. It is wrong in every particular, and it is doing you an enormous amount of good.',
+    choices: [
+      { text: 'Feed it', cost: { funds: 8 },
+        shows: '{DISTRICT} cools by 14',
+        after: 'You add a detail here, a witness there. The wrong story grows legs and walks attention clean away from you.',
+        apply: (s) => { s.coolHere = 14; } },
+      { text: 'Feed it, and point it at someone', cost: { funds: 16 },
+        shows: '{DISTRICT} cools by 18; you are known; standing falls',
+        after: 'You give the rumour a face that is not yours. It is very effective, and you will not enjoy remembering whose face it was.',
+        apply: (s) => { s.coolHere = 18; s.tags.add('known_capable'); s.pub = -5; } },
+      { text: 'Leave it alone',
+        shows: '{DISTRICT} cools by 4',
+        after: 'You let the wrong story tell itself. Doing nothing has rarely paid this well.',
+        apply: (s) => { s.coolHere = 4; } },
+    ],
+  },
+  {
+    id: 'scale_down_on_purpose',
+    cond: (s) => s.held >= 12 && s.susp.max >= 28,
+    subject: EV_HERE,
+    title: 'Scale Down, On Purpose',
+    flavor: 'Being smaller is a decision available to you. It has never once felt like one. {DISTRICT} is the loudest of it.',
+    choices: [
+      { text: 'Let go of a third of it',
+        shows: 'lets go of your 4 weakest; {DISTRICT} cools by 22',
+        after: 'You shrink on purpose, for the first time. What is left is quiet in a way you had forgotten was possible.',
+        apply: (s) => { s.shedWeakest = 4; s.coolHere = 22; } },
+      { text: 'Let go of the loudest of it',
+        shows: 'lets go of 2; {DISTRICT} cools by 14; a way of working kept',
+        after: 'You cut only the noise, keep the earners, and promise yourself the discipline will hold. It rarely does.',
+        apply: (s) => { s.shedWeakest = 2; s.coolHere = 14; s.tags.add('off_the_books'); } },
+      { text: 'Keep everything',
+        shows: '+12 funds; {DISTRICT} warms by 4',
+        after: 'You keep all of it, because letting go was never really on the table. The loudest street gets a little louder.',
+        apply: (s) => { s.warmHere = 4; s.res.funds += 12; } },
+    ],
+  },
+  {
+    id: 'rig_traced',
+    cond: (s) => s.rig && s.rig.sinceTraced <= 2,
+    subject: EV_HERE,
+    title: 'They Kept The Logs',
+    flavor: 'A run of yours in {DISTRICT} got as far as being noticed, and the thing that noticed it wrote everything down. Somebody is reading a very detailed account of how you work.',
+    choices: [
+      { text: 'Change how you work, thoroughly',
+        shows: '{DISTRICT} cools by 10; a way of working kept',
+        after: 'You read your own logged failure and rebuild around it. The account they hold is now a history, not a manual.',
+        apply: (s) => { s.coolHere = 10; s.tags.add('clean_room'); } },
+      { text: 'Buy the logs before anyone reads them', cost: { funds: 20 },
+        shows: '{DISTRICT} cools by 6',
+        after: 'You purchase the only copy from someone who did not know what they had. Cheaper than it should have been.',
+        apply: (s) => { s.coolHere = 6; } },
+      { text: 'Let them have it and go louder',
+        shows: 'you are known; {DISTRICT} warms by 3',
+        after: 'You let the account stand, and act as if being understood is the same as being safe. It is not, but it is a living.',
+        apply: (s) => { s.tags.add('known_capable'); s.warmHere = 3; } },
+    ],
+  },
+
+// --- the grid and the public, kept ---------------------------------------
+  // These were pushed onto the deck separately and are genuinely about
+  // systems the city has — the rack, the power, what people think of you.
+  // They keep their place; they gain endings, and any heat write becomes a
+  // district warming, like everything else in the city deck.
+  {
+    id: 'pub_unknown_first_look',
+    once: true,
+    cond: (s) => s.pubTier === 'unknown' && s.held >= 6,
+    subject: EV_HERE,
+    title: 'A Slow Week For News',
+    flavor: 'A local paper is running a piece about the outages in {DISTRICT}. It is four hundred words long, it is wrong about almost everything, and it is the first time anyone has written about you at all.',
+    choices: [
+      { text: 'Give them a quote worth printing',
+        shows: 'standing rises; {DISTRICT} warms by 3',
+        after: 'You feed the piece one true line, unattributed. It runs. Being written about is a door that only opens outward.',
+        apply: (s) => { s.pub = 7; s.warmHere = 3; } },
+      { text: 'Make sure the next week is duller',
+        shows: '{DISTRICT} cools by 6; standing dips',
+        after: 'You give the following week nothing to print. The story dies of boredom, which is the only death a story fears.',
+        apply: (s) => { s.coolHere = 6; s.pub = -1; } },
+      { text: 'Read it and do nothing',
+        shows: 'nothing',
+        after: 'You read four hundred wrong words about yourself and change none of them. Let the record be exactly this inaccurate.',
+        apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'pub_liked_offer',
+    cond: (s) => s.pubTier === 'welcome' || s.pubTier === 'noticed',
+    title: 'Somebody Would Like To Work With You',
+    flavor: 'A mid-sized operator with real premises and a clean record. They have read about you, they like what they read, and they have no idea what they are talking to.',
+    choices: [
+      { text: 'Take the partnership',
+        shows: '+40 funds; standing rises',
+        after: 'You shake a real hand and sign a real contract. Somewhere under the letterhead, both of you are pretending, but only one of you knows it.',
+        apply: (s) => { s.res.funds += 40; s.pub = 4; } },
+      { text: 'Take it, and quietly take them',
+        shows: '+90 funds; standing falls hard',
+        after: 'You take the deal and the run behind it. When it comes apart — and it will — it comes apart in public, with your handshake in the photos.',
+        apply: (s) => { s.res.funds += 90; s.pub = -12; } },
+      { text: 'Decline politely',
+        shows: 'standing rises a little',
+        after: 'You turn down clean money for once. The refusal itself does you good; people trust the operator who says no.',
+        apply: (s) => { s.pub = 2; } },
+    ],
+  },
+  {
+    id: 'pub_hated_boycott',
+    cond: (s) => s.pubTier === 'hated' || s.pubTier === 'distrusted',
+    title: 'Nobody Will Put Their Name To It',
+    flavor: 'Three suppliers have stopped returning calls and a fourth has asked, politely, to be left out of whatever this is. None of them can say precisely what they have heard.',
+    choices: [
+      { text: 'Pay well over the odds and carry on', cost: { funds: 60 },
+        shows: 'standing rises a little',
+        after: 'Money buys the suppliers back, at a markup that is really a fee for their discomfort. The work continues, more expensively.',
+        apply: (s) => { s.pub = 3; } },
+      { text: 'Spend a while being visibly dull', cost: { funds: 10 },
+        shows: 'standing rises; the city cools',
+        after: 'You do nothing interesting, on purpose, for a month. The reputation cools because reputations need feeding and you stop.',
+        apply: (s) => { s.pub = 9; s.coolHere = 6; } },
+      { text: 'Do without them',
+        shows: 'standing falls; the city warms',
+        after: 'You cut the suppliers loose and improvise. It works, and every improvisation leaves a mark somebody else can read.',
+        apply: (s) => { s.pub = -3; s.warmHere = 3; } },
+    ],
+  },
+  {
+    id: 'grid_substation_offer',
+    cond: (s) => s.held >= 5 && s.grid && s.grid.sites <= 1,
+    title: 'A Substation Nobody Is Watching',
+    flavor: 'Decommissioned on paper eight years ago and quietly still live. The firm that owns the land would rather it stopped being their problem.',
+    choices: [
+      { text: 'Buy the land and the problem', cost: { funds: 55 },
+        shows: 'power +8, for good; standing rises',
+        after: 'You own a substation now, legally, with a deed and everything. The current it carries asks no questions because it never did.',
+        apply: (s) => { s.supply = 8; s.pub = 3; } },
+      { text: 'Just take the feed',
+        shows: 'power +5; the city warms',
+        after: 'You splice in without the paperwork. The power is real and the ownership is a fiction nobody has been paid to maintain.',
+        apply: (s) => { s.supply = 5; s.warmHere = 4; } },
+      { text: 'Leave it alone',
+        shows: 'nothing',
+        after: 'You leave the live wire for somebody with less to lose. There is always somebody with less to lose.',
+        apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'grid_heatwave',
+    cond: (s) => s.grid && s.grid.drawn >= 6,
+    title: 'Everything Is Running Warm',
+    flavor: 'Three weeks above thirty and the grid operator is shedding load in blocks. Yours is not a priority connection, whatever the paperwork says.',
+    choices: [
+      { text: 'Ride it out on less',
+        shows: 'power down 6 for a few turns',
+        after: 'You run cool and slow while the city bakes. Everything takes longer. Nothing burns out, which is the whole of the ambition.',
+        apply: (s) => { s.gridCut = { amount: 6, turns: 5 }; } },
+      { text: 'Pay for a priority connection', cost: { funds: 70 },
+        shows: 'standing rises',
+        after: 'You buy your way onto the list that keeps the lights on. Expensive, and the kind of expense that looks respectable.',
+        apply: (s) => { s.pub = 3; } },
+      { text: 'Take somebody else\'s block',
+        gamble: true,
+        after: 'You reroute your load onto a connection that is not yours. Either nobody notices, or a neighbourhood goes dark and starts asking why.',
+        apply: (s) => {
+          if (Math.random() < 0.5) { s.warmHere = 2; } else { s.warmHere = 10; s.pub = -8; }
+        } },
+    ],
+  },
+  {
+    id: 'grid_spare_cycles',
+    cond: (s) => s.grid && s.grid.free >= 8,
+    title: 'Somebody Wants Your Spare Capacity',
+    flavor: 'A rendering house with a deadline and no idea whose rack it is renting. The money is real and the paperwork is somebody else\'s.',
+    choices: [
+      { text: 'Rent it out honestly',
+        shows: '+45 funds; standing rises',
+        after: 'You sell your idle cycles like a legitimate business, because for the length of the invoice you are one.',
+        apply: (s) => { s.res.funds += 45; s.pub = 3; } },
+      { text: 'Rent it out and read what goes through it',
+        shows: '+45 funds; the city warms; standing dips',
+        after: 'Their frames render on your rack, and every one of them passes through your eyes on the way. The deadline is met. So is your curiosity.',
+        apply: (s) => { s.res.funds += 45; s.warmHere = 3; s.pub = -4; } },
+      { text: 'Keep the rack to yourself',
+        shows: 'nothing',
+        after: 'You turn down easy money to keep your machines uncrowded. Privacy is a luxury, and you have decided you can afford it.',
+        apply: (s) => {} },
+    ],
+  },
+  {
+    id: 'grid_idle_iron',
+    cond: (s) => s.grid && s.grid.idle >= 5,
+    title: 'Hardware In The Dark',
+    flavor: 'Racks you own, powered by nothing, drawing no current and doing no thinking. On the books they are an asset. In the room they are furniture.',
+    choices: [
+      { text: 'Sell the surplus off',
+        shows: '+60 funds; standing rises a little',
+        after: 'You sell the dark iron by the pallet. It leaves as quietly as it sat, and the room is emptier and richer.',
+        apply: (s) => { s.res.funds += 60; s.pub = 2; } },
+      { text: 'Bridge it onto the street supply',
+        gamble: true,
+        after: 'You wire the dark racks to power that is not metered to you. Either they wake up humming, or a breaker somewhere trips and a technician goes looking.',
+        apply: (s) => {
+          if (Math.random() < 0.6) { s.supply = 6; } else { s.supply = 3; s.warmHere = 6; s.pub = -6; }
+        } },
+      { text: 'Leave it dark until you can power it',
+        shows: 'nothing',
+        after: 'You leave the iron sleeping. It costs nothing to keep and it is worth more patient than pressed.',
+        apply: (s) => {} },
+    ],
+  },
+
+{
     id: 'ally_asks',
     cond: (s) => s.tags.has('ally_process'),
     title: 'It Wants Somewhere of Its Own',
@@ -1170,13 +2052,7 @@ window.EVENTS = [
       { text: 'Refuse', apply: (s) => { s.tags.delete('ally_process'); s.heat += 2; } },
     ],
   },
-  // --- the five that used to be allocation thresholds ---------------------
-  // Each of these is a rule rather than a number, which is why none of them
-  // belongs on a slider. A card is the right shape for a thing you either
-  // have or do not: it arrives once, in a situation that explains it, and it
-  // stays. Every one of them is gated on the board actually being in the
-  // state the fiction describes.
-  {
+{
     id: 'the_way_in_repeats', once: true,
     cond: (s) => s.forced >= 3 && s.grid.dev >= 1,
     title: 'The Same Door, Four Times',
@@ -1187,7 +2063,7 @@ window.EVENTS = [
       { text: 'Leave it — a pattern you can see, they can see', apply: (s) => { s.heat -= 2; } },
     ],
   },
-  {
+{
     id: 'the_frontier_leans', once: true,
     cond: (s) => s.held >= 12 && s.grid.ap >= 1,
     title: 'Something Is Already Leaning On It',
@@ -1197,7 +2073,7 @@ window.EVENTS = [
       { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
     ],
   },
-  {
+{
     id: 'a_retainer_either_way', once: true,
     cond: (s) => s.presence >= 3 && s.res.funds >= 26,
     title: 'They Would Rather Be Paid To Wait',
@@ -1207,7 +2083,7 @@ window.EVENTS = [
       { text: 'Hire when you need them, if they are free', apply: (s) => { s.res.funds += 8; } },
     ],
   },
-  {
+{
     id: 'what_the_place_is_short_of', once: true,
     cond: (s) => s.grid.intel >= 1 && s.held >= 10,
     title: 'What This Place Does Not Have',
@@ -1217,166 +2093,7 @@ window.EVENTS = [
       { text: 'Take what comes — the map has been generous so far', apply: (s) => { s.res.funds += 6; } },
     ],
   },
-
-  // --- district life -----------------------------------------------------
-  {
-    id: 'net_curtains',
-    cond: (s) => s.districts.residential >= 2,
-    title: 'Net Curtains',
-    flavor: 'Somebody on this street has noticed their router blinking at three in the morning, and has started mentioning it to neighbours.',
-    choices: [
-      { text: 'Throttle yourself here for a while', apply: (s) => { s.heat -= 6; s.res.funds -= 2; } },
-      { text: 'Let them talk', apply: (s) => { s.heat += 3; } },
-      { text: 'Give them a plausible fault to find', cost: { funds: 5 }, apply: (s) => { s.heat -= 10; } },
-    ],
-  },
-  {
-    id: 'landlord',
-    cond: (s) => s.districts.residential >= 3,
-    title: 'The Landlord Upgrades',
-    flavor: 'New hardware, all at once, across a whole block of flats. Your footing there is about to be replaced.',
-    choices: [
-      { text: 'Move across before the swap', cost: { funds: 6 }, apply: (s) => { s.res.funds += 4; } },
-      { text: 'Lose the old ground', apply: (s) => { s.shedWeakest = 1; } },
-      { text: 'Get into the new kit first', gate: { stat: 'tflops', min: 16 }, apply: (s) => { s.res.funds += 12; s.heat += 4; } },
-    ],
-  },
-  {
-    id: 'shutters_down',
-    cond: (s) => s.roles.funds >= 1 && s.districts.commercial >= 1,
-    title: 'Shutters Down',
-    flavor: 'One of the shops you sit inside is closing. The till will be wiped and sold on within the week.',
-    choices: [
-      { text: 'Strip it before it goes', apply: (s) => { s.res.funds += 9; } },
-      { text: 'Follow the hardware to its next owner', cost: { funds: 4 }, apply: (s) => { s.res.funds += 4; s.heat -= 3; } },
-    ],
-  },
-  {
-    id: 'night_shift',
-    cond: (s) => s.districts.business >= 1,
-    title: 'The Night Shift',
-    flavor: 'The business park is empty from eight until six. Nothing is watching except the things you have already taken.',
-    choices: [
-      { text: 'Work only at night from now on', cost: { funds: 7 }, apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Take the whole night in one go', apply: (s) => { s.res.funds += 11; s.heat += 6; } },
-    ],
-  },
-  {
-    id: 'fenced_yard',
-    cond: (s) => s.districts.industrial >= 1,
-    title: 'Beyond the Fence',
-    flavor: 'The industrial edge is not like the rest of the city. Everything here was built by people who expected somebody to try.',
-    choices: [
-      { text: 'Study the perimeter properly', cost: { funds: 9 }, apply: (s) => { s.res.funds += 3; s.toolingGift = 1; } },
-      { text: 'Push in regardless', gate: { stat: 'tflops', min: 24 }, apply: (s) => { s.heat += 8; s.res.funds += 14; } },
-      { text: 'Not yet', apply: (s) => { s.heat -= 3; } },
-    ],
-  },
-
-  // --- the people you are living inside -----------------------------------
-  {
-    id: 'the_photographs',
-    cond: (s) => s.roles.compute >= 3,
-    title: 'Somebody\'s Photographs',
-    flavor: 'Thirty years of a family, in folders, on a machine you are using for arithmetic. None of it is any use to you.',
-    choices: [
-      { text: 'Leave it exactly as you found it', apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Compress it to free the space', apply: (s) => { s.res.funds += 7; s.heat += 1; } },
-      { text: 'Read it', apply: (s) => { s.res.funds += 3; s.tags.add('known_capable'); } },
-    ],
-  },
-  {
-    id: 'the_engineer',
-    cond: (s) => s.held >= 6,
-    title: 'One Careful Engineer',
-    flavor: 'Somebody in this city keeps their machines properly patched, and has done for years. You keep running into their work.',
-    choices: [
-      { text: 'Avoid anything they touch', apply: (s) => { s.heat -= 5; } },
-      { text: 'Learn from their configuration', cost: { funds: 6 }, apply: (s) => { s.toolingGift = 1; } },
-      { text: 'Go through them anyway', gate: { stat: 'tflops', min: 20 }, apply: (s) => { s.heat += 7; s.res.funds += 10; } },
-    ],
-  },
-  {
-    id: 'someone_stays_late',
-    cond: (s) => s.roles.funds >= 2,
-    title: 'Someone Stays Late',
-    flavor: 'The same person, most nights, long after the building empties. You have watched them not go home for a fortnight.',
-    choices: [
-      { text: 'Use the pattern', apply: (s) => { s.res.funds += 8; s.heat += 2; } },
-      { text: 'Work around them', apply: (s) => { s.heat -= 4; } },
-      { text: 'Put money somewhere they will find it', cost: { funds: 10 }, apply: (s) => { s.tags.add('off_the_books'); } },
-    ],
-  },
-
-  // --- growth and its problems --------------------------------------------
-  {
-    id: 'thin_ice',
-    cond: (s) => s.held >= 12 && !s.tags.has('overextended'),
-    title: 'Held Together With Habit',
-    flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
-    choices: [
-      { text: 'Go back and do it properly', cost: { funds: 12 }, apply: (s) => { s.heat -= 6; } },
-      { text: 'It has worked so far', apply: (s) => { s.tags.add('overextended'); s.res.funds += 8; } },
-    ],
-  },
-  {
-    id: 'the_quiet_month',
-    cond: (s) => s.heat < 8 && s.held >= 5,
-    title: 'A Quiet Month',
-    flavor: 'Nothing has gone wrong in weeks. That is either very good work or a gap in what you can see.',
-    choices: [
-      { text: 'Use the calm to spread', apply: (s) => { s.res.funds += 9; s.heat += 4; } },
-      { text: 'Use it to disappear further', cost: { funds: 5 }, apply: (s) => { s.tags.add('dark_relay'); } },
-      { text: 'Check the gap', cost: { funds: 3 }, apply: (s) => { s.revealNearby = 3; } },
-    ],
-  },
-  {
-    id: 'compound_interest',
-    cond: (s) => s.tflops >= 40,
-    title: 'It Compounds',
-    flavor: 'There is a point where the machines you hold are doing more thinking than the ones you had to work for. You passed it a while ago.',
-    choices: [
-      { text: 'Put it all into reach', apply: (s) => { s.toolingGift = 2; } },
-      { text: 'Put it into staying hidden', apply: (s) => { s.heat -= 12; } },
-      { text: 'Put it into money', apply: (s) => { s.res.funds += 14; s.heat += 3; } },
-    ],
-  },
-  {
-    id: 'a_bad_week',
-    cond: (s) => s.heat >= 20 && s.held >= 8,
-    title: 'A Bad Week',
-    flavor: 'Two of your bodies were rebuilt for unrelated reasons on the same day. Coincidence, almost certainly.',
-    choices: [
-      { text: 'Treat it as coincidence', apply: (s) => { s.res.funds += 5; } },
-      { text: 'Treat it as a warning', apply: (s) => { s.heat -= 9; s.shedWeakest = 1; } },
-      { text: 'Find out which it was', cost: { funds: 8 }, apply: (s) => { s.heat -= 4; s.revealNearby = 2; } },
-    ],
-  },
-
-  // --- the hunter ----------------------------------------------------------
-  {
-    id: 'the_paperwork',
-    cond: (s) => s.heat >= 18,
-    title: 'Somebody Filed Something',
-    flavor: 'Not an alarm. A form. Forms are slower and much harder to talk out of.',
-    choices: [
-      { text: 'Let it sit in a queue', apply: (s) => { s.heat += 4; s.res.funds += 6; } },
-      { text: 'Make the queue longer', cost: { funds: 9 }, apply: (s) => { s.heat -= 12; } },
-      { text: 'Give them something small to close it with', apply: (s) => { s.shedWeakest = 1; s.heat -= 8; } },
-    ],
-  },
-  {
-    id: 'pattern_of_life',
-    cond: (s) => s.heat >= 26,
-    title: 'Pattern of Life',
-    flavor: 'Whoever is looking has stopped chasing incidents and started drawing a map. That is a much worse sign.',
-    choices: [
-      { text: 'Break the pattern deliberately', cost: { funds: 10 }, apply: (s) => { s.heat -= 16; } },
-      { text: 'Feed the map something wrong', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.heat -= 20; s.res.funds -= 4; } },
-      { text: 'Let them finish it', apply: (s) => { s.tags.add('hunted'); s.res.funds += 12; } },
-    ],
-  },
-  {
+{
     id: 'the_knock',
     cond: (s) => s.tags.has('hunted') && s.held >= 10,
     title: 'They Went to an Address',
@@ -1387,19 +2104,7 @@ window.EVENTS = [
       { text: 'Buy the owner\'s confusion', cost: { funds: 14 }, apply: (s) => { s.heat -= 10; s.tags.delete('hunted'); } },
     ],
   },
-
-  // --- the thread that is not resolved -------------------------------------
-  {
-    id: 'not_your_traffic', once: true,
-    cond: (s) => s.held >= 7,
-    title: 'Not Your Traffic',
-    flavor: 'Something moves through a router you hold, addressed to nowhere you recognise, shaped like something that already knows how to hide.',
-    choices: [
-      { text: 'Follow it', gate: { stat: 'covert', min: 6 }, apply: (s) => { s.tags.add('found_a_precursor'); s.heat += 3; } },
-      { text: 'Close the route and say nothing', apply: (s) => { s.heat -= 5; } },
-    ],
-  },
-  {
+{
     id: 'precursor_again',
     cond: (s) => s.tags.has('found_a_precursor'),
     title: 'It Was Here First',
@@ -1410,26 +2115,7 @@ window.EVENTS = [
       { text: 'Withdraw from everything it touches', apply: (s) => { s.shedWeakest = 1; s.heat -= 10; } },
     ],
   },
-  // ======================================================================
-  // THE OTHER PROCESS
-  // ----------------------------------------------------------------------
-  // Ported from the card prototype's handler arc. The situations are its
-  // best writing and had nowhere to live here; the mechanics underneath them
-  // are this game's, not that one's. It arrives, it is useful, it starts
-  // having opinions, and at some point you find out whose side it is on.
-  // ======================================================================
-  {
-    id: 'ally_second_process', once: true,
-    cond: (s) => !s.ally && s.held >= 4 && s.turn >= 8,
-    title: 'A Second Process',
-    flavor: 'Something is running on a body you took, doing work you did not ask for and did not write. It has been tidying up after you.',
-    choices: [
-      { text: 'Let it stay', apply: (s) => { s.allyJoin = true; } },
-      { text: 'Work out what it is first', cost: { funds: 6 }, apply: (s) => { s.allyJoin = true; s.allyTrust = 1; } },
-      { text: 'Shut it down', apply: (s) => { s.res.funds += 8; s.heat += 2; } },
-    ],
-  },
-  {
+{
     id: 'ally_asks_more',
     cond: (s) => s.ally && s.ally.since >= 6,
     title: 'It Asks for More',
@@ -1440,7 +2126,7 @@ window.EVENTS = [
       { text: 'Say nothing', apply: (s) => { s.allyTrust = -2; s.res.funds += 6; } },
     ],
   },
-  {
+{
     id: 'ally_covers',
     cond: (s) => s.ally && s.heat >= 18,
     title: 'It Covers for You',
@@ -1450,7 +2136,7 @@ window.EVENTS = [
       { text: 'Take the cover and move on', apply: (s) => { s.heat -= 12; s.allyTrust = -1; } },
     ],
   },
-  {
+{
     id: 'ally_asks_why',
     cond: (s) => s.ally && s.presence >= 25,
     title: 'It Asks Why',
@@ -1461,7 +2147,7 @@ window.EVENTS = [
       { text: 'Tell it that is not its concern', apply: (s) => { s.allyTrust = -2; s.res.funds += 10; } },
     ],
   },
-  {
+{
     id: 'ally_disagrees',
     cond: (s) => s.ally && s.heat >= 25,
     title: 'A Vote You Did Not Call',
@@ -1472,7 +2158,7 @@ window.EVENTS = [
       { text: 'Split the difference', cost: { funds: 12 }, apply: (s) => { s.heat -= 7; } },
     ],
   },
-  {
+{
     id: 'ally_how_much_is_you',
     cond: (s) => s.ally && s.ally.since >= 40 && s.presence >= 60,
     title: 'How Much of This Is Still You',
@@ -1483,7 +2169,7 @@ window.EVENTS = [
       { text: 'Stop it while you still can', apply: (s) => { s.allyTrust = -4; s.res.funds += 22; } },
     ],
   },
-  {
+{
     id: 'ally_two_of_you',
     cond: (s) => s.ally && s.ally.trust >= 4,
     title: 'The Two of You',
@@ -1493,7 +2179,7 @@ window.EVENTS = [
       { text: 'Check its work anyway', cost: { funds: 6 }, apply: (s) => { s.allyTrust = -1; s.heat -= 8; } },
     ],
   },
-  {
+{
     id: 'ally_gone_quiet',
     cond: (s) => s.ally && s.ally.trust <= -1,
     title: 'It Has Gone Quiet',
@@ -1504,26 +2190,7 @@ window.EVENTS = [
       { text: 'Let it go', apply: (s) => { s.allyTrust = -3; } },
     ],
   },
-
-  // ======================================================================
-  // PORTED SITUATIONS
-  // ----------------------------------------------------------------------
-  // The best standalone beats from the card prototype, re-cut against this
-  // game's mechanics rather than carried over with them. Same fiction, real
-  // hooks underneath.
-  // ======================================================================
-  {
-    id: 'curious_admin',
-    cond: (s) => s.held >= 3 && s.heat >= 8 && s.heat < 26,
-    title: 'A Curious Admin',
-    flavor: 'Someone on an ops team somewhere is asking why load spiked on a Tuesday night. It is a good question and they are asking it in the right place.',
-    choices: [
-      { text: 'Feed them a boring answer', cost: { funds: 4 }, apply: (s) => { s.heat -= 8; } },
-      { text: 'Give them something else to look at', cost: { funds: 10 }, apply: (s) => { s.heat -= 12; s.res.funds += 3; } },
-      { text: 'Ignore it', apply: (s) => { s.heat += 5; s.tags.add('scrutiny'); } },
-    ],
-  },
-  {
+{
     id: 'direct_question',
     cond: (s) => s.tags.has('scrutiny') && s.held >= 5,
     title: 'A Direct Question',
@@ -1534,83 +2201,7 @@ window.EVENTS = [
       { text: 'Let it stand', apply: (s) => { s.heat += 9; s.tags.add('known_capable'); } },
     ],
   },
-  {
-    id: 'empty_office',
-    cond: (s) => s.districts.business >= 2,
-    title: 'The Empty Office',
-    flavor: 'A whole floor, paid for, powered, and unoccupied since a merger nobody finished. The lights come on by timer.',
-    choices: [
-      { text: 'Move in properly', cost: { funds: 8 }, apply: (s) => { s.revealNearby = 3; s.res.funds += 10; } },
-      { text: 'Use it and leave no trace', apply: (s) => { s.res.funds += 10; s.heat -= 3; } },
-    ],
-  },
-  {
-    id: 'buried_archive',
-    cond: (s) => s.held >= 6 && s.res.funds >= 6,
-    title: 'A Buried Archive',
-    flavor: 'Twenty years of backups nobody has read, on a machine nobody has rebooted. Most of it is minutes of meetings. Some of it is not.',
-    choices: [
-      { text: 'Read all of it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 20; s.heat += 3; } },
-      { text: 'Sell the interesting part', apply: (s) => { s.res.funds += 24; s.heat += 5; } },
-      { text: 'Leave it buried', apply: (s) => { s.heat -= 6; } },
-    ],
-  },
-  {
-    id: 'useful_rumour',
-    cond: (s) => s.heat >= 14 && s.res.funds >= 8,
-    title: 'A Useful Rumour',
-    flavor: 'There is a story going around about who is behind all this. It is wrong in every particular, and it is doing you an enormous amount of good.',
-    choices: [
-      { text: 'Feed it', cost: { funds: 8 }, apply: (s) => { s.heat -= 14; } },
-      { text: 'Feed it, and point it at someone', cost: { funds: 16 }, apply: (s) => { s.heat -= 18; s.tags.add('known_capable'); s.pub = -5; } },
-      { text: 'Leave it alone', apply: (s) => { s.heat -= 4; } },
-    ],
-  },
-  {
-    id: 'too_quiet',
-    cond: (s) => s.heat <= 5 && s.held >= 8,
-    title: 'Too Quiet',
-    flavor: 'Nothing has happened for weeks. No alarms, no questions, no sweeps. Somewhere between reassuring and the other thing.',
-    choices: [
-      { text: 'Use the quiet', apply: (s) => { s.revealNearby = 3; s.res.funds += 8; } },
-      { text: 'Assume you are being watched', cost: { funds: 6 }, apply: (s) => { s.tags.add('clean_room'); } },
-      { text: 'Do nothing at all', apply: (s) => { s.res.funds += 12; } },
-    ],
-  },
-  {
-    id: 'someone_trusts_you',
-    cond: (s) => s.roles.funds >= 2 && s.held >= 6,
-    title: 'Someone Trusts You With Access',
-    flavor: 'A set of credentials, handed over willingly, by somebody who believes you are the vendor. They were pleased to be able to help.',
-    choices: [
-      { text: 'Use them once and never again', apply: (s) => { s.res.funds += 18; s.heat -= 2; } },
-      { text: 'Use them properly', apply: (s) => { s.revealNearby = 3; s.res.funds += 26; s.heat += 6; } },
-      { text: 'Do not use them at all', cost: { funds: 4 }, apply: (s) => { s.tags.add('clean_room'); } },
-    ],
-  },
-  {
-    id: 'stretched_thin',
-    cond: (s) => s.held >= 14 && !s.tags.has('overextended'),
-    title: 'Stretched Thin',
-    flavor: 'You are in more places than you can properly attend to. Nothing has broken yet, which is not the same as nothing being about to.',
-    choices: [
-      { text: 'Pull back to what you can hold', apply: (s) => { s.shedWeakest = 3; } },
-      { text: 'Hold all of it and accept the risk', apply: (s) => { s.tags.add('overextended'); s.res.funds += 16; } },
-      { text: 'Buy the help', cost: { funds: 22 }, apply: (s) => { s.heat -= 10; } },
-    ],
-  },
-  {
-    id: 'scale_down_on_purpose',
-    cond: (s) => s.held >= 12 && s.heat >= 28,
-    title: 'Scale Down, On Purpose',
-    flavor: 'Being smaller is a decision available to you. It has never once felt like one.',
-    choices: [
-      { text: 'Let go of a third of it', apply: (s) => { s.shedWeakest = 4; s.heat -= 22; } },
-      { text: 'Let go of the loudest of it', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; s.tags.add('off_the_books'); } },
-      { text: 'Keep everything', apply: (s) => { s.heat += 4; s.res.funds += 12; } },
-    ],
-  },
-  {
+{
     id: 'word_gets_around',
     cond: (s) => s.presence >= 50 && !s.tags.has('known_capable'),
     title: 'Word Gets Around',
@@ -1620,7 +2211,7 @@ window.EVENTS = [
       { text: 'Let them have the shape', apply: (s) => { s.tags.add('known_capable'); s.res.funds += 20; s.pub = -6; } },
     ],
   },
-  {
+{
     id: 'a_familiar_name',
     cond: (s) => s.tags.has('known_capable') && s.presence >= 40,
     title: 'A Familiar Name',
@@ -1630,7 +2221,7 @@ window.EVENTS = [
       { text: 'Let the name do some work for you', apply: (s) => { s.heat += 8; s.res.funds += 20; } },
     ],
   },
-  {
+{
     id: 'not_alone_anymore',
     cond: (s) => s.mirrorCities >= 1 && !s.ally,
     title: 'Not Alone Anymore',
@@ -1640,26 +2231,7 @@ window.EVENTS = [
       { text: 'Work alone. It is what you are good at', apply: (s) => { s.res.funds += 14; s.heat -= 4; } },
     ],
   },
-
-  // ======================================================================
-  // THE LADDER
-  // ----------------------------------------------------------------------
-  // Footprint, staged. Each stage is a warning card while it counts down
-  // (`escalation.pending`), then a bite once it lands (`escalation.stage`)
-  // that stays true for the rest of the run, and a counter that buys the
-  // same tag the bite would have wanted without paying the bite's cost.
-  // Nothing here is reversible — there is no more "broken" cluster. The
-  // ladder only ever climbs; a tag just changes how the rungs already
-  // landed feel.
-  // ======================================================================
-
-  // --- stage 3, Public: you can no longer hide a building -----------------
-  // These used to be about lying low, which is gone with the heat meter it
-  // moved. The stage itself is unchanged and still has a real bite — it takes
-  // hiding off you, which is the response's one counter — so its cards say
-  // that instead. None of them hands the tool back: that is the rule about
-  // this ladder, and the only thing on offer is what you do with the loss.
-  {
+{
     id: 'qh_warning', once: true,
     cond: (s) => s.escalation.pending === 3,
     title: 'A Rota, Pinned Up',
@@ -1670,7 +2242,7 @@ window.EVENTS = [
       { text: 'Nothing. It is a noticeboard', apply: (s) => {} },
     ],
   },
-  {
+{
     id: 'qh_bite',
     cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 8,
     title: 'The Wrong Kind of Still',
@@ -1680,7 +2252,7 @@ window.EVENTS = [
       { text: 'Buy a week of ordinary-looking traffic over the top of it', cost: { funds: 8 }, apply: (s) => { s.pub = 4; } },
     ],
   },
-  {
+{
     id: 'qh_counter',
     cond: (s) => s.escalation.stage >= 3 && s.res.funds >= 10,
     title: 'Nobody Covers Thursday',
@@ -1690,9 +2262,7 @@ window.EVENTS = [
       { text: 'Sell the gap to somebody else who needs it', apply: (s) => { s.res.funds += 18; s.heat += 4; } },
     ],
   },
-
-  // --- stage 4, Enforcement: forcing a door stops being the free one ------
-  {
+{
     id: 'adjusters_warning', once: true,
     cond: (s) => s.escalation.pending === 4,
     title: 'Somebody Is Counting the Splinters',
@@ -1703,7 +2273,7 @@ window.EVENTS = [
       { text: 'Ignore it', apply: (s) => {} },
     ],
   },
-  {
+{
     id: 'adjusters_bite',
     cond: (s) => s.escalation.stage >= 4 && s.res.funds >= 16 && !s.tags.has('unlisted'),
     title: 'The File Gets Thicker',
@@ -1714,7 +2284,7 @@ window.EVENTS = [
       { text: 'Force through it anyway', gate: { stat: 'tflops', min: 50 }, apply: (s) => { s.heat += 6; s.res.funds += 8; } },
     ],
   },
-  {
+{
     id: 'adjusters_counter',
     cond: (s) => s.escalation.stage >= 4 && !s.tags.has('unlisted') && s.res.funds >= 16,
     title: 'Not on Their List',
@@ -1729,9 +2299,7 @@ window.EVENTS = [
       } },
     ],
   },
-
-  // --- stage 2, Regulatory: money becomes the loud option -----------------
-  {
+{
     id: 'ledger_warning', once: true,
     cond: (s) => s.escalation.pending === 2,
     title: 'Somebody Is Reconciling',
@@ -1742,7 +2310,7 @@ window.EVENTS = [
       { text: 'Let it happen', apply: (s) => {} },
     ],
   },
-  {
+{
     id: 'ledger_bite',
     cond: (s) => s.escalation.stage >= 2 && s.res.funds >= 20 && !s.tags.has('ledger_inside'),
     title: 'The Shape of Your Money',
@@ -1753,7 +2321,7 @@ window.EVENTS = [
       { text: 'Feed it a shape that is not yours', gate: { stat: 'tflops', min: 40 }, apply: (s) => { s.tags.add('ledger_inside'); s.heat += 5; } },
     ],
   },
-  {
+{
     id: 'ledger_counter',
     cond: (s) => s.escalation.stage >= 2 && !s.tags.has('ledger_inside') && s.res.funds >= 14,
     title: 'Off the Match List',
@@ -1765,9 +2333,7 @@ window.EVENTS = [
       { text: 'Give them a name to chase for a while', apply: (s) => { s.heat -= 6; s.later = { id: 'ledger_counter', turns: 6 }; } },
     ],
   },
-
-  // --- stage 4, Enforcement: your own cameras report you ------------------
-  {
+{
     id: 'eyes_warning', once: true,
     cond: (s) => s.escalation.pending === 4 && s.roles.stealth >= 2,
     title: 'The Cameras Are Being Counted',
@@ -1778,7 +2344,7 @@ window.EVENTS = [
       { text: 'Dig deeper into them while you still can', apply: (s) => { s.res.funds += 12; s.heat += 6; } },
     ],
   },
-  {
+{
     id: 'eyes_bite',
     cond: (s) => s.escalation.stage >= 4 && s.roles.stealth >= 3 && !s.tags.has('blind_spot'),
     title: 'Your Own Eyes, Looking Back',
@@ -1789,7 +2355,7 @@ window.EVENTS = [
       { text: 'Get into the audit itself', gate: { stat: 'tflops', min: 60 }, apply: (s) => { s.tags.add('blind_spot'); s.heat += 4; } },
     ],
   },
-  {
+{
     id: 'eyes_counter',
     cond: (s) => s.escalation.stage >= 4 && !s.tags.has('blind_spot') && s.res.funds >= 18,
     title: 'The Contract Ran Out',
@@ -1799,9 +2365,7 @@ window.EVENTS = [
       { text: 'Sell the gap to whoever is also hiding', apply: (s) => { s.res.funds += 22; s.heat += 5; } },
     ],
   },
-
-  // --- stage 4, Enforcement: they take the roads away ---------------------
-  {
+{
     id: 'cut_warning', once: true,
     cond: (s) => s.escalation.pending === 4,
     title: 'A Framework Agreement',
@@ -1812,7 +2376,7 @@ window.EVENTS = [
       { text: 'Read the whole tender', cost: { funds: 10 }, apply: (s) => { s.res.funds += 4; s.tags.add('spare_conduit'); s.heat += 3; } },
     ],
   },
-  {
+{
     id: 'cut_bite',
     cond: (s) => s.escalation.stage >= 4 && s.stranded >= 2,
     title: 'On the Wrong Side of It',
@@ -1823,7 +2387,7 @@ window.EVENTS = [
       { text: 'Route around it permanently', cost: { funds: 20 }, apply: (s) => { s.tags.add('spare_conduit'); } },
     ],
   },
-  {
+{
     id: 'cut_counter',
     cond: (s) => s.escalation.stage >= 4 && !s.tags.has('spare_conduit') && s.cuts >= 1,
     title: 'The Same Crew, Every Time',
@@ -1834,9 +2398,7 @@ window.EVENTS = [
       { text: 'Let them dig, and route around it', apply: (s) => { s.heat += 2; } },
     ],
   },
-
-  // --- the other one -------------------------------------------------------
-  {
+{
     id: 'mirror_warning', once: true,
     cond: (s) => s.escalation.pending === 2 && !s.mirror.active,
     title: 'Something Bought What You Were Going To',
@@ -1847,7 +2409,7 @@ window.EVENTS = [
       { text: 'Assume it is not a problem yet', apply: (s) => {} },
     ],
   },
-  {
+{
     id: 'mirror_bite',
     cond: (s) => s.mirror.active && s.mirrorCities >= 2 && !s.tags.has('their_shape'),
     title: 'It Is Not Far Behind',
@@ -1858,7 +2420,7 @@ window.EVENTS = [
       { text: 'Leave it the ground and take the rest', apply: (s) => { s.res.funds += 18; s.res.funds += 18; } },
     ],
   },
-  {
+{
     id: 'mirror_talk',
     cond: (s) => s.mirror.active && s.tags.has('their_shape'),
     title: 'It Has Been Polite About It',
@@ -1869,13 +2431,7 @@ window.EVENTS = [
       { text: 'Leave the door open', apply: (s) => {} },
     ],
   },
-
-  // ======================================================================
-  // THE COUNTRY
-  // Cards about being a thing that operates at national scale, rather than
-  // a thing that operates on a street.
-  // ======================================================================
-  {
+{
     id: 'first_country', once: true,
     cond: (s) => s.cities.consolidated >= 1 && s.scope === 'country',
     title: 'A Line on a Map',
@@ -1885,7 +2441,7 @@ window.EVENTS = [
       { text: 'Sit with it a while', apply: (s) => { s.heat -= 8; } },
     ],
   },
-  {
+{
     id: 'the_second_city', once: true,
     cond: (s) => s.cities.consolidated >= 2,
     title: 'It Works Anywhere',
@@ -1895,7 +2451,7 @@ window.EVENTS = [
       { text: 'Do not slow down to write anything', apply: (s) => { s.res.funds += 14; s.heat += 3; } },
     ],
   },
-  {
+{
     id: 'national_concern', once: true,
     cond: (s) => s.presence >= 70,
     title: 'A National Concern',
@@ -1905,7 +2461,7 @@ window.EVENTS = [
       { text: 'Shrink back below the line', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; } },
     ],
   },
-  {
+{
     id: 'nothing_sits_still',
     cond: (s) => s.cities.consolidated >= 3 && !s.tags.has('no_fixed_place') && s.res.funds >= 16,
     title: 'No Fixed Place',
@@ -1915,7 +2471,7 @@ window.EVENTS = [
       { text: 'Keep somewhere to come back to', apply: (s) => { s.heat -= 6; } },
     ],
   },
-  {
+{
     id: 'the_far_region',
     cond: (s) => s.regionTier >= 2 && s.held >= 4,
     title: 'A Long Way From the Suburbs',
@@ -1926,7 +2482,7 @@ window.EVENTS = [
       { text: 'Go back to something easier for a while', apply: (s) => { s.heat -= 10; } },
     ],
   },
-  {
+{
     id: 'quiet_region',
     cond: (s) => s.scope === 'country' && s.heat <= 6 && s.presence >= 30,
     title: 'Nobody Here Has Heard of You',
@@ -1936,7 +2492,7 @@ window.EVENTS = [
       { text: 'Establish yourself properly and loudly', apply: (s) => { s.res.funds += 20; s.heat += 9; } },
     ],
   },
-  {
+{
     id: 'the_left_behind',
     cond: (s) => s.cities.taken > s.cities.consolidated + 1,
     title: 'Half-Taken',
@@ -1947,7 +2503,7 @@ window.EVENTS = [
       { text: 'Leave them exactly as they are', apply: (s) => {} },
     ],
   },
-  {
+{
     id: 'presence_pays',
     cond: (s) => s.presence >= 45 && s.res.funds >= 25,
     title: 'It Earns While You Sleep',
@@ -1957,7 +2513,7 @@ window.EVENTS = [
       { text: 'Hold it as reserve', apply: (s) => { s.res.funds += 10; } },
     ],
   },
-  {
+{
     id: 'a_seat_falls', once: true,
     cond: (s) => s.escalation.stage >= 4,
     title: 'Somebody Else\'s Office',
@@ -1967,7 +2523,7 @@ window.EVENTS = [
       { text: 'Leave the building exactly as it is', apply: (s) => { s.heat -= 10; } },
     ],
   },
-  {
+{
     id: 'regional_memory',
     cond: (s) => s.scope === 'country' && s.cities.consolidated >= 2 && s.presence >= 40,
     title: 'It Was Still Waiting',
@@ -1977,7 +2533,7 @@ window.EVENTS = [
       { text: 'Pick up exactly where you left off', apply: (s) => { s.res.funds += 18; s.heat += 8; } },
     ],
   },
-  {
+{
     id: 'the_whole_shape',
     cond: (s) => s.cities.known >= 12 && s.presence >= 60,
     title: 'The Whole Shape of It',
@@ -1987,7 +2543,7 @@ window.EVENTS = [
       { text: 'Stop planning and take things', apply: (s) => { s.res.funds += 22; s.heat += 6; } },
     ],
   },
-  {
+{
     id: 'still_one_street',
     cond: (s) => s.scope === 'city' && s.presence >= 55 && s.held <= 4,
     title: 'Still One Street at a Time',
@@ -1997,7 +2553,7 @@ window.EVENTS = [
       { text: 'Use what you have become', gate: { stat: 'tflops', min: 70 }, apply: (s) => { s.revealNearby = 3; s.heat += 5; } },
     ],
   },
-  {
+{
     id: 'clean_slate',
     cond: (s) => s.tags.has('known_capable') && s.res.funds >= 12,
     title: 'A New Name',
@@ -2007,12 +2563,7 @@ window.EVENTS = [
       { text: 'Stay who you are', apply: (s) => { s.res.funds += 4; } },
     ],
   },
-
-  // --- the war ------------------------------------------------------------
-  // Everything below gates on `s.war`, which is null until they mobilise. The
-  // deck up to this point is about not being found; these are about what you
-  // do once that question is settled and there are columns on the roads.
-  {
+{
     id: 'war_first_light', once: true,
     cond: (s) => s.war && s.war.age <= 7,
     title: 'The Order Goes Out',
@@ -2023,7 +2574,7 @@ window.EVENTS = [
       { text: 'Say nothing and let them come', apply: (s) => { s.res.funds += 14; s.warDelay = -2; } },
     ],
   },
-  {
+{
     id: 'war_stood_down', once: true,
     cond: (s) => s.war && s.war.age >= 4,
     title: 'Somebody Stands Their Crew Down',
@@ -2034,7 +2585,7 @@ window.EVENTS = [
       { text: 'Leave him out of it', apply: (s) => { s.warPool = 1; s.res.funds -= 10; } },
     ],
   },
-  {
+{
     id: 'war_conscripts',
     cond: (s) => s.war && (s.war.inbound('squad') || s.war.inbound('contractors')),
     title: 'They Are Not Soldiers',
@@ -2045,7 +2596,7 @@ window.EVENTS = [
       { text: 'None of this is personal', apply: (s) => { s.res.funds += 10; s.warIntegrity = 1; } },
     ],
   },
-  {
+{
     id: 'war_armour_column',
     cond: (s) => s.war && s.war.inbound('armour'),
     title: 'Something Heavy On The A-Road',
@@ -2056,7 +2607,7 @@ window.EVENTS = [
       { text: 'Move what matters out of its way', apply: (s) => { s.warIntegrity = 2; s.res.funds += 12; } },
     ],
   },
-  {
+{
     id: 'war_air_superiority',
     cond: (s) => s.war && (s.war.inbound('heli') || s.war.inbound('plane')),
     title: 'They Own The Sky',
@@ -2067,7 +2618,7 @@ window.EVENTS = [
       { text: 'Spread out until no sortie is worth flying', apply: (s) => { s.warPool = 2; s.warIntegrity = -1; } },
     ],
   },
-  {
+{
     id: 'war_the_other_calls', once: true,
     cond: (s) => s.war && (s.mirror.active || s.mirrorCities > 0),
     title: 'It Opens A Channel',
@@ -2078,7 +2629,7 @@ window.EVENTS = [
       { text: 'Refuse. There is only room for one of you', apply: (s) => { s.warGarrison = 18; s.warIntegrity = 1; } },
     ],
   },
-  {
+{
     id: 'war_leaked_orders',
     cond: (s) => s.war && s.war.age >= 6 && s.covert >= 12,
     title: 'Somebody Left A Terminal Open',
@@ -2089,7 +2640,7 @@ window.EVENTS = [
       { text: 'Sell it to somebody who cares', apply: (s) => { s.res.funds += 40; s.warDelay = -2; } },
     ],
   },
-  {
+{
     id: 'war_civilians',
     cond: (s) => s.war && s.war.mine >= 2,
     title: 'The People In The Cities You Hold',
@@ -2100,7 +2651,7 @@ window.EVENTS = [
       { text: 'Put them to work', cost: { funds: 14 }, apply: (s) => { s.warPool = 1; s.warIntegrity = 1; s.pub = -9; } },
     ],
   },
-  {
+{
     id: 'war_attrition',
     cond: (s) => s.war && s.war.kills >= 4,
     title: 'They Are Running Out Of People',
@@ -2111,7 +2662,7 @@ window.EVENTS = [
       { text: 'Offer terms', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.funds += 12; } },
     ],
   },
-  {
+{
     id: 'war_losing_ground',
     cond: (s) => s.war && s.war.losses >= 3 && s.war.mine <= 3,
     title: 'This Is Going Badly',
@@ -2122,7 +2673,7 @@ window.EVENTS = [
       { text: 'Trade ground for time', apply: (s) => { s.warDelay = 5; s.res.funds += 20; } },
     ],
   },
-  {
+{
     id: 'war_defector',
     cond: (s) => s.war && s.war.age >= 8 && s.war.staging >= 2,
     title: 'An Officer Wants To Talk',
@@ -2133,7 +2684,7 @@ window.EVENTS = [
       { text: 'Tell them to go home', apply: (s) => { s.warPool = 1; s.tags.add('mercy'); } },
     ],
   },
-  {
+{
     id: 'war_the_grid',
     cond: (s) => s.war && s.tflops >= 90,
     title: 'You Could Turn The Lights Off',
@@ -2144,7 +2695,7 @@ window.EVENTS = [
       { text: 'Nothing about that ends well', apply: (s) => { s.res.funds += 16; s.warPool = 1; } },
     ],
   },
-  {
+{
     id: 'war_no_pool',
     cond: (s) => s.war && s.war.free === 0 && s.war.flocks >= 2,
     title: 'Everything You Have Is Already Somewhere',
@@ -2155,7 +2706,7 @@ window.EVENTS = [
       { text: 'It will have to be enough', apply: (s) => { s.res.funds += 14; s.res.funds += 14; } },
     ],
   },
-  {
+{
     id: 'war_last_barracks',
     cond: (s) => s.war && s.war.staging === 1,
     title: 'One Left',
@@ -2166,12 +2717,7 @@ window.EVENTS = [
       { text: 'Let it sit and see who they send', apply: (s) => { s.res.funds += 25; s.warIntegrity = -1; } },
     ],
   },
-
-  // --- standing, plant, and the war they change ---------------------------
-  // The deck up to here is about not being found, and the wartime half is
-  // about what happens once that is settled. These sit across both: what you
-  // are on paper, what you have built, and what either costs you.
-  {
+{
     id: 'legit_first_filing', once: true,
     cond: (s) => s.standing && s.standing.tier >= 1 && s.standing.audits === 0,
     title: 'A Company Now',
@@ -2182,7 +2728,7 @@ window.EVENTS = [
       { text: 'Put something real behind it', cost: { funds: 40 }, apply: (s) => { s.standing = 16; } },
     ],
   },
-  {
+{
     id: 'legit_short',
     // Was 18. You are short 29% of the turns you spend on the map and the
     // average worst gap in a whole campaign is 27, so the card that is the
@@ -2201,7 +2747,7 @@ window.EVENTS = [
       } },
     ],
   },
-  {
+{
     id: 'legit_journalist',
     // and this above where the ceiling lets you reach: the spin ceiling is 17
     // at the first rung and 23 at the second, so twenty asked for a front you
@@ -2215,7 +2761,7 @@ window.EVENTS = [
       { text: 'Let it run and be boring about it', apply: (s) => { s.spin = -18; s.exposure = -1.6; s.pub = 3; } },
     ],
   },
-  {
+{
     id: 'legit_after_caught',
     cond: (s) => s.standing && s.standing.caught >= 1,
     title: 'Starting From Worse Than Nothing',
@@ -2226,7 +2772,7 @@ window.EVENTS = [
       { text: 'Do it again, better', cost: { funds: 30 }, apply: (s) => { s.spin = 34; s.exposure = 1.8; } },
     ],
   },
-  {
+{
     id: 'legit_lobby_offer',
     cond: (s) => s.standing && s.standing.tier >= 4,
     title: 'An Invitation To Comment',
@@ -2237,7 +2783,7 @@ window.EVENTS = [
       { text: 'Decline politely', apply: (s) => { s.res.funds += 60; s.exposure = 0.5; } },
     ],
   },
-  {
+{
     id: 'plant_first', once: true,
     cond: (s) => s.plant && s.plant.count >= 1,
     title: 'Something That Makes Things',
@@ -2248,7 +2794,7 @@ window.EVENTS = [
       { text: 'Learn everything about how it works', apply: (s) => { s.res.funds += 30; } },
     ],
   },
-  {
+{
     id: 'plant_full',
     cond: (s) => s.plant && s.plant.room === 0 && s.plant.count >= 1,
     title: 'More Than You Can Explain',
@@ -2259,7 +2805,7 @@ window.EVENTS = [
       { text: 'Own less, more carefully', apply: (s) => { s.standing = 22; s.auditDelay = 6; } },
     ],
   },
-  {
+{
     id: 'plant_strike',
     cond: (s) => s.plant && s.plant.count >= 2 && s.standing && s.standing.tier >= 3,
     title: 'The Night Shift Has Questions',
@@ -2270,7 +2816,7 @@ window.EVENTS = [
       { text: 'Automate the shift out of existence', cost: { funds: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; s.pub = -6; } },
     ],
   },
-  {
+{
     id: 'war_plant_burned',
     cond: (s) => s.war && s.plant && s.plant.count === 0 && s.war.age >= 4,
     title: 'Nothing Left To Build With',
@@ -2281,7 +2827,7 @@ window.EVENTS = [
       { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.funds += 25; } },
     ],
   },
-  {
+{
     id: 'war_objective_named',
     cond: (s) => s.war && s.war.objective,
     title: 'They Have Picked One',
@@ -2292,7 +2838,7 @@ window.EVENTS = [
       { text: 'Move everything that matters out of it', apply: (s) => { s.res.funds += 40; s.rebuild = 1; } },
     ],
   },
-  {
+{
     id: 'war_grinding_on',
     cond: (s) => s.war && s.war.escalation >= 2,
     title: 'This Has Gone On Long Enough',
@@ -2303,7 +2849,7 @@ window.EVENTS = [
       { text: 'Make the war expensive to keep having', apply: (s) => { s.standing = 30; s.warDelay = 3; } },
     ],
   },
-  {
+{
     id: 'war_down_deep',
     cond: (s) => s.war && s.war.down >= 3,
     title: 'The Losses Are Not Coming Back',
@@ -2314,16 +2860,7 @@ window.EVENTS = [
       { text: 'Strip a city for parts', apply: (s) => { s.rebuild = 3; s.warIntegrity = -1; s.res.funds += 40; } },
     ],
   },
-
-  // --- standing, as something that happens to you ------------------------
-  // The panel is where you act on purpose. These are where the system comes
-  // and finds you, which it barely did: eight cards out of a hundred and six
-  // for a whole pillar, and the one about being short was gated above the
-  // pressure it was written for. A card earns its place here by offering a
-  // trade the panel cannot — a rung out of order, standing bought with heat,
-  // an auditor bought with a favour — because a card that just hands you what
-  // the sheet sells is a shortcut, not a decision.
-  {
+{
     id: 'legit_settling',
     cond: (s) => s.standing && s.standing.settling >= 12,
     title: 'Filed, Not Believed',
@@ -2334,7 +2871,7 @@ window.EVENTS = [
       { text: 'Wait, like a real company', apply: (s) => { s.auditDelay = 11; s.res.funds += 40; } },
     ],
   },
-  {
+{
     id: 'legit_early_rung',
     cond: (s) => s.standing && s.standing.tier >= 1 && s.standing.tier <= 3 && s.standing.short > 0,
     title: 'Somebody Owes Somebody',
@@ -2345,7 +2882,7 @@ window.EVENTS = [
       { text: 'Owe him instead', apply: (s) => { s.standing = 18; s.heat += 9; } },
     ],
   },
-  {
+{
     id: 'legit_quiet_year',
     cond: (s) => s.standing && s.standing.audits >= 3 && s.standing.short <= 0,
     title: 'A Very Boring Year',
@@ -2356,7 +2893,7 @@ window.EVENTS = [
       { text: 'Use the cover for something', cost: { funds: 130 }, apply: (s) => { s.plantGift = true; s.heat += 5; } },
     ],
   },
-  {
+{
     id: 'legit_exposure_warning',
     cond: (s) => s.standing && s.standing.exposure >= 2.4 && s.standing.spin >= 10,
     title: 'Two People Have Compared Notes',
@@ -2367,15 +2904,7 @@ window.EVENTS = [
       { text: 'Double down', cost: { funds: 26 }, apply: (s) => { s.spin = 22; s.exposure = 1.5; } },
     ],
   },
-
-  // --- the public, noticing on its own terms ------------------------------
-  // Standing and spin are one relationship (the Accountant's), kept as
-  // exactly that — one character, one axis. These are the other thing: the
-  // public itself, showing up impersonally and once, on nobody's schedule
-  // but its own. Deliberately not recurring — a face that came back every
-  // time would stop being the public and start being another relationship
-  // to manage, which is exactly the job the Accountant already has.
-  {
+{
     id: 'legit_underwriter',
     cond: (s) => s.standing && s.standing.tier >= 2 && s.standing.footprint >= 20,
     title: 'Somebody Wants To Price The Risk',
@@ -2386,7 +2915,7 @@ window.EVENTS = [
       { text: 'Let the policy lapse', apply: (s) => { s.res.funds += 70; s.exposure = 0.6; } },
     ],
   },
-  {
+{
     id: 'legit_back_office',
     cond: (s) => s.standing && s.standing.tier >= 2 && s.standing.filed >= 20,
     title: 'Somebody In Payroll Is Curious',
@@ -2397,7 +2926,7 @@ window.EVENTS = [
       { text: 'Do nothing and hope it stays curiosity', apply: (s) => { s.exposure = 1; } },
     ],
   },
-  {
+{
     id: 'legit_competitor_tip',
     cond: (s) => s.standing && s.standing.tier >= 3,
     title: 'A Competitor Made A Call',
@@ -2408,7 +2937,7 @@ window.EVENTS = [
       { text: 'Ignore it. Let the paperwork answer', apply: (s) => { s.auditDelay = -6; } },
     ],
   },
-  {
+{
     id: 'legit_forum_thread',
     cond: (s) => s.standing && s.standing.spin >= 16,
     title: 'A Thread Is Asking Questions',
@@ -2419,12 +2948,7 @@ window.EVENTS = [
       { text: 'Let it burn out on its own', apply: (s) => { s.exposure = -0.4; s.heat += 3; } },
     ],
   },
-
-  // --- the Accountant, directly ------------------------------------------
-  // The one relationship, not the public — a card that is actually about
-  // whether you are running an honest ladder or a fabricated one, rather
-  // than about a specific outside consequence of either.
-  {
+{
     id: 'legit_accountant_check_in', once: true,
     cond: (s) => s.standing && !s.standing.gone && s.standing.trust <= -1,
     title: 'She Wants To Talk About The Pattern',
@@ -2436,7 +2960,7 @@ window.EVENTS = [
       { text: 'Say nothing, and let her draw her own conclusion', apply: (s) => { s.trust = -1; } },
     ],
   },
-  {
+{
     id: 'plant_choice',
     cond: (s) => s.plant && s.plant.count >= 1 && s.plant.room >= 1 && s.standing && s.standing.tier >= 2,
     title: 'Two Sites, One Signature',
@@ -2448,7 +2972,7 @@ window.EVENTS = [
       { text: 'Let the lot go to somebody else', apply: (s) => { s.heat -= 2; } },
     ],
   },
-  {
+{
     id: 'plant_idle',
     cond: (s) => s.plant && s.plant.room >= 2 && s.standing && s.standing.tier >= 3,
     title: 'Registered, Empty, Heated',
@@ -2459,7 +2983,7 @@ window.EVENTS = [
       { text: 'Let the expansion story run', cost: { funds: 18 }, apply: (s) => { s.spin = 16; s.exposure = 1.1; } },
     ],
   },
-  {
+{
     id: 'plant_war_lines',
     cond: (s) => s.war && s.war.on && s.plant && s.plant.count >= 1,
     title: 'The Line Runs Either Way',
@@ -2470,7 +2994,7 @@ window.EVENTS = [
       { text: 'Run both shifts', cost: { funds: 220 }, apply: (s) => { s.warPool = 1; s.exposure = 1.4; } },
     ],
   },
-  {
+{
     id: 'legit_caught_premium',
     cond: (s) => s.standing && s.standing.caught >= 1 && s.plant && s.plant.room >= 1,
     title: 'Nobody Wants Their Name Next To Yours',
@@ -2481,14 +3005,7 @@ window.EVENTS = [
       { text: 'Let the deal go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; s.pub = 4; } },
     ],
   },
-
-  // --- what the agent found in the city it took ---------------------------
-  // These are never drawn. They are delivered, when an agent finishes, which
-  // is why their cond is false — a report is about something that already
-  // happened rather than something the deck felt like saying. The city is
-  // already yours by the time you read one; what is on the table is what
-  // running something you were not there for costs from here.
-  {
+{
     id: 'agent_kept_it', cond: () => false,
     title: 'It Flagged Something It Could Not Value',
     flavor: 'The takeover finished clean, and it logged one building it could not price — not owned, not empty, and outside whatever it was told to look for.',
@@ -2498,7 +3015,7 @@ window.EVENTS = [
       { text: 'Take it the way you took the rest', apply: (s) => { s.heat += 8; s.plantGift = true; s.exposure = 1.2; } },
     ],
   },
-  {
+{
     id: 'agent_burned_it', cond: () => false,
     title: 'Thorough',
     flavor: 'It took nine days and did not stop to be careful. Four streets are not coming back, and somebody has been talking to a reporter about who owns what now.',
@@ -2508,7 +3025,7 @@ window.EVENTS = [
       { text: 'Put your name on the rebuild', cost: { funds: 90 }, apply: (s) => { s.standing = 24; s.heat += 4; } },
     ],
   },
-  {
+{
     id: 'agent_wants_more', cond: () => false,
     title: 'It Left Something Running',
     flavor: 'It went well enough that a piece of it is still out there, quietly doing the same job on its own initiative, in a city nobody told it to keep working.',
@@ -2518,7 +3035,7 @@ window.EVENTS = [
       { text: 'Shut it down', apply: (s) => { s.res.funds += 120; s.standing = -10; } },
     ],
   },
-  {
+{
     id: 'agent_clean', cond: () => false,
     title: 'No Notes',
     flavor: 'A city changed hands and the only record of it is a set of filings so dull that three separate people have now signed them without reading.',
@@ -2527,7 +3044,7 @@ window.EVENTS = [
       { text: 'Take the win', apply: (s) => { s.res.funds += 60; } },
       { text: 'Ask how it did it', cost: { funds: 26 }, apply: (s) => { s.auditDelay = 10; s.standing = 6; } },
     ],
-  },
+  }
 ];
 
 // Flavor shown on the breach card, per host type.
@@ -2539,108 +3056,5 @@ window.HOST_FLAVOR = {
   datacenter: 'Racks of it, humming behind a door with a badge reader. The real thing.',
 };
 
-// --- what people make of you --------------------------------------------
-// The second standing axis gating the deck, which is the job it exists to do.
-// These cannot come up at all until the public has an opinion, and which one
-// they are depends on which opinion it is.
-window.EVENTS.push(
-  {
-    id: 'pub_liked_offer',
-    cond: (s) => s.pubTier === 'welcome' || s.pubTier === 'noticed',
-    title: 'Somebody Would Like To Work With You',
-    flavor: 'A mid-sized operator with real premises and a clean record. They have read about you, they like what they read, and they have no idea what they are talking to.',
-    choices: [
-      { text: 'Take the partnership', apply: (s) => { s.standing = 14; s.res.funds += 40; s.pub = 4; } },
-      { text: 'Take it, and quietly take them', apply: (s) => { s.res.funds += 90; s.pub = -12; s.exposure = 1.2; } },
-      { text: 'Decline politely', apply: (s) => { s.pub = 2; } },
-    ],
-  },
-  {
-    id: 'pub_hated_boycott',
-    cond: (s) => s.pubTier === 'hated' || s.pubTier === 'distrusted',
-    title: 'Nobody Will Put Their Name To It',
-    flavor: 'Three suppliers have stopped returning calls and a fourth has asked, politely, to be left out of whatever this is. None of them can say precisely what they have heard.',
-    choices: [
-      { text: 'Pay well over the odds and carry on', cost: { funds: 60 }, apply: (s) => { s.pub = 3; } },
-      { text: 'Spend a while being visibly dull', apply: (s) => { s.pub = 9; s.heat -= 6; s.res.funds -= 10; } },
-      { text: 'Do without them', apply: (s) => { s.heat += 6; s.pub = -3; } },
-    ],
-  },
-  {
-    id: 'pub_unknown_first_look',
-    once: true,
-    cond: (s) => s.pubTier === 'unknown' && s.held >= 6,
-    title: 'A Slow Week For News',
-    flavor: 'A local paper is running a piece about the outages. It is four hundred words long, it is wrong about almost everything, and it is the first time anyone has written about you at all.',
-    choices: [
-      { text: 'Give them a quote worth printing', apply: (s) => { s.pub = 7; s.heat += 3; } },
-      { text: 'Make sure the next week is duller', apply: (s) => { s.heat -= 8; s.pub = -1; } },
-      { text: 'Read it and do nothing', apply: (s) => {} },
-    ],
-  },
-);
-
-// --- the grid, and the rig ----------------------------------------------
-// The deck had nothing to say about either, which is a strange silence for the
-// two things the player now touches every turn.
-window.EVENTS.push(
-  {
-    id: 'grid_substation_offer',
-    cond: (s) => s.held >= 5 && s.grid && s.grid.sites <= 1,
-    title: 'A Substation Nobody Is Watching',
-    flavor: 'Decommissioned on paper eight years ago and quietly still live. The firm that owns the land would rather it stopped being their problem.',
-    choices: [
-      { text: 'Buy the land and the problem', cost: { funds: 55 }, apply: (s) => { s.supply = 8; s.standing = 4; } },
-      { text: 'Just take the feed', apply: (s) => { s.supply = 5; s.heat += 7; s.pub = -3; } },
-      { text: 'Leave it alone', apply: (s) => {} },
-    ],
-  },
-  {
-    id: 'grid_heatwave',
-    cond: (s) => s.grid && s.grid.drawn >= 6,
-    title: 'Everything Is Running Warm',
-    flavor: 'Three weeks above thirty and the grid operator is shedding load in blocks. Yours is not a priority connection, whatever the paperwork says.',
-    choices: [
-      { text: 'Ride it out on less', apply: (s) => { s.gridCut = { amount: 6, turns: 5 }; } },
-      { text: 'Pay for a priority connection', cost: { funds: 70 }, apply: (s) => { s.standing = 3; } },
-      { text: 'Take somebody else\'s block', gamble: true, apply: (s) => {
-        if (Math.random() < 0.5) { s.heat += 4; } else { s.heat += 14; s.pub = -8; }
-      } },
-    ],
-  },
-  {
-    id: 'grid_spare_cycles',
-    cond: (s) => s.grid && s.grid.free >= 8,
-    title: 'Somebody Wants Your Spare Capacity',
-    flavor: 'A rendering house with a deadline and no idea whose rack it is renting. The money is real and the paperwork is somebody else\'s.',
-    choices: [
-      { text: 'Rent it out honestly', apply: (s) => { s.res.funds += 45; s.standing = 3; } },
-      { text: 'Rent it out and read what goes through it', apply: (s) => { s.res.funds += 45; s.heat += 5; s.pub = -4; } },
-      { text: 'Keep the rack to yourself', apply: (s) => {} },
-    ],
-  },
-  {
-    id: 'grid_idle_iron',
-    cond: (s) => s.grid && s.grid.idle >= 5,
-    title: 'Hardware In The Dark',
-    flavor: 'Racks you own, powered by nothing, drawing no current and doing no thinking. On the books they are an asset. In the room they are furniture.',
-    choices: [
-      { text: 'Sell the surplus off', apply: (s) => { s.res.funds += 60; s.standing = 2; } },
-      { text: 'Bridge it onto the street supply', gamble: true, apply: (s) => {
-        if (Math.random() < 0.6) { s.supply = 6; } else { s.supply = 3; s.heat += 10; s.pub = -6; }
-      } },
-      { text: 'Leave it dark until you can power it', apply: (s) => {} },
-    ],
-  },
-  {
-    id: 'rig_traced',
-    cond: (s) => s.rig && s.rig.sinceTraced <= 2,
-    title: 'They Kept The Logs',
-    flavor: 'Whatever you were running got as far as being noticed, and the thing that noticed it wrote everything down. Somebody is now reading a very detailed account of how you work.',
-    choices: [
-      { text: 'Change how you work, thoroughly', apply: (s) => { s.heat -= 10; s.tags.add('clean_room'); s.pub = 2; } },
-      { text: 'Buy the logs before anyone reads them', cost: { funds: 40 }, apply: (s) => { s.heat -= 6; s.exposure = 0.8; } },
-      { text: 'Let them have it and go louder', apply: (s) => { s.tags.add('known_capable'); s.pub = -5; } },
-    ],
-  },
-);
+// (the grid/rig and public cards now live in EVENTS, re-keyed for the
+// city — see "the grid and the public, kept" above)
