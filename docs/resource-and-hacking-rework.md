@@ -1403,6 +1403,26 @@ now allow for cards whose cond is a pure `() => false`. The census that set
 this in motion, re-run after: distinct cards up, endings on all of them,
 the deck talking about the game that exists.
 
+### No tag a card hands out is a hollow promise
+
+Previewing outcomes turned a quiet debt into a lie: three tags cards grant
+were written against heat and so did nothing in the city game, and the new
+previews *stated* them. A guard test — walk every tag any card can grant,
+assert a live rule reads it, and that the rule is not a heat line — found a
+fourth that nothing read at all. Each now means something, built from a
+system that already exists:
+
+- `dark_relay` — sweeps stop warming the streets they touch. A route nobody
+  logs costs the street nothing.
+- `off_the_books` — a take makes its district half as loud. The tenancy still
+  changes; the money leaving no trail is what keeps it quiet.
+- `overextended` — rotating out of a district cools it half as well. Spread
+  too thin to tend anything properly, which is what the tag says in words.
+- `scrutiny` — every catch counts double toward the response.
+
+The capability sheet was rewritten to match. The guard test is permanent, so
+a tag can no longer drift into decoration.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
