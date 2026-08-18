@@ -2158,8 +2158,11 @@ test('deck: card ids are unique and every card is a real decision', () => {
         assert.ok(['tflops', 'covert', 'funds'].includes(ch.gate.stat),
           `${e.id}[${i}] gates on unknown stat ${ch.gate.stat}`);
       }
+      // The units a card is allowed to charge in are the ones the engine can
+      // both take (payFor) and say out loud on the strip. Anything else is a
+      // silent price, which is the one thing a choice may never have.
       if (ch.cost) Object.keys(ch.cost).forEach(k =>
-        assert.ok(['funds', 'funds'].includes(k), `${e.id}[${i}] costs unknown ${k}`));
+        assert.ok(['funds', 'ap', 'keys'].includes(k), `${e.id}[${i}] costs unknown ${k}`));
     });
   });
 });
@@ -10328,6 +10331,138 @@ test('cards: a card cannot show you a place you have not found', () => {
   b.discovered = true;
   d.render();
   assert.ok($p.innerHTML.includes('card-inset'), 'a building you have found is still not on its own card');
+  s.card = null;
+});
+
+// --- rules a card turns on, for a stated while ----------------------------
+
+test('rules: a rule is true for exactly as long as it said', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const t0 = s.turn;
+  d.startRule('free_hands', 6);
+  assert.ok(d.ruleOn('free_hands'), 'the rule did not start');
+  assert.equal(d.apCost('sweep'), 0, 'the rule is on and changing nothing');
+  // ...through to the last turn it promised, and not one past it
+  for (let i = 1; i < 6; i++) {
+    s.turn = t0 + i;
+    d.expireRules();
+    assert.ok(d.ruleOn('free_hands'), `the rule stopped early, on turn ${i} of 6`);
+  }
+  s.turn = t0 + 6;
+  d.expireRules();
+  assert.ok(!d.ruleOn('free_hands'), 'the rule outlived what it said');
+  assert.equal(d.apCost('sweep'), 1, 'the rule ended and the cost did not come back');
+  assert.equal(d.liveRules().length, 0, 'a spent rule is still sitting in the list');
+});
+
+test('rules: never more than two at once, and the cap is not silent', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  assert.equal(window.RULE_CAP, 2, 'the cap moved without this test noticing');
+  d.startRule('free_hands', 8);
+  d.startRule('open_season', 5);
+  d.startRule('nobody_looking', 6);
+  assert.equal(d.liveRules().length, 2, 'three rules are live at once');
+  // the one with the least left makes way, so a card offering a rule is never
+  // a card that silently does nothing
+  assert.ok(d.ruleOn('nobody_looking'), 'the rule the card just gave you did not start');
+  assert.ok(!d.ruleOn('open_season'), 'the wrong rule was dropped');
+  assert.ok(d.state.log.some(l => /ends early/.test(l.text || l)),
+    'a rule was dropped without saying so');
+
+  // the same rule again extends rather than stacking
+  const n = d.liveRules().length;
+  d.startRule('nobody_looking', 9);
+  assert.equal(d.liveRules().length, n, 'the same rule stacked a second copy');
+});
+
+test('rules: every rule changes something, and says what in the tray', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $t = window.document.getElementById('tray');
+  Object.keys(window.CARD_RULES).forEach(id => {
+    const R = window.CARD_RULES[id];
+    assert.ok(R.label && R.desc, `${id} does not say what it is`);
+    assert.ok(R.turns >= 1, `${id} has no horizon`);
+    // a live rule is read by a live rule somewhere in the engine
+    const app = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../../network-prototype/app.js'), 'utf8');
+    assert.ok(new RegExp(`ruleOn\\('${id}'\\)`).test(app), `${id} is offered and read by nothing`);
+  });
+
+  // and the tray wears the turns left, or it is a rule nobody can plan around
+  d.startRule('open_season', 5);
+  d.renderTags();
+  assert.ok($t.innerHTML.includes(window.CARD_RULES.open_season.label), 'the tray does not name the live rule');
+  assert.ok(/<b>5<\/b>/.test($t.innerHTML), 'the tray does not say how long is left');
+  s.turn += 3;
+  d.renderTags();
+  assert.ok(/<b>2<\/b>/.test($t.innerHTML), 'the tray is not counting down');
+});
+
+test('rules: what a card turned on survives a save', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.startRule('nobody_looking', 4);
+  d.bank('free_take', 1);
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal(JSON.stringify(back.rules), JSON.stringify(s.rules), 'the live rule did not survive');
+  assert.equal(JSON.stringify(back.banked), JSON.stringify(s.banked), 'the banked verb did not survive');
+});
+
+test('rules: a banked take pays for a run when your turn cannot', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(x => { x.discovered = true; });
+  d.ensureFrontierIsOpen();
+  const h = s.hosts.find(x => d.isFrontier(x));
+  assert.ok(h, 'no open door to run at');
+  s.ap = 0;
+  assert.ok(!d.canHack(h.id), 'a run with no actions and nothing banked should be refused');
+  d.bank('free_take', 1);
+  assert.ok(d.canHack(h.id), 'a banked take did not cover a run');
+  d.startHack(h.id);
+  assert.equal(d.banked('free_take'), 0, 'the banked take was not spent');
+  assert.equal(s.ap, 0, 'the banked take was spent and the turn was charged as well');
+});
+
+test('rules: a card can charge something other than money', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // Every card price used to be funds, the resource you have most of.
+  const priced = window.EVENTS.filter(e => e.choices.some(c => c.cost
+    && Object.keys(c.cost).some(k => k !== 'funds')));
+  assert.ok(priced.length >= 2, 'nothing in the deck costs anything but money');
+
+  s.keys = 0; s.ap = 0;
+  assert.ok(!d.choiceUsable({ cost: { keys: 1 } }), 'a key you do not have was spendable');
+  assert.equal(d.shortOf({ cost: { keys: 1 } }), 'not enough keys');
+  assert.ok(!d.choiceUsable({ cost: { ap: 1 } }), 'an action you do not have was spendable');
+  assert.equal(d.shortOf({ cost: { ap: 1 } }), 'not enough actions left');
+
+  // ...and paying takes it from the right place
+  s.keys = 2; s.ap = 2;
+  d.payFor('keys', 1); d.payFor('ap', 1);
+  assert.equal(s.keys, 1, 'the key was not spent');
+  assert.equal(s.ap, 1, 'the action was not spent');
+
+  // every non-funds price is stated on the strip, in its own unit
+  const ev = priced[0];
+  const i = ev.choices.findIndex(c => c.cost && Object.keys(c.cost).some(k => k !== 'funds'));
+  s.res.funds = 999; s.keys = 5; s.ap = 5;
+  s.card = { kind: 'event', eventId: ev.id, subject: { district: 'business' } };
+  d.render();
+  const html = window.document.getElementById('panel').innerHTML;
+  const unit = Object.keys(ev.choices[i].cost).find(k => k !== 'funds');
+  const word = unit === 'ap' ? 'action' : unit === 'keys' ? 'keys' : unit;
+  assert.ok(html.includes(word), `${ev.id} charges ${unit} and never says so`);
   s.card = null;
 });
 

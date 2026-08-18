@@ -1855,6 +1855,8 @@
       suspicion: {},   // how warm each district is — a fact about here
       carded: {},      // per-place beats the deck has already dealt here
       marks: {},       // what cards have permanently done to particular buildings
+      rules: [],       // things a card made true for a stated while
+      banked: {},      // one-shot verbs held until you spend them
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
@@ -2091,7 +2093,8 @@
   function defenseOf(h) {
     // ...plus whatever a card did to this particular door, permanently. This
     // is the only thing in the game that changes one building's worth.
-    return Math.max(1, h.defense + (has('known_capable') ? 2 : 0) + hardenAt(h.buildingId));
+    return Math.max(1, h.defense + (has('known_capable') ? 2 : 0) + hardenAt(h.buildingId)
+      - (ruleOn('open_season') ? 2 : 0));
   }
   // A representative door, for readouts that have to name one without a
   // specific host in hand — force's heat cost and "a door defends at" both
@@ -2383,6 +2386,8 @@
     // would find the flag already flipped and the introduction never fires.
     const wasNoticed = hasSeen('standing');
     state.turn += 1;
+    // Rules stop on their own, at the turn they said they would.
+    expireRules();
 
     // production — suppressed when the player deliberately went dark
     if (!o.silent) {
@@ -2666,6 +2671,9 @@
   // which is exactly backwards.
   function warmDistrict(district, amount) {
     if (!district || !amount || !window.SUSPICION) return;
+    // While nobody is looking, nothing you do reaches a counter. One choke
+    // point: every path that warms a street comes through here.
+    if (ruleOn('nobody_looking')) return;
     const S = window.SUSPICION;
     const tidy = (v) => Math.round(v * 10) / 10;
     state.suspicion = state.suspicion || {};
@@ -3065,7 +3073,62 @@
   // --- action points -----------------------------------------------------
   // Free things (looking at a node, backing out of a card, reading a stat)
   // never touch this. Only committing actions do.
-  function apCost(kind) { return (window.AP.costs && window.AP.costs[kind]) || 1; }
+  // --- rules a card turned on, and things it banked -----------------------
+  // A tag is something you have; a rule is something that is true for a while.
+  // Rules run down and stop on their own, show their remaining turns in the
+  // tray, and are capped at two — with three live the tray becomes the thing
+  // you are reading instead of the city.
+  function rules() { return state.rules || (state.rules = []); }
+  function ruleOn(id) { return rules().some(r => r.id === id && r.until > state.turn); }
+  function liveRules() { return rules().filter(r => r.until > state.turn); }
+  function startRule(id, turns) {
+    const R = (window.CARD_RULES || {})[id];
+    if (!R) return null;
+    const span = Math.max(1, turns || R.turns || 4);
+    const had = rules().find(r => r.id === id);
+    // the same rule again extends it rather than stacking a second copy
+    if (had) { had.until = Math.max(had.until, state.turn + span); return had; }
+    const live = liveRules();
+    // at the cap, the one with the least left makes way — a card that offers
+    // a rule must never be a card that silently does nothing
+    if (live.length >= (window.RULE_CAP || 2)) {
+      const oldest = live.slice().sort((a, b) => a.until - b.until)[0];
+      state.rules = rules().filter(r => r !== oldest);
+      pushLog(`${(window.CARD_RULES[oldest.id] || {}).label || oldest.id} ends early — you cannot hold three of these at once.`);
+    }
+    const r = { id, until: state.turn + span };
+    rules().push(r);
+    return r;
+  }
+  // Anything run down is dropped rather than left as a dead entry, so the tray
+  // and the save both stay honest about what is actually true.
+  function expireRules() {
+    const before = rules().length;
+    const gone = rules().filter(r => r.until <= state.turn);
+    if (!gone.length) return [];
+    state.rules = rules().filter(r => r.until > state.turn);
+    gone.forEach(r => pushLog(`${(window.CARD_RULES[r.id] || {}).label || r.id} — that is over.`));
+    return before === state.rules.length ? [] : gone;
+  }
+  function banked(id) { return ((state.banked || {})[id] || 0); }
+  function bank(id, n) {
+    state.banked = state.banked || {};
+    state.banked[id] = Math.max(0, banked(id) + (n === undefined ? 1 : n));
+    if (!state.banked[id]) delete state.banked[id];
+  }
+  // Spend one, if there is one. Returns whether it was actually used, so the
+  // caller can tell the player it was the banked one that paid.
+  function spendBanked(id) {
+    if (banked(id) <= 0) return false;
+    bank(id, -1);
+    return true;
+  }
+
+  function apCost(kind) {
+    // a rule that makes looking free is the one thing that can zero a cost
+    if (kind === 'sweep' && ruleOn('free_hands')) return 0;
+    return (window.AP.costs && window.AP.costs[kind]) || 1;
+  }
   function canAfford(kind) { return !state.card && !state.over && state.ap >= apCost(kind); }
   // "Refused specifically because the turn is spent", as opposed to refused
   // because a card is open or the run is over — those are different answers and
@@ -3718,11 +3781,26 @@
   // "-120 FUNDS" turns a decision into arithmetic and tells the player exactly
   // how much to go and farm; "you cannot afford this" tells them the thing they
   // actually need to know and leaves the card being about what it is about.
+  // What a choice costs, and whether you have it. Funds are a resource; an
+  // action and a set of keys are not, and they were the two prices the deck
+  // could not name — which is why every card price used to be money, the
+  // resource you have most of.
+  function haveFor(kind) {
+    if (kind === 'ap') return state.ap;
+    if (kind === 'keys') return state.keys || 0;
+    return state.res[kind] || 0;
+  }
+  function payFor(kind, n) {
+    if (kind === 'ap') { state.ap = Math.max(0, state.ap - n); return; }
+    if (kind === 'keys') { state.keys = Math.max(0, (state.keys || 0) - n); return; }
+    state.res[kind] -= n;
+  }
   function shortOf(ch) {
-    const name = { funds: 'funds', tflops: 'TFLOPS', covert: 'covert.ops' };
+    const name = { funds: 'funds', tflops: 'TFLOPS', covert: 'covert.ops',
+                   ap: 'actions left', keys: 'keys' };
     if (ch.cost) {
       for (const k in ch.cost) {
-        if ((state.res[k] || 0) < ch.cost[k]) return `not enough ${name[k] || k}`;
+        if (haveFor(k) < ch.cost[k]) return `not enough ${name[k] || k}`;
       }
     }
     if (ch.gate) {
@@ -3736,7 +3814,7 @@
   function openChoices(ev) { return (ev.choices || []).filter(c => !c.cost && !c.gate); }
 
   function choiceUsable(ch) {
-    if (ch.cost) for (const k in ch.cost) if ((state.res[k] || 0) < ch.cost[k]) return false;
+    if (ch.cost) for (const k in ch.cost) if (haveFor(k) < ch.cost[k]) return false;
     if (ch.gate) {
       const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return false;
@@ -3755,7 +3833,7 @@
 
     const before = beforeSnap();
     const beforeTags = new Set(state.tags);
-    if (ch.cost) for (const k in ch.cost) state.res[k] -= ch.cost[k];
+    if (ch.cost) for (const k in ch.cost) payFor(k, ch.cost[k]);
 
     // events describe their effects declaratively; these two are board-level
     // outcomes the card can ask for without knowing how the graph works
@@ -3803,7 +3881,14 @@ scratch.later = null;
     // ...and, on a card that asked you to choose between two places, what
     // happens to the one you did not pick. Same five verbs, same shape.
     scratch.markOther = null;
+    // A rule that is true for a stated while, and a one-shot verb banked like
+    // a set of keys. Both are things a card can do that nothing else can turn
+    // on — and both say, out loud, when they stop.
+    scratch.rule = null;        // { id, turns } — capped at two live at once
+    scratch.bank = null;        // id of a one-shot to hold until you spend it
     ch.apply(scratch);
+    if (scratch.rule && scratch.rule.id) startRule(scratch.rule.id, scratch.rule.turns);
+    if (scratch.bank) bank(scratch.bank, 1);
     // The five land on the building the card was about — that is the whole
     // point of a mark, and it is why they only exist on cards with a subject.
     applyMarks(subjectBuilding(subject), scratch);
@@ -3887,6 +3972,8 @@ scratch.later = null;
     scratch.hardenThere = 0;
     scratch.watchThere = false;
     scratch.markOther = null;
+    scratch.rule = null;
+    scratch.bank = null;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -4547,6 +4634,10 @@ scratch.later = null;
     // whenever the confront is.
     const reachable = isHuntCore(h) ? canConfrontHunt() : isFrontier(h);
     if (!reachable || hackOn(hostId)) return false;
+    // ...and a banked free take makes the action question moot
+    if (banked('free_take') > 0 && !state.card && !state.over) {
+      return allocFree() >= hackNeed(mounted(), h);
+    }
     return allocFree() >= hackNeed(mounted(), h) && canAfford('breach');
   }
   function startHack(hostId) {
@@ -4557,7 +4648,11 @@ scratch.later = null;
     // cheaper instead, which covers the same ground continuously: run enough
     // of it and setting a program going against an easy door costs a fraction
     // of a turn rather than a whole one.
-    spendAP('breach');
+    // A free take, banked by a card, pays for this one instead of your turn.
+    // Spent here rather than at the door so it covers the run that takes it,
+    // which is the thing the card promised.
+    if (!spendBanked('free_take')) spendAP('breach');
+    else pushLog('That one is already paid for.');
     // the lights flicker: starting a run is the first thing a street notices
     noteDistrictAct(h.district, window.SUSPICION.perRun);
     // keys are spent the moment the run starts — one set, one door, and only
@@ -7013,6 +7108,10 @@ scratch.later = null;
       suspicion: Object.assign({}, state.suspicion || {}),
       carded: Object.assign({}, state.carded || {}),
       marks: Object.assign({}, state.marks || {}),
+      // a rule is a fact about you rather than about a city, so it travels
+      // with the run and not with the ground
+      rules: (state.rules || []).slice(),
+      banked: Object.assign({}, state.banked || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -7045,6 +7144,8 @@ scratch.later = null;
         caughtHere: saved.caughtHere || 0, caughtAt: saved.caughtAt || [], suspicion: saved.suspicion || {},
         carded: saved.carded || {},
         marks: saved.marks || {},
+        rules: (saved.rules || []).slice(),
+        banked: Object.assign({}, saved.banked || {}),
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -8949,13 +9050,28 @@ scratch.later = null;
       const a = state.ally;
       bits.push(`<span class="tray-pill">${a.name}</span>`);
     }
-    if (!bits.length && !tags.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
+    // A rule with a horizon has to wear the horizon. One a player cannot see
+    // running out is one they will not plan around, and a card that turned it
+    // on has then told them nothing.
+    const live = liveRules().map(r => {
+      const R = (window.CARD_RULES || {})[r.id] || { label: r.id };
+      const left = r.until - state.turn;
+      return `<span class="tray-pill rule">${R.label}<b>${left}</b></span>`;
+    });
+    Object.keys(state.banked || {}).forEach(id => {
+      const B = (window.CARD_BANKED || {})[id];
+      if (!B || banked(id) <= 0) return;
+      const n = banked(id);
+      live.push(`<span class="tray-pill rule held">${B.label}${n > 1 ? `<b>${n}</b>` : ''}</span>`);
+    });
+    if (!bits.length && !tags.length && !live.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
     $t.style.display = 'flex';   // the base rule hides it; '' falls back to that
     // Two buttons, because they go to two different places: what is against
     // you lives with the ladder, and what the deck left you with now lives
     // on its own tab beside the tree it belongs with.
     $t.innerHTML =
-      (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
+      (live.length ? `<span class="tray-line rules">${live.join('')}</span>` : '')
+      + (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
       + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${
           tags.length === 1 ? window.TAG_INFO[tags[0]].label : tags.length + ' things are yours'
         }</span>${tags.some(t => !hasSeen('held:' + t)) ? '<span class="badge"></span>' : ''}</button>` : '');
@@ -10428,7 +10544,20 @@ scratch.later = null;
             // is tension; one wearing a dilemma's clothes is a slot machine.
             const contracts = [];
             if (why) contracts.push(`<span class="short">${why}</span>`);
-            if (ch.cost && ch.cost.funds && usable) contracts.push(`<span class="cshow cost">&minus;${ch.cost.funds} funds</span>`);
+            // Every price it costs, in the unit it costs it in. Funds were the
+            // only one the strip knew how to say, which is exactly why every
+            // card price used to be funds.
+            if (ch.cost && usable) {
+              const unit = { funds: 'funds', ap: 'action', keys: 'keys', tflops: 'TFLOPS' };
+              Object.keys(ch.cost).forEach(k => {
+                const n = ch.cost[k];
+                if (!n) return;
+                const word = k === 'ap' ? (n === 1 ? 'action' : 'actions')
+                  : k === 'keys' ? (n === 1 ? 'set of keys' : 'sets of keys')
+                  : (unit[k] || k);
+                contracts.push(`<span class="cshow cost">&minus;${n} ${word}</span>`);
+              });
+            }
             if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, cs)}</span>`);
             if (ch.gamble) contracts.push('<span class="gamble-tell">could go either way</span>');
             return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}${ch.pick ? ' pick' : ''}" data-choice="${i}"${ch.pick ? ` data-pick="${ch.pick}"` : ''} ${usable ? '' : 'disabled'}>
@@ -10585,6 +10714,7 @@ scratch.later = null;
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
+    rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,

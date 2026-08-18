@@ -2274,6 +2274,23 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 .tray-pill.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 45%, var(--line)); }
 .tray-pill.dim { color: var(--muted); }
+/* A rule a card turned on, wearing the turns it has left — a rule the player
+   cannot see running out is one they will not plan around. Not a button:
+   there is nothing to open, the pill is the whole statement. */
+.tray-line.rules { cursor: default; }
+.tray-pill.rule {
+  color: var(--item);
+  border-color: color-mix(in srgb, var(--item) 45%, var(--line));
+  background: color-mix(in srgb, var(--item) 7%, transparent);
+}
+.tray-pill.rule b {
+  margin-left: 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  opacity: .85;
+}
+/* one you hold rather than one running down */
+.tray-pill.rule.held { border-style: dashed; }
 
 /* Short screens. A 640-tall phone has to fit a map, a selection and four verbs
    in the same column, so everything below the map is drawn a size down rather

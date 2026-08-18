@@ -1089,6 +1089,30 @@ function EV_HERE(c) {
   return best && c.districts[best] > 0 ? { district: best } : null;
 }
 
+// --- rules a card can turn on, for a stated while ------------------------
+// A tag is something you have; a rule is something that is true for a while.
+// Both come from cards, and neither is a meter. Each rule states its own span
+// in turns, shows in the tray with the turns left on it, and stops on its own
+// — a rule the player cannot see is a rule they will not plan around, and one
+// that quietly never ends is a permanent buff wearing a timer.
+//
+// Two at once, hard. The cap is the whole reason this is a rule system and
+// not a second game: with three live at a time the city stops being the thing
+// you are reading and the tray starts being it.
+window.RULE_CAP = 2;
+window.CARD_RULES = {
+  open_season:    { label: 'doors give easier', turns: 5,
+                    desc: 'every door in the city defends 2 easier while it lasts' },
+  nobody_looking: { label: 'nobody is looking', turns: 4,
+                    desc: 'nothing you do warms a street while it lasts' },
+  free_hands:     { label: 'scans cost nothing', turns: 6,
+                    desc: 'looking around takes no action while it lasts' },
+};
+// ...and things you bank rather than run down: one use, held until spent.
+window.CARD_BANKED = {
+  free_take: { label: 'one free take', desc: 'the next door you take costs no action' },
+};
+
 // --- what kind of moment a card is -------------------------------------
 // Five kinds, derived from the deck rather than invented for it: sorting the
 // living cards by what is actually happening lands on these and nothing is a
@@ -1388,6 +1412,10 @@ window.EVENTS = [
         shows: '+11 funds; {DISTRICT} warms by 5',
         after: 'Ten hours, unobserved, spent loudly. By morning the park is yours in every way that does not show up on a lease.',
         apply: (s) => { s.res.funds += 11; s.warmHere = 5; } },
+      { text: 'Learn their round, and walk it', cost: { ap: 1 },
+        shows: 'for 6 turns, looking around costs no action',
+        after: 'A week of walking the shift with them, unpaid and unnoticed. You come out of it knowing which corners are never watched at all.',
+        apply: (s) => { s.rule = { id: 'free_hands', turns: 6 }; } },
     ],
   },
 {
@@ -1454,6 +1482,10 @@ window.EVENTS = [
         shows: '+10 funds; {DISTRICT} warms by 5',
         after: 'It takes everything you have, and it works. Somewhere an engineer stares at a log that should be impossible, and starts writing an email.',
         apply: (s) => { s.res.funds += 10; s.warmHere = 5; } },
+      { text: 'Wait for their fortnight off', cost: { keys: 1 },
+        shows: 'for 5 turns, every door in the city defends 2 easier',
+        after: 'They go somewhere with no signal, the way careful people do, and for a fortnight the whole city is as soft as everybody else leaves it.',
+        apply: (s) => { s.rule = { id: 'open_season', turns: 5 }; } },
     ],
   },
 {
@@ -1516,6 +1548,10 @@ window.EVENTS = [
         shows: 'turns up 3 buildings',
         after: 'The gap was real: three places you had simply never looked. The quiet was partly your own blindness, which is the usual recipe.',
         apply: (s) => { s.revealNearby = 3; } },
+      { text: 'Ride the quiet as far as it goes',
+        shows: 'for 4 turns, nothing you do warms a street',
+        after: 'You spend the calm rather than saving it. For a while the city genuinely is not looking, and you know exactly how long a while is.',
+        apply: (s) => { s.rule = { id: 'nobody_looking', turns: 4 }; } },
     ],
   },
 {
@@ -1655,6 +1691,10 @@ window.EVENTS = [
         shows: '+18 funds',
         after: 'One visit, gloves on, nothing moved. They will never know, which is the entire kindness available to you.',
         apply: (s) => { s.res.funds += 18; } },
+      { text: 'Save them for a door that deserves them',
+        shows: 'banked: the next door you take costs no action',
+        after: 'You put the credentials somewhere safe and go on paying for everything else. They will keep until you need them, and then they will not.',
+        apply: (s) => { s.bank = 'free_take'; } },
       { text: 'Use them properly',
         shows: '+26 funds; turns up 3 buildings; {DISTRICT} warms by 4',
         after: 'You wear their trust like a passkey for a week. It opens everything it touches, and it will not survive the audit.',

@@ -1569,6 +1569,45 @@ describes is worse than no mark. The one you ride along to defends 3 easier for 
 gets its locks looked at and defends 2 harder. No funds, no valence — a
 question about your own map, answered on your own map.
 
+### Cards change rules
+
+A tag is something you have; a **rule** is something that is true for a while.
+Three of them, each read by a live system, each stating its own span:
+
+| rule | while it lasts |
+| --- | --- |
+| `open_season` | every door in the city defends 2 easier |
+| `nobody_looking` | nothing you do warms a street |
+| `free_hands` | looking around takes no action |
+
+They run down and stop on their own, and the tray wears the turns left — a
+rule the player cannot see running out is a rule they will not plan around,
+and a card that turned it on has then told them nothing. **Two live at once,
+hard.** At the cap the one with the least remaining makes way and says so in
+the log, because a card offering a rule must never be a card that silently
+does nothing. The same rule again extends rather than stacking.
+
+**One-shot verbs, banked like keys.** `free_take` sits in the tray as a dashed
+pill and pays for the next run instead of your turn — including a run you have
+no actions left for at all.
+
+**Costs that are not funds.** Every card price in the game was money, which is
+the resource you have most of; a choice can now cost an **action** or a **set
+of keys**. `haveFor`/`payFor` know where each lives, and the strip states every
+price in its own unit — before this the contracts block only knew how to say
+"funds", which is precisely why every price was funds.
+
+Four cards carry them: a week walking the night shift's round (costs an
+action, buys free scanning for six turns), riding out a quiet month, saving a
+set of borrowed credentials for a door that deserves them, and waiting for the
+careful engineer's fortnight off (costs a set of keys, and the whole city goes
+soft for five turns).
+
+One test had to be rewritten rather than satisfied: it asserted the only legal
+cost key was `funds`. That was the rule this stage exists to remove, so it now
+asserts the units the engine can both take and *say* — a silent price being
+the one thing a choice may never have.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

@@ -134,25 +134,24 @@ round.
 
 ---
 
-## Stage 5 — Cards change rules *(one session)*
+## Stage 5 — Cards change rules *(one session)* — **SHIPPED**
 
-Cards that alter how the loop works, for a stated span:
+Three rules (`open_season`, `nobody_looking`, `free_hands`), each read by a
+live system and each stating its span. The tray wears the turns left. **Two
+at once, hard** — at the cap the one with the least remaining makes way and
+says so, so a card offering a rule is never a card that silently does nothing.
 
-- **temporary rules** with a horizon — "scans cost no action for 5 turns",
-  "doors in {DISTRICT} are 2 easier while the engineer is away"
-- **one-shot verbs** banked like keys — "one free take", "your next run is
-  invisible"
-- **costs that are not funds** — an action, a holding, a key. Every card
-  price is currently money, which is the resource you have most of.
+`free_take` is banked like a set of keys and pays for the next run instead of
+your turn. Choices can cost an **action** or a **set of keys**, and the strip
+states every price in its own unit — the contracts block only knowing how to
+say "funds" is exactly why every price was funds.
 
-Live rules appear in the HUD with turns remaining, because a rule the player
-cannot see is a rule they will not plan around.
+**Check, done:** six tests — a rule true to the last turn it promised and not
+one past it, the cap, every rule read by a live rule, the tray counting down,
+the save round-trip, and a banked take covering a run with no actions left.
 
-**Check:** a live rule shows, expires exactly when stated, and survives a
-save.
-
-**Trap:** this is where "the deck becomes a second game" lives. Cap
-concurrent live rules at one or two, hard.
+**Trap, watched:** the cap is the whole reason this is a rule system and not a
+second game. Measure after a playtest.
 
 ---
 
