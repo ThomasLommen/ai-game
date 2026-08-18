@@ -155,14 +155,20 @@ second game. Measure after a playtest.
 
 ---
 
-## Stage 6 — The tray *(half a session)*
+## Stage 6 — The tray *(half a session)* — **SHIPPED**
 
-Not every card deserves to stop the game. A minor card sits in the HUD as an
-unopened item until you choose to look; blocking is reserved for **closing
-in** cards and the big beats.
+**closing in** interrupts; the other four kinds are set down in the tray,
+unopened, wearing their kind's colour and naming where. Tapping one makes it
+an ordinary card, map walk and all. Every path that deals a card — drawn,
+forced, planted — goes through one door (`offerCard`).
 
-**Check:** a full game can be played without a minor card ever interrupting;
-the tray never holds more than a couple.
+A full tray never promotes a quiet card into an interruption: it goes back on
+the trigger queue and arrives when there is room, and the timer stops drawing
+while the tray is full.
+
+**Check, done.** 8 games x 60 turns, never once opening the tray: interrupted
+39 times, **all 39 closing in**, nothing else ever. 16 minor cards set down
+instead. Tray high-water mark: **2**. Four tests hold it.
 
 ---
 

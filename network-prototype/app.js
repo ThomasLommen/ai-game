@@ -1856,6 +1856,7 @@
       carded: {},      // per-place beats the deck has already dealt here
       marks: {},       // what cards have permanently done to particular buildings
       rules: [],       // things a card made true for a stated while
+      waiting: [],     // cards set down in the tray rather than dealt at you
       banked: {},      // one-shot verbs held until you spend them
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
@@ -2478,28 +2479,22 @@
       // by whatever queued them (see queueEvent).
       const f = state.forced.shift();
       const id = f && f.id ? f.id : f;
-      state.card = { kind: 'event', eventId: id, subject: (f && f.subject) || null };
-      noteEventDrawn(id);
+      offerCard(id, (f && f.subject) || null);
       bumpEventTimer();
     } else if (!state.card && duePlanted().length) {
       // something you set in motion earlier coming back around
       const id = duePlanted()[0];
       state.planted = (state.planted || []).filter(p => p.id !== id);
-      state.card = { kind: 'event', eventId: id };
-      noteEventDrawn(id);
+      offerCard(id, null);
       bumpEventTimer();
-    } else if (!state.card && state.turn >= state.nextEventTurn) {
+    } else if (!state.card && trayFree() && state.turn >= state.nextEventTurn) {
       // The timer is a floor now, not the rhythm. Cards are meant to arrive
       // from the loop — a diary read, a district crossing into talk, the
       // response turning up — and this path only speaks when the world has
       // said nothing for a while. Triggered and planted cards push it back,
       // so a lively stretch is never also a chatty one.
       const ev = drawEvent();
-      if (ev) {
-        const subject = (ev.subject || ev.pair) ? safeSubject(ev) : null;
-        state.card = { kind: 'event', eventId: ev.id, subject };
-        noteEventDrawn(ev.id);
-      }
+      if (ev) offerCard(ev.id, (ev.subject || ev.pair) ? safeSubject(ev) : null);
       bumpEventTimer();
     }
     const rivalMove = rivalStep();
@@ -3505,6 +3500,56 @@
     state.forced = (state.forced || []).concat([subject ? { id, subject } : id]);
     return true;
   }
+  // --- what deserves to stop the game --------------------------------------
+  // Not every card is an interruption. Somebody narrowing it down is: you
+  // cannot plan around a thing you have not been told. A diary on a machine
+  // you hold, a van with a spare seat, a shopkeeper with an opinion — those
+  // are worth reading, and worth reading *when you choose to*. So a card is
+  // either dealt onto the screen or set down in the tray, unopened, and the
+  // rule is the kind it is.
+  const TRAY_CAP = 2;
+  function blocks(ev) {
+    if (!ev) return true;
+    if (ev.blocks !== undefined) return !!ev.blocks;   // a card may insist
+    // The tray is a property of the five designed kinds. A card without one —
+    // the dormant country deck, if the country ever comes back — has no
+    // colour to wear in the tray and no design to be recognised by, so it
+    // takes the screen the way it always did.
+    if (!ev.kind) return true;
+    return ev.kind === 'closing';
+  }
+  function waiting() { return state.waiting || (state.waiting = []); }
+  function trayFree() { return waiting().length < TRAY_CAP; }
+  // The one door every dealt card comes through — drawn, forced or planted.
+  function offerCard(id, subject) {
+    const ev = eventById(id);
+    if (!ev) return null;
+    if (blocks(ev)) {
+      noteEventDrawn(id);
+      state.card = { kind: 'event', eventId: id, subject: subject || null };
+      return state.card;
+    }
+    // A full tray does not promote a quiet card into an interruption — that
+    // would be the stage undoing itself the moment it was under pressure. It
+    // waits its turn instead, on the same queue the triggers use, and arrives
+    // when there is room. Nothing is lost and nothing jumps the screen.
+    if (!trayFree()) {
+      state.forced = (state.forced || []).concat([{ id, subject: subject || null }]);
+      return null;
+    }
+    noteEventDrawn(id);
+    waiting().push({ id, subject: subject || null });
+    return null;
+  }
+  // Opening one you had set aside. It becomes an ordinary card from here on.
+  function openWaiting(i) {
+    const w = waiting()[i];
+    if (!w || state.card) return false;
+    state.waiting = waiting().filter((x, k) => k !== i);
+    state.card = { kind: 'event', eventId: w.id, subject: w.subject || null };
+    return true;
+  }
+
   // One-shot triggers that are per-place rather than per-game: keyed marks,
   // packed with the city, so a reload does not re-deal the same beat.
   function cardedOnce(key) {
@@ -7112,6 +7157,7 @@ scratch.later = null;
       // with the run and not with the ground
       rules: (state.rules || []).slice(),
       banked: Object.assign({}, state.banked || {}),
+      waiting: (state.waiting || []).slice(),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -7146,6 +7192,7 @@ scratch.later = null;
         marks: saved.marks || {},
         rules: (saved.rules || []).slice(),
         banked: Object.assign({}, saved.banked || {}),
+        waiting: (saved.waiting || []).slice(),
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -9064,17 +9111,35 @@ scratch.later = null;
       const n = banked(id);
       live.push(`<span class="tray-pill rule held">${B.label}${n > 1 ? `<b>${n}</b>` : ''}</span>`);
     });
-    if (!bits.length && !tags.length && !live.length) { $t.style.display = 'none'; $t.innerHTML = ''; return; }
+    // Cards set down rather than dealt. Unopened, waiting to be looked at —
+    // the whole point being that they never took the screen off you.
+    const wait = waiting().map((w, i) => {
+      const ev = eventById(w.id);
+      const K = ev && (window.CARD_KINDS || {})[ev.kind];
+      const names = subjectNames(w.subject);
+      const where = names.district ? names.district : (K ? K.label : 'something');
+      return `<button type="button" class="tray-pill card-wait k-${ev ? ev.kind : ''}" data-wait="${i}">`
+        + `<span class="wdot"></span>${where}</button>`;
+    });
+    if (!bits.length && !tags.length && !live.length && !wait.length) {
+      $t.style.display = 'none'; $t.innerHTML = ''; return;
+    }
     $t.style.display = 'flex';   // the base rule hides it; '' falls back to that
     // Two buttons, because they go to two different places: what is against
     // you lives with the ladder, and what the deck left you with now lives
     // on its own tab beside the tree it belongs with.
     $t.innerHTML =
-      (live.length ? `<span class="tray-line rules">${live.join('')}</span>` : '')
+      (wait.length ? `<span class="tray-line waiting">${wait.join('')}</span>` : '')
+      + (live.length ? `<span class="tray-line rules">${live.join('')}</span>` : '')
       + (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
       + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${
           tags.length === 1 ? window.TAG_INFO[tags[0]].label : tags.length + ' things are yours'
         }</span>${tags.some(t => !hasSeen('held:' + t)) ? '<span class="badge"></span>' : ''}</button>` : '');
+    $t.querySelectorAll('[data-wait]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (openWaiting(parseInt(btn.getAttribute('data-wait'), 10))) { persistNow(); render(); }
+      });
+    });
     $t.querySelectorAll('[data-open]').forEach(btn => {
       const where = btn.getAttribute('data-open');
       btn.addEventListener('click', () => where === 'held'
@@ -10715,6 +10780,7 @@ scratch.later = null;
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
+    blocks, waiting, trayFree, offerCard, openWaiting,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,

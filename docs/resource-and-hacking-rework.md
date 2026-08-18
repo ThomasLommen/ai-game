@@ -1608,6 +1608,35 @@ cost key was `funds`. That was the rule this stage exists to remove, so it now
 asserts the units the engine can both take and *say* — a silent price being
 the one thing a choice may never have.
 
+### The tray
+
+Not every card deserves to stop the game. Somebody narrowing it down does —
+you cannot plan around a thing nobody told you. A diary on a machine you hold,
+a van with a spare seat, a shopkeeper with an opinion: those are worth reading
+*when you choose to*.
+
+So a card is either dealt onto the screen or **set down in the tray**,
+unopened, and the rule is the kind it is: **closing in** interrupts, the other
+four wait. A waiting card wears its kind's colour and names where it is
+happening, with a slow pulse; tapping it makes it an ordinary card, map walk
+and all. Every path that deals a card — drawn, forced, planted — now goes
+through one door (`offerCard`).
+
+**A full tray never promotes a quiet card into an interruption.** That would
+be the stage undoing itself the moment it came under pressure. The card goes
+back on the same queue the triggers use and arrives when there is room; the
+timer stops drawing while the tray is full. Nothing is lost and nothing jumps
+the screen.
+
+Measured, 8 games × 60 turns, never once opening the tray:
+
+| | |
+| --- | --- |
+| times the game was interrupted | 39 in 480 turns — **4.9 per 60** |
+| what interrupted | **closing in, 39 of 39** — nothing else, ever |
+| minor cards set down instead | 16, still waiting at the end |
+| tray high-water mark | **2** |
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
