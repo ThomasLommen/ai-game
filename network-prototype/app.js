@@ -2228,6 +2228,7 @@
 
   function isFrontier(h) {
     if (!h.discovered || h.owned) return false;
+    if (burnedAt(h.buildingId)) return false;      // a shell answers nothing
     if (rivalBlocks(h)) return false;              // somebody else got there first
     const held = heldBuildingIds();
     return buildingNeighbours(h.buildingId).some(id => held[id]);
@@ -2705,6 +2706,34 @@
     S.bands.forEach(([at]) => { if (v >= at) n++; });
     return n;
   }
+  // The bait in a district, if any: the first building wearing the mark and
+  // still standing. One bait draws per district, however many marks history
+  // has left lying around.
+  function baitIn(district) {
+    return (state.buildings || []).find(b => {
+      const m = (state.marks || {})[b.id] || {};
+      return b.district === district && m.bait && !m.burned;
+    }) || null;
+  }
+  function burnedAt(bid) { return !!(((state.marks || {})[bid] || {}).burned); }
+  // Suspicion as one particular door experiences it. The district's counter
+  // never moves for a bait — what moves is where the warmth is *felt*: a
+  // third of it gathers at the bait building (the street is looking where
+  // you told it to look), and every other door in the district runs that
+  // much cooler. A fraction rather than a flat amount, so the relief scales
+  // with the problem and can never zero it — a third off 30 leaves 20 still
+  // doing its work. This is the everyday valve, and it lowers nothing.
+  function feltSuspicion(district, bid) {
+    const v = suspicionOf(district);
+    const S = window.SUSPICION || {};
+    if (!v || !S.baitDraw) return v;
+    const bait = baitIn(district);
+    if (!bait) return v;
+    const drawn = Math.round(v * S.baitDraw * 10) / 10;
+    return bait.id === bid
+      ? Math.round(Math.min(S.max || 40, v + drawn) * 10) / 10
+      : Math.round((v - drawn) * 10) / 10;
+  }
   // The district a prop stands in: the nearest building's. Props were
   // scattered per block but never told which district the block was in.
   // Memoised per city — a prop does not move, so the ~100 rect distances per
@@ -2723,14 +2752,22 @@
     return best;
   }
 
-  function suspicionLine(district) {
+  // The words are the district's; the number is this door's. With a bait in
+  // the district those differ, and the covenant wants the number the race
+  // will actually run — feltSuspicion — with a clause saying why.
+  function suspicionLine(district, bid) {
     const S = window.SUSPICION;
-    const v = suspicionOf(district);
-    if (!S || !S.bands.length || v < S.bands[0][0]) return '';
+    const raw = suspicionOf(district);
+    if (!S || !S.bands.length || raw < S.bands[0][0]) return '';
     let phrase = '';
-    S.bands.forEach(([at, words]) => { if (v >= at) phrase = words; });
+    S.bands.forEach(([at, words]) => { if (raw >= at) phrase = words; });
+    const v = bid === undefined ? raw : feltSuspicion(district, bid);
     const pct = Math.round(v * S.slope * 100);
-    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.</p>`;
+    const bait = bid === undefined ? null : baitIn(district);
+    const note = bait && v !== raw
+      ? (bait.id === bid ? ' The bait gathers the street’s eyes here.' : ' The bait is drawing eyes away from here.')
+      : '';
+    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.${note}</p>`;
   }
   // A mark, said out loud. Everything a card did to a building is permanent
   // and mechanical, so the building has to be able to state it — the covenant
@@ -2738,9 +2775,12 @@
   function markLine(bid) {
     const m = markOf(bid);
     if (!m) return '';
+    if (m.burned) {
+      return '<p class="sel-desc mark-line">Burned out — nothing here answers, and nothing here counts.</p>';
+    }
     const bits = [];
     if (m.opened) bits.push('a way in that is not on any plan');
-    if (m.bait) bits.push('left open on purpose — getting caught here counts double');
+    if (m.bait) bits.push('left open on purpose — a third of the street’s eyes gather here, and getting caught here counts double');
     if (m.harden > 0) bits.push(`shored up: this door defends ${m.harden} harder`);
     if (m.harden < 0) bits.push(`weakened: this door defends ${-m.harden} easier`);
     if (m.watch) bits.push('somewhere they would rather look — the response comes here first');
@@ -2967,6 +3007,65 @@
     render();
     return true;
   }
+  // --- the two relief valves that are not cards ----------------------------
+  // Leaving a door open on purpose: the everyday tool. It never lowers the
+  // district's counter — it aims it (see feltSuspicion). Only on a door you
+  // do not hold: a bait on your own building would be a magnet with no bite,
+  // since you never run races against your own doors, and a valve with no
+  // price is the stall loop wearing a costume.
+  function canBait(bid) {
+    const b = buildingById(bid);
+    const S = window.SUSPICION || {};
+    if (!b || !b.discovered || !S.baitDraw) return false;
+    if (burnedAt(bid) || huntHolds(bid) || buildingHeld(b)) return false;
+    if (baitIn(b.district)) return false;             // one bait per district
+    return suspicionOf(b.district) > 0;               // nothing to aim, no offer
+  }
+  function actBait(bid) {
+    const S = window.SUSPICION || {};
+    if (!canBait(bid)) return false;
+    if (!canAfford('bait') || state.res.funds < (S.baitFunds || 0)) return false;
+    const b = buildingById(bid);
+    spendAP('bait');
+    state.res.funds -= (S.baitFunds || 0);
+    setMark(bid, 'bait', true);
+    revealBuilding(b);
+    // rigging a door is activity — the street notices a little, stated on
+    // the button. warmDistrict, not noteDistrictAct: setting a trap here
+    // must not cool everywhere else, or the trap itself becomes the coolant.
+    warmDistrict(b.district, S.perScan || 0);
+    pushLog(`A door at the ${window.BUILDING_KINDS[b.kind].label} is open on purpose now. The street will look there first.`);
+    persistNow();
+    render();
+    return true;
+  }
+  // Burning it down: the panic lever. The one act that lowers the counter,
+  // and its price is a whole building — the machines, the income, the place
+  // itself, out of the game for good. Previewed exactly on the button.
+  function actBurn(bid) {
+    const b = buildingById(bid);
+    if (!b || burnedAt(bid)) return false;
+    const own = hostsIn(b).filter(h => h.owned);
+    if (!own.length || !canAfford('burn')) return false;
+    spendAP('burn');
+    own.forEach(h => { h.owned = false; });
+    // any race running against a door in this building dies with it
+    state.hacks = hacks().filter(k => (hostById(k.hostId) || {}).buildingId !== bid);
+    if (isHidden(bid)) state.hidden = hidden().filter(x => x !== bid);
+    setMark(bid, 'burned', true);
+    const S = window.SUSPICION || {};
+    const d = b.district;
+    const before = suspicionOf(d);
+    const after = Math.max(0, Math.round((before - (S.burnCool || 0)) * 10) / 10);
+    state.suspicion = state.suspicion || {};
+    if (after) state.suspicion[d] = after; else delete state.suspicion[d];
+    pushLog(`The ${window.BUILDING_KINDS[b.kind].label} burns. The street has a new story to tell, and it is not you.`);
+    showBanner([{ kind: 'faction', verb: 'burned', label: window.BUILDING_KINDS[b.kind].label }]);
+    persistNow();
+    render();
+    return true;
+  }
+
   // What you can no longer pay for stops being hidden — newest first, because
   // the last one you put up is the one you were stretching for. This runs every
   // turn: losing a stealth holding, or the ladder reaching Public, brings the
@@ -3656,7 +3755,15 @@
       // those choices — the one you would be turning down
       .replace(/\{A\}/g, named(pair[0]) || 'one of them')
       .replace(/\{B\}/g, named(pair[1]) || 'the other')
-      .replace(/\{OTHER\}/g, named(subject && subject.otherId) || 'the other');
+      .replace(/\{OTHER\}/g, named(subject && subject.otherId) || 'the other')
+      // the district's suspicion as it stands when the card is read — a card
+      // offering to cool a street has to say what the street is at, or "cools
+      // by 4" is a number with nothing to lean on (the playtest could not
+      // tell a little from a lot)
+      .replace(/\{SUSP\}/g, () => {
+        const dk = subjectDistrict(subject);
+        return String(dk ? suspicionOf(dk) : 0);
+      });
   }
   // A card that asks about the map carries one choice, written once, and the
   // engine deals it one per place. The choices ARE the buildings — which is
@@ -4661,7 +4768,9 @@ scratch.later = null;
     // the district is talking: a straight line from the first point of
     // suspicion, which means the forecast, the race bar and the panel all
     // show the true number without any of them being told
-    const talked = 1 + suspicionOf(h.district) * ((window.SUSPICION || {}).slope || 0);
+    // ...and a bait shifts where that line is felt, never what the counter
+    // says: cooler at every other door in the district, hotter at its own.
+    const talked = 1 + feltSuspicion(h.district, h.buildingId) * ((window.SUSPICION || {}).slope || 0);
     return Math.round(raw * shield * here * loud * talked * 100) / 100;
   }
   // The whole race, before it is run: what it will cost, how long, how much the
@@ -8248,7 +8357,8 @@ scratch.later = null;
     // What a card did here, still on the map twenty turns later. A mark that
     // could not be seen would be a number pretending to be a place.
     const mk = markOf(b.id);
-    if (mk && mk.bait) cls.push('baited');
+    if (mk && mk.burned) cls.push('burnt');
+    if (mk && mk.bait && !mk.burned) cls.push('baited');
     if (mk && mk.watch) cls.push('watched');
     if (mk && mk.harden) cls.push(mk.harden > 0 ? 'hardened' : 'softened');
 
@@ -8272,7 +8382,7 @@ scratch.later = null;
     }
     // the marks a card left here, drawn small and permanently
     if (!drawingInset && mk) {
-      if (mk.bait) {
+      if (mk.bait && !mk.burned) {
         out += `<rect class="mark-bait" x="${(b.x - 3).toFixed(1)}" y="${(b.y - 3).toFixed(1)}"`
           + ` width="${(b.w + 6).toFixed(1)}" height="${(b.h + 6).toFixed(1)}" rx="4"/>`;
       }
@@ -8321,7 +8431,10 @@ scratch.later = null;
     // Sodium, never your compute blue. Stable per building, so the city does
     // not flicker between repaints.
     const wake = {};
-    if (!drawingInset && !mine) {
+    // a burned building has nobody home to lie awake, and nothing of yours
+    // to light — the stylesheet darkens the shell, this darkens the glass
+    const scorched = mk && mk.burned;
+    if (!drawingInset && !mine && !scorched) {
       const share = [0, 0.2, 0.4, 0.62][suspBand(b.district)] || 0;
       if (share > 0) {
         const nWake = Math.max(1, Math.round(canLight.length * share));
@@ -10180,8 +10293,43 @@ scratch.later = null;
   // neighbours — seeing a place is what makes it a vantage, owning it is
   // not required. The stated price is the street noticing; the heat line
   // stays under the hood for the (dormant) country game.
+  // The everyday valve, offered on any warm street's unheld door. The chips
+  // state all three sides of the deal: the props, the draw, the double.
+  function baitBtn(b) {
+    if (!b || !canBait(b.id)) return '';
+    const S = window.SUSPICION || {};
+    const funds = S.baitFunds || 0;
+    const short = apShort('bait');
+    const broke = state.res.funds < funds;
+    return `
+      <button class="act-btn${short || broke ? ' no-ap' : ''}" data-act="bait" data-ap="bait" data-bid="${b.id}" data-info="bait">
+        <span class="ab-name">leave it open on purpose</span>
+        <span class="ab-sub">${short ? 'no actions left' : broke ? `needs ${funds} funds`
+          : `${chip('cost funds', '&minus;' + funds + ' funds')}${chip('cover', Math.round(S.baitDraw * 100) + '% of the street’s eyes gather here')}${chip('cost heat', 'caught here counts double')}`}</span>
+      </button>`;
+  }
+  // The panic lever, on anything you hold in a warm district. The price and
+  // the relief are both exact, because this button is the covenant's edge
+  // case: a permanent loss you are choosing on purpose.
+  function burnBtn(b) {
+    if (!b || burnedAt(b.id)) return '';
+    const own = hostsIn(b).filter(h => h.owned);
+    if (!own.length) return '';
+    const S = window.SUSPICION || {};
+    const before = suspicionOf(b.district);
+    if (!before || !S.burnCool) return '';
+    const after = Math.max(0, Math.round((before - S.burnCool) * 10) / 10);
+    const short = apShort('burn');
+    const dLabel = (window.DISTRICTS[b.district] || {}).label || 'the district';
+    return `
+      <button class="act-btn broken${short ? ' no-ap' : ''}" data-act="burn" data-ap="burn" data-bid="${b.id}" data-info="burn">
+        <span class="ab-name">burn it down</span>
+        <span class="ab-sub">${short ? 'no actions left'
+          : `${chip('cost heat', 'this building and its ' + own.length + ' machine' + (own.length === 1 ? '' : 's') + ', for good')}${chip('cover', dLabel + ' cools ' + before + ' &rarr; ' + after)}`}</span>
+      </button>`;
+  }
   function scanFromBtn(b) {
-    if (!b || !b.discovered) return '';
+    if (!b || !b.discovered || burnedAt(b.id)) return '';
     const n = sweepTargetsFrom(b.id).length;
     if (!n) return '';
     const short = apShort('sweep');
@@ -10295,7 +10443,7 @@ scratch.later = null;
     const carryContract = carryLine(h);
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${suspicionLine(h.district)}
+      ${suspicionLine(h.district, h.buildingId)}
       ${markLine(h.buildingId)}
       ${carryContract}
       ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
@@ -10412,7 +10560,14 @@ scratch.later = null;
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = yieldChips(h);
       const where = b ? window.DISTRICTS[b.district].label : '';
-      if (h.owned) {
+      if (b && burnedAt(b.id)) {
+        // a shell is a dead end, not an invitation — the mark line is the
+        // whole story, and offering "take something" here would be a lie
+        sel = `<div class="sel">
+          <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill bad">burned</span></div>
+          ${markLine(b.id)}
+        </div>`;
+      } else if (h.owned) {
         const cutOffHere = strandedHosts().includes(h);
         sel = `
           <div class="sel">
@@ -10422,6 +10577,7 @@ scratch.later = null;
             ${markLine(h.buildingId)}
             ${scanFromBtn(b)}
             ${hidePanel(b)}
+            ${burnBtn(b)}
           </div>`;
       } else if (huntBlocks(h)) {
         // Theirs. There is no street to take away any more — they do not walk
@@ -10443,6 +10599,7 @@ scratch.later = null;
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
             ${scanFromBtn(b)}
+            ${baitBtn(b)}
           </div>`;
       } else if (hackOn(h.id)) {
         sel = `
@@ -10451,7 +10608,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}${markLine(h.buildingId)}${scanFromBtn(b)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${baitBtn(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -10496,6 +10653,8 @@ scratch.later = null;
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
         else if (a === 'hide') actHide(b.getAttribute('data-bid'));
         else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
+        else if (a === 'bait') actBait(b.getAttribute('data-bid'));
+        else if (a === 'burn') actBurn(b.getAttribute('data-bid'));
       });
     });
   }
@@ -11110,6 +11269,7 @@ scratch.later = null;
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
+    baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn,
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,

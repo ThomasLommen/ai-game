@@ -132,11 +132,17 @@ exact degenerate loop the heat system died of — the suite still carries the
 test *"acting warms here and cools there — waiting cools nothing"*, and a
 lie-low button would repeal it. Relief stays things you **do**:
 
-1. *(now, free)* the rotation rule gets said out loud — the panel states
+1. *(shipped)* **the bait aims it**: the bait mark is player-placeable, and a
+   third of a baited district's suspicion is felt at the bait instead of
+   everywhere else — moved, never lowered, reachable from district one;
+2. *(shipped)* **the burn pays for it**: torch a building you hold for one
+   band of cooling — the number drops, and the price is territory;
+3. *(stays as-is)* cards remain the priced, occasional faucet — now anchored
+   ("cools by 4, from 14") so the player can tell a little from a lot;
+4. *(now, free)* the rotation rule gets said out loud — the panel states
    "working elsewhere cools this street", because a rule the player cannot
    see is a rule they will not use;
-2. *(stays as-is)* cards remain the priced, occasional faucet;
-3. *(Act 2)* the front: cooling as infrastructure — bought, running, exposed.
+5. *(Act 2)* the front: cooling as infrastructure — bought, running, exposed.
 
 **Check:** a front cools measurably and costs measurably; shutting it stops
 both; the census shows suspicion pressure survives (no strategy holds every

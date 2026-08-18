@@ -935,8 +935,9 @@ footer .build { opacity: .55; font-size: 10px; }
 
 /* ---- what a card left behind ----------------------------------------
    Marks are permanent and mechanical, so they are drawn permanently: small,
-   quiet, and still there twenty turns later. Nothing else in the game can
-   put any of these on the map. */
+   quiet, and still there twenty turns later. Cards put these on the map —
+   and the player's own hands, twice: a bait can be laid on purpose, and a
+   burn is a mark you chose to wear. */
 .mark-bait {
   fill: none;
   stroke: var(--funds);
@@ -947,6 +948,11 @@ footer .build { opacity: .55; font-size: 10px; }
 .mark-watch { fill: var(--heat); opacity: .85; }
 .mark-hard { fill: var(--cover); opacity: .9; }
 .mark-soft { fill: var(--item); opacity: .9; }
+/* burned out: the shell stays on the map — scar tissue, like every mark —
+   but nothing in it answers and no glass ever lights again */
+.bldg.burnt .body, .bldg.burnt .roof { fill: #17150f; }
+.bldg.burnt .win { fill: #0c0b08; opacity: .5; }
+.bldg.burnt { filter: saturate(.3); }
 /* a street that was not there before, and one that is gone for good */
 .wire.opened { stroke-dasharray: none; }
 .sel-desc.mark-line { color: var(--item); }

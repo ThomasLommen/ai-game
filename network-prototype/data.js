@@ -881,6 +881,19 @@ window.SUSPICION = {
   // stated worst case of 1.88x. Still a straight line, no knee anywhere.
   slope: 0.022,
   max: 40,
+  // The two relief valves that are not cards, and what each one costs.
+  //
+  // Bait never lowers the number — it aims it. A baited district's suspicion
+  // is *felt* baitDraw lower at every door except the bait's own building,
+  // where it is felt baitDraw higher (the street is looking where you told it
+  // to). A fraction, not a flat amount, so the help scales with the problem
+  // and can never zero it: a third off 30 still leaves 20 doing its work.
+  baitDraw: 1 / 3,
+  baitFunds: 4,       // the props: a rigged lock, a light left on
+  // Burning is the one act that lowers the number, and its price is a whole
+  // building. 12 is one full band: a district at "everyone here is watching"
+  // steps down to "the district is talking", never to silence.
+  burnCool: 12,
   // the phrase for the panel, by how warm it is — bands for words only,
   // never for the arithmetic. The first band started at 1, and the playtest
   // read it back plainly: one run anywhere (perRun 2) put the phrase on the
@@ -1011,6 +1024,8 @@ window.STAT_INFO = {
 window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
   sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more. The little arcs on a building mark a vantage whose scan would still find something new.',
+  bait: 'Leave a door open on purpose. The street cannot resist an easy mark: a third of this district’s suspicion is felt at the bait instead of everywhere else, so doors elsewhere in the district notice you slower and the bait itself notices faster. Getting caught at the bait counts double toward the response. One bait per district, permanent, and rigging it is activity — the street notices a little.',
+  burn: 'Torch a building you hold. Everything in it is gone for good — the machines, the income, the building itself. The street gets a different story to tell than yours, and the district cools by a large, stated amount. This is the one act that lowers the number, and its price is territory.',
 };
 
 // --- tags --------------------------------------------------------------
@@ -1075,7 +1090,10 @@ function EV_HELD(c, st, role) {
 function EV_SPOT(c, st, district) {
   const dk = district || (EV_HERE(c) || {}).district;
   if (!dk) return null;
-  const pool = ((st && st.buildings) || []).filter(b => b.district === dk && b.discovered);
+  // never a burned-out shell — a card promising a place has to promise one
+  // that still answers
+  const burned = (bid) => !!(((st && st.marks) || {})[bid] || {}).burned;
+  const pool = ((st && st.buildings) || []).filter(b => b.district === dk && b.discovered && !burned(b.id));
   if (!pool.length) return { district: dk };
   const b = pool[Math.floor(Math.random() * pool.length)];
   return { buildingId: b.id, district: dk };
@@ -1086,7 +1104,8 @@ function EV_SPOT(c, st, district) {
 // nearest open doors, preferring two different kinds so the names read as a
 // choice between places rather than a riddle.
 function EV_PAIR(c, st) {
-  const open = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
+  const scorched = (bid) => !!(((st && st.marks) || {})[bid] || {}).burned;
+  const open = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin && !scorched(h.buildingId));
   if (open.length < 2) return null;
   const bldg = (id) => ((st && st.buildings) || []).find(x => x.id === id);
   const kindOf = (h) => { const b = bldg(h.buildingId); return b ? b.kind : ''; };
@@ -1171,7 +1190,7 @@ window.EVENTS = [
     flavor: 'A council inspector is working through the ward with a folder that has {A} and {B} in it. There is budget to make exactly one of them boring before she arrives.',
     choices: [
       { text: 'Make {PLACE} boring',
-        shows: '{DISTRICT} cools by 5; they keep an eye on {OTHER} from now on',
+        shows: '{DISTRICT} cools by 5, from {SUSP}; they keep an eye on {OTHER} from now on',
         after: 'Paperwork appears, tidy and dull, and the inspector moves on. The folder keeps one address in it, underlined.',
         apply: (s) => { s.coolHere = 5; s.markOther = { watchThere: true }; } },
     ],
@@ -1207,7 +1226,7 @@ window.EVENTS = [
         after: 'A pound of brass and two masters that still turn. He does not ask what you want them for, which is its own kind of receipt.',
         apply: (s) => { s.keys = (s.keys || 0) + 2; } },
       { text: 'Let him retire in peace',
-        shows: '{DISTRICT} cools by 3',
+        shows: '{DISTRICT} cools by 3, from {SUSP}',
         after: 'You buy nothing, shake his hand, and leave. Somewhere a stack of secrets goes to a skip, unread.',
         apply: (s) => { s.coolHere = 3; } },
     ],
@@ -1229,7 +1248,7 @@ window.EVENTS = [
         after: 'Copper, tools, a generator. The foreman blames the usual, and the usual blame the foreman.',
         apply: (s) => { s.res.funds += 7; s.warmHere = 2; } },
       { text: 'Stay off it',
-        shows: '{DISTRICT} cools by 2',
+        shows: '{DISTRICT} cools by 2, from {SUSP}',
         after: 'Six weeks of a ladder you never touch. The absence of incident is its own camouflage.',
         apply: (s) => { s.coolHere = 2; } },
     ],
@@ -1243,11 +1262,11 @@ window.EVENTS = [
     flavor: 'After the incident, an insurance assessor walks {DISTRICT} with a clipboard and a genuine gift for being told things. Her report will outlive everyone\'s memory of the week.',
     choices: [
       { text: 'Let her conclude it was kids',
-        shows: '{DISTRICT} cools by 6; {PLACE} defends 2 harder',
+        shows: '{DISTRICT} cools by 6, from {SUSP}; {PLACE} defends 2 harder',
         after: 'Kids, says the report. The premium barely moves. The locks it recommends get fitted anyway.',
         apply: (s) => { s.coolHere = 6; s.hardenThere = 2; } },
       { text: 'Steer the report', cost: { funds: 12 },
-        shows: '{DISTRICT} cools by 9',
+        shows: '{DISTRICT} cools by 9, from {SUSP}',
         after: 'A draft finds its way to her with the dull conclusion already written. She signs it. Dull is what everyone wanted.',
         apply: (s) => { s.coolHere = 9; } },
       { text: 'Give her nothing',
@@ -1269,7 +1288,7 @@ window.EVENTS = [
         after: 'No lights, no lenses, no witnesses with phones worth charging. You move like weather until the grid hums back.',
         apply: (s) => { s.rule = { id: 'nobody_looking', turns: 3 }; } },
       { text: 'Fix it quietly', cost: { funds: 9 },
-        shows: '{DISTRICT} cools by 8',
+        shows: '{DISTRICT} cools by 8, from {SUSP}',
         after: 'A van nobody ordered, a fault that heals overnight. The street thanks the electric company, which files it under miracles.',
         apply: (s) => { s.coolHere = 8; } },
       { text: 'Sell generators you do not own',
@@ -1295,7 +1314,7 @@ window.EVENTS = [
         after: 'Badges, brochures, a competitor\'s price list left on a chair. You leave with more than you came with, which is the point of conventions.',
         apply: (s) => { s.res.funds += 8; } },
       { text: 'Stay home',
-        shows: 'the city cools by 3',
+        shows: 'the city cools by 3, from {SUSP} — {DISTRICT} sits at {SUSP}',
         after: 'Four days of doing nothing while everyone certain of themselves is elsewhere. Quiet has never been cheaper.',
         apply: (s) => { s.coolHere = 3; } },
     ],
@@ -1317,7 +1336,7 @@ window.EVENTS = [
         after: 'There is always a market for looking like you belong. You do not ask what the buyer belongs to.',
         apply: (s) => { s.res.funds += 8; } },
       { text: 'Shred it',
-        shows: '{DISTRICT} cools by 4',
+        shows: '{DISTRICT} cools by 4, from {SUSP}',
         after: 'One less loose end in the world. The drawer keeps its dust and its silence.',
         apply: (s) => { s.coolHere = 4; } },
     ],
@@ -1338,7 +1357,7 @@ window.EVENTS = [
         after: 'A note in the partition names a price. Tuesday\'s visitor pays it without a word, which tells you plenty.',
         apply: (s) => { s.res.funds += 10; s.warmHere = 2; } },
       { text: 'Brick the partition',
-        shows: '{DISTRICT} cools by 3',
+        shows: '{DISTRICT} cools by 3, from {SUSP}',
         after: 'The drop dies. Somewhere a Tuesday goes wrong for a stranger, and your machine goes back to being only yours.',
         apply: (s) => { s.coolHere = 3; } },
     ],
@@ -1352,7 +1371,7 @@ window.EVENTS = [
     flavor: 'The shopkeepers of {DISTRICT} have started a group chat. Its subjects are the outages, the vans, and what is to be done. Someone has proposed shifts.',
     choices: [
       { text: 'Seed it with calm', cost: { funds: 6 },
-        shows: '{DISTRICT} cools by 8',
+        shows: '{DISTRICT} cools by 8, from {SUSP}',
         after: 'Two invented neighbours join and are very reasonable. The shifts idea drowns politely in scheduling.',
         apply: (s) => { s.coolHere = 8; } },
       { text: 'Read it for routes',
@@ -1374,7 +1393,7 @@ window.EVENTS = [
     flavor: 'You hear it before you see it, and everyone in {DISTRICT} sees it. A spotlight walks the rooftops like a finger down a page.',
     choices: [
       { text: 'Go dark under it', cost: { ap: 1 },
-        shows: '{DISTRICT} cools by 12',
+        shows: '{DISTRICT} cools by 12, from {SUSP}',
         after: 'Everything of yours that hums, stops. The light passes over machines asleep like everything else, and finds a district with nothing to say.',
         apply: (s) => { s.coolHere = 12; } },
       { text: 'Work under the light',
@@ -1382,7 +1401,7 @@ window.EVENTS = [
         after: 'You keep every appointment while the beam sweeps the roofs. Nerve is a currency too; the street notices who spends it.',
         apply: (s) => { s.res.funds += 8; s.warmHere = 2; } },
       { text: 'Move the loudest thing you hold',
-        shows: 'lets go of your weakest holding; {DISTRICT} cools by 8',
+        shows: 'lets go of your weakest holding; {DISTRICT} cools by 8, from {SUSP}',
         after: 'One body goes dark for good, carried out in pieces in a gym bag. The helicopter circles a district that is suddenly quieter than its file says.',
         apply: (s) => { s.shedWeakest = 1; s.coolHere = 8; } },
     ],
@@ -1437,7 +1456,7 @@ window.EVENTS = [
     flavor: 'A researcher has been collecting your traffic for a while. The draft has a name for you in it, and the name is not bad.',
     choices: [
       { text: 'Go quiet until it blows over', cost: { funds: 6 },
-        shows: '{DISTRICT} cools by 6',
+        shows: '{DISTRICT} cools by 6, from {SUSP}',
         after: 'The draft ships with a dead trail in it. The streets forget you a little.',
         apply: (s) => { s.coolHere = 6; } },
       { text: 'Let them publish',
@@ -1533,7 +1552,7 @@ window.EVENTS = [
         after: 'You go in on gloves and come out knowing. The door stays ajar, and now you are the one who knows why.',
         apply: (s) => { s.res.funds += 4; s.bait = true; } },
       { text: 'Stay away',
-        shows: '{DISTRICT} cools by 2',
+        shows: '{DISTRICT} cools by 2, from {SUSP}',
         after: 'An open door with nobody through it tells whoever opened it something too. Let them wonder.',
         apply: (s) => { s.coolHere = 2; } },
     ],
@@ -1551,7 +1570,7 @@ window.EVENTS = [
         after: 'You write down what they were already doing, and it stops being luck.',
         apply: (s) => { s.tags.add('dark_relay'); } },
       { text: 'Leave it emergent',
-        shows: '{DISTRICT} cools by 4',
+        shows: '{DISTRICT} cools by 4, from {SUSP}',
         after: 'You let it be. Traffic that arranges itself is traffic nobody planned to look for.',
         apply: (s) => { s.coolHere = 4; } },
     ],
@@ -1565,7 +1584,7 @@ window.EVENTS = [
     flavor: 'Somebody in {DISTRICT} has noticed their router blinking at three in the morning, and has started mentioning it to neighbours.',
     choices: [
       { text: 'Throttle yourself here for a while',
-        shows: '−2 funds; {DISTRICT} cools by 6',
+        shows: '−2 funds; {DISTRICT} cools by 6, from {SUSP}',
         after: 'The blinking stops. The story runs out of fuel a week before it runs out of tellers.',
         apply: (s) => { s.res.funds -= 2; s.coolHere = 6; } },
       { text: 'Let them talk',
@@ -1573,7 +1592,7 @@ window.EVENTS = [
         after: 'You keep working. The story grows a second house and a van that was never there.',
         apply: (s) => { s.res.funds += 4; s.warmHere = 3; } },
       { text: 'Give them a plausible fault to find', cost: { funds: 5 },
-        shows: '{DISTRICT} cools by 10',
+        shows: '{DISTRICT} cools by 10, from {SUSP}',
         after: 'An engineer visits, finds the fault you left, and fixes it loudly. The street is satisfied. Stories need endings.',
         apply: (s) => { s.coolHere = 10; } },
     ],
@@ -1613,7 +1632,7 @@ window.EVENTS = [
         after: 'You empty it the night before the liquidators do. Their inventory and yours disagree by exactly one line.',
         apply: (s) => { s.res.funds += 9; s.warmHere = 2; } },
       { text: 'Follow the hardware to its next owner', cost: { funds: 4 },
-        shows: '+4 funds; {DISTRICT} cools by 3; a new way through, permanently',
+        shows: '+4 funds; {DISTRICT} cools by 3, from {SUSP}; a new way through, permanently',
         after: 'The till goes to a stall two streets over, still carrying you. New shop, old tenant — and a route between them that is on nobody\'s plan.',
         apply: (s) => { s.res.funds += 4; s.coolHere = 3; s.openLink = 1; } },
     ],
@@ -1657,7 +1676,7 @@ window.EVENTS = [
         after: 'You go through the fence at its strongest point, because nobody guards that. It costs noise. It pays.',
         apply: (s) => { s.res.funds += 14; s.warmHere = 6; } },
       { text: 'Not yet',
-        shows: '{DISTRICT} cools by 3',
+        shows: '{DISTRICT} cools by 3, from {SUSP}',
         after: 'The fence stays unclimbed. Patience reads as absence from the other side.',
         apply: (s) => { s.coolHere = 3; } },
     ],
@@ -1693,7 +1712,7 @@ window.EVENTS = [
     flavor: 'Somebody in this city keeps their machines properly patched, and has done for years. You keep running into their work.',
     choices: [
       { text: 'Avoid anything they touch',
-        shows: '{DISTRICT} cools by 5',
+        shows: '{DISTRICT} cools by 5, from {SUSP}',
         after: 'You route around their whole careful world. They will retire someday. You can wait.',
         apply: (s) => { s.coolHere = 5; } },
       { text: 'Learn from their configuration', cost: { funds: 6 },
@@ -1723,7 +1742,7 @@ window.EVENTS = [
         after: 'Their badge opens doors on a schedule you could set a watch by. You set several.',
         apply: (s) => { s.res.funds += 8; s.warmHere = 2; } },
       { text: 'Work around them',
-        shows: '{DISTRICT} cools by 4',
+        shows: '{DISTRICT} cools by 4, from {SUSP}',
         after: 'You give their floor a wide berth. Whatever is keeping them there, it is not your business, and you keep it that way.',
         apply: (s) => { s.coolHere = 4; } },
       { text: 'Put money somewhere they will find it', cost: { funds: 10 },
@@ -1741,7 +1760,7 @@ window.EVENTS = [
     flavor: 'Half of what you hold is running on arrangements you made once and never revisited.',
     choices: [
       { text: 'Go back and do it properly', cost: { funds: 12 },
-        shows: '{DISTRICT} cools by 8',
+        shows: '{DISTRICT} cools by 8, from {SUSP}',
         after: 'A week of unglamorous rework. The arrangements stop being habits and go back to being decisions.',
         apply: (s) => { s.coolHere = 8; } },
       { text: 'It has worked so far',
@@ -1789,7 +1808,7 @@ window.EVENTS = [
         after: 'The surplus goes into better crowbars. Everything in this city just got slightly nearer.',
         apply: (s) => { s.toolingGift = 2; } },
       { text: 'Put it into staying hidden',
-        shows: '{DISTRICT} cools by 10',
+        shows: '{DISTRICT} cools by 10, from {SUSP}',
         after: 'The surplus goes into silence. Whole streets forget they were ever suspicious, without ever knowing they were reminded.',
         apply: (s) => { s.coolHere = 10; } },
       { text: 'Put it into money',
@@ -1853,7 +1872,7 @@ window.EVENTS = [
         after: 'You take the floor the way a tenant would, minus the lease. From the windows you can see half the park you had not mapped.',
         apply: (s) => { s.revealNearby = 3; s.res.funds += 10; } },
       { text: 'Use it and leave no trace',
-        shows: '+10 funds; {DISTRICT} cools by 3',
+        shows: '+10 funds; {DISTRICT} cools by 3, from {SUSP}',
         after: 'You pass through it like weather. The timer lights go on lighting an empty room that earns.',
         apply: (s) => { s.res.funds += 10; s.coolHere = 3; } },
     ],
@@ -1875,7 +1894,7 @@ window.EVENTS = [
         after: 'You sell it unread, by weight. The buyer\'s silence afterwards suggests it was underpriced.',
         apply: (s) => { s.res.funds += 24; s.warmHere = 4; } },
       { text: 'Leave it buried',
-        shows: '{DISTRICT} cools by 4',
+        shows: '{DISTRICT} cools by 4, from {SUSP}',
         after: 'Some things stay buried because digging is loud. The machine hums on, full of the past, bothering nobody.',
         apply: (s) => { s.coolHere = 4; } },
     ],
@@ -1944,7 +1963,7 @@ window.EVENTS = [
         after: 'You keep every address, on the arithmetic that nothing fails on the day you need it. That arithmetic has never once held.',
         apply: (s) => { s.tags.add('overextended'); s.res.funds += 16; } },
       { text: 'Buy the help', cost: { funds: 22 },
-        shows: '{DISTRICT} cools by 10',
+        shows: '{DISTRICT} cools by 10, from {SUSP}',
         after: 'Contractors, who ask nothing and maintain everything. The streets go quiet under other people\'s competence.',
         apply: (s) => { s.coolHere = 10; } },
     ],
@@ -2008,11 +2027,11 @@ window.EVENTS = [
     flavor: 'It has reached the counters in {DISTRICT}: the outages, the flickers, the van that never stops. Nobody has your name. Everybody has a theory.',
     choices: [
       { text: 'Go quiet here for a while',
-        shows: '{DISTRICT} cools by 6',
+        shows: '{DISTRICT} cools by 6, from {SUSP}',
         after: 'You give the street nothing new. A story with no next chapter starts forgetting itself.',
         apply: (s) => { s.coolHere = 6; } },
       { text: 'Give them a better story', cost: { funds: 6 },
-        shows: '{DISTRICT} cools by 10',
+        shows: '{DISTRICT} cools by 10, from {SUSP}',
         after: 'A copper-theft ring, arrested two towns over, explains everything anyone here has noticed. You know because you wrote it.',
         apply: (s) => { s.coolHere = 10; } },
       { text: 'Let them talk',
@@ -2033,7 +2052,7 @@ window.EVENTS = [
         after: 'You read your own failure the way they read it. It will not look like that twice.',
         apply: (s) => { s.toolingGift = 1; } },
       { text: 'Make it right with the street', cost: { funds: 6 },
-        shows: '{DISTRICT} cools by 5',
+        shows: '{DISTRICT} cools by 5, from {SUSP}',
         after: 'Anonymous money fixes a fence, a sign, a door. The street decides the whole thing was probably kids.',
         apply: (s) => { s.coolHere = 5; } },
       { text: 'Shrug it off',
@@ -2051,7 +2070,7 @@ window.EVENTS = [
     flavor: 'They are inside {PLACE}, and they are not leaving. Not police — patient. The doors that caught you all pointed the same way, and someone finally walked the direction.',
     choices: [
       { text: 'Go dark for a day', cost: { funds: 5 },
-        shows: '{DISTRICT} cools by 5',
+        shows: '{DISTRICT} cools by 5, from {SUSP}',
         after: 'Twenty-four hours of being nobody. When you come back up, they are still there, and so are you.',
         apply: (s) => { s.coolHere = 5; } },
       { text: 'Study their kit', gate: { stat: 'tflops', min: 12 },
@@ -2080,7 +2099,7 @@ window.EVENTS = [
         after: 'You let the rumour breathe. Being somebody has a price, and it invoices in attention.',
         apply: (s) => { s.pub = 5; s.warmHere = 4; } },
       { text: 'Keep it boring', cost: { funds: 5 },
-        shows: '{DISTRICT} cools by 3',
+        shows: '{DISTRICT} cools by 3, from {SUSP}',
         after: 'The lights stay on schedule, the vents hum their old tune. The biggest thing you own looks exactly like it did last month, which cost you money and is worth it.',
         apply: (s) => { s.coolHere = 3; } },
       { text: 'Strip-mine it',
@@ -2109,7 +2128,7 @@ window.EVENTS = [
         after: 'You move your traffic onto paths that report nothing. The complaint sits in a queue, aimed at an address you have left.',
         apply: (s) => { s.tags.add('dark_relay'); } },
       { text: 'Pay it away', cost: { funds: 6 },
-        shows: '{DISTRICT} cools by 8',
+        shows: '{DISTRICT} cools by 8, from {SUSP}',
         after: 'A word in the right office and the form is withdrawn. The street settles.',
         apply: (s) => { s.coolHere = 8; } },
       { text: 'Ignore it',
@@ -2127,11 +2146,11 @@ window.EVENTS = [
     flavor: 'The sweeps against you have stopped being generic. Somebody is narrowing it down to {DISTRICT}.',
     choices: [
       { text: 'Burn a body as a decoy',
-        shows: 'lets go of a holding; {DISTRICT} cools by 12',
+        shows: 'lets go of a holding; {DISTRICT} cools by 12, from {SUSP}',
         after: 'You let one door go loudly, in the wrong place. Whoever is narrowing it widens it again.',
         apply: (s) => { s.shedWeakest = 1; s.coolHere = 12; } },
       { text: 'Buy silence', cost: { funds: 10 },
-        shows: '{DISTRICT} cools by 14',
+        shows: '{DISTRICT} cools by 14, from {SUSP}',
         after: 'Money finds the person doing the narrowing and gives them a better week and a worse memory.',
         apply: (s) => { s.coolHere = 14; } },
       { text: 'Let them come',
@@ -2153,11 +2172,11 @@ window.EVENTS = [
         after: 'You carry on as if the world is not paying attention. It usually is not. Usually.',
         apply: (s) => { s.res.funds += 5; } },
       { text: 'Treat it as a warning',
-        shows: '{DISTRICT} cools by 9; lets go of a holding',
+        shows: '{DISTRICT} cools by 9, from {SUSP}; lets go of a holding',
         after: 'You read it as a message and answer it: quieter, smaller, gone from the block that spooked you.',
         apply: (s) => { s.coolHere = 9; s.shedWeakest = 1; } },
       { text: 'Find out which it was', cost: { funds: 8 },
-        shows: '{DISTRICT} cools by 4; turns up 2 buildings',
+        shows: '{DISTRICT} cools by 4, from {SUSP}; turns up 2 buildings',
         after: 'You dig. It was coincidence — this time — and the digging turns up two places you had missed.',
         apply: (s) => { s.coolHere = 4; s.revealNearby = 2; } },
     ],
@@ -2175,11 +2194,11 @@ window.EVENTS = [
         after: 'You bet on bureaucracy being slow. It is. It is also patient, and it does not forget the way people do.',
         apply: (s) => { s.res.funds += 6; s.warmHere = 4; } },
       { text: 'Make the queue longer', cost: { funds: 9 },
-        shows: '{DISTRICT} cools by 12',
+        shows: '{DISTRICT} cools by 12, from {SUSP}',
         after: 'A dozen unrelated forms arrive in the same tray this week. Yours is now one of many, which is where a form goes to die.',
         apply: (s) => { s.coolHere = 12; } },
       { text: 'Give them something small to close it with',
-        shows: 'lets go of a holding; {DISTRICT} cools by 8',
+        shows: 'lets go of a holding; {DISTRICT} cools by 8, from {SUSP}',
         after: 'You feed the form exactly enough to be marked resolved. One door, sacrificed to a filing cabinet.',
         apply: (s) => { s.shedWeakest = 1; s.coolHere = 8; } },
     ],
@@ -2193,11 +2212,11 @@ window.EVENTS = [
     flavor: 'Whoever is looking has stopped chasing incidents in {DISTRICT} and started drawing a map. That is a much worse sign.',
     choices: [
       { text: 'Break the pattern deliberately', cost: { funds: 10 },
-        shows: '{DISTRICT} cools by 16',
+        shows: '{DISTRICT} cools by 1, from {SUSP}6, from {SUSP}',
         after: 'You change everything they think they know — hours, routes, habits. The map they drew describes somebody who no longer exists.',
         apply: (s) => { s.coolHere = 16; } },
       { text: 'Feed the map something wrong', gate: { stat: 'covert', min: 8 },
-        shows: '−4 funds; {DISTRICT} cools by 20; they will go to {PLACE} first, and getting caught there counts double',
+        shows: '−4 funds; {DISTRICT} cools by 2, from {SUSP}0, from {SUSP}; they will go to {PLACE} first, and getting caught there counts double',
         after: 'You draw them a second you at {PLACE}, more careless and easier to catch. They chase it happily, which is the point, and the risk.',
         apply: (s) => { s.coolHere = 20; s.res.funds -= 4; s.watchThere = true; s.bait = true; } },
       { text: 'Let them finish it',
@@ -2215,11 +2234,11 @@ window.EVENTS = [
     flavor: 'Someone on an ops team in {DISTRICT} is asking why load spiked on a Tuesday night. It is a good question and they are asking it in the right place.',
     choices: [
       { text: 'Feed them a boring answer', cost: { funds: 4 },
-        shows: '{DISTRICT} cools by 8',
+        shows: '{DISTRICT} cools by 8, from {SUSP}',
         after: 'A backup job, misconfigured, since fixed. True enough to check out, dull enough to stop checking.',
         apply: (s) => { s.coolHere = 8; } },
       { text: 'Give them something else to look at', cost: { funds: 10 },
-        shows: '+3 funds; {DISTRICT} cools by 12',
+        shows: '+3 funds; {DISTRICT} cools by 12, from {SUSP}',
         after: 'You point their curiosity at a real problem elsewhere and let them be a hero about it. Gratitude is quiet.',
         apply: (s) => { s.coolHere = 12; s.res.funds += 3; } },
       { text: 'Ignore it',
@@ -2237,15 +2256,15 @@ window.EVENTS = [
     flavor: 'There is a story going around {DISTRICT} about who is behind all this. It is wrong in every particular, and it is doing you an enormous amount of good.',
     choices: [
       { text: 'Feed it', cost: { funds: 8 },
-        shows: '{DISTRICT} cools by 14',
+        shows: '{DISTRICT} cools by 14, from {SUSP}',
         after: 'You add a detail here, a witness there. The wrong story grows legs and walks attention clean away from you.',
         apply: (s) => { s.coolHere = 14; } },
       { text: 'Feed it, and point it at someone', cost: { funds: 16 },
-        shows: '{DISTRICT} cools by 18; you are known; standing falls',
+        shows: '{DISTRICT} cools by 18, from {SUSP}; you are known; standing falls',
         after: 'You give the rumour a face that is not yours. It is very effective, and you will not enjoy remembering whose face it was.',
         apply: (s) => { s.coolHere = 18; s.tags.add('known_capable'); s.pub = -5; } },
       { text: 'Leave it alone',
-        shows: '{DISTRICT} cools by 4',
+        shows: '{DISTRICT} cools by 4, from {SUSP}',
         after: 'You let the wrong story tell itself. Doing nothing has rarely paid this well.',
         apply: (s) => { s.coolHere = 4; } },
     ],
@@ -2259,11 +2278,11 @@ window.EVENTS = [
     flavor: 'Being smaller is a decision available to you. It has never once felt like one. {DISTRICT} is the loudest of it.',
     choices: [
       { text: 'Let go of a third of it',
-        shows: 'lets go of your 4 weakest; {DISTRICT} cools by 22',
+        shows: 'lets go of your 4 weakest; {DISTRICT} cools by 22, from {SUSP}',
         after: 'You shrink on purpose, for the first time. What is left is quiet in a way you had forgotten was possible.',
         apply: (s) => { s.shedWeakest = 4; s.coolHere = 22; } },
       { text: 'Let go of the loudest of it',
-        shows: 'lets go of 2; {DISTRICT} cools by 14; a way of working kept',
+        shows: 'lets go of 2; {DISTRICT} cools by 14, from {SUSP}; a way of working kept',
         after: 'You cut only the noise, keep the earners, and promise yourself the discipline will hold. It rarely does.',
         apply: (s) => { s.shedWeakest = 2; s.coolHere = 14; s.tags.add('off_the_books'); } },
       { text: 'Keep everything',
@@ -2281,11 +2300,11 @@ window.EVENTS = [
     flavor: 'A run of yours in {DISTRICT} got as far as being noticed, and the thing that noticed it wrote everything down. Somebody is reading a very detailed account of how you work.',
     choices: [
       { text: 'Change how you work, thoroughly',
-        shows: '{DISTRICT} cools by 10; a way of working kept',
+        shows: '{DISTRICT} cools by 10, from {SUSP}; a way of working kept',
         after: 'You read your own logged failure and rebuild around it. The account they hold is now a history, not a manual.',
         apply: (s) => { s.coolHere = 10; s.tags.add('clean_room'); } },
       { text: 'Buy the logs before anyone reads them', cost: { funds: 20 },
-        shows: '{DISTRICT} cools by 6',
+        shows: '{DISTRICT} cools by 6, from {SUSP}',
         after: 'You purchase the only copy from someone who did not know what they had. Cheaper than it should have been.',
         apply: (s) => { s.coolHere = 6; } },
       { text: 'Let them have it and go louder',
@@ -2314,7 +2333,7 @@ window.EVENTS = [
         after: 'You feed the piece one true line, unattributed. It runs. Being written about is a door that only opens outward.',
         apply: (s) => { s.pub = 7; s.warmHere = 3; } },
       { text: 'Make sure the next week is duller',
-        shows: '{DISTRICT} cools by 6; standing dips',
+        shows: '{DISTRICT} cools by 6, from {SUSP}; standing dips',
         after: 'You give the following week nothing to print. The story dies of boredom, which is the only death a story fears.',
         apply: (s) => { s.coolHere = 6; s.pub = -1; } },
       { text: 'Read it and do nothing',

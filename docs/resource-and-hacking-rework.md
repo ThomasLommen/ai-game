@@ -1790,6 +1790,34 @@ per city instead of paying ~100 rect distances per lamp per frame.
   resolved face, the same motion as the first reveal, instead of the text
   quietly changing under the reader.
 
+### The relief valves: the bait aims it, the burn pays for it
+
+The rotation rule turned out to be a rich player's valve — it needs a second
+district to rotate into, and the stuck player it fails is exactly the player
+who needs one. The grill settled two valves reachable from district one,
+turn one, neither able to zero suspicion:
+
+- **Bait, the everyday tool.** The bait mark is now player-placeable: one
+  action + funds on any warm street's unheld door ("leave it open on
+  purpose"). It never lowers the district's counter — it *aims* it: a third
+  of the suspicion is felt at the bait building instead of everywhere else
+  (`feltSuspicion`), so races elsewhere in the district run cooler, races at
+  the bait run hotter, and getting caught there still counts double. One
+  bait per district, permanent like every mark, and rigging the door warms
+  the street a point — a valve with no price is the stall loop in a costume.
+- **The burn, the panic lever.** A building you hold can be torched: the
+  machines, the income and the place are gone for good (the shell stays on
+  the map as scar tissue, dark-windowed, answering nothing), and the
+  district cools by exactly `burnCool` (12 — one band, never to silence).
+  Previewed on the button as `19 → 7`.
+- **Cools got an anchor.** The playtest could not tell whether "cools by 4"
+  was a little or a lot. Every cool line in the deck now reads "cools by 4,
+  from 14" via a `{SUSP}` token — the current value is on the card at the
+  moment of the choice.
+- The suite grew a lie-low guard pointed at the new verbs: the bait never
+  moves the citywide total, and the burn is priced in territory — neither
+  can be pressed repeatedly to wait a city quiet.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

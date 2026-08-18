@@ -2448,7 +2448,15 @@ test('terrain: the crossings are genuine chokepoints', () => {
 });
 
 test('terrain: landmarks sit against the terrain and are worth the trip', () => {
-  const { window } = loadNetwork();
+  // Seeded for the same reason as the chokepoint test below: the second half
+  // is a statistical claim over generated boards, and live Math.random let
+  // variance fail it rarely enough to look like a real break.
+  let seed = 0x51ed270b;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
+  const { window } = loadNetwork({ pinMathRandom: rand });
   const d = window.__netDebug;
   window.REGIONS.forEach(R => {
     const g = cityIn(d, R.id);
@@ -11425,4 +11433,173 @@ test('deck: the new cards are about the machine, not decoration on it', () => {
     assert.notEqual(off, on, `${e.id} does not actually depend on the machine`);
     assert.ok(d.openChoices(e).length >= 1, `${e.id} can grey out entirely`);
   });
+});
+
+// --- the relief valves: bait aims it, the burn pays for it ------------------
+// The rotation rule is a rich player's valve — it needs a second district to
+// rotate into. These two are reachable from district one, turn one, and
+// neither can zero suspicion: the bait moves warmth without lowering it, and
+// the burn's price is a whole building.
+
+test('bait: it aims the number and never lowers it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.noteDistrictAct('commercial', 18);
+
+  const doorIn = (dk) => s.buildings.find(b =>
+    b.district === dk && !d.hostsIn(b).some(h => h.owned));
+  const bait = doorIn('commercial');
+  const other = s.buildings.find(b =>
+    b.district === 'commercial' && b.id !== bait.id);
+  d.setMark(bait.id, 'bait', true);
+
+  const raw = d.suspicionOf('commercial');
+  assert.equal(raw, 18, 'placing a bait moved the counter itself');
+  const drawn = Math.round(raw * S.baitDraw * 10) / 10;
+  assert.equal(d.feltSuspicion('commercial', other.id), Math.round((raw - drawn) * 10) / 10,
+    'the other doors did not run cooler');
+  assert.equal(d.feltSuspicion('commercial', bait.id), Math.round((raw + drawn) * 10) / 10,
+    'the bait itself did not run hotter');
+  // conservation of a kind: what leaves the street arrives at the bait
+  assert.ok(d.feltSuspicion('commercial', bait.id) > raw,
+    'the warmth the street stops feeling has to gather somewhere');
+});
+
+test('bait: the race arithmetic actually uses the felt number', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+  const doors = s.hosts.filter(h =>
+    h.district === 'commercial' && !h.owned && !h.origin);
+  assert.ok(doors.length >= 2, 'need two open doors in one district');
+  const atBait = doors[0];
+  const elsewhere = doors.find(h => h.buildingId !== doors[0].buildingId);
+  assert.ok(elsewhere, 'need doors in two different buildings');
+  const rBait0 = d.traceRate(atBait);
+  const rElse0 = d.traceRate(elsewhere);
+  d.setMark(atBait.buildingId, 'bait', true);
+  assert.ok(d.traceRate(elsewhere) < rElse0,
+    'a bait in the district did not slow the trace at the other door');
+  assert.ok(d.traceRate(atBait) > rBait0,
+    'the bait door did not run hotter than it did before the bait');
+});
+
+test('bait: the act is priced, marked, one per district, never on your own door', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.noteDistrictAct('commercial', 10);
+  s.res.funds = 20; s.ap = 3;
+
+  const mine = s.buildings.find(b =>
+    b.district === 'commercial' && d.hostsIn(b).some(h => h.owned));
+  const open = s.buildings.filter(b =>
+    b.district === 'commercial' && !d.hostsIn(b).some(h => h.owned));
+  if (mine) assert.equal(d.canBait(mine.id), false,
+    'a bait on your own building is a magnet with no bite');
+
+  const ap0 = s.ap, f0 = s.res.funds;
+  const susp0 = d.suspicionOf('commercial');
+  assert.equal(d.actBait(open[0].id), true);
+  assert.equal(s.ap, ap0 - 1, 'the act was free');
+  assert.equal(s.res.funds, f0 - S.baitFunds, 'the props were free');
+  assert.ok(d.baitAt(open[0].id), 'no mark was left');
+  assert.equal(d.suspicionOf('commercial'), susp0 + S.perScan,
+    'rigging a door is activity — the street should notice a little');
+  // one bait per district: the second offer is refused
+  if (open[1]) assert.equal(d.canBait(open[1].id), false,
+    'a district accepted a second bait');
+  // ...and it survives a save, like every mark
+  const back = JSON.parse(JSON.stringify(d.packCity()));
+  assert.ok(back.marks[open[0].id].bait, 'the bait did not survive a save');
+});
+
+test('burn: a whole building buys exactly burnCool, and the shell stays', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+  s.ap = 3;
+
+  const b = s.buildings.find(x =>
+    x.district === 'commercial' && d.hostsIn(x).length && !d.hostsIn(x).some(h => h.origin));
+  d.hostsIn(b).forEach(h => { h.owned = true; });
+  const n = d.hostsIn(b).length;
+
+  assert.equal(d.actBurn(b.id), true);
+  assert.equal(d.hostsIn(b).filter(h => h.owned).length, 0, 'the machines survived the fire');
+  assert.ok(d.burnedAt(b.id), 'the building does not remember burning');
+  assert.equal(d.suspicionOf('commercial'), Math.max(0, 20 - S.burnCool),
+    'the cool was not exactly the stated amount');
+  // the shell answers nothing: not frontier, not a vantage, not a second fire
+  d.hostsIn(b).forEach(h => { assert.equal(d.isFrontier(h), false, 'a burned door is still a frontier'); });
+  assert.equal(d.actBurn(b.id), false, 'a building burned twice');
+  // and never to silence: burnCool is one band, not the whole ladder
+  assert.ok(S.burnCool < S.max, 'the panic lever can flatten the whole scale');
+});
+
+test('burn: it is previewed exactly on the button that does it', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SUSPICION;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+  const b = s.buildings.find(x => x.district === 'commercial' && d.hostsIn(x).length);
+  d.hostsIn(b).forEach(h => { h.owned = true; });
+  const html = d.burnBtn(b);
+  assert.ok(html.includes('burn it down'), 'no button');
+  assert.ok(html.includes('20'), 'the before number is not on the button');
+  assert.ok(html.includes(String(Math.max(0, 20 - S.burnCool))),
+    'the after number is not on the button');
+  // and the bait button states all three sides of its deal
+  const open = s.buildings.find(x =>
+    x.district === 'commercial' && !d.hostsIn(x).some(h => h.owned) && d.canBait(x.id));
+  s.res.funds = 20;
+  const bb = d.baitBtn(open);
+  assert.ok(bb.includes(String(S.baitFunds)), 'the props are unpriced');
+  assert.ok(bb.includes('counts double'), 'the double is unstated');
+});
+
+test('relief cards: every cool says what the street sits at', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  d.noteDistrictAct('commercial', 14);
+  const rendered = d.cardText('{DISTRICT} cools by 4, from {SUSP}', { district: 'commercial' });
+  assert.ok(rendered.includes('from 14'), 'the current value is missing: ' + rendered);
+  // and the deck's own cool lines all carry the anchor
+  const src = fs.readFileSync(
+    path.join(__dirname, '../../network-prototype/data.js'), 'utf8');
+  const bare = src.match(/shows: '[^']*cools by \d+(?!, from \{SUSP\})[^']*'/g) || [];
+  const offenders = bare.filter(l => !l.includes('{SUSP}'));
+  assert.deepEqual(offenders, [], 'cool lines with nothing to lean on: ' + offenders.join(' | '));
+});
+
+test('bait and burn: no waiting loop hides inside the valves', () => {
+  // The bait never touches the counter, and the burn costs territory — so
+  // neither can be pressed repeatedly to wait a city quiet. This is the
+  // lie-low test, kept pointed at the new verbs.
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.noteDistrictAct('commercial', 18);
+  const total = () => Object.values(s.suspicion || {}).reduce((a, x) => a + x, 0);
+  const t0 = total();
+  const open = s.buildings.find(b =>
+    b.district === 'commercial' && d.canBait(b.id));
+  s.res.funds = 99; s.ap = 9;
+  d.actBait(open.id);
+  assert.ok(total() >= t0, 'the everyday valve lowered the citywide total');
 });
