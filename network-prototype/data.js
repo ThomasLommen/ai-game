@@ -1080,6 +1080,28 @@ function EV_SPOT(c, st, district) {
   const b = pool[Math.floor(Math.random() * pool.length)];
   return { buildingId: b.id, district: dk };
 }
+// Two open doors near each other, named when the card is dealt — the shared
+// picker for every card whose choices are places. Same round, same van: the
+// pair has to fit on screen at a readable zoom, so it is drawn from the four
+// nearest open doors, preferring two different kinds so the names read as a
+// choice between places rather than a riddle.
+function EV_PAIR(c, st) {
+  const open = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
+  if (open.length < 2) return null;
+  const bldg = (id) => ((st && st.buildings) || []).find(x => x.id === id);
+  const kindOf = (h) => { const b = bldg(h.buildingId); return b ? b.kind : ''; };
+  const i = Math.floor(Math.random() * open.length);
+  const A = bldg(open[i].buildingId);
+  if (!A) return null;
+  const rest = open.filter((h, k) => k !== i).filter(h => bldg(h.buildingId));
+  if (!rest.length) return null;
+  const far = (h) => { const b = bldg(h.buildingId); return Math.hypot(b.x - A.x, b.y - A.y); };
+  const nearest = rest.slice().sort((p, q) => far(p) - far(q)).slice(0, 4);
+  const unlike = nearest.filter(h => kindOf(h) !== kindOf(open[i]));
+  const pool = unlike.length ? unlike : nearest;
+  const other = pool[Math.floor(Math.random() * pool.length)];
+  return [open[i].buildingId, other.buildingId];
+}
 function EV_HERE(c) {
   if (c.susp && c.susp.warmest) return { district: c.susp.warmest };
   let best = null;
@@ -1135,6 +1157,236 @@ window.CARD_KINDS = {
 };
 
 window.EVENTS = [
+// --- the batch for the machine -------------------------------------------
+// Written after the engine outran the content: cards that spend the pair
+// question, the marks, the rules, the bank and the non-funds prices, where
+// the fiction earns them. Every choice previews and resolves, none touches
+// heat, and nothing here adds a meter.
+{
+    id: 'the_audit',
+    kind: 'closing',
+    cond: (s) => s.susp.talking >= 1 && s.frontier >= 2,
+    pair: EV_PAIR,
+    title: 'One File, Two Addresses',
+    flavor: 'A council inspector is working through the ward with a folder that has {A} and {B} in it. There is budget to make exactly one of them boring before she arrives.',
+    choices: [
+      { text: 'Make {PLACE} boring',
+        shows: '{DISTRICT} cools by 5; they keep an eye on {OTHER} from now on',
+        after: 'Paperwork appears, tidy and dull, and the inspector moves on. The folder keeps one address in it, underlined.',
+        apply: (s) => { s.coolHere = 5; s.markOther = { watchThere: true }; } },
+    ],
+  },
+{
+    id: 'roadworks',
+    kind: 'opening',
+    cond: (s) => s.frontier >= 2 && s.held >= 4,
+    pair: EV_PAIR,
+    title: 'One Crew, Two Work Orders',
+    flavor: 'The council has money to dig up exactly one street this quarter: outside {A}, or outside {B}. The foreman is easy to talk to.',
+    choices: [
+      { text: 'Send the crew to {PLACE}',
+        shows: 'a new way through at {PLACE}, permanently; a street at {OTHER} closes for good',
+        after: 'They leave a duct where you asked and a trench where you did not. Both outlast everyone who remembers why.',
+        apply: (s) => { s.openLink = 1; s.markOther = { cutLink: 1 }; } },
+    ],
+  },
+{
+    id: 'the_locksmith',
+    kind: 'someone',
+    cond: (s) => s.held >= 4 && s.turn >= 8,
+    subject: (c, st) => EV_SPOT(c, st),
+    title: 'The Locksmith Retires',
+    flavor: 'Forty years of fitting the locks in {DISTRICT}, and a going-out-of-business box of everything that opens them. He would rather sell it than explain it.',
+    choices: [
+      { text: 'Buy his book', cost: { funds: 10 },
+        shows: '{PLACE} defends 3 easier, permanently',
+        after: 'Every quirk of every door he fitted, in pencil. One address gets a whole page.',
+        apply: (s) => { s.hardenThere = -3; } },
+      { text: 'Buy the keyring', cost: { funds: 14 },
+        shows: '+2 sets of keys',
+        after: 'A pound of brass and two masters that still turn. He does not ask what you want them for, which is its own kind of receipt.',
+        apply: (s) => { s.keys = (s.keys || 0) + 2; } },
+      { text: 'Let him retire in peace',
+        shows: '{DISTRICT} cools by 3',
+        after: 'You buy nothing, shake his hand, and leave. Somewhere a stack of secrets goes to a skip, unread.',
+        apply: (s) => { s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'scaffolding',
+    kind: 'opening',
+    cond: (s) => s.districts.commercial >= 1 && s.held >= 3,
+    subject: (c, st) => EV_SPOT(c, st, 'commercial'),
+    title: 'Scaffolding Goes Up',
+    flavor: 'Repointing, says the permit on {PLACE}. For six weeks there is a legal ladder to every floor and nobody who can say which contractor you are not.',
+    choices: [
+      { text: 'Bolt a duct behind the fascia', cost: { funds: 8 },
+        shows: 'a new way through at {PLACE}, permanently',
+        after: 'The scaffold comes down on schedule. What you fixed to the wall behind it does not.',
+        apply: (s) => { s.openLink = 1; } },
+      { text: 'Strip the site at night',
+        shows: '+7 funds; {DISTRICT} warms by 2',
+        after: 'Copper, tools, a generator. The foreman blames the usual, and the usual blame the foreman.',
+        apply: (s) => { s.res.funds += 7; s.warmHere = 2; } },
+      { text: 'Stay off it',
+        shows: '{DISTRICT} cools by 2',
+        after: 'Six weeks of a ladder you never touch. The absence of incident is its own camouflage.',
+        apply: (s) => { s.coolHere = 2; } },
+    ],
+  },
+{
+    id: 'insurance_assessor',
+    kind: 'closing',
+    cond: (s) => s.caughtHere >= 1 && s.susp.max >= 8,
+    subject: (c, st) => EV_SPOT(c, st),
+    title: 'The Assessor',
+    flavor: 'After the incident, an insurance assessor walks {DISTRICT} with a clipboard and a genuine gift for being told things. Her report will outlive everyone\'s memory of the week.',
+    choices: [
+      { text: 'Let her conclude it was kids',
+        shows: '{DISTRICT} cools by 6; {PLACE} defends 2 harder',
+        after: 'Kids, says the report. The premium barely moves. The locks it recommends get fitted anyway.',
+        apply: (s) => { s.coolHere = 6; s.hardenThere = 2; } },
+      { text: 'Steer the report', cost: { funds: 12 },
+        shows: '{DISTRICT} cools by 9',
+        after: 'A draft finds its way to her with the dull conclusion already written. She signs it. Dull is what everyone wanted.',
+        apply: (s) => { s.coolHere = 9; } },
+      { text: 'Give her nothing',
+        shows: '{DISTRICT} warms by 2',
+        after: 'Doors close politely all down the street. Her report says "uncooperative", which is a word people remember.',
+        apply: (s) => { s.warmHere = 2; } },
+    ],
+  },
+{
+    id: 'power_cut',
+    kind: 'own',
+    cond: (s) => s.held >= 6 && s.turn >= 10,
+    subject: EV_HERE,
+    title: 'Half the Ward Goes Dark',
+    flavor: 'A substation fault, hours from a fix. Your machines ride it out on other people\'s UPSes. The cameras do not.',
+    choices: [
+      { text: 'Work the dark',
+        shows: 'for 3 turns, nothing you do warms a street',
+        after: 'No lights, no lenses, no witnesses with phones worth charging. You move like weather until the grid hums back.',
+        apply: (s) => { s.rule = { id: 'nobody_looking', turns: 3 }; } },
+      { text: 'Fix it quietly', cost: { funds: 9 },
+        shows: '{DISTRICT} cools by 8',
+        after: 'A van nobody ordered, a fault that heals overnight. The street thanks the electric company, which files it under miracles.',
+        apply: (s) => { s.coolHere = 8; } },
+      { text: 'Sell generators you do not own',
+        shows: '+9 funds; {DISTRICT} warms by 3',
+        after: 'Emergencies have prices and you have inventory, briefly. Somebody will remember the man with the vans.',
+        apply: (s) => { s.res.funds += 9; s.warmHere = 3; } },
+    ],
+  },
+{
+    id: 'the_convention',
+    kind: 'opening',
+    cond: (s) => s.turn >= 12 && s.held >= 5,
+    subject: () => ({ district: 'business' }),
+    title: 'The Security Expo',
+    flavor: 'Every competent guard, installer and consultant in the city is at the convention centre for four days, wearing lanyards and eating pastries. Their sites are being watched by whoever was free.',
+    choices: [
+      { text: 'Walk the city while they talk', cost: { ap: 1 },
+        shows: 'for 4 turns, every door in the city defends 2 easier',
+        after: 'You spend a day confirming it: the B-team is on every desk. Four days is a long time in an unwatched city.',
+        apply: (s) => { s.rule = { id: 'open_season', turns: 4 }; } },
+      { text: 'Work the lobby',
+        shows: '+8 funds',
+        after: 'Badges, brochures, a competitor\'s price list left on a chair. You leave with more than you came with, which is the point of conventions.',
+        apply: (s) => { s.res.funds += 8; } },
+      { text: 'Stay home',
+        shows: 'the city cools by 3',
+        after: 'Four days of doing nothing while everyone certain of themselves is elsewhere. Quiet has never been cheaper.',
+        apply: (s) => { s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'spare_badge',
+    kind: 'found',
+    cond: (s) => s.held >= 5,
+    subject: (c, st) => EV_HELD(c, st),
+    title: 'A Contractor\'s Badge',
+    flavor: 'In a drawer on {PLACE}: a lanyard, a laminate, a name that could be anyone\'s. Access ALL AREAS, in the font of a firm that no longer exists.',
+    choices: [
+      { text: 'Keep it',
+        shows: 'banked: the next door you take costs no action',
+        after: 'It goes in your pocket, and your pocket becomes a plan. Nobody checks a badge that looks bored enough.',
+        apply: (s) => { s.bank = 'free_take'; } },
+      { text: 'Sell it on',
+        shows: '+8 funds',
+        after: 'There is always a market for looking like you belong. You do not ask what the buyer belongs to.',
+        apply: (s) => { s.res.funds += 8; } },
+      { text: 'Shred it',
+        shows: '{DISTRICT} cools by 4',
+        after: 'One less loose end in the world. The drawer keeps its dust and its silence.',
+        apply: (s) => { s.coolHere = 4; } },
+    ],
+  },
+{
+    id: 'dead_drop',
+    kind: 'found',
+    cond: (s) => s.roles.compute >= 2 && s.held >= 4,
+    subject: (c, st) => EV_HELD(c, st, 'compute'),
+    title: 'Somebody\'s Dead Drop',
+    flavor: 'A partition on {PLACE} you did not make, full of files you cannot read, refreshed every Tuesday by someone who is not you and does not know about you.',
+    choices: [
+      { text: 'Raid it', gamble: true,
+        after: 'You take the lot in one pass. Either it fences clean, or the Tuesday visitor notices the silence and starts asking the street about tenants.',
+        apply: (s) => { if (Math.random() < 0.5) { s.res.funds += 20; } else { s.warmHere = 6; } } },
+      { text: 'Charge rent quietly',
+        shows: '+10 funds; {DISTRICT} warms by 2',
+        after: 'A note in the partition names a price. Tuesday\'s visitor pays it without a word, which tells you plenty.',
+        apply: (s) => { s.res.funds += 10; s.warmHere = 2; } },
+      { text: 'Brick the partition',
+        shows: '{DISTRICT} cools by 3',
+        after: 'The drop dies. Somewhere a Tuesday goes wrong for a stranger, and your machine goes back to being only yours.',
+        apply: (s) => { s.coolHere = 3; } },
+    ],
+  },
+{
+    id: 'curfew_talk',
+    kind: 'someone',
+    cond: (s) => s.susp.max >= 12,
+    subject: EV_HERE,
+    title: 'The Neighbourhood Group',
+    flavor: 'The shopkeepers of {DISTRICT} have started a group chat. Its subjects are the outages, the vans, and what is to be done. Someone has proposed shifts.',
+    choices: [
+      { text: 'Seed it with calm', cost: { funds: 6 },
+        shows: '{DISTRICT} cools by 8',
+        after: 'Two invented neighbours join and are very reasonable. The shifts idea drowns politely in scheduling.',
+        apply: (s) => { s.coolHere = 8; } },
+      { text: 'Read it for routes',
+        shows: 'turns up 2 buildings; {DISTRICT} warms by 1',
+        after: 'People describing what they watch is people describing what they cannot see. You map the gaps.',
+        apply: (s) => { s.revealNearby = 2; s.warmHere = 1; } },
+      { text: 'Let them organise',
+        shows: '{DISTRICT} warms by 4',
+        after: 'The shifts happen. Torches, thermoses, a rota on the noticeboard. The street feels safer, which means it watches harder.',
+        apply: (s) => { s.warmHere = 4; } },
+    ],
+  },
+{
+    id: 'rotors',
+    kind: 'closing',
+    once: true,
+    cond: () => false,
+    title: 'Rotors Over {DISTRICT}',
+    flavor: 'You hear it before you see it, and everyone in {DISTRICT} sees it. A spotlight walks the rooftops like a finger down a page.',
+    choices: [
+      { text: 'Go dark under it', cost: { ap: 1 },
+        shows: '{DISTRICT} cools by 12',
+        after: 'Everything of yours that hums, stops. The light passes over machines asleep like everything else, and finds a district with nothing to say.',
+        apply: (s) => { s.coolHere = 12; } },
+      { text: 'Work under the light',
+        shows: '+8 funds; {DISTRICT} warms by 2',
+        after: 'You keep every appointment while the beam sweeps the roofs. Nerve is a currency too; the street notices who spends it.',
+        apply: (s) => { s.res.funds += 8; s.warmHere = 2; } },
+      { text: 'Move the loudest thing you hold',
+        shows: 'lets go of your weakest holding; {DISTRICT} cools by 8',
+        after: 'One body goes dark for good, carried out in pieces in a gym bag. The helicopter circles a district that is suddenly quieter than its file says.',
+        apply: (s) => { s.shedWeakest = 1; s.coolHere = 8; } },
+    ],
+  },
 {
     id: 'first_quiet',
     kind: 'own',
@@ -1206,37 +1458,7 @@ window.EVENTS = [
     id: 'the_service_call',
     kind: 'opening',
     cond: (s) => s.frontier >= 2,
-    pair: (c, st) => {
-      const open = ((st && st.hosts) || []).filter(h => h.discovered && !h.owned && !h.origin);
-      if (open.length < 2) return null;
-      const kindOf = (h) => {
-        const b = ((st && st.buildings) || []).find(x => x.id === h.buildingId);
-        return b ? b.kind : '';
-      };
-      const i = Math.floor(Math.random() * open.length);
-      // Same round, same van: the two have to be near each other, or the map
-      // has to zoom out to the whole city to show you both and the question
-      // stops being readable. Same district first, then whatever is nearest.
-      const bldg = (id) => ((st && st.buildings) || []).find(x => x.id === id);
-      const A = bldg(open[i].buildingId);
-      if (!A) return null;
-      const rest = open.filter((h, k) => k !== i).filter(h => bldg(h.buildingId));
-      if (!rest.length) return null;
-      // Same round, same van — and, more practically, both have to fit on
-      // screen at a zoom you can still read, or the question cannot be asked.
-      // So: the nearest few doors, not the whole city.
-      const far = (h) => {
-        const b = bldg(h.buildingId);
-        return Math.hypot(b.x - A.x, b.y - A.y);
-      };
-      const nearest = rest.slice().sort((p, q) => far(p) - far(q)).slice(0, 4);
-      // Two of the same kind still works — the names take letters — but two
-      // different ones read as a choice between places rather than a riddle.
-      const unlike = nearest.filter(h => kindOf(h) !== kindOf(open[i]));
-      const pool = unlike.length ? unlike : nearest;
-      const other = pool[Math.floor(Math.random() * pool.length)];
-      return [open[i].buildingId, other.buildingId];
-    },
+    pair: EV_PAIR,
     title: 'One Van, Two Addresses',
     flavor: 'The same firm services {A} and {B} on the same round, and there is one seat in the van. Whichever you ride along to, you will see the inside of properly. The other has its locks looked at while you are out.',
     choices: [

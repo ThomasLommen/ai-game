@@ -2640,14 +2640,9 @@
     // faster" in the panel, and the panel is a contract
     const tidy = (v) => Math.round(v * 10) / 10;
     state.suspicion = state.suspicion || {};
-    const wasBelow = (state.suspicion[district] || 0) < ((S.bands && S.bands[1] && S.bands[1][0]) || 12);
-    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
-    // crossing into "the district is talking" gets a card, once per district
-    // per city — the suspicion system's face, not merely its arithmetic
-    if (wasBelow && state.suspicion[district] >= ((S.bands && S.bands[1] && S.bands[1][0]) || 12)
-        && cardedOnce('talk:' + district)) {
-      queueEvent('district_talking', { district });
-    }
+    const before = state.suspicion[district] || 0;
+    state.suspicion[district] = tidy(Math.min(S.max, before + amount));
+    bandCrossCards(district, before);
     // Spread thinner than you can hold: rotation stops paying properly,
     // because you are not really tending the places you left. This is what
     // `overextended` means now — it used to multiply heat drift, and heat is
@@ -2658,6 +2653,25 @@
       state.suspicion[d] = tidy(Math.max(0, state.suspicion[d] - cool));
       if (!state.suspicion[d]) delete state.suspicion[d];
     });
+  }
+  // Crossing a named band gets a card, once per district per city — the
+  // suspicion system's face, not merely its arithmetic. Crossing into "the
+  // district is talking" deals the talking card; crossing into the top band
+  // deals the helicopter's arrival, so the machine in the sky gets a moment
+  // instead of simply appearing between frames. One site for every path that
+  // warms a street, so a scan-driven crossing is not quieter than an act.
+  function bandCrossCards(district, before) {
+    const S = window.SUSPICION;
+    if (!S || !S.bands) return;
+    const now = state.suspicion[district] || 0;
+    const talk = (S.bands[1] || [12])[0];
+    const top = (S.bands[2] || [26])[0];
+    if (before < talk && now >= talk && cardedOnce('talk:' + district)) {
+      queueEvent('district_talking', { district });
+    }
+    if (before < top && now >= top && cardedOnce('heli:' + district)) {
+      queueEvent('rotors', { district });
+    }
   }
   // Warmth without the rotation rule. A sweep is someone trying handles on
   // one street — the street notices, but it is not the kind of moving-around
@@ -2672,7 +2686,9 @@
     const S = window.SUSPICION;
     const tidy = (v) => Math.round(v * 10) / 10;
     state.suspicion = state.suspicion || {};
-    state.suspicion[district] = tidy(Math.min(S.max, (state.suspicion[district] || 0) + amount));
+    const before = state.suspicion[district] || 0;
+    state.suspicion[district] = tidy(Math.min(S.max, before + amount));
+    bandCrossCards(district, before);
   }
   // The panel's phrase and the exact figure, from the first band. Words come
   // in bands; the arithmetic never does — below the first band the panel is
@@ -2692,12 +2708,19 @@
   }
   // The district a prop stands in: the nearest building's. Props were
   // scattered per block but never told which district the block was in.
+  // Memoised per city — a prop does not move, so the ~100 rect distances per
+  // lamp are paid once, not once per render (71 lamps saw this every frame).
+  let propDkCache = new WeakMap();
   function propDistrict(p) {
+    let m = propDkCache.get(state.props);
+    if (!m) { m = new Map(); propDkCache.set(state.props, m); }
+    if (m.has(p)) return m.get(p);
     let best = null, bd = Infinity;
     (state.buildings || []).forEach(b => {
       const d = distToRect(p.x, p.y, b.x, b.y, b.w, b.h);
       if (d < bd) { bd = d; best = b.district; }
     });
+    m.set(p, best);
     return best;
   }
 
@@ -3913,6 +3936,10 @@
 
     const before = beforeSnap();
     const beforeTags = new Set(state.tags);
+    // Telemetry only, never serialized: which choices actually get picked —
+    // the per-card pick-rate discipline cards.md asked for, finally cheap.
+    const PS = window.__pickStats = window.__pickStats || {};
+    (PS[ev.id] = PS[ev.id] || {})[index] = (PS[ev.id][index] || 0) + 1;
     if (ch.cost) for (const k in ch.cost) payFor(k, ch.cost[k]);
 
     // events describe their effects declaratively; these two are board-level
@@ -11034,6 +11061,14 @@ scratch.later = null;
       $b.addEventListener('click', () => setScope(state.scope === 'country' ? 'city' : 'country'));
     }
   }
+
+  // The deploy pipeline substitutes __BUILD__; a local checkout never runs it,
+  // and the footer read "build __BUILD__" — a stagehand visible from the
+  // seats. Local play says what it is instead.
+  (() => {
+    const $b = document.querySelector('.build');
+    if ($b && /__BUILD__/.test($b.textContent)) $b.textContent = 'local build';
+  })();
 
   // What the pad is allowed to know: how big you are, and how warm the place
   // you are looking at is. Both move over minutes, and the engine glides on

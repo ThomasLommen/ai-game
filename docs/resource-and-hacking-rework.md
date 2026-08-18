@@ -1736,6 +1736,42 @@ let go rather than requeued, so it stays eligible without piling duplicates
 into the queue. A test now asserts a full tray never silences an
 interruption.
 
+### The batch for the machine
+
+The engine had outrun the content: five mark verbs used by six cards, rules
+by four, one paired map-question, one banked one-shot. Eleven new cards spend
+the machinery where the fiction earns it — the living deck is now **60**
+(closing 16 &middot; opening 13 &middot; own 13 &middot; found 10 &middot;
+someone 8):
+
+- **two more map questions** (`the_audit`, `roadworks`), on the shared
+  `EV_PAIR` picker extracted from the service call. A rule fell out of the
+  greyout test: **a pair template must be free** — it is the card's only
+  choice, so a priced one is a card a broke player cannot answer. The cost of
+  a map question is the place you turn down, never money.
+- **marks**: the retiring locksmith (a door softened for good, or +2 keys),
+  scaffolding (a duct bolted behind the fascia), the assessor (cools the
+  street *and* hardens the door — the first mark that cuts both ways).
+- **rules and the bank**: a ward-wide power cut (`nobody_looking`), the
+  security expo (`open_season`, priced in an action), a contractor's badge
+  (banked `free_take`).
+- **`rotors`** — the helicopter's arrival is a card now. Crossing into the
+  top band queues it once per district, from the same `bandCrossCards` site
+  that deals `district_talking`, which also closes a gap: a *scan-driven*
+  band crossing used to be silent because only `noteDistrictAct` had the
+  trigger. Go dark under it (an action), work under the light, or carry your
+  loudest machine out in a gym bag.
+- one marked **gamble** (`dead_drop`), because the deck had four.
+
+**Pick telemetry** landed with it: `window.__pickStats` counts every choice
+taken, session-only, never serialized. First census (12 bot games): `rotors`
+fired in every game; 9 of 11 new cards dealt; `roadworks` and `power_cut`
+eligible but outdrawn — watch-list. Housekeeping in the same pass: the local
+footer says "local build" instead of leaking `__BUILD__`, the terrain
+chokepoint test runs on a seeded stream (it failed ~1/40 on variance, often
+enough that "0 fail" stopped meaning anything), and `propDistrict` memoises
+per city instead of paying ~100 rect distances per lamp per frame.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
