@@ -2487,14 +2487,14 @@
       state.planted = (state.planted || []).filter(p => p.id !== id);
       offerCard(id, null);
       bumpEventTimer();
-    } else if (!state.card && trayFree() && state.turn >= state.nextEventTurn) {
+    } else if (!state.card && state.turn >= state.nextEventTurn) {
       // The timer is a floor now, not the rhythm. Cards are meant to arrive
       // from the loop — a diary read, a district crossing into talk, the
       // response turning up — and this path only speaks when the world has
       // said nothing for a while. Triggered and planted cards push it back,
       // so a lively stretch is never also a chatty one.
       const ev = drawEvent();
-      if (ev) offerCard(ev.id, (ev.subject || ev.pair) ? safeSubject(ev) : null);
+      if (ev) offerCard(ev.id, (ev.subject || ev.pair) ? safeSubject(ev) : null, { drop: true });
       bumpEventTimer();
     }
     const rivalMove = rivalStep();
@@ -3545,7 +3545,10 @@
   function waiting() { return state.waiting || (state.waiting = []); }
   function trayFree() { return waiting().length < TRAY_CAP; }
   // The one door every dealt card comes through — drawn, forced or planted.
-  function offerCard(id, subject) {
+  // `opts.drop`: a timer-drawn ambient card that finds the tray full is let
+  // go rather than requeued — it stays eligible and the deck will offer it
+  // again, where requeueing every draw would pile up duplicates in `forced`.
+  function offerCard(id, subject, opts) {
     const ev = eventById(id);
     if (!ev) return null;
     if (blocks(ev)) {
@@ -3561,6 +3564,7 @@
     // waits its turn instead, on the same queue the triggers use, and arrives
     // when there is room. Nothing is lost and nothing jumps the screen.
     if (!trayFree()) {
+      if (opts && opts.drop) return null;
       state.forced = (state.forced || []).concat([{ id, subject: subject || null }]);
       return null;
     }
@@ -8343,6 +8347,24 @@ scratch.later = null;
         + ` width="${c.w}" height="${c.h}"${lightUp[c.i] ? ` style="--wi:${c.i}"` : ''}/>`;
     });
 
+    // There is still something to find from here. The search loop's real
+    // question is "where do I look from next?", and the only way to answer it
+    // was to tap every building in sight until one offered a scan — the map
+    // knew and would not say. A small fan of sweep-arcs off the top-left
+    // corner marks every vantage whose scan would still turn something up,
+    // in the sweep's own grammar, at every zoom (planning happens zoomed
+    // out — the glint taught that). It disappears the moment there is
+    // nothing left to find from here.
+    if (!drawingInset && b.discovered && sweepTargetsFrom(b.id).length) {
+      const pr = Math.max(1, 1.1 * mapUnitsPerPx());
+      // centred on the corner itself, sweeping outward, clear of the held glow
+      const px0 = b.x - 1, py0 = b.y - 1;
+      out += `<g class="scan-ping" transform="translate(${px0.toFixed(1)} ${py0.toFixed(1)}) scale(${pr.toFixed(2)})">`
+        + `<path d="M -2.6 0.9 A 3.7 3.7 0 0 1 0.9 -2.6"/>`
+        + `<path d="M -4.4 1.6 A 6.3 6.3 0 0 1 1.6 -4.4"/>`
+        + `</g>`;
+    }
+
     // Something is on this machine. A dot, not an outline — an outline means
     // a door, and the glint is an invitation, not a state. It used to draw
     // only at detail zoom, on the confetti argument — and the playtest
@@ -11103,7 +11125,7 @@ scratch.later = null;
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     blocks, waiting, trayFree, offerCard, openWaiting, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
-    suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,

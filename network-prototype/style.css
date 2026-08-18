@@ -2702,6 +2702,17 @@ footer .build { opacity: .55; font-size: 10px; }
 .card.after .card-kicker { opacity: .6; }
 .card.after .flavor { color: var(--ink); }
 
+/* a vantage that would still find something: the sweep's own arcs, small,
+   fanned off the corner that faces away from the building */
+.bldg .scan-ping path {
+  fill: none;
+  stroke: var(--cover);
+  stroke-width: .9;
+  stroke-linecap: round;
+  opacity: .9;
+}
+.bldg .scan-ping path + path { opacity: .55; }
+
 /* ---- the suspicion ladder --------------------------------------------
    The red wash is dead. Suspicion is drawn as a ladder instead, one thing
    per band: 1 the lights, 2 the people, 3 the helicopter. The exact figure

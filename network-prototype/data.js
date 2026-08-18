@@ -1010,7 +1010,7 @@ window.STAT_INFO = {
 
 window.ACTION_INFO = {
   noActions: 'No actions left this turn. End the turn — the world takes its, and you get a fresh budget.',
-  sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more.',
+  sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more. The little arcs on a building mark a vantage whose scan would still find something new.',
 };
 
 // --- tags --------------------------------------------------------------

@@ -1717,6 +1717,25 @@ Rotor, orbit and spotlight all hold still under `prefers-reduced-motion`.
 One old test asserted the ground *does* warm; it now asserts the wash stays
 dead and the lamps carry it instead.
 
+### The map says where looking still pays
+
+The search loop's real question is "where do I look from next?" — and the
+only way to answer it was to tap every building in sight until one offered a
+scan. The map knew and would not say. Now every discovered building whose
+scan would still turn something up wears a small fan of sweep-arcs off its
+corner, in the sweep's own grammar, at every zoom (the glint taught that
+planning happens zoomed out). The mark and the panel's scan button read the
+same rule from the same source, and the mark goes out the moment there is
+nothing left to find from there.
+
+Fixing its test exposed a real Stage 6 bug: once two quiet cards sat in the
+tray, the `trayFree()` gate on the draw path silenced the whole deck —
+including the blocking cards. The gate is gone; `offerCard` sorts each card
+by what it is, and a timer-drawn ambient card that finds the tray full is
+let go rather than requeued, so it stays eligible without piling duplicates
+into the queue. A test now asserts a full tray never silences an
+interruption.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

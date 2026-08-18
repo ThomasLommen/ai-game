@@ -10346,6 +10346,36 @@ test('cards: a card cannot show you a place you have not found', () => {
   s.card = null;
 });
 
+test('map: a building says whether looking from it still finds anything', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // The search loop's real question is "where do I look from next?" — and the
+  // only way to answer it was to tap every building in sight until one
+  // offered a scan. The map knew and would not say.
+  const vantage = s.buildings.find(b => b.discovered && d.sweepTargetsFrom(b.id).length);
+  assert.ok(vantage, 'a fresh city has nowhere left to look — the map generator changed');
+  assert.ok(/scan-ping/.test(d.svgBuilding(vantage)), 'a live vantage is unmarked');
+
+  // the mark and the panel button agree exactly — same rule, same source
+  assert.ok(d.scanFromBtn(vantage).length > 0, 'the mark shows where the button would not');
+
+  // spent vantage: everything around it found, the mark goes out
+  d.sweepTargetsFrom(vantage.id).forEach(t => d.revealBuilding(t));
+  assert.ok(!/scan-ping/.test(d.svgBuilding(vantage)), 'the mark outlives what there was to find');
+
+  // an undiscovered building never advertises — that would be the map leaking
+  const dark = s.buildings.find(b => !b.discovered);
+  if (dark) assert.ok(!/scan-ping/.test(d.svgBuilding(dark)), 'an unfound building is advertising');
+
+  // and the card inset never carries it: a card is not a place to plan from
+  s.buildings.forEach(b => { b.discovered = true; });
+  const anyB = s.buildings[2];
+  anyB.discovered = true;
+  s.buildings[3].discovered = false;    // give it a target again
+  assert.ok(!/scan-ping/.test(d.svgBuildingCard(anyB) || ''), 'the inset is planning scans');
+});
+
 // --- the suspicion ladder: lights, people, the helicopter ------------------
 
 test('suspicion: the ladder is discrete and stands on the named bands', () => {
@@ -10386,13 +10416,17 @@ test('suspicion: band one is the lights — lamps pool, and the windows come on'
   const light = d.svgSuspicionLight();
   assert.ok(/lamp-pool/.test(light), 'a warm street pools no lamplight');
 
-  // the windows of the people who live there, in sodium, never in your blue
-  const b = s.buildings.find(x => x.district === 'commercial' && d.hostsIn(x).length
-    && d.hostsIn(x)[0].defense && !d.hostsIn(x)[0].owned);
-  s.view = { x: b.x - 100, y: b.y - 80, w: 220, h: 180 };   // close enough for windows
-  const art = d.svgBuilding(b);
-  assert.ok(/win awake/.test(art), 'nobody in a warm district is awake');
-  assert.ok(!/win lit/.test(art), "a stranger's building is wearing your light");
+  // The windows of the people who live there, in sodium, never in your blue.
+  // Candidates need real windows: a street cabinet is too small to have any,
+  // and the first draft of this test sometimes picked one and cried wolf.
+  s.view = { x: 0, y: 0, w: 220, h: 180 };   // close enough that windows draw
+  const cands = s.buildings.filter(x => x.district === 'commercial' && x.w >= 24
+    && !(d.hostsIn(x)[0] || {}).owned);
+  assert.ok(cands.length, 'no commercial building is big enough to have windows');
+  const awake = cands.filter(x => /win awake/.test(d.svgBuilding(x)));
+  assert.ok(awake.length, 'nobody in a warm district is awake');
+  assert.ok(awake.every(x => !/win lit/.test(d.svgBuilding(x))),
+    "a stranger's building is wearing your light");
 
   // ...and your own buildings never wear theirs
   const mineB = s.buildings.find(x => d.hostsIn(x)[0]);
@@ -10654,6 +10688,20 @@ test('tray: a full tray never promotes a quiet card into an interruption', () =>
   assert.equal(s.card, null, 'a full tray turned a quiet card into an interruption');
   assert.equal(d.waiting().length, 2, 'the tray went over its cap');
   assert.ok((s.forced || []).some(f => f.id === 'router_cluster'), 'the card was simply lost');
+
+  // a timer-drawn ambient card is let go instead — it stays eligible, where
+  // requeueing every draw would pile duplicates into the queue
+  const qBefore = (s.forced || []).length;
+  d.offerCard('empty_office', null, { drop: true });
+  assert.equal(s.card, null);
+  assert.equal((s.forced || []).length, qBefore, 'a dropped draw was requeued anyway');
+
+  // ...and a full tray never silences the cards that do interrupt: the whole
+  // point of the tray is that closing-in still cuts straight through it
+  d.offerCard('district_talking', { district: 'commercial' });
+  assert.ok(s.card && s.card.eventId === 'district_talking',
+    'a full tray silenced an interruption — the deck went quiet at its busiest');
+  s.card = null;
 });
 
 test('tray: a whole game can be played without a minor card ever interrupting', () => {
