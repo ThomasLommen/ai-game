@@ -1772,6 +1772,24 @@ chokepoint test runs on a seeded stream (it failed ~1/40 on variance, often
 enough that "0 fail" stopped meaning anything), and `propDistrict` memoises
 per city instead of paying ~100 rect distances per lamp per frame.
 
+### Playtest round two: the sky, the catch, the tray's retirement
+
+- **The helicopter flew in place.** Its orbit lived in the live layer, which
+  every render rebuilds — every tap restarted the CSS animation from zero, so
+  it hung at phase zero forever. The sky is its own layer now, rewritten only
+  when the helicopter's business changes; four renders in a row keep the same
+  DOM node and the same clock.
+- **The catch is a moment.** A door catching you was a log line and a float
+  chip. The map now walks to the door that fought back and the banner names
+  it; the card that follows explains the rest.
+- **The tray is retired.** The playtest verdict: the player never opened what
+  was set aside, so deferral was hiding content, not politeness. Every card
+  deals the same way — face down, onto the lit city. Old saves that still
+  hold a tray pour it into the queue so nothing a player was owed is lost.
+- **The ending flips.** Resolving a choice turns the card over again to its
+  resolved face, the same motion as the first reveal, instead of the text
+  quietly changing under the reader.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

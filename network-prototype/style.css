@@ -893,45 +893,6 @@ footer .build { opacity: .55; font-size: 10px; }
   #panel.card-open.dealt .tcard, .tcard.turning { animation: none; }
 }
 
-/* The tray holds card backs, because that is what a card set down looks like
-   — but it has to be seen. The first version was a 22px near-black rectangle
-   in the corner, and a playtest ran a dozen turns without noticing anything
-   was there. Bigger, fanned like a hand, lit at the edge, and captioned. */
-.tray-pill.card-wait {
-  padding: 0; border: none; background: none; border-radius: 0;
-  gap: 0; overflow: visible;
-  transform: rotate(calc(var(--fan, 0) * 5deg - 3deg));
-  transform-origin: bottom center;
-  transition: transform 160ms ease;
-}
-.tray-pill.card-wait + .tray-pill.card-wait { margin-left: -9px; }
-.tray-pill.card-wait .miniback {
-  width: 30px; height: 43px; border-radius: 4px; overflow: hidden;
-  background: linear-gradient(178deg, #1a2320, #121916);
-  display: block;
-  box-shadow: 0 2px 7px rgba(0,0,0,.55), 0 0 0 1px color-mix(in srgb, var(--item) 34%, transparent);
-}
-.tray-pill.card-wait .miniback svg { width: 100%; height: 100%; display: block; }
-.tray-pill.card-wait .wdot { display: none; }
-.tray-pill.card-wait:hover { transform: rotate(0deg) translateY(-3px); }
-.tray-pill.card-wait:hover .miniback { box-shadow: 0 4px 12px rgba(0,0,0,.6), 0 0 0 1px var(--item); }
-/* Every waiting card wears the same back — no kind colour, no kind border.
-   The old pills coloured themselves by kind, which meant the tray told you
-   what sort of card was waiting before you had turned it over. A back that
-   varies is a marked card. */
-.tray-line.waiting { gap: 0; align-items: center; padding: 3px 0 1px; }
-.wait-word {
-  margin-left: 12px;
-  font-size: 11px; letter-spacing: .04em;
-  color: var(--item);
-  animation: waitBreathe 3000ms ease-in-out infinite;
-}
-@keyframes waitBreathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) {
-  .wait-word { animation: none; opacity: .9; }
-  .tray-pill.card-wait { transition: none; }
-}
-
 /* ---- a card whose choices are places ---------------------------------
    The deepest the deck and the map can point at each other: the choice is
    the building. Each strip carries its own building drawn, and the letter
@@ -2502,25 +2463,6 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 /* one you hold rather than one running down */
 .tray-pill.rule.held { border-style: dashed; }
-
-/* A card set down rather than dealt at you: unopened, waiting to be looked
-   at. It wears the colour of the kind it is, so what is waiting is legible
-   before it is opened — and it never takes the screen off you. */
-.tray-line.waiting { cursor: default; }
-.tray-pill.card-wait {
-  display: inline-flex; align-items: center; gap: 6px;
-  cursor: pointer;
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
-  color: var(--ink-dim);
-}
-.tray-pill.card-wait:hover { border-color: var(--ink-dim); }
-.tray-pill.card-wait .wdot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--ink-dim);
-  animation: waitPulse 2600ms ease-in-out infinite;
-}
-@keyframes waitPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tray-pill.card-wait .wdot { animation: none; } }
 
 /* Short screens. A 640-tall phone has to fit a map, a selection and four verbs
    in the same column, so everything below the map is drawn a size down rather

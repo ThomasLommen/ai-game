@@ -10563,20 +10563,6 @@ test('cards: a card is dealt face down, and turns over once', () => {
   s.card = null;
 });
 
-test('cards: one fetched from the tray comes up face first', () => {
-  const { window } = loadNetwork({ cityOnly: true });
-  const d = window.__netDebug;
-  const s = d.state;
-  s.buildings.forEach(b => { b.discovered = true; });
-  d.offerCard('the_diary', { buildingId: s.buildings[2].id });
-  assert.equal(d.waiting().length, 1);
-  // you already chose to look at it; a second tap to turn it over is one tap
-  // too many
-  d.openWaiting(0);
-  assert.ok(s.card && !s.card.facedown, 'a card you went and fetched was still face down');
-  s.card = null;
-});
-
 test('cards: the whole card is one object — frame, words and choices together', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
@@ -10644,106 +10630,32 @@ test('cards: nothing the player has to press is turned off by the stylesheet', (
     `a button wears .${c}, which the stylesheet gives pointer-events: none — it cannot be pressed`));
 });
 
-// --- the tray: what deserves to stop the game -----------------------------
+// --- every card is dealt ---------------------------------------------------
+// The tray is retired: the playtest verdict was that the player never opened
+// what was set aside, so deferral was just hiding content. Every card now
+// arrives the same way — face down, onto the lit city.
 
-test('tray: only somebody closing in takes the screen off you', () => {
-  const { window } = loadNetwork({ cityOnly: true });
-  const d = window.__netDebug;
-  window.EVENTS.filter(e => e.choices.some(c => c.after)).forEach(ev => {
-    const should = ev.blocks !== undefined ? !!ev.blocks : ev.kind === 'closing';
-    assert.equal(d.blocks(ev), should, `${ev.id} disagrees about whether it is an interruption`);
-  });
-  // and it is a real split, not a rule that happens to catch everything
-  const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  const stop = living.filter(d.blocks).length;
-  assert.ok(stop >= 8 && stop < living.length * 0.5,
-    `${stop} of ${living.length} cards interrupt — the tray is doing nothing`);
-});
-
-test('tray: a quiet card is set down, not dealt at you', () => {
+test('cards: every card interrupts, and nothing is ever set aside', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
   const s = d.state;
   s.buildings.forEach(b => { b.discovered = true; });
-
-  d.offerCard('the_diary', { buildingId: s.buildings[2].id });
-  assert.equal(s.card, null, 'a diary took the whole screen');
-  assert.equal(d.waiting().length, 1, 'the diary went nowhere at all');
-
-  // ...and somebody narrowing it down still cuts straight through
-  d.offerCard('district_talking', { district: 'commercial' });
-  assert.ok(s.card && s.card.eventId === 'district_talking', 'the response did not interrupt');
+  const one = (id, subject) => {
+    s.card = null;
+    d.offerCard(id, subject);
+    assert.ok(s.card && s.card.eventId === id && s.card.facedown,
+      `${id} was not dealt face down onto the screen`);
+  };
+  one('the_diary', { buildingId: s.buildings[2].id });   // the quietest card there is
+  one('district_talking', { district: 'commercial' });   // and the loudest
+  one('payroll_window', null);
   s.card = null;
-
-  // opening one makes it an ordinary card
-  assert.ok(d.openWaiting(0), 'the waiting card would not open');
-  assert.equal(s.card.eventId, 'the_diary');
-  assert.equal(d.waiting().length, 0, 'the card is open and still in the tray');
-  s.card = null;
-});
-
-test('tray: a full tray never promotes a quiet card into an interruption', () => {
-  const { window } = loadNetwork({ cityOnly: true });
-  const d = window.__netDebug;
-  const s = d.state;
-  s.buildings.forEach(b => { b.discovered = true; });
-  s.forced = [];
-  d.offerCard('the_diary', { buildingId: s.buildings[2].id });
-  d.offerCard('payroll_window', null);
-  assert.ok(!d.trayFree(), 'the tray did not fill');
-
-  // the third waits its turn rather than jumping the screen — nothing lost,
-  // nothing promoted
-  d.offerCard('router_cluster', null);
-  assert.equal(s.card, null, 'a full tray turned a quiet card into an interruption');
-  assert.equal(d.waiting().length, 2, 'the tray went over its cap');
-  assert.ok((s.forced || []).some(f => f.id === 'router_cluster'), 'the card was simply lost');
-
-  // a timer-drawn ambient card is let go instead — it stays eligible, where
-  // requeueing every draw would pile duplicates into the queue
-  const qBefore = (s.forced || []).length;
-  d.offerCard('empty_office', null, { drop: true });
-  assert.equal(s.card, null);
-  assert.equal((s.forced || []).length, qBefore, 'a dropped draw was requeued anyway');
-
-  // ...and a full tray never silences the cards that do interrupt: the whole
-  // point of the tray is that closing-in still cuts straight through it
-  d.offerCard('district_talking', { district: 'commercial' });
-  assert.ok(s.card && s.card.eventId === 'district_talking',
-    'a full tray silenced an interruption — the deck went quiet at its busiest');
-  s.card = null;
-});
-
-test('tray: a whole game can be played without a minor card ever interrupting', () => {
-  const { window } = loadNetwork({ cityOnly: true });
-  const d = window.__netDebug;
-  const s = d.state;
-  let interrupted = 0, minor = 0, maxTray = 0;
-  for (let t = 0; t < 60 && !s.over; t++) {
-    for (let a = 0; a < 3; a++) {
-      const open = s.hosts.filter(h => d.isFrontier(h) && d.canHack(h.id));
-      if (open.length) { d.startHack(open[0].id); continue; }
-      const seen = s.buildings.filter(b => b.discovered);
-      if (seen.length && d.canAfford('sweep')) d.actScan(seen[0].id); else break;
-    }
-    // never open the tray — only answer what forced its way onto the screen
-    let guard = 0;
-    while (s.card && guard++ < 8) {
-      if (s.card.kind === 'after') { s.card = null; break; }
-      const ev = d.eventById(s.card.eventId);
-      if (!ev) { s.card = null; break; }
-      interrupted++;
-      if (!d.blocks(ev)) minor++;
-      const chs = d.cardChoices(ev, s.card);
-      const i = chs.findIndex(c => d.choiceUsable(c));
-      d.resolveEvent(i === -1 ? 0 : i);
-      if (s.card && s.card.kind === 'after') s.card = null;
-    }
-    d.endTurn({ silent: true });
-    maxTray = Math.max(maxTray, d.waiting().length);
-  }
-  assert.equal(minor, 0, `${minor} quiet cards interrupted a game nobody asked them to`);
-  assert.ok(maxTray <= 2, `the tray held ${maxTray} at once — it is meant to hold a couple`);
+  // ...and a stale save that still holds a tray pours it into the queue
+  const ser = JSON.parse(JSON.stringify(d.serialize()));
+  ser.waiting = [{ id: 'the_diary', subject: null }];
+  const back = d.deserialize(ser);
+  assert.ok((back.forced || []).some(f => f.id === 'the_diary'),
+    'a card a player was owed died with the tray');
 });
 
 // --- rules a card turns on, for a stated while ----------------------------
@@ -11259,12 +11171,7 @@ test('cards: a choice can set something in motion that comes back later', () => 
   s.card = null;
   s.nextEventTurn = s.turn + 999;
   d.endTurn({ silent: true });
-  // ...and arrives: on the screen if it is the interrupting kind, in the tray
-  // if it is not. Either way it came back when it said, not when the deck's
-  // own timer got round to it.
-  const arrived = (s.card && s.card.eventId === p.id)
-    || d.waiting().some(w => w.id === p.id);
-  assert.ok(arrived, 'it came back on its own schedule');
+  assert.ok(s.card && s.card.eventId === p.id, 'it came back on its own schedule');
   assert.equal((s.planted || []).length, 0, 'and is no longer pending');
 });
 
