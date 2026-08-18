@@ -10251,7 +10251,7 @@ scratch.later = null;
     // card being read takes the screen: at 390px a full card and a map cannot
     // both have it, and the card carries the building anyway.
     const lit = !state.over && !!state.card && state.card.kind !== 'breach'
-      && (down || state.card.kind === 'after')
+      && down
       && !!state.card.subject && state.scope !== 'country';
     $p.classList.toggle('in-city', lit);
     $p.classList.toggle('dealt', down);
@@ -10670,17 +10670,37 @@ scratch.later = null;
     // It exists because "setup, question, numbers" never resolved — see the
     // deck rework. One tap; cards are rare enough that the beat is earned.
     if (state.card.kind === 'after') {
-      const ak = (window.CARD_KINDS || {})[state.card.evKind] ? ` event k-${state.card.evKind}` : '';
+      // The ending is the same object you just read: same frame, same emblem,
+      // its text swapped for what happened. It used to fall back to the old
+      // flat panel style, which broke the deck's own register mid-moment.
+      const ak = state.card.evKind || null;
+      const K = (window.CARD_KINDS || {})[ak] || null;
+      const sj = state.card.subject || null;
+      const sb = sj && sj.buildingId ? buildingById(sj.buildingId) : null;
+      const inset = sb && sb.discovered ? svgBuildingCard(sb) : (K ? cardSigil(ak) : '');
       $p.innerHTML = `
-        <div class="card after${ak}">
-          <span class="card-kicker mono">AND SO</span>
-          <h2 class="serif">${state.card.title}</h2>
-          <p class="flavor">${state.card.text}</p>
-        </div>
-        <div class="choices">
-          <button class="choice-strip" data-after-done>
-            <span class="ctext">Continue</span>
-          </button>
+        <div class="tcard face${K ? ' k-' + ak : ''} after">
+          ${cardFrame(ak)}
+          <div class="tface">
+            <div class="tplate mono">
+              <span class="tkicker">AND SO</span>
+              ${K ? `<span class="tmark">${K.label}</span>` : ''}
+            </div>
+            <div class="temblem">${inset}</div>
+            <h2 class="serif">${state.card.title}</h2>
+            <p class="flavor after-text">${state.card.text}</p>
+            <div class="tdivide" aria-hidden="true">
+              <svg viewBox="0 0 240 8" preserveAspectRatio="none">
+                <path d="M2 4 H98 M142 4 H238" stroke="#c9a15c" stroke-width=".7" opacity=".8"/>
+                <circle cx="120" cy="4" r="2" fill="none" stroke="#c9a15c" stroke-width=".9"/>
+              </svg>
+            </div>
+            <div class="choices">
+              <button class="choice-strip" data-after-done>
+                <span class="ctext">Continue</span>
+              </button>
+            </div>
+          </div>
         </div>`;
       $p.querySelector('[data-after-done]').addEventListener('click', () => {
         state.card = null;

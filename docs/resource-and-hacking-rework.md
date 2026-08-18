@@ -1673,6 +1673,26 @@ One CSS trap worth writing down: `calc(var(--card-w) / 340)` produces a
 silently invalid and the whole card rendered unpadded at default sizes. The
 scale is a plain number now, set by hand at each size the card is drawn.
 
+### Two registers, one thread
+
+The cards and the chrome read as two different games; the fix is a rule
+rather than a coat of paint. **The world speaks in filigree; your
+instruments are etched** — both registers from the same bench, one material
+at two formalities:
+
+- **filigree** (the world's voice): cards, endings, the banner, the
+  response's bar, the end of the run. Stitched dashed borders in the
+  speaker's colour; serif titles; gold reserved for this register alone.
+- **etched** (you, operating): the sheet grows candidate C's corner ticks;
+  resource chips become square-cornered plates with tabular figures; the
+  action buttons carry a faint inset second line; nothing here is ever gold.
+
+The ending now stays on the card object — same frame, same emblem, its text
+swapped for what happened, one Continue on the face. It used to fall back to
+the old flat panel style, which broke the deck's own register mid-moment.
+The end of the run gets the world's last word: serif verdict inside a
+gold-threaded frame.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

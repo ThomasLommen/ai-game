@@ -150,11 +150,13 @@ body {
   font: inherit;
   cursor: pointer;
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 8px;
+  /* etched register: an instrument is a plate, not a pill */
+  border-radius: 8px;
+  padding: 5px 9px;
 }
 #res-row.compact .res { padding: 3px 8px; font-size: 11px; }
 .res b { font-size: 12.5px; }
@@ -279,9 +281,10 @@ body {
   align-items: baseline;
   gap: 8px;
   padding: 7px 15px;
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--surface-2);
-  border: 1px solid var(--cover);
+  /* the world speaking: the deck's stitched border, in the speaker's colour */
+  border: 1px dashed var(--cover);
   box-shadow: 0 6px 20px rgba(0,0,0,.55);
 }
 .event-row .event-verb { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
@@ -350,7 +353,9 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: 10px;
+  border-radius: 8px;
+  /* the etched double line, drawn without a second element */
+  box-shadow: inset 0 0 0 1px transparent, inset 0 0 0 3px color-mix(in srgb, var(--line) 45%, transparent);
   padding: 11px 12px;
   font-size: 13px;
   cursor: pointer;
@@ -505,14 +510,17 @@ body {
 .cost.heat { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 40%, transparent); }
 
 .panel-msg {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: linear-gradient(178deg, #1a2320, #121916);
+  border: 1px solid color-mix(in srgb, var(--gold, #c9a15c) 45%, var(--line));
+  outline: 1px solid color-mix(in srgb, #c9a15c 22%, transparent);
+  outline-offset: 4px;
   border-radius: 12px;
-  padding: 16px;
+  padding: 20px 18px;
   font-size: 14px;
   color: var(--ink-dim);
   line-height: 1.6;
 }
+.panel-msg b { font-family: ui-serif, Georgia, serif; font-size: 17px; }
 .panel-msg b { color: var(--ink); }
 .panel-msg .act-btn { margin-top: 12px; }
 
@@ -743,6 +751,12 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 @keyframes subjectRing { 0%, 100% { opacity: .38; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .subject-ring { animation: none; } }
+
+/* ---- two registers, one thread ---------------------------------------
+   The world speaks in filigree: cards, endings, the banner, the response,
+   the end of the run. Your instruments are etched: hairlines, corner ticks,
+   square-ish corners, no gold — gold belongs to the deck's voice. Both come
+   from the same bench; they are one material at two formalities. */
 
 /* ---- the deck, as objects --------------------------------------------
    A card is a thing, not a screen: 340x580, filigree in shape and this game's
@@ -1010,6 +1024,11 @@ footer .build { opacity: .55; font-size: 10px; }
   #graph-wrap.card-lit .bldg, #graph-wrap .bldg { transition: none; }
 }
 
+/* the ending: the same card, its text swapped for what happened */
+.tcard.after .after-text { color: var(--ink); }
+.tcard.after .choices { margin-top: calc(6px * var(--card-k)); }
+.tcard.after .tkicker { opacity: .7; }
+
 /* The size hierarchy. A delivered beat — one option, nothing actually being
    decided — should not take the same screen as the response arriving. The
    big ones keep the full width on purpose: a hierarchy needs a top. */
@@ -1092,7 +1111,8 @@ footer .build { opacity: .55; font-size: 10px; }
 
 #turn-row { display: flex; gap: 8px; margin-top: 10px; }
 .caps-btn, .end-turn-btn {
-  border-radius: 10px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--line) 45%, transparent);
   padding: 12px 14px;
   font-size: 13px;
   cursor: pointer;
@@ -1129,7 +1149,18 @@ footer .build { opacity: .55; font-size: 10px; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 10px 16px 4px;
+  padding: 14px 18px 6px;
+  /* the etched corner ticks, from candidate C: eight hairline strokes */
+  --tick: #3a4741;
+  background-image:
+    linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick));
+  background-repeat: no-repeat;
+  background-size: 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
+  background-position: 6px 6px, 6px 6px, calc(100% - 6px) 6px, calc(100% - 6px) 6px,
+    6px calc(100% - 6px), 6px calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) calc(100% - 6px);
 }
 .sheet-top { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; margin-bottom: 8px; }
 .sheet-close {
@@ -2109,9 +2140,10 @@ footer .build { opacity: .55; font-size: 10px; }
 /* what it holds, how fast it moves, and how close the city is to being theirs
    — standing, in the panel, for as long as it is running */
 .hunt-bar {
-  border: 1px solid color-mix(in srgb, var(--heat) 45%, transparent);
+  /* the response is the world speaking, so it wears the stitch */
+  border: 1px dashed color-mix(in srgb, var(--heat) 50%, transparent);
   background: color-mix(in srgb, var(--heat) 9%, transparent);
-  border-radius: 6px; padding: 7px 9px; margin-bottom: 8px;
+  border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
 }
 .hunt-bar p { margin: 0; font-size: 12px; line-height: 1.35; }
 .hunt-bar b { color: var(--heat); }
