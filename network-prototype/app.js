@@ -3542,6 +3542,10 @@
     }
     noteEventDrawn(id);
     waiting().push({ id, subject: subject || null });
+    const names = subjectNames(subject);
+    pushLog(names.district
+      ? `Something is waiting, about ${names.district}.`
+      : 'Something is waiting for you to look at it.');
     return null;
   }
   // Opening one you had set aside. It becomes an ordinary card from here on.
@@ -9235,9 +9239,13 @@ scratch.later = null;
       const K = ev && (window.CARD_KINDS || {})[ev.kind];
       const names = subjectNames(w.subject);
       const where = names.district ? names.district : (K ? K.label : 'something');
-      // a card set down is drawn as a card set down — the same back, small
+      // A card set down is drawn as a card set down. It also has to be *seen*:
+      // the first version was a 22px black rectangle in the corner and a
+      // playtest went a dozen turns without noticing there was anything there
+      // at all. Bigger, fanned like a hand, and it says in words that it is
+      // waiting.
       return `<button type="button" class="tray-pill card-wait k-${ev ? ev.kind : ''}" data-wait="${i}"`
-        + ` title="${where}" aria-label="a card is waiting: ${where}">`
+        + ` style="--fan:${i}" title="${where}" aria-label="a card is waiting: ${where}">`
         + `<span class="miniback">${cardBack()}</span></button>`;
     });
     if (!bits.length && !tags.length && !live.length && !wait.length) {
@@ -9247,8 +9255,11 @@ scratch.later = null;
     // Two buttons, because they go to two different places: what is against
     // you lives with the ladder, and what the deck left you with now lives
     // on its own tab beside the tree it belongs with.
+    const waitWord = wait.length === 1 ? 'a card is waiting'
+      : `${wait.length} cards are waiting`;
     $t.innerHTML =
-      (wait.length ? `<span class="tray-line waiting">${wait.join('')}</span>` : '')
+      (wait.length ? `<span class="tray-line waiting">${wait.join('')}`
+        + `<span class="wait-word mono">${waitWord}</span></span>` : '')
       + (live.length ? `<span class="tray-line rules">${live.join('')}</span>` : '')
       + (bits.length ? `<button type="button" class="tray-line" data-open="pressure">${bits.join('')}</button>` : '')
       + (tags.length ? `<button type="button" class="tray-line" data-open="held"><span class="tray-pill dim">${
@@ -10786,10 +10797,13 @@ scratch.later = null;
             }
             if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, cs)}</span>`);
             if (ch.gamble) contracts.push('<span class="gamble-tell">could go either way</span>');
-            return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}${ch.pick ? ' pick' : ''}" data-choice="${i}"${ch.pick ? ` data-pick="${ch.pick}"` : ''} ${usable ? '' : 'disabled'}>
+            // `place`, not `pick`: the map already owns `.pick` for the selection
+            // bracket, and that rule turns pointer events off — which made every
+            // choice on a card-about-the-map silently unclickable.
+            return `<button class="choice-strip${ch.gamble ? ' gamble' : ''}${ch.pick ? ' place' : ''}" data-choice="${i}"${ch.pick ? ` data-pick="${ch.pick}"` : ''} ${usable ? '' : 'disabled'}>
               ${pb && pb.discovered ? svgBuildingCard(pb) : ''}
               <span class="cwords">
-                <span class="ctext">${ch.letter ? `<span class="pick-letter mono">${ch.letter}</span>` : ''}${cardText(ch.text, cs)}</span>
+                <span class="ctext">${ch.letter ? `<span class="place-letter mono">${ch.letter}</span>` : ''}${cardText(ch.text, cs)}</span>
                 <span class="contracts">${contracts.join('')}</span>
               </span>
             </button>`;

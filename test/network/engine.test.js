@@ -10384,6 +10384,13 @@ test('deck: the back gives nothing away', () => {
     assert.equal(d.cardBack(k), back, `the back changes for ${k} — that is a marked card`);
   });
   assert.ok(!back.includes('data-bldg'), 'the back is carrying a building');
+
+  // ...and the stylesheet must not leak it either. The tray pills used to
+  // colour themselves by kind, so the tray told you what sort of card was
+  // waiting before you had turned it over.
+  const leaks = STYLE_CSS.split('}').filter(b => /\.card-wait\.k-/.test(b.split('{')[0] || ''));
+  assert.equal(leaks.length, 0,
+    `the tray styles a waiting card by its kind: ${leaks.map(l => l.split('{')[0].trim()).join(', ')}`);
 });
 
 test('cards: a card is dealt face down, and turns over once', () => {
@@ -10439,6 +10446,53 @@ test('cards: the whole card is one object — frame, words and choices together'
   // the covenant survives the ornament: every price still stated
   assert.ok(html.includes('&minus;4 funds'), 'a price went missing behind the filigree');
   s.card = null;
+});
+
+test('cards: nothing the player has to press is turned off by the stylesheet', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  // `.pick { pointer-events: none }` is a map rule for the selection bracket.
+  // A choice button was given the same bare class and became silently
+  // unclickable — the card was on screen, looked right, and could not be
+  // answered. Every class an interactive element wears is checked against
+  // every bare class the stylesheet switches pointer events off for.
+  const dead = new Set();
+  STYLE_CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}').forEach(block => {
+      if (!/pointer-events\s*:\s*none/.test(block)) return;
+      const sel = block.split('{')[0] || '';
+      // bare single-class selectors are the dangerous ones: they match anything
+      sel.split(',').forEach(one => {
+        const t = one.trim();
+        if (/^\.[A-Za-z][\w-]*$/.test(t)) dead.add(t.slice(1));
+      });
+    });
+  assert.ok(dead.size, 'the stylesheet turns pointer events off nowhere — has it moved?');
+
+  const seen = new Set();
+  const collect = () => {
+    const html = $p.innerHTML;
+    const re = /<button[^>]*class="([^"]*)"/g;
+    let m;
+    while ((m = re.exec(html))) m[1].split(/\s+/).forEach(c => { if (c) seen.add(c); });
+  };
+  s.res.funds = 1000;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  // a plain card, a card that asks about the map, and a card face down
+  const ask = window.EVENTS.find(e => e.id === 'the_service_call');
+  [
+    { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: s.buildings[3].id } },
+    { kind: 'event', eventId: ask.id, subject: d.safeSubject(ask) },
+    { kind: 'event', eventId: 'district_talking', subject: { district: 'commercial' }, facedown: true },
+  ].forEach(card => { s.card = card; d.render(); collect(); });
+  s.card = null;
+
+  assert.ok(seen.size >= 2, 'no buttons were rendered at all');
+  seen.forEach(c => assert.ok(!dead.has(c),
+    `a button wears .${c}, which the stylesheet gives pointer-events: none — it cannot be pressed`));
 });
 
 // --- the tray: what deserves to stop the game -----------------------------

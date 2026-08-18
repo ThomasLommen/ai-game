@@ -834,8 +834,8 @@ footer .build { opacity: .55; font-size: 10px; }
 .tcard .choice-strip:hover:not([disabled]) .ctext { color: var(--item); }
 .tcard .cshow, .tcard .short { font-size: calc(10.5px * var(--card-k)); }
 .tcard .choice-strip.gamble { border-style: none; }
-.tcard .choices.asks .choice-strip.pick { flex-direction: row; align-items: center; gap: calc(10px * var(--card-k)); }
-.tcard .choice-strip.pick .card-inset { width: calc(54px * var(--card-k)); height: calc(54px * var(--card-k)); }
+.tcard .choices.asks .choice-strip.place { flex-direction: row; align-items: center; gap: calc(10px * var(--card-k)); }
+.tcard .choice-strip.place .card-inset { width: calc(54px * var(--card-k)); height: calc(54px * var(--card-k)); }
 
 @media (max-width: 383px) {
   .tcard { --card-w: calc(100vw - 44px); --card-k: .9; }
@@ -879,39 +879,64 @@ footer .build { opacity: .55; font-size: 10px; }
   #panel.card-open.dealt .tcard, .tcard.turning { animation: none; }
 }
 
-/* the tray holds card backs, because that is what a card set down looks like */
+/* The tray holds card backs, because that is what a card set down looks like
+   — but it has to be seen. The first version was a 22px near-black rectangle
+   in the corner, and a playtest ran a dozen turns without noticing anything
+   was there. Bigger, fanned like a hand, lit at the edge, and captioned. */
 .tray-pill.card-wait {
   padding: 0; border: none; background: none; border-radius: 0;
   gap: 0; overflow: visible;
+  transform: rotate(calc(var(--fan, 0) * 5deg - 3deg));
+  transform-origin: bottom center;
+  transition: transform 160ms ease;
 }
+.tray-pill.card-wait + .tray-pill.card-wait { margin-left: -9px; }
 .tray-pill.card-wait .miniback {
-  width: 22px; height: 32px; border-radius: 3px; overflow: hidden;
-  background: #141c19; display: block;
+  width: 30px; height: 43px; border-radius: 4px; overflow: hidden;
+  background: linear-gradient(178deg, #1a2320, #121916);
+  display: block;
+  box-shadow: 0 2px 7px rgba(0,0,0,.55), 0 0 0 1px color-mix(in srgb, var(--item) 34%, transparent);
 }
 .tray-pill.card-wait .miniback svg { width: 100%; height: 100%; display: block; }
 .tray-pill.card-wait .wdot { display: none; }
-.tray-pill.card-wait:hover .miniback { box-shadow: 0 0 0 1px color-mix(in srgb, var(--item) 55%, transparent); }
-.tray-line.waiting { gap: 5px; align-items: center; }
+.tray-pill.card-wait:hover { transform: rotate(0deg) translateY(-3px); }
+.tray-pill.card-wait:hover .miniback { box-shadow: 0 4px 12px rgba(0,0,0,.6), 0 0 0 1px var(--item); }
+/* Every waiting card wears the same back — no kind colour, no kind border.
+   The old pills coloured themselves by kind, which meant the tray told you
+   what sort of card was waiting before you had turned it over. A back that
+   varies is a marked card. */
+.tray-line.waiting { gap: 0; align-items: center; padding: 3px 0 1px; }
+.wait-word {
+  margin-left: 12px;
+  font-size: 11px; letter-spacing: .04em;
+  color: var(--item);
+  animation: waitBreathe 3000ms ease-in-out infinite;
+}
+@keyframes waitBreathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .wait-word { animation: none; opacity: .9; }
+  .tray-pill.card-wait { transition: none; }
+}
 
 /* ---- a card whose choices are places ---------------------------------
    The deepest the deck and the map can point at each other: the choice is
    the building. Each strip carries its own building drawn, and the letter
    the map is wearing over it, so "the shopfront or the shopfront" is never
    the question. */
-.choices.asks .choice-strip.pick {
+.choices.asks .choice-strip.place {
   flex-direction: row;
   align-items: center;
   gap: 11px;
   padding: 10px 12px;
 }
-.choice-strip.pick .card-inset {
+.choice-strip.place .card-inset {
   width: 62px; height: 62px;
   flex: 0 0 auto;
   margin: 0;
   border-radius: 8px;
 }
 .choice-strip .cwords { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.pick-letter {
+.place-letter {
   display: inline-block;
   min-width: 15px;
   margin-right: 7px;
@@ -1358,6 +1383,9 @@ footer .build { opacity: .55; font-size: 10px; }
 /* What you have tapped. Brackets around the thing, not a fourth stroke colour
    on it — held is blue, a landmark gold, the rival dashed purple, and a
    selection competing with those three could not be seen at map scale. */
+/* The map's selection bracket. NOTE: this bare class is why a card's
+   place-choices are called `.place` and not `.pick` — a button wearing this
+   name takes no clicks at all, and nothing in the DOM says so. */
 .pick { pointer-events: none; }
 .pick-wash {
   fill: color-mix(in srgb, var(--ink) 7%, transparent);
@@ -2459,13 +2487,6 @@ footer .build { opacity: .55; font-size: 10px; }
 }
 @keyframes waitPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .tray-pill.card-wait .wdot { animation: none; } }
-.tray-pill.card-wait.k-own     { color: var(--compute); border-color: color-mix(in srgb, var(--compute) 40%, var(--line)); }
-.tray-pill.card-wait.k-own .wdot     { background: var(--compute); }
-.tray-pill.card-wait.k-found   { color: var(--item); border-color: color-mix(in srgb, var(--item) 42%, var(--line)); }
-.tray-pill.card-wait.k-found .wdot   { background: var(--item); }
-.tray-pill.card-wait.k-opening { color: var(--cover); border-color: color-mix(in srgb, var(--cover) 45%, var(--line)); border-style: dashed; }
-.tray-pill.card-wait.k-opening .wdot { background: var(--cover); }
-.tray-pill.card-wait.k-someone { border-left: 3px solid color-mix(in srgb, var(--ink-dim) 55%, var(--line)); border-radius: 4px 999px 999px 4px; }
 
 /* Short screens. A 640-tall phone has to fit a map, a selection and four verbs
    in the same column, so everything below the map is drawn a size down rather
