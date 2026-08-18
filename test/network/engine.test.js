@@ -2339,7 +2339,11 @@ test('terrain: nothing is built on the water, the line or the moor', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   window.REGIONS.forEach(R => {
-    for (let i = 0; i < 4; i++) {
+    // Eight boards a region, not four. The per-board share is noisy enough
+    // that a mean over twenty boards failed about one run in fifteen — a suite
+    // that cries wolf that often stops being read. Forty boards halves the
+    // spread of the mean without touching the claim.
+    for (let i = 0; i < 8; i++) {
       const g = cityIn(d, R.id);
       g.buildings.forEach(b => {
         g.bands.forEach(band => {
@@ -10316,6 +10320,153 @@ test('cards: a card cannot show you a place you have not found', () => {
   b.discovered = true;
   d.render();
   assert.ok($p.innerHTML.includes('card-inset'), 'a building you have found is still not on its own card');
+  s.card = null;
+});
+
+// --- marks: the one thing only a card can do ------------------------------
+
+function componentsOfCity(d) {
+  const s = d.state;
+  const seen = new Set();
+  let n = 0;
+  s.buildings.forEach(b => {
+    if (seen.has(b.id)) return;
+    n++; const q = [b.id]; seen.add(b.id);
+    while (q.length) {
+      const x = q.pop();
+      (s.adjacency[x] || []).forEach(y => { if (!seen.has(y)) { seen.add(y); q.push(y); } });
+    }
+  });
+  return n;
+}
+
+test('marks: nothing a card does can break the city in two', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.slice(0, 8).forEach(h => { h.owned = true; h.discovered = true; });
+  assert.equal(componentsOfCity(d), 1, 'the city did not start as one place');
+
+  // Far past anything a real game would do. Measured before the bridge check
+  // existed: this broke a 97-building city into eleven islands, with not one
+  // isolated building — so "nothing is orphaned" was never the invariant.
+  let cut = 0, opened = 0;
+  for (let r = 0; r < 20; r++) s.buildings.forEach(b => {
+    if (d.cutLinkAt(b.id)) cut++;
+    if (d.openLinkFrom(b.id)) opened++;
+  });
+  assert.ok(cut > 10 && opened > 10, 'the probe never actually changed the graph');
+  assert.equal(componentsOfCity(d), 1, 'a card cut the city into pieces');
+  const iso = s.buildings.filter(b => !(s.adjacency[b.id] || []).length);
+  assert.equal(iso.length, 0, `a card stranded a building: ${iso.map(b => b.id).join(',')}`);
+});
+
+test('marks: a street a card closed does not come back', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const from = s.buildings.find(b => (s.adjacency[b.id] || []).length >= 2);
+  const done = d.cutLinkAt(from.id);
+  assert.ok(done, 'nowhere in the city had a street to spare');
+  assert.equal((s.adjacency[done.a] || []).indexOf(done.b), -1, 'the street is still there');
+  const cuts = (s.cuts || []).length;
+  // The Cut's own streets are relaid on a timer; one you made is not.
+  s.turn += 500;
+  d.repairStreets();
+  assert.equal((s.cuts || []).length, cuts, 'the council put back a street you closed');
+  assert.equal((s.adjacency[done.a] || []).indexOf(done.b), -1, 'the street came back anyway');
+});
+
+test('marks: what a card leaves is still there after a save', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const [b0, b1, b2] = s.buildings;
+  d.setMark(b0.id, 'bait', true);
+  d.setMark(b1.id, 'harden', 4);
+  d.setMark(b2.id, 'watch', true);
+  const link = d.openLinkFrom(b0.id);
+  const cut = d.cutLinkAt(s.buildings.find(b => (s.adjacency[b.id] || []).length >= 2).id);
+
+  const back = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  // compared as text: the live state lives in the vm's realm, so a structural
+  // compare fails on prototypes alone even when every value matches
+  assert.equal(JSON.stringify(back.marks), JSON.stringify(s.marks),
+    'the marks did not survive the save');
+  if (link) assert.ok((back.adjacency[link.a] || []).indexOf(link.b) !== -1, 'the opened street did not survive');
+  if (cut) assert.equal((back.adjacency[cut.a] || []).indexOf(cut.b), -1, 'the closed street reopened on load');
+  assert.equal((back.cuts || []).length, (s.cuts || []).length, 'the record of the cut was lost');
+});
+
+test('marks: every mark changes a rule, and says so on the building', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const b = s.buildings.find(x => d.hostsIn(x).length);
+  const h = d.hostsIn(b)[0];
+
+  // harder for good, and the door says by how much
+  const base = d.defenseOf(h);
+  d.setMark(b.id, 'harden', 4);
+  assert.equal(d.defenseOf(h), base + 4, 'hardening a door did nothing to it');
+  assert.ok(/defends 4 harder/.test(d.markLine(b.id)), 'the door does not say it was shored up');
+  d.setMark(b.id, 'harden', -2);
+  assert.equal(d.defenseOf(h), base - 2, 'softening a door did nothing to it');
+  assert.ok(/defends 2 easier/.test(d.markLine(b.id)), 'the door does not say it was weakened');
+  d.setMark(b.id, 'harden', null);
+
+  // bait: getting caught there counts double toward the response
+  h.owned = false;
+  d.setMark(b.id, 'bait', true);
+  assert.ok(d.baitAt(b.id), 'the bait mark did not stick');
+  assert.ok(/counts double/.test(d.markLine(b.id)), 'a baited door does not say what it costs');
+  d.setMark(b.id, 'bait', null);
+
+  // watched: the response would rather walk here
+  d.setMark(b.id, 'watch', true);
+  assert.ok(/response comes here first/.test(d.markLine(b.id)), 'a watched door says nothing');
+  assert.equal(d.markLine(s.buildings.find(x => x.id !== b.id).id), '', 'an unmarked building is claiming a mark');
+});
+
+test('marks: the response walks toward a building a card pointed it at', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
+  d.huntSeed((what) => `They are inside the ${what}.`);
+  const opts = d.huntFrontier();
+  if (opts.length < 2) return;              // nothing to prefer between
+  const plain = d.huntNext();
+  const other = opts.find(id => id !== plain);
+  d.setMark(other, 'watch', true);
+  assert.equal(d.huntNext(), other, 'a card pointed them somewhere and they ignored it');
+});
+
+test('marks: a mark only ever lands where the card already named', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.res.funds = 1000;
+  // Chance belongs upstream of a decision, never inside it. A card that names
+  // only a district has no building to mark, and marks nothing — rather than
+  // rolling for one at the moment you press the button.
+  assert.equal(d.subjectBuilding({ district: 'commercial' }), null,
+    'a district subject invented a building at resolution time');
+  const b = s.buildings[4];
+  assert.equal(d.subjectBuilding({ buildingId: b.id }).id, b.id);
+
+  // ...and a card that does name one leaves its mark exactly there
+  const before = d.markedBuildings().length;
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  const ev = window.EVENTS.find(e => e.id === 'first_caught_here');
+  d.resolveEvent(ev.choices.length - 1);            // "Shrug it off" — the door hardens
+  assert.equal(d.markedBuildings().length, before + 1, 'the card left no mark');
+  assert.ok(d.hardenAt(b.id) > 0, 'the mark landed on the wrong building');
   s.card = null;
 });
 

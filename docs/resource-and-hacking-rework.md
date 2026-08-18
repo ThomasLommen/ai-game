@@ -1492,6 +1492,47 @@ router), and their flavor now names it. 35 of 48 living cards now put
 themselves in the city; the rest are about your whole network, which has no
 address.
 
+### Cards leave marks
+
+The exclusivity fix. Nothing else in this game changes the graph or what one
+particular door is worth — so a card that does either is doing something no
+other system can, and it is still on the map twenty turns later. Five verbs,
+declarative in the same style as the rest of the deck:
+
+| verb | what it leaves |
+| --- | --- |
+| `openLink` | a back door — one new street, two steps out, permanent |
+| `cutLink` | a street closed for good; `repairStreets` already treats a dateless cut as one you made yourself |
+| `bait` | a door left open on purpose: visible on the map, and getting caught there counts double |
+| `hardenThere` | this one door defends harder, or easier, permanently |
+| `watchThere` | where the response would rather walk — `huntNext` prefers it, still previewed as `next-up` |
+
+Marks are permanent by decision: a mark that expired would be a number, and
+the game has enough of those. They are drawn on the map, and the building
+states every one of them in words — the covenant applies to your own doing as
+much as to the world's.
+
+**A mark only ever lands where the card already named.** Picking a building at
+resolution would put chance on the wrong side of a decision, so
+`subjectBuilding` returns only what the subject names, and a card that wants
+to leave a mark declares a *building* subject when it is dealt (`EV_SPOT`). A
+card that names only a district marks nothing.
+
+**What the probe caught.** The plan said this was the stage that could quietly
+break the map generator's promises, and it did: forty rounds of cutting broke
+a 97-building city into **eleven islands with not one isolated building**. The
+guard was checking held hosts and orphans, so "nothing is stranded" was never
+the invariant that mattered. `cutLinkAt` now refuses any cut whose two ends
+cannot still reach each other some other way — it will not cut a bridge. After
+the fix: one component through 4,080 cuts, and cutting-only settles at 65 cuts
+and then refuses everything.
+
+Six cards use them, chosen where the fiction already said so — the till that
+moves two streets over and takes your route with it, two weeks of watching a
+fence, the door that beat you and spent the weekend making sure, the second
+you drawn three streets over for them to chase, and the street the response
+came in by, which you can take out from under both of you.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

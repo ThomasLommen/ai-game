@@ -744,6 +744,24 @@ footer .build { opacity: .55; font-size: 10px; }
 @keyframes subjectRing { 0%, 100% { opacity: .38; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .subject-ring { animation: none; } }
 
+/* ---- what a card left behind ----------------------------------------
+   Marks are permanent and mechanical, so they are drawn permanently: small,
+   quiet, and still there twenty turns later. Nothing else in the game can
+   put any of these on the map. */
+.mark-bait {
+  fill: none;
+  stroke: var(--funds);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: .8;
+}
+.mark-watch { fill: var(--heat); opacity: .85; }
+.mark-hard { fill: var(--cover); opacity: .9; }
+.mark-soft { fill: var(--item); opacity: .9; }
+/* a street that was not there before, and one that is gone for good */
+.wire.opened { stroke-dasharray: none; }
+.sel-desc.mark-line { color: var(--item); }
+
 /* the building itself, drawn onto the card in its own viewBox by the same
    code that draws the map. The same shopfront, on the card about it. */
 .card-body { display: flex; align-items: flex-start; gap: 12px; }

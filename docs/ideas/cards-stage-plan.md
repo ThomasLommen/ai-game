@@ -98,28 +98,19 @@ it, including "a card cannot show you a place you have not found".
 
 ---
 
-## Stage 3 — Cards leave marks *(the big one, one to two sessions)*
+## Stage 3 — Cards leave marks *(the big one)* — **SHIPPED**
 
-The exclusivity fix: effects with **no other source in the game**. Nothing
-else can change the graph, so cards that do become structurally unique.
+Five verbs — `openLink`, `cutLink`, `bait`, `hardenThere`, `watchThere` — all
+permanent, all drawn on the map, all stated in words on the building. A mark
+only lands where the card already named (`EV_SPOT` picks the building when the
+card is *dealt*, so the chance is upstream of the decision). Six cards use
+them.
 
-New declarative outcomes, reusing the `cutStreets`/`repairStreets` machinery
-that already mutates links:
-
-- `openLink` — a back door: a new permanent link between two buildings
-- `cutLink` — a street closed
-- `honeypot` — a named door marked as bait: visible once marked, and getting
-  caught there counts double
-- `hardenThere` / `softenThere` — a permanent defense change on one building
-- `watchThere` — a building the response prefers to walk toward
-
-**Check:** a probe shows the graph actually changed, survived a save, and
-still holds every invariant — no isolated buildings, one component. Reuse
-`dropUnreachable`'s guarantee; a card must never be able to strand a
-building.
-
-**Trap:** this is the stage that could quietly break the map generator's
-promises. The invariant tests are the whole safety net.
+**Check, done:** the probe caught exactly the failure this stage was warned
+about — forty rounds of cutting broke a 97-building city into eleven islands
+with not one isolated building, so the orphan guard was never the invariant
+that mattered. `cutLinkAt` now refuses to cut a bridge. After: one component
+through 4,080 cuts. Six tests hold it, including the save round-trip.
 
 ---
 

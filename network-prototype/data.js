@@ -1068,6 +1068,18 @@ function EV_HELD(c, st, role) {
   const h = pool[Math.floor(Math.random() * pool.length)];
   return { buildingId: h.buildingId };
 }
+// A named spot inside a district, chosen when the card is dealt rather than
+// when it resolves. Anything a card does permanently to the map has to land
+// on a place the choice already named — picking one at resolution would put
+// the chance on the wrong side of your decision.
+function EV_SPOT(c, st, district) {
+  const dk = district || (EV_HERE(c) || {}).district;
+  if (!dk) return null;
+  const pool = ((st && st.buildings) || []).filter(b => b.district === dk && b.discovered);
+  if (!pool.length) return { district: dk };
+  const b = pool[Math.floor(Math.random() * pool.length)];
+  return { buildingId: b.id, district: dk };
+}
 function EV_HERE(c) {
   if (c.susp && c.susp.warmest) return { district: c.susp.warmest };
   let best = null;
@@ -1223,9 +1235,9 @@ window.EVENTS = [
         after: 'It paid. Somewhere a counter ticked over, and you both know it.',
         apply: (s) => { s.res.funds += 10; s.warmHere = 5; } },
       { text: 'Test it first', cost: { funds: 3 },
-        shows: '+4 funds, carefully',
-        after: 'You go in on gloves, take only what a burglar would miss, and leave the door exactly as ajar as you found it.',
-        apply: (s) => { s.res.funds += 4; } },
+        shows: '+4 funds; {PLACE} is marked as bait from now on',
+        after: 'You go in on gloves and come out knowing. The door stays ajar, and now you are the one who knows why.',
+        apply: (s) => { s.res.funds += 4; s.bait = true; } },
       { text: 'Stay away',
         shows: '{DISTRICT} cools by 2',
         after: 'An open door with nobody through it tells whoever opened it something too. Let them wonder.',
@@ -1298,7 +1310,7 @@ window.EVENTS = [
     id: 'shutters_down',
     kind: 'opening',
     cond: (s) => s.roles.funds >= 1 && s.districts.commercial >= 1,
-    subject: () => ({ district: 'commercial' }),
+    subject: (c, st) => EV_SPOT(c, st, 'commercial'),
     title: 'Shutters Down',
     flavor: 'One of the shops you sit inside is closing. The till will be wiped and sold on within the week.',
     choices: [
@@ -1307,9 +1319,9 @@ window.EVENTS = [
         after: 'You empty it the night before the liquidators do. Their inventory and yours disagree by exactly one line.',
         apply: (s) => { s.res.funds += 9; s.warmHere = 2; } },
       { text: 'Follow the hardware to its next owner', cost: { funds: 4 },
-        shows: '+4 funds; {DISTRICT} cools by 3',
-        after: 'The till goes to a stall two streets over, still carrying you. New shop, old tenant.',
-        apply: (s) => { s.res.funds += 4; s.coolHere = 3; } },
+        shows: '+4 funds; {DISTRICT} cools by 3; a new way through, permanently',
+        after: 'The till goes to a stall two streets over, still carrying you. New shop, old tenant — and a route between them that is on nobody\'s plan.',
+        apply: (s) => { s.res.funds += 4; s.coolHere = 3; s.openLink = 1; } },
     ],
   },
 {
@@ -1334,14 +1346,14 @@ window.EVENTS = [
     id: 'fenced_yard',
     kind: 'opening',
     cond: (s) => s.districts.industrial >= 1,
-    subject: () => ({ district: 'industrial' }),
+    subject: (c, st) => EV_SPOT(c, st, 'industrial'),
     title: 'Beyond the Fence',
     flavor: 'The {DISTRICT} is not like the rest of the city. Everything here was built by people who expected somebody to try.',
     choices: [
       { text: 'Study the perimeter properly', cost: { funds: 9 },
-        shows: '+3 funds; tooling +1',
-        after: 'Two weeks of watching shift changes. What you learn about their fences is true of everyone\'s.',
-        apply: (s) => { s.res.funds += 3; s.toolingGift = 1; } },
+        shows: '+3 funds; tooling +1; a new way through, permanently',
+        after: 'Two weeks of watching shift changes. What you learn about their fences is true of everyone\'s — and one gate in this one is now yours.',
+        apply: (s) => { s.res.funds += 3; s.toolingGift = 1; s.openLink = 1; } },
       { text: 'Push in regardless', gate: { stat: 'tflops', min: 24 },
         shows: '+14 funds; {DISTRICT} warms by 6',
         after: 'You go through the fence at its strongest point, because nobody guards that. It costs noise. It pays.',
@@ -1715,9 +1727,9 @@ window.EVENTS = [
         after: 'Anonymous money fixes a fence, a sign, a door. The street decides the whole thing was probably kids.',
         apply: (s) => { s.coolHere = 5; } },
       { text: 'Shrug it off',
-        shows: 'nothing',
-        after: 'Doors win sometimes. You write it down and take the long way around that block for a while.',
-        apply: (s) => {} },
+        shows: 'nothing — and {PLACE} defends 3 harder from now on',
+        after: 'Doors win sometimes. Whoever runs this one knows they won, and spends the weekend making sure of it.',
+        apply: (s) => { s.hardenThere = 3; } },
     ],
   },
 {
@@ -1736,6 +1748,10 @@ window.EVENTS = [
         shows: 'tooling +1; {DISTRICT} warms by 2',
         after: 'You watch them watching for you. Their equipment is good. Yours is now slightly better informed.',
         apply: (s) => { s.toolingGift = 1; s.warmHere = 2; } },
+      { text: 'Burn the street they came in by', cost: { funds: 8 },
+        shows: 'a street at {PLACE} closes for good — theirs and yours',
+        after: 'You take the road out from under both of you. They will find another way round. So will you, and it will be longer.',
+        apply: (s) => { s.cutLink = 1; } },
       { text: 'Watch them work',
         shows: 'nothing yet',
         after: 'You do nothing, loudly. They map the streets you burned and sit in the middle of them, waiting. The city has two patient things in it now.',
@@ -1862,7 +1878,7 @@ window.EVENTS = [
     id: 'pattern_of_life',
     kind: 'closing',
     cond: (s) => s.susp.max >= 26,
-    subject: EV_HERE,
+    subject: (c, st) => EV_SPOT(c, st),
     title: 'Pattern of Life',
     flavor: 'Whoever is looking has stopped chasing incidents in {DISTRICT} and started drawing a map. That is a much worse sign.',
     choices: [
@@ -1871,9 +1887,9 @@ window.EVENTS = [
         after: 'You change everything they think they know — hours, routes, habits. The map they drew describes somebody who no longer exists.',
         apply: (s) => { s.coolHere = 16; } },
       { text: 'Feed the map something wrong', gate: { stat: 'covert', min: 8 },
-        shows: '−4 funds; {DISTRICT} cools by 20',
-        after: 'You draw them a second you, three streets over, more careless and easier to catch. They chase it happily.',
-        apply: (s) => { s.coolHere = 20; s.res.funds -= 4; } },
+        shows: '−4 funds; {DISTRICT} cools by 20; they will go to {PLACE} first, and getting caught there counts double',
+        after: 'You draw them a second you at {PLACE}, more careless and easier to catch. They chase it happily, which is the point, and the risk.',
+        apply: (s) => { s.coolHere = 20; s.res.funds -= 4; s.watchThere = true; s.bait = true; } },
       { text: 'Let them finish it',
         shows: '+12 funds; you are hunted now',
         after: 'You let the map be completed. It is accurate. It is also, now, the most dangerous document in the city.',

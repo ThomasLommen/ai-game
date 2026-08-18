@@ -1854,6 +1854,7 @@
       keys: 0,         // credentials found on machines, spent one door at a time
       suspicion: {},   // how warm each district is — a fact about here
       carded: {},      // per-place beats the deck has already dealt here
+      marks: {},       // what cards have permanently done to particular buildings
       card: null,      // { kind:'event'|'agent', ... }
       log: [],
       lastStage: 'foothold',
@@ -2088,7 +2089,9 @@
   }
   // What a host effectively defends at — the world can harden against you.
   function defenseOf(h) {
-    return h.defense + (has('known_capable') ? 2 : 0);
+    // ...plus whatever a card did to this particular door, permanently. This
+    // is the only thing in the game that changes one building's worth.
+    return Math.max(1, h.defense + (has('known_capable') ? 2 : 0) + hardenAt(h.buildingId));
   }
   // A representative door, for readouts that have to name one without a
   // specific host in hand — force's heat cost and "a door defends at" both
@@ -2584,8 +2587,12 @@
     const opts = huntFrontier();
     if (!opts.length) return null;
     const threads = (bid) => hostsIn(buildingById(bid)).reduce((a, h) => a + h.threads, 0);
+    // A building a card pointed them at is where they go, given the choice —
+    // still previewed as `next-up` on the map, so a mark you made never turns
+    // into a surprise.
     return opts.slice().sort((a, b) =>
-      (huntReach(a) - huntReach(b)) || (threads(b) - threads(a)))[0];
+      ((watchedAt(b) ? 1 : 0) - (watchedAt(a) ? 1 : 0))
+      || (huntReach(a) - huntReach(b)) || (threads(b) - threads(a)))[0];
   }
   // Everything it holds, and everything it could come for, is on the map
   // whether or not you had swept it. An invisible frontier made the whole
@@ -2675,6 +2682,21 @@
     S.bands.forEach(([at, words]) => { if (v >= at) phrase = words; });
     const pct = Math.round(v * S.slope * 100);
     return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.</p>`;
+  }
+  // A mark, said out loud. Everything a card did to a building is permanent
+  // and mechanical, so the building has to be able to state it — the covenant
+  // applies to your own doing as much as to the world's.
+  function markLine(bid) {
+    const m = markOf(bid);
+    if (!m) return '';
+    const bits = [];
+    if (m.opened) bits.push('a way in that is not on any plan');
+    if (m.bait) bits.push('left open on purpose — getting caught here counts double');
+    if (m.harden > 0) bits.push(`shored up: this door defends ${m.harden} harder`);
+    if (m.harden < 0) bits.push(`weakened: this door defends ${-m.harden} easier`);
+    if (m.watch) bits.push('somewhere they would rather look — the response comes here first');
+    if (!bits.length) return '';
+    return `<p class="sel-desc mark-line">${bits.join('. ')}.</p>`;
   }
   function huntStart() {
     if (huntOn() || state.scope !== 'city') return null;
@@ -3422,6 +3444,31 @@
     return true;
   }
 
+  // --- what a card leaves behind ------------------------------------------
+  // Marks are the one thing in this game only a card can do. Nothing else
+  // opens a street, closes one, or changes what a particular door is worth —
+  // so a card that leaves a mark is doing something no other system can, and
+  // the mark is still on the map twenty turns later. They are permanent by
+  // design: a mark that expired would be a number, and the game has enough of
+  // those.
+  function markOf(bid) { return (state.marks || {})[bid] || null; }
+  function setMark(bid, key, val) {
+    if (!bid) return null;
+    state.marks = state.marks || {};
+    const m = state.marks[bid] || (state.marks[bid] = {});
+    if (val === null || val === false || val === 0) delete m[key]; else m[key] = val;
+    if (!Object.keys(m).length) delete state.marks[bid];
+    return m;
+  }
+  const baitAt = (bid) => !!(markOf(bid) || {}).bait;
+  const watchedAt = (bid) => !!(markOf(bid) || {}).watch;
+  const hardenAt = (bid) => ((markOf(bid) || {}).harden) || 0;
+  // Everything a card has done to the map, so a probe and a test can ask one
+  // question instead of five.
+  function markedBuildings() {
+    return Object.keys(state.marks || {}).filter(id => buildingById(id));
+  }
+
   // What a card is about, resolved to names the player knows from the map.
   // {PLACE} is the building, {DISTRICT} the district, {LINE} whatever prose
   // the trigger packed in (a diary's line, say).
@@ -3453,6 +3500,106 @@
     if (subject.district) return subject.district;
     const b = subject.buildingId ? buildingById(subject.buildingId) : null;
     return b ? b.district : null;
+  }
+
+  // The building a mark lands on — and only ever the one the card already
+  // named. Picking a building here, at resolution, would put randomness on
+  // the wrong side of the decision: the covenant is that chance happens
+  // upstream, before you choose. A card that wants to leave a mark therefore
+  // has to name a building when it is dealt (see EV_SPOT in the deck), not a
+  // district; one that names only a district leaves no mark, by design.
+  function subjectBuilding(subject) {
+    if (!subject || !subject.buildingId) return null;
+    return buildingById(subject.buildingId) || null;
+  }
+
+  // --- the graph verbs, which only a card has ------------------------------
+  // A back door: one new street, permanent, from here to somewhere it does not
+  // already reach. Adding a link can never strand anything, so this one needs
+  // no guard beyond not duplicating a street that is already there.
+  function openLinkFrom(bid) {
+    const b = buildingById(bid);
+    if (!b) return null;
+    const near = (state.adjacency[bid] || []);
+    // two steps out: far enough to be a shortcut, near enough to be a street
+    const twoOut = [];
+    near.forEach(n => (state.adjacency[n] || []).forEach(x => {
+      if (x === bid || near.indexOf(x) !== -1 || twoOut.indexOf(x) !== -1) return;
+      if (buildingById(x)) twoOut.push(x);
+    }));
+    if (!twoOut.length) return null;
+    // the nearest of them on the ground, so the new street looks like a street
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    twoOut.sort((p, q) => {
+      const P = buildingById(p), Q = buildingById(q);
+      const dp = Math.hypot(P.x + P.w / 2 - cx, P.y + P.h / 2 - cy);
+      const dq = Math.hypot(Q.x + Q.w / 2 - cx, Q.y + Q.h / 2 - cy);
+      return dp - dq;
+    });
+    const to = twoOut[0];
+    state.adjacency[bid] = (state.adjacency[bid] || []).concat([to]);
+    state.adjacency[to] = (state.adjacency[to] || []).concat([bid]);
+    // a street you opened does not close again; record it so the map can say so
+    setMark(bid, 'opened', (markOf(bid) || {}).opened ? markOf(bid).opened.concat([to]) : [to]);
+    dropGroundCache();
+    return { a: bid, b: to };
+  }
+
+  // Is there still a way round? A cut is only safe if the two ends can still
+  // reach each other some other way — that is exactly what makes it a
+  // shortcut rather than a bridge. Measured before this existed: forty rounds
+  // of cutting broke a 97-building city into eleven islands with no isolated
+  // building anywhere, so "nothing is orphaned" was never the invariant that
+  // mattered.
+  function stillReaches(from, to) {
+    const seen = { [from]: true };
+    const q = [from];
+    while (q.length) {
+      const x = q.pop();
+      if (x === to) return true;
+      (state.adjacency[x] || []).forEach(y => { if (!seen[y]) { seen[y] = true; q.push(y); } });
+    }
+    return false;
+  }
+
+  // A street closed for good. The one verb here that can hurt the map, so it
+  // checks three things: it will not orphan a building, it will not shut your
+  // last door, and it will never cut a bridge — the city stays one place you
+  // can walk across.
+  function cutLinkAt(bid) {
+    const near = (state.adjacency[bid] || []).slice();
+    if (near.length <= 1) return null;
+    const frontierBefore = state.hosts.filter(isFrontier).length;
+    const strandedBefore = strandedHosts().length;
+    const order = near.slice().sort((a, b) =>
+      (state.adjacency[b] || []).length - (state.adjacency[a] || []).length);
+    for (const other of order) {
+      if ((state.adjacency[other] || []).length <= 1) continue;   // never orphan
+      const beforeA = (state.adjacency[bid] || []).slice();
+      const beforeB = (state.adjacency[other] || []).slice();
+      state.adjacency[bid] = beforeA.filter(x => x !== other);
+      state.adjacency[other] = beforeB.filter(x => x !== bid);
+      const frontierAfter = state.hosts.filter(isFrontier).length;
+      const strandedAfter = strandedHosts().length;
+      if (!stillReaches(bid, other)
+          || (frontierAfter === 0 && frontierBefore > 0)
+          || strandedAfter > strandedBefore) {
+        state.adjacency[bid] = beforeA;
+        state.adjacency[other] = beforeB;
+        continue;
+      }
+      const ha = hostsIn(buildingById(bid))[0], hb = hostsIn(buildingById(other))[0];
+      if (ha && hb) {
+        const ia = state.hosts.indexOf(ha), ib = state.hosts.indexOf(hb);
+        state.links = state.links.filter(([x, y]) => !((x === ia && y === ib) || (x === ib && y === ia)));
+      }
+      // no `until`: repairStreets treats a dateless cut as one you made
+      // yourself, and leaves it alone forever
+      state.cuts = (state.cuts || []).concat([{ a: bid, b: other }]);
+      dropGroundCache();
+      return { a: bid, b: other };
+    }
+    return null;
   }
 
   function noteEventDrawn(id) {
@@ -3538,7 +3685,33 @@ scratch.later = null;
     scratch.pub = 0;            // what the public makes of it
     scratch.supply = 0;         // headroom, permanently
     scratch.gridCut = null;     // ...or headroom taken away for a while
+    // What a card leaves on the map, permanently. Nothing else in this game
+    // changes the graph or what one particular door is worth, which is what
+    // makes a card that does either structurally worth having.
+    scratch.openLink = 0;       // a back door: a street that was not there
+    scratch.cutLink = 0;        // a street closed, and it does not come back
+    scratch.bait = false;       // a door left open on purpose
+    scratch.hardenThere = 0;    // this one door, harder or softer, for good
+    scratch.watchThere = false; // where the response would rather walk
     ch.apply(scratch);
+    // All five land on the building the card was about — that is the whole
+    // point of a mark, and it is why they only exist on cards with a subject.
+    const mb = subjectBuilding(subject);
+    if (mb) {
+      const done = [];
+      for (let i = 0; i < (scratch.openLink | 0); i++) { if (openLinkFrom(mb.id)) done.push('a way through that was not there before'); }
+      for (let i = 0; i < (scratch.cutLink | 0); i++) { if (cutLinkAt(mb.id)) done.push('a street closed for good'); }
+      if (scratch.bait) { setMark(mb.id, 'bait', true); revealBuilding(mb); done.push('a door left open on purpose'); }
+      if (scratch.hardenThere) {
+        setMark(mb.id, 'harden', hardenAt(mb.id) + scratch.hardenThere);
+        done.push(scratch.hardenThere > 0 ? 'a door that is harder now' : 'a door that gives easier now');
+      }
+      if (scratch.watchThere) { setMark(mb.id, 'watch', true); revealBuilding(mb); done.push('somewhere they would rather look'); }
+      if (done.length) {
+        const nm = (window.BUILDING_KINDS[mb.kind] || { label: mb.kind }).label;
+        pushLog(`The ${nm} is different now: ${done.join(', ')}.`);
+      }
+    }
     // Suspicion, addressed to the card's own district. Cooling is direct —
     // a card resolving "you went quiet there" is not the rotation rule —
     // and both are clamped by warmDistrict's own arithmetic.
@@ -3612,6 +3785,11 @@ scratch.later = null;
     scratch.pub = 0;            // what the public makes of it
     scratch.supply = 0;         // headroom, permanently
     scratch.gridCut = null;     // ...or headroom taken away for a while
+    scratch.openLink = 0;
+    scratch.cutLink = 0;
+    scratch.bait = false;
+    scratch.hardenThere = 0;
+    scratch.watchThere = false;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -4354,7 +4532,10 @@ scratch.later = null;
       // confirms what they suspected: `scrutiny` makes a catch count double
       // toward summoning the response. (It was granted by a card and read by
       // nothing at all until the hollow-tag test went looking.)
-      state.caughtHere = (state.caughtHere || 0) + (has('scrutiny') ? 2 : 1);
+      // ...and a door you yourself marked as bait counts double too. You knew
+      // it was fishing when you left it on the map.
+      state.caughtHere = (state.caughtHere || 0)
+        + (has('scrutiny') ? 2 : 1) + (baitAt(h.buildingId) ? 1 : 0);
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
       // and the neighbours definitely talked
       noteDistrictAct(h.district, window.SUSPICION.perCaught);
@@ -4651,6 +4832,11 @@ scratch.later = null;
       caughtHere: state.caughtHere || 0,
       caughtAt: (state.caughtAt || []).slice(),
       suspicion: Object.assign({}, state.suspicion || {}),
+      // A mark is a fact about one city's buildings, the same as a catch is —
+      // and packCity was quietly dropping `carded` too, so walking out and
+      // back re-dealt beats this city had already had.
+      carded: Object.assign({}, state.carded || {}),
+      marks: Object.assign({}, state.marks || {}),
     };
   }
   function unpackCity(p) {
@@ -4688,6 +4874,7 @@ scratch.later = null;
     state.caughtHere = p.caughtHere || 0;
     state.suspicion = p.suspicion || {};
     state.carded = p.carded || {};
+    state.marks = p.marks || {};
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -4699,7 +4886,7 @@ scratch.later = null;
     buildings: [], hosts: [], links: [], adjacency: {},
     bands: [], dims: { cols: 1, rows: 1 }, layout: null, wob: [0, 0, 0], props: [], paths: [],
     hidden: [], hunt: null, hacks: [],
-    caughtHere: 0, caughtAt: [], suspicion: {}, carded: {},
+    caughtHere: 0, caughtAt: [], suspicion: {}, carded: {}, marks: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
 
@@ -6728,6 +6915,7 @@ scratch.later = null;
       caughtHere: state.caughtHere || 0, caughtAt: (state.caughtAt || []).slice(),
       suspicion: Object.assign({}, state.suspicion || {}),
       carded: Object.assign({}, state.carded || {}),
+      marks: Object.assign({}, state.marks || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -6759,6 +6947,7 @@ scratch.later = null;
         cuts: saved.cuts || [], lastCutTurn: (saved.lastCutTurn === undefined ? -99 : saved.lastCutTurn), everHeld: saved.everHeld || 0, timesForced: saved.timesForced || 0, hunt: saved.hunt || null, hidden: saved.hidden || [],
         caughtHere: saved.caughtHere || 0, caughtAt: saved.caughtAt || [], suspicion: saved.suspicion || {},
         carded: saved.carded || {},
+        marks: saved.marks || {},
         everCrossed: !!saved.everCrossed,
         scope: saved.scope || 'city', country: saved.country || makeCountry(),
         cityId: saved.cityId || (saved.country && saved.country.homeId) || null,
@@ -7791,6 +7980,12 @@ scratch.later = null;
     const cs = !drawingInset && state.card ? state.card.subject : null;
     if (cs && cs.buildingId === b.id) cls.push('card-subject');
     else if (cs && !cs.buildingId && cs.district && b.district === cs.district) cls.push('card-district');
+    // What a card did here, still on the map twenty turns later. A mark that
+    // could not be seen would be a number pretending to be a place.
+    const mk = markOf(b.id);
+    if (mk && mk.bait) cls.push('baited');
+    if (mk && mk.watch) cls.push('watched');
+    if (mk && mk.harden) cls.push(mk.harden > 0 ? 'hardened' : 'softened');
 
     const roof = Math.min(10, b.h * 0.28);
     const n = (i) => cityNoise(idSeed(b.id), i);
@@ -7805,6 +8000,20 @@ scratch.later = null;
     if (cls.includes('card-subject')) {
       out += `<rect class="subject-ring" x="${(b.x - 5).toFixed(1)}" y="${(b.y - 5).toFixed(1)}"`
         + ` width="${(b.w + 10).toFixed(1)}" height="${(b.h + 10).toFixed(1)}" rx="6"/>`;
+    }
+    // the marks a card left here, drawn small and permanently
+    if (!drawingInset && mk) {
+      if (mk.bait) {
+        out += `<rect class="mark-bait" x="${(b.x - 3).toFixed(1)}" y="${(b.y - 3).toFixed(1)}"`
+          + ` width="${(b.w + 6).toFixed(1)}" height="${(b.h + 6).toFixed(1)}" rx="4"/>`;
+      }
+      if (mk.watch) {
+        out += `<circle class="mark-watch" cx="${(b.x + 3).toFixed(1)}" cy="${(b.y - 3).toFixed(1)}" r="2.4"/>`;
+      }
+      if (mk.harden) {
+        out += `<rect class="mark-${mk.harden > 0 ? 'hard' : 'soft'}" x="${(b.x + b.w - 7).toFixed(1)}"`
+          + ` y="${(b.y + b.h - 3).toFixed(1)}" width="6" height="2.2" rx="1"/>`;
+      }
     }
     // a soft halo in the role's colour, so what you hold reads at a glance
     if (mine) {
@@ -9550,6 +9759,7 @@ scratch.later = null;
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
       ${suspicionLine(h.district)}
+      ${markLine(h.buildingId)}
       ${carryContract}
       ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
       ${traceForecastBar(f.traceAtEnd / f.goal, f.caught, f.rate / f.goal)}
@@ -9664,6 +9874,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
+            ${markLine(h.buildingId)}
             ${scanFromBtn(b)}
             ${hidePanel(b)}
           </div>`;
@@ -9695,7 +9906,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}${scanFromBtn(b)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district)}${markLine(h.buildingId)}${scanFromBtn(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -10248,7 +10459,8 @@ scratch.later = null;
     agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
     presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
-    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, bumpEventTimer, safeSubject, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
+    huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject,
+    markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
     horizonCities, svgHorizon,
