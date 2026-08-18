@@ -1637,6 +1637,42 @@ Measured, 8 games × 60 turns, never once opening the tray:
 | minor cards set down instead | 16, still waiting at the end |
 | tray high-water mark | **2** |
 
+### The cards are cards
+
+The deck stopped being a screen layout and became an object: 340&times;580,
+filigree in shape and this game's own materials in substance. The flourishes
+are traces that end in vias and pads; the arch springs from solder points and
+its finial is the aerial you plant on a building that is yours. Gold is the
+deck's thread throughout, and the kind is the second weave &mdash; **with a
+structural tell as well as a colour**, so the language survives being read by
+somebody who cannot see the colour: *closing in* gains a fourth frame closing
+inward, *your own* a terminal rule, *found* a folder tab, *an opening* stands
+open at the top edge, *someone* keeps a quotation rule down the side. Title,
+flavor, divider and every choice with its contract all sit **on the card**.
+
+**It is dealt face down.** At 390&thinsp;px the arithmetic is not negotiable:
+150 of HUD plus 580 of card leaves 34, so a full card and a visible map cannot
+both have the screen. Instead an interrupting card lands on the *lit* city as a
+back &mdash; the map keeps its height, the subject is plainly the subject &mdash;
+and turning it over is the moment it stops being a thing that happened at you
+and becomes a thing you are reading. A card you fetched out of the tray was
+already chosen, so it comes up face first.
+
+The back is one facade of stitched windows with one of them lit &mdash; you,
+inside somebody's machine. Every card wears the same one, so the deck reads as
+one deck and a face-down card gives nothing away; a test asserts the back does
+not vary by kind, because a back that varies is a marked card. The tray now
+holds real backs rather than pills.
+
+The thirteen cards about your whole network rather than a place carry a drawn
+sigil in the arch instead of a building &mdash; still made of the map's parts,
+never a stock icon.
+
+One CSS trap worth writing down: `calc(var(--card-w) / 340)` produces a
+*length*, not a number, so every `calc(21px * var(--card-k))` on the face was
+silently invalid and the whole card rendered unpadded at default sizes. The
+scale is a plain number now, set by hand at each size the card is drawn.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

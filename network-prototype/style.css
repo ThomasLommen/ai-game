@@ -744,6 +744,155 @@ footer .build { opacity: .55; font-size: 10px; }
 @keyframes subjectRing { 0%, 100% { opacity: .38; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .subject-ring { animation: none; } }
 
+/* ---- the deck, as objects --------------------------------------------
+   A card is a thing, not a screen: 340x580, filigree in shape and this game's
+   own materials in substance. It is dealt face down onto the lit city, and
+   turning it over is the moment it stops being something that happened at you
+   and becomes something you are reading. */
+/* The derived sizes live on the card, not on :root — a custom property is
+   resolved where it is declared, so putting the height at :root froze it at
+   full size and the small face-down card came out full height. */
+.tcard {
+  /* --card-k has to be a plain number: dividing one length by another is not
+     valid calc, so `calc(21px * var(--card-k))` silently died and the whole
+     face rendered unpadded at default sizes. Width and scale are set together,
+     by hand, at each size the card is drawn. */
+  --card-w: 340px;
+  --card-k: 1;
+  --card-h: calc(var(--card-w) * 1.70588);
+  position: relative;
+  width: var(--card-w); height: var(--card-h);
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: linear-gradient(178deg, #1a2320, #141c19 55%, #121916);
+  box-shadow: 0 18px 40px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.4);
+}
+.tcard .tframe { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.tface {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: calc(30px * var(--card-k)) calc(30px * var(--card-k)) calc(36px * var(--card-k));
+  gap: calc(10px * var(--card-k));
+}
+.tplate {
+  display: flex; justify-content: space-between; width: 100%;
+  font-size: calc(9.5px * var(--card-k)); letter-spacing: .16em;
+  color: var(--muted); text-transform: uppercase;
+  /* clear of the corner flourishes, which reach in about 60 units */
+  padding: 0 calc(36px * var(--card-k));
+  box-sizing: border-box;
+}
+.tmark { color: var(--item); white-space: nowrap; }
+.k-closing .tmark { color: #c98a72; }
+.k-own     .tmark { color: var(--compute); }
+.k-opening .tmark { color: var(--cover); }
+.k-someone .tmark { color: var(--ink-dim); }
+.temblem { margin-top: calc(30px * var(--card-k)); display: grid; place-items: center; }
+.temblem .card-inset {
+  width: calc(104px * var(--card-k)); height: calc(104px * var(--card-k));
+  margin: 0; border: none; background: none; border-radius: 0;
+}
+.tcard h2 {
+  font-size: calc(21px * var(--card-k)); line-height: 1.16; margin: 0;
+  text-wrap: balance; font-weight: 600;
+}
+.tcard .flavor {
+  font-style: italic; color: var(--ink-dim);
+  font-size: calc(12.5px * var(--card-k)); line-height: 1.5; margin: 0;
+}
+/* the divider between the fiction and the decision — one trace, one via, in
+   the colour of the kind's thread */
+.tdivide {
+  width: 100%; margin-top: auto;
+  padding: 0 calc(30px * var(--card-k));
+  box-sizing: border-box;
+  color: #c98a72;
+  line-height: 0;
+}
+.tdivide svg { width: 100%; height: calc(8px * var(--card-k)); display: block; overflow: visible; }
+.k-own .tdivide { color: var(--compute); }
+.k-found .tdivide { color: var(--item); }
+.k-opening .tdivide { color: var(--cover); }
+.k-someone .tdivide { color: var(--ink-dim); }
+
+/* the choices live on the face, under that divider */
+#panel.card-open .tcard .choices,
+.tcard .choices {
+  width: 100%; max-width: none; box-sizing: border-box; margin-top: calc(4px * var(--card-k));
+  padding: 0 calc(14px * var(--card-k)); gap: 0;
+}
+.tcard .choice-strip {
+  background: none; border: none; border-radius: 0;
+  padding: calc(8px * var(--card-k)) calc(2px * var(--card-k));
+  gap: calc(3px * var(--card-k));
+  font-size: calc(13px * var(--card-k));
+}
+.tcard .choice-strip + .choice-strip {
+  border-top: 1px solid color-mix(in srgb, var(--item) 26%, transparent);
+}
+.tcard .choice-strip:hover:not([disabled]) { border-color: color-mix(in srgb, var(--item) 26%, transparent); }
+.tcard .choice-strip:hover:not([disabled]) .ctext { color: var(--item); }
+.tcard .cshow, .tcard .short { font-size: calc(10.5px * var(--card-k)); }
+.tcard .choice-strip.gamble { border-style: none; }
+.tcard .choices.asks .choice-strip.pick { flex-direction: row; align-items: center; gap: calc(10px * var(--card-k)); }
+.tcard .choice-strip.pick .card-inset { width: calc(54px * var(--card-k)); height: calc(54px * var(--card-k)); }
+
+@media (max-width: 383px) {
+  .tcard { --card-w: calc(100vw - 44px); --card-k: .9; }
+  #panel.card-open.dealt .tcard { --card-w: 160px; --card-k: .47; }
+}
+
+/* the panel becomes a table the card is dealt onto */
+#panel.card-open {
+  justify-content: center;
+  gap: 14px;
+}
+/* ...except while it is face down, when the city is still the point: the card
+   sits low over the map, small, and the map keeps almost all its height */
+#panel.card-open.dealt {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--safe-bottom) + 76px);
+  background: linear-gradient(to bottom, transparent 0%, transparent 62%,
+    color-mix(in srgb, var(--bg) 45%, transparent) 78%, color-mix(in srgb, var(--bg) 80%, transparent) 100%);
+}
+#panel.card-open.dealt .tcard {
+  --card-w: 176px; --card-k: .518;
+  cursor: pointer;
+  animation: cardDeal 420ms cubic-bezier(.2,.7,.3,1) both;
+}
+#panel.card-open.dealt .tcard:hover { box-shadow: 0 22px 46px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--item) 40%, transparent); }
+.deal-line { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.deal-where { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--item); }
+.deal-hint { font-size: 11px; color: var(--muted); }
+/* it lands from above and settles, the way a card put down does */
+@keyframes cardDeal {
+  from { opacity: 0; transform: translateY(-26px) rotate(-3deg) scale(1.04); }
+  to   { opacity: 1; transform: none; }
+}
+/* and it turns over once, then it is simply a card */
+@keyframes cardTurn {
+  from { transform: rotateY(-92deg) scale(.82); opacity: .35; }
+  to   { transform: none; opacity: 1; }
+}
+.tcard.turning { animation: cardTurn 360ms cubic-bezier(.25,.8,.35,1) both; transform-style: preserve-3d; }
+@media (prefers-reduced-motion: reduce) {
+  #panel.card-open.dealt .tcard, .tcard.turning { animation: none; }
+}
+
+/* the tray holds card backs, because that is what a card set down looks like */
+.tray-pill.card-wait {
+  padding: 0; border: none; background: none; border-radius: 0;
+  gap: 0; overflow: visible;
+}
+.tray-pill.card-wait .miniback {
+  width: 22px; height: 32px; border-radius: 3px; overflow: hidden;
+  background: #141c19; display: block;
+}
+.tray-pill.card-wait .miniback svg { width: 100%; height: 100%; display: block; }
+.tray-pill.card-wait .wdot { display: none; }
+.tray-pill.card-wait:hover .miniback { box-shadow: 0 0 0 1px color-mix(in srgb, var(--item) 55%, transparent); }
+.tray-line.waiting { gap: 5px; align-items: center; }
+
 /* ---- a card whose choices are places ---------------------------------
    The deepest the deck and the map can point at each other: the choice is
    the building. Each strip carries its own building drawn, and the letter

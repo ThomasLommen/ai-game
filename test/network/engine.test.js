@@ -10207,7 +10207,8 @@ test('cards: a delivered beat is a smaller card than a decision', () => {
   // screen as the response arriving
   d.state.card = { kind: 'event', eventId: 'the_diary', subject: null };
   d.render();
-  assert.ok(/class="card event k-found beat"/.test($p.innerHTML), 'the diary is not sized as a beat');
+  assert.ok(/class="tcard face[^"]*\bk-found\b[^"]*\bbeat\b/.test($p.innerHTML),
+    'the diary is not sized as a beat');
 
   d.state.card = { kind: 'event', eventId: 'the_response_arrives', subject: null };
   d.render();
@@ -10238,10 +10239,19 @@ test('cards: a card about a place does not cover the place', () => {
   const $gw = window.document.getElementById('graph-wrap');
   const b = s.buildings[3];
 
-  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
+  // Dealt face down, the card sits on the city and the city is still the point.
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id }, facedown: true };
   d.render();
   assert.ok($p.classList.contains('in-city'), 'the card is not sitting in the city');
+  assert.ok($p.classList.contains('dealt'), 'the card was not dealt face down');
   assert.ok($gw.classList.contains('card-lit'), 'the map did not step back for the card');
+
+  // Turned over, it takes the screen — a full card and a map cannot share 390px,
+  // and the card is carrying the building anyway.
+  s.card.facedown = false;
+  d.render();
+  assert.ok(!$p.classList.contains('dealt'), 'the card is face up and still on the table');
+  assert.ok(!$gw.classList.contains('card-lit'), 'the map is still lit under a card nobody can see it behind');
 
   // ...and a card about nothing in particular has no place to point at, so it
   // keeps the whole screen
@@ -10326,11 +10336,108 @@ test('cards: a card cannot show you a place you have not found', () => {
   b.discovered = false;
   s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: b.id } };
   d.render();
-  assert.ok(!$p.innerHTML.includes('card-inset'),
+  assert.ok(!$p.innerHTML.includes(`data-bldg="${b.id}"`),
     'the card drew a building the player has never seen — that is the deck giving directions');
+  // ...and it is not simply blank: the arch carries a drawn sigil instead
+  assert.ok($p.innerHTML.includes('sigil'), 'the arch was left empty rather than given a sigil');
   b.discovered = true;
   d.render();
-  assert.ok($p.innerHTML.includes('card-inset'), 'a building you have found is still not on its own card');
+  assert.ok($p.innerHTML.includes(`data-bldg="${b.id}"`),
+    'a building you have found is still not on its own card');
+  s.card = null;
+});
+
+// --- the deck as objects: frames, backs, and the turn ---------------------
+
+test('deck: every kind has a frame, and no two differ by colour alone', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const kinds = Object.keys(window.CARD_KINDS);
+  const frames = {};
+  kinds.forEach(k => {
+    const f = d.cardFrame(k);
+    assert.ok(/^<svg class="tframe"/.test(f), `${k} has no frame`);
+    // the shared filigree: the arch, its solder points, the aerial finial
+    assert.ok(f.includes('C112 92 138 56 170 56'), `${k} lost the arch`);
+    assert.ok(f.includes('#e3b451'), `${k} lost the aerial`);
+    frames[k] = f;
+  });
+  // Each kind gets a structural tell as well as a thread colour, so the
+  // language survives being read by somebody who cannot see the colour.
+  kinds.forEach(a => kinds.forEach(b => {
+    if (a >= b) return;
+    const strip = (x) => frames[x].replace(/#[0-9a-f]{6}/g, '');
+    assert.notEqual(strip(a), strip(b),
+      `${a} and ${b} are the same frame in different colours`);
+  }));
+});
+
+test('deck: the back gives nothing away', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const back = d.cardBack();
+  assert.ok(/^<svg class="tframe"/.test(back));
+  // one window lit in a facade of twenty-five
+  assert.equal((back.match(/<rect x="\d+" y="\d+" width="14" height="14"/g) || []).length, 25);
+  // ...and it is the same back whatever the card is, or it is a marked card
+  Object.keys(window.CARD_KINDS).forEach(k => {
+    assert.equal(d.cardBack(k), back, `the back changes for ${k} — that is a marked card`);
+  });
+  assert.ok(!back.includes('data-bldg'), 'the back is carrying a building');
+});
+
+test('cards: a card is dealt face down, and turns over once', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  d.offerCard('district_talking', { district: 'commercial' });
+  assert.ok(s.card && s.card.facedown, 'an interrupting card was not dealt face down');
+  d.render();
+  assert.ok(/class="tcard back"/.test($p.innerHTML), 'the back is not what is showing');
+  assert.ok(!$p.innerHTML.includes('choice-strip'), 'a face-down card is showing its choices');
+  assert.ok(/turn it over/.test($p.innerHTML), 'nothing says it can be turned over');
+
+  s.card.facedown = false;
+  d.render();
+  assert.ok(/class="tcard face/.test($p.innerHTML), 'turning it over did not show the face');
+  assert.ok($p.innerHTML.includes('choice-strip'), 'the face is not carrying its choices');
+  s.card = null;
+});
+
+test('cards: one fetched from the tray comes up face first', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.offerCard('the_diary', { buildingId: s.buildings[2].id });
+  assert.equal(d.waiting().length, 1);
+  // you already chose to look at it; a second tap to turn it over is one tap
+  // too many
+  d.openWaiting(0);
+  assert.ok(s.card && !s.card.facedown, 'a card you went and fetched was still face down');
+  s.card = null;
+});
+
+test('cards: the whole card is one object — frame, words and choices together', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.res.funds = 1000;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.card = { kind: 'event', eventId: 'first_caught_here', subject: { buildingId: s.buildings[3].id } };
+  d.render();
+  const html = $p.innerHTML;
+  // the choices are inside the card, not stacked under it
+  const face = html.slice(html.indexOf('class="tcard face'));
+  const closes = face.indexOf('<div class="choices');
+  assert.ok(closes > 0, 'the choices are not on the card at all');
+  assert.ok(face.indexOf('tface') < closes, 'the choices sit outside the card face');
+  // the covenant survives the ornament: every price still stated
+  assert.ok(html.includes('&minus;4 funds'), 'a price went missing behind the filigree');
   s.card = null;
 });
 

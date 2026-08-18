@@ -3526,7 +3526,10 @@
     if (!ev) return null;
     if (blocks(ev)) {
       noteEventDrawn(id);
-      state.card = { kind: 'event', eventId: id, subject: subject || null };
+      // face down, onto the city: the map keeps its height, the subject is
+      // plainly the subject, and turning it over is the moment it becomes a
+      // card you are reading rather than a thing that happened at you
+      state.card = { kind: 'event', eventId: id, subject: subject || null, facedown: true };
       return state.card;
     }
     // A full tray does not promote a quiet card into an interruption — that
@@ -8337,6 +8340,120 @@ scratch.later = null;
     return out;
   }
 
+  // --- the deck, drawn ------------------------------------------------------
+  // A card is an object, not a screen: a frame with an emblem, a title, and the
+  // choices on its face. The ornament is filigree in shape and this game's own
+  // materials in substance — the flourishes are traces that end in vias and
+  // pads, the arch springs from solder points, and its finial is the aerial you
+  // plant on a building that is yours. Gold is the deck's thread throughout;
+  // the kind is the second weave, and gets a structural tell as well as a
+  // colour so the language survives being read without colour.
+  const CARD_THREAD = {
+    closing: '#c98a72', own: '#5fb3d9', found: '#c9a15c',
+    opening: '#6f8f83', someone: '#a8b0aa',
+  };
+  function cardFrame(kind) {
+    const t = CARD_THREAD[kind] || '#c98a72';
+    const id = 'wc-' + (kind || 'x');
+    const dash = kind === 'opening' ? '5 4' : '2 3';
+    // one structural change per kind, so two cards never differ by hue alone
+    const tells = {
+      closing: `<rect x="22" y="22" width="296" height="536" rx="6" fill="none" stroke="${t}"`
+        + ` stroke-width=".4" stroke-dasharray="1.5 2.5" opacity=".45"/>`,
+      own: `<path d="M40 46 H300" stroke="${t}" stroke-width=".5" opacity=".55"/>`
+        + `<path d="M40 50 H180" stroke="${t}" stroke-width=".5" opacity=".3"/>`,
+      found: `<path d="M120 7 v-5 h100 v5" fill="none" stroke="#c9a15c" stroke-width="1.2"/>`
+        + `<rect x="120" y="2" width="100" height="6" fill="#c9a15c" opacity=".22"/>`,
+      opening: `<path d="M138 7 H202" stroke="var(--bg)" stroke-width="3.2"/>`
+        + `<circle cx="138" cy="7" r="1.4" fill="${t}"/><circle cx="202" cy="7" r="1.4" fill="${t}"/>`,
+      someone: `<path d="M22 60 V520" stroke="${t}" stroke-width="2.2" opacity=".7"/>`
+        + `<path d="M28 66 V514" stroke="${t}" stroke-width=".5" stroke-dasharray="2 3" opacity=".45"/>`,
+    };
+    return `<svg class="tframe" viewBox="0 0 340 580" preserveAspectRatio="none" aria-hidden="true">`
+      + `<defs><g id="${id}" fill="none" stroke="#c9a15c">`
+      + `<path d="M10 48 C10 23 23 10 48 10" stroke-width="1"/>`
+      + `<path d="M15 56 C15 28 28 15 56 15" stroke-width=".5" opacity=".8"/>`
+      + `<path d="M26 40 c3 -9 13 -12 16 -5 c3 6 -5 11 -9 5" stroke-width=".8"/>`
+      + `<circle cx="33" cy="41" r="1.3" fill="#e3b451" stroke="none"/>`
+      + `<path d="M48 10 h8" stroke-width="1"/><circle cx="58" cy="10" r="1.7" fill="#c9a15c" stroke="none"/>`
+      + `<path d="M10 48 v8" stroke-width="1"/><circle cx="10" cy="58" r="1.7" fill="#c9a15c" stroke="none"/>`
+      + `<rect x="20" y="20" width="3" height="3" fill="${t}" stroke="none"/>`
+      + `<rect x="25" y="25" width="2.2" height="2.2" fill="${t}" stroke="none" opacity=".7"/>`
+      + `</g></defs>`
+      + `<rect x="7" y="7" width="326" height="566" rx="12" fill="none" stroke="#c9a15c" stroke-width="1.4" opacity=".85"/>`
+      + `<rect x="13" y="13" width="314" height="554" rx="9" fill="none" stroke="#c9a15c" stroke-width=".5" opacity=".7"/>`
+      + `<rect x="18" y="18" width="304" height="544" rx="7" fill="none" stroke="${t}" stroke-width=".6" stroke-dasharray="${dash}" opacity=".5"/>`
+      + `<use href="#${id}"/><use href="#${id}" transform="translate(340 0) scale(-1 1)"/>`
+      + `<use href="#${id}" transform="translate(0 580) scale(.8 -.8)"/>`
+      + `<use href="#${id}" transform="translate(340 580) scale(-.8 -.8)"/>`
+      // the crown: an arch on solder points, finished with the aerial
+      + `<path d="M112 182 C112 92 138 56 170 56 C202 56 228 92 228 182" fill="none" stroke="#c9a15c" stroke-width=".9" opacity=".9"/>`
+      + `<path d="M118 182 C118 96 142 62 170 62 C198 62 222 96 222 182" fill="none" stroke="#c9a15c" stroke-width=".45" opacity=".7"/>`
+      + `<circle cx="112" cy="182" r="1.8" fill="#c9a15c"/><circle cx="228" cy="182" r="1.8" fill="#c9a15c"/>`
+      + `<path d="M170 56 V44" stroke="#c9a15c" stroke-width="1"/><circle cx="170" cy="40" r="2.1" fill="#e3b451"/>`
+      + `<path d="M126 96 l-4 -3 M214 96 l4 -3 M116 136 h-5 M224 136 h5" stroke="#c9a15c" stroke-width=".8" opacity=".8"/>`
+      + `<g fill="#c9a15c"><circle cx="13" cy="290" r="1.7"/><circle cx="327" cy="290" r="1.7"/>`
+      + `<rect x="9" y="279" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="279" width="2.6" height="2.6" opacity=".7"/>`
+      + `<rect x="9" y="298" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="298" width="2.6" height="2.6" opacity=".7"/></g>`
+      + (tells[kind] || '')
+      + `</svg>`;
+  }
+
+  // The back: a facade of stitched windows, and one of them is on. You, inside
+  // somebody's machine — which is the whole game in one mark. Every card wears
+  // it, so the deck reads as one deck and a face-down card gives nothing away.
+  function cardBack() {
+    let win = '';
+    [242, 263, 284, 305, 326].forEach(y => [122, 143, 164, 185, 206].forEach(x => {
+      if (x === 164 && y === 284) return;    // the lit one, drawn filled below
+      win += `<rect x="${x}" y="${y}" width="14" height="14"/>`;
+    }));
+    return `<svg class="tframe" viewBox="0 0 340 580" preserveAspectRatio="none" aria-hidden="true">`
+      + `<defs><g id="ck4" fill="#c9a15c">`
+      + `<rect x="14" y="14" width="4.6" height="4.6"/><rect x="21" y="14" width="4.6" height="4.6" opacity=".5"/>`
+      + `<rect x="14" y="21" width="4.6" height="4.6" opacity=".5"/><rect x="21" y="21" width="4.6" height="4.6" opacity=".28"/>`
+      + `</g></defs>`
+      + `<rect x="6" y="6" width="328" height="568" rx="12" fill="none" stroke="#c9a15c" stroke-width="1.2" stroke-dasharray="7 3" opacity=".9"/>`
+      + `<rect x="12" y="12" width="316" height="556" rx="9" fill="none" stroke="#c9a15c" stroke-width=".5" stroke-dasharray="2 3" opacity=".55"/>`
+      + `<use href="#ck4"/><use href="#ck4" transform="translate(340 0) scale(-1 1)"/>`
+      + `<use href="#ck4" transform="translate(0 580) scale(1 -1)"/><use href="#ck4" transform="translate(340 580) scale(-1 -1)"/>`
+      + `<circle cx="170" cy="290" r="92" fill="none" stroke="#c9a15c" stroke-width=".9" stroke-dasharray="3 4" opacity=".85"/>`
+      + `<g fill="none" stroke="#c9a15c" stroke-width=".8" opacity=".9">${win}</g>`
+      + `<rect x="164" y="284" width="14" height="14" fill="#e3b451" opacity=".92"/>`
+      + `</svg>`;
+  }
+
+  // The thirteen cards that are about your whole network rather than a place
+  // have no building to put in the arch, so they carry a drawn sigil instead —
+  // still made of the map's own parts, never a stock icon.
+  function cardSigil(kind) {
+    const t = CARD_THREAD[kind] || '#a8b0aa';
+    if (kind === 'own') {
+      return `<svg class="card-inset sigil" viewBox="0 0 104 104" aria-hidden="true">`
+        + `<g stroke="${t}" fill="none" stroke-width="1" opacity=".9">`
+        + `<path d="M52 52 L28 34 M52 52 L78 30 M52 52 L26 74 M52 52 L74 76 M52 52 V22"/></g>`
+        + `<g fill="${t}"><circle cx="52" cy="52" r="3.4"/><circle cx="28" cy="34" r="2.2"/>`
+        + `<circle cx="78" cy="30" r="2.2"/><circle cx="26" cy="74" r="2.2"/>`
+        + `<circle cx="74" cy="76" r="2.2"/><circle cx="52" cy="22" r="2.2"/></g></svg>`;
+    }
+    if (kind === 'opening') {
+      return `<svg class="card-inset sigil" viewBox="0 0 104 104" aria-hidden="true">`
+        + `<path d="M34 80 V32 h36 v48" fill="none" stroke="${t}" stroke-width="1.2" stroke-dasharray="5 4"/>`
+        + `<path d="M44 80 V44 h16 v36" fill="none" stroke="${t}" stroke-width=".8" opacity=".6"/>`
+        + `<circle cx="63" cy="62" r="1.6" fill="${t}"/></svg>`;
+    }
+    if (kind === 'found') {
+      return `<svg class="card-inset sigil" viewBox="0 0 104 104" aria-hidden="true">`
+        + `<path d="M28 34 h20 l4 6 h24 v44 H28 z" fill="none" stroke="${t}" stroke-width="1.1"/>`
+        + `<path d="M36 54 h32 M36 62 h32 M36 70 h20" stroke="${t}" stroke-width=".9" stroke-dasharray="2 2.6" opacity=".65"/></svg>`;
+    }
+    // someone, and anything unkinded: a written note, no face
+    return `<svg class="card-inset sigil" viewBox="0 0 104 104" aria-hidden="true">`
+      + `<rect x="30" y="24" width="44" height="56" rx="2" fill="none" stroke="${t}" stroke-width="1" opacity=".85"/>`
+      + `<path d="M38 38 h28 M38 46 h28 M38 54 h20 M38 62 h24" stroke="${t}" stroke-width="1" stroke-dasharray="2 2.6" opacity=".6"/>`
+      + `<path d="M30 24 V80" stroke="${t}" stroke-width="2.4" opacity=".8"/></svg>`;
+  }
+
   // The card about a building carries the building. Not an icon standing in
   // for it — the same shopfront that is on your map, drawn by the same code
   // into its own small viewBox. No deck bought off a shelf can do this, which
@@ -9118,8 +9235,10 @@ scratch.later = null;
       const K = ev && (window.CARD_KINDS || {})[ev.kind];
       const names = subjectNames(w.subject);
       const where = names.district ? names.district : (K ? K.label : 'something');
-      return `<button type="button" class="tray-pill card-wait k-${ev ? ev.kind : ''}" data-wait="${i}">`
-        + `<span class="wdot"></span>${where}</button>`;
+      // a card set down is drawn as a card set down — the same back, small
+      return `<button type="button" class="tray-pill card-wait k-${ev ? ev.kind : ''}" data-wait="${i}"`
+        + ` title="${where}" aria-label="a card is waiting: ${where}">`
+        + `<span class="miniback">${cardBack()}</span></button>`;
     });
     if (!bits.length && !tags.length && !live.length && !wait.length) {
       $t.style.display = 'none'; $t.innerHTML = ''; return;
@@ -10114,9 +10233,17 @@ scratch.later = null;
     // dimmed, with the subject the brightest thing on it, and the card sits at
     // the bottom of the screen rather than over the top of the city — so
     // "something is happening" reads as "something is happening *there*".
+    const ev = state.card && state.card.kind === 'event' ? eventById(state.card.eventId) : null;
+    const down = !state.over && !!state.card && !!state.card.facedown;
+    // The city stays lit under a card that has not been turned over yet, and
+    // under the ending — the two moments where the map is still the point. A
+    // card being read takes the screen: at 390px a full card and a map cannot
+    // both have it, and the card carries the building anyway.
     const lit = !state.over && !!state.card && state.card.kind !== 'breach'
+      && (down || state.card.kind === 'after')
       && !!state.card.subject && state.scope !== 'country';
     $p.classList.toggle('in-city', lit);
+    $p.classList.toggle('dealt', down);
     const $gw = document.getElementById('graph-wrap');
     if ($gw) $gw.classList.toggle('card-lit', lit);
     // A breach stays in the panel rather than going full screen, but its
@@ -10578,22 +10705,56 @@ scratch.later = null;
       // found; that would be the deck telling you where to go. A card asking
       // about two places puts the drawing on each choice instead.
       const sb = !asks && subject && subject.buildingId ? buildingById(subject.buildingId) : null;
-      const inset = sb && sb.discovered ? svgBuildingCard(sb) : '';
+      // In the arch: the real building where there is one, a drawn sigil where
+      // the card is about your whole network instead of a place. A card asking
+      // about two places puts the drawing on each choice, so its arch is empty.
+      const inset = sb && sb.discovered ? svgBuildingCard(sb) : (asks ? '' : cardSigil(ev.kind));
+
+      // Dealt face down, onto the lit city. The back gives nothing away, the
+      // map keeps almost all its height, and the subject is plainly the subject
+      // — then you turn it over and read it. A card the player went and fetched
+      // out of the tray has already been chosen, and comes up face first.
+      if (state.card.facedown) {
+        $p.innerHTML = `
+          <div class="tcard back" data-flip>
+            ${cardBack()}
+          </div>
+          <div class="deal-line">
+            <span class="mono deal-where">${kicker}</span>
+            <span class="mono deal-hint">tap to turn it over</span>
+          </div>`;
+        const $b = $p.querySelector('[data-flip]');
+        $b.addEventListener('click', () => {
+          if (!state.card || !state.card.facedown) return;
+          state.card.facedown = false;
+          state.card.turning = true;       // one flip, then it is just a card
+          persistNow();
+          render();
+        });
+        return;
+      }
+
+      const turning = state.card.turning ? ' turning' : '';
+      if (state.card.turning) delete state.card.turning;
       $p.innerHTML = `
-        ${cardResourceStrip(ev)}
-        <div class="card event${K ? ' k-' + ev.kind : ''}${beat}${inset ? ' has-inset' : ''}">
-          <div class="card-head">
-            <span class="card-kicker mono">${kicker}</span>
-            ${K ? `<span class="card-mark mono">${K.label}</span>` : ''}
-          </div>
-          <div class="card-body">
-            <div class="card-words">
-              <h2 class="serif">${cardText(ev.title, subject)}</h2>
-              <p class="flavor">${cardText(ev.flavor, subject)}</p>
+        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${beat}">
+          ${cardFrame(ev.kind)}
+          <div class="tface">
+            <div class="tplate mono">
+              <span class="tkicker">${kicker}</span>
+              ${K ? `<span class="tmark">${K.label}</span>` : ''}
             </div>
-            ${inset}
-          </div>
-        </div>
+            <div class="temblem">${inset}</div>
+            <h2 class="serif">${cardText(ev.title, subject)}</h2>
+            <p class="flavor">${cardText(ev.flavor, subject)}</p>
+        <div class="tdivide" aria-hidden="true">
+              <svg viewBox="0 0 240 8" preserveAspectRatio="none">
+                <path d="M2 4 H98 M142 4 H238" stroke="#c9a15c" stroke-width=".7" opacity=".8"/>
+                <circle cx="120" cy="4" r="2" fill="none" stroke="#c9a15c" stroke-width=".9"/>
+                <rect x="96" y="2.6" width="3" height="3" fill="currentColor"/>
+                <rect x="141" y="2.6" width="3" height="3" fill="currentColor"/>
+              </svg>
+            </div>
         <div class="choices${asks ? ' asks' : ''}">
           ${chs.map((ch, i) => {
             const usable = choiceUsable(ch);
@@ -10633,6 +10794,8 @@ scratch.later = null;
               </span>
             </button>`;
           }).join('')}
+        </div>
+          </div>
         </div>`;
       $p.querySelectorAll('[data-choice]:not([disabled])').forEach(b => {
         b.addEventListener('click', () => resolveEvent(parseInt(b.getAttribute('data-choice'), 10)));
@@ -10780,7 +10943,7 @@ scratch.later = null;
     hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
-    blocks, waiting, trayFree, offerCard, openWaiting,
+    blocks, waiting, trayFree, offerCard, openWaiting, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
