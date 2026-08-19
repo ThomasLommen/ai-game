@@ -67,12 +67,15 @@
     </div>
   </div>
 
-  <div id="panel"></div>
-
-  <div id="turn-row">
-    <button id="caps-btn" type="button" class="caps-btn">allocation</button>
-    <button id="settings-btn" type="button" class="settings-btn" aria-label="settings">&#9881;</button>
-    <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
+  <!-- One dock: the panel and the bar are a single fixed piece, stacked in
+       normal flow — no measured offsets, so no seam can ever open. -->
+  <div id="dock">
+    <div id="panel"></div>
+    <div id="turn-row">
+      <button id="caps-btn" type="button" class="caps-btn">allocation</button>
+      <button id="settings-btn" type="button" class="settings-btn" aria-label="settings">&#9881;</button>
+      <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
+    </div>
   </div>
 
   <!-- The housekeeping, off the playfield: everything that used to live in

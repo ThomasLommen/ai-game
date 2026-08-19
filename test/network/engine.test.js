@@ -12294,6 +12294,10 @@ test('panel: the footer is gone and the gear sheet holds the housekeeping', () =
   // and the panel is height-capped so the map never shrinks
   const css = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
-  assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*position:\s*fixed/.test(css), 'the panel no longer floats over the map');
+  assert.ok(/#dock\s*{[^}]*position:\s*fixed/.test(css), 'the dock is not fixed to the screen');
+  assert.ok(/#dock\s*{[^}]*bottom:\s*0/.test(css), 'the dock is not on the floor');
+  assert.ok(!/#dock\s*{[^}]*transform/.test(css), 'a transformed dock would trap the card fullscreen');
   assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*max-height/.test(css), 'the panel has no ceiling at all');
+  // stacked in flow: no measured offsets anywhere near the seam
+  assert.ok(!/--dock-bar-h/.test(css), 'the seam is arithmetic again');
 });

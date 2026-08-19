@@ -964,32 +964,30 @@ footer .build { opacity: .55; font-size: 10px; }
 /* --- the P2 panel: instruments first, prose behind the tap ---------------
    Chips and bars carry every fact; the full sentences live in the drawer
    behind the i. The panel is height-capped so the map never shrinks. */
-/* The dock: the panel and the bottom bar are ONE bottom-anchored piece.
-   The bar is the base, glued to the screen; the panel is the dock's upper
-   half, sitting exactly on the bar's top edge (--dock-bar-h is measured at
-   runtime, so safe areas and wrapped labels stay seamless). Same surface,
-   one top border, a hairline where content ends and buttons begin. The map
-   flexes to fill everything above and its box never changes on a tap. The
-   worst-case compact panel fits without a scrollbar; only the open drawer
-   ever scrolls, which is its business. */
-#panel:not(.card-open) {
+/* The dock: the panel and the bottom bar are ONE fixed piece, stacked in
+   normal flow — same surface, one top border, a hairline where content
+   ends and buttons begin. The map flexes to fill everything above and its
+   box never changes on a tap. The worst-case compact panel fits without a
+   scrollbar; only the open drawer ever scrolls, which is its business. */
+/* the dock: a single fixed piece holding the panel and the bar, stacked in
+   normal flow — no measured offsets, no rounding, no seam. Centered with
+   auto margins, never a transform: a transformed ancestor would trap the
+   card-open panel's fixed fullscreen inside it. */
+#dock {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0; right: 0; bottom: 0;
+  margin: 0 auto;
   width: 100%;
   max-width: 480px;
-  /* tucked 2px BEHIND the bar: the bar is opaque and draws its own
-     hairline, so the overlap is invisible — and fractional device-pixel
-     rounding between the measured bar height and this edge can never
-     open a hairline of map between the two */
-  bottom: calc(var(--dock-bar-h, 70px) - 2px);
-  z-index: 8;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+}
+#panel:not(.card-open) {
   padding: 0;
   max-height: calc(100dvh - var(--safe-top) - 240px);
   overflow-y: auto;
-  pointer-events: none;              /* the gaps beside .sel stay pannable */
 }
-#panel:not(.card-open) > * { pointer-events: auto; }
 #panel:not(.card-open) .sel {
   margin: 0;
   background: var(--surface);
@@ -1000,13 +998,8 @@ footer .build { opacity: .55; font-size: 10px; }
   padding: 12px 16px 6px;
 }
 #turn-row {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 0;
+  position: relative;
   width: 100%;
-  max-width: 480px;
-  z-index: 9;
   margin: 0;
   background: var(--surface);
   padding: 8px 12px calc(var(--safe-bottom, 0px) + 10px);
@@ -1203,7 +1196,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .ap-pips .pip.on { background: var(--item); border-color: var(--item); }
 
 
-#turn-row { display: flex; gap: 8px; margin-top: 10px; }
+#turn-row { display: flex; gap: 8px; }
 .caps-btn, .end-turn-btn {
   border-radius: 8px;
   box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--line) 45%, transparent);
