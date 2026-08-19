@@ -573,6 +573,28 @@ window.SOURCES = {
   truck: { funds: 2, speed: 520, warm: 0.5 },
 };
 
+// --- W4: the works ------------------------------------------------------
+// Four stages on the yard's own ground, each a previewed race: your turns
+// against the street's notice. The rate rides the yard district's *felt*
+// suspicion (a bait helps a building site — of course it does), and the
+// projection the button quotes includes the noise the build itself makes.
+// Red tape is a stall, never a loss: progress holds, the site waits for
+// the street to cool. Power is a graph fact from the power stage on — a
+// held path of streets from the yard to a grid building, cuttable like
+// everything else.
+window.WORKS = {
+  stages: [
+    { id: 'site',  label: 'the site',  funds: 6,  steel: 1, fab: 0, turns: 3 },
+    { id: 'power', label: 'the power', funds: 8,  steel: 1, fab: 1, turns: 4, needsGrid: true },
+    { id: 'line',  label: 'the line',  funds: 10, steel: 2, fab: 1, turns: 4 },
+    { id: 'works', label: 'the works', funds: 12, steel: 1, fab: 2, turns: 5 },
+  ],
+  goal: 14,          // notice that brings the red tape
+  noticeBase: 1,     // what a quiet street notices per turn of building
+  noticeK: 0.15,     // ...plus this per point of felt suspicion
+  warm: 0.5,         // the noise a build turn makes (doubled by Act 2 itself)
+};
+
 window.DISTRICTS = {
   // Feeder pillars are suburban street furniture, and cheap enough to belong
   // at this tier — the grid has to start somewhere you can actually reach on
@@ -1054,6 +1076,7 @@ window.ACTION_INFO = {
   hide: 'Take a building of yours off their map. They cannot take what they cannot see — but keeping it hidden costs covert.ops every turn, and what you can no longer pay for comes back into view on its own.',
   yard: 'Pick the one building deliveries drive to. Everything the works needs arrives here first, by road — pick it where the streets are kind, because a cut on the way means the long way round.',
   truck: 'Send a load from a supplier you hold to the yard, by road — never through buildings. The route, the turns and the streets that will hear it are stated before you pay. A cut street reroutes it; a street with no way round parks it.',
+  build: 'Raise the next stage of the works on the yard. It costs funds and the yard\'s stock, takes stated turns, and the street notices every one of them — if notice reaches the red-tape line first, the site stalls until the street cools, keeping its progress. From the power stage on, the build needs a held path of streets to a grid building; cut it and the site waits.',
 };
 
 // --- tags --------------------------------------------------------------
@@ -1431,6 +1454,25 @@ window.EVENTS = [
         shows: 'Act 2 — the old verbs stay; from here the city watches harder',
         after: 'Somewhere in the industrial belt there is a floor big enough. You catch yourself reading the city differently — not for doors, for ground. Nothing about the night has changed, except what you want from it.',
         apply: (s) => { s.actBreak = true; } },
+    ],
+  },
+{
+    // The second story beat: the works comes online. Delivered by
+    // worksStep when the fourth stage lands; seeds Act 3 without
+    // building it (the plan defers the siege until Act 2 has been
+    // played and grilled).
+    id: 'works_online',
+    kind: 'own',
+    beat: true,
+    once: true,
+    cond: () => false,
+    title: 'The Lights Come On',
+    flavor: 'At four in the morning the line runs its first pass, and nothing breaks. The building hums the way the whole city used to hum only for you. You built something the daylight can be told about — and something the daylight will, eventually, come and see. Let it come. You are done being a tenant.',
+    choices: [
+      { text: 'Let it run',
+        shows: 'the works is online — what happens to it next is the next story',
+        after: 'Freight arrives that you ordered under a name that holds up. Someone waves the driver in. It is the most ordinary thing you have ever built, and the most dangerous.',
+        apply: () => {} },
     ],
   },
 {

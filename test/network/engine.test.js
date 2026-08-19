@@ -10184,7 +10184,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 61, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 62, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -12064,4 +12064,116 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   assert.equal((s.yardStock || {}).steel, 1, 'the yard took no stock');
   assert.equal(s.res.steel, undefined, 'steel became a currency');
   assert.ok(d.yardLine(yard.id).includes('1'), 'the yard does not state its stock');
+});
+
+// --- W4: the works ----------------------------------------------------------
+
+function worksRig(d, window) {
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  // hold a grid building and a neighbour of it as the yard, so power holds
+  const grid = s.hosts.find(h => h.role === 'grid');
+  d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
+  const nb = (s.adjacency[grid.buildingId] || []).map(id => d.buildingById(id))
+    .find(b => d.hostsIn(b).length && !d.hostsIn(b).some(h => h.origin));
+  d.hostsIn(nb).forEach(h => { h.owned = true; });
+  d.actYard(nb.id);
+  s.yardStock = { steel: 9, fab: 9 };
+  return { grid: d.buildingById(grid.buildingId), yard: nb };
+}
+
+test('works: a stage previews like a door, is priced in every unit, and stands', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const W = window.WORKS;
+  worksRig(d, window);
+
+  const f = d.worksForecast(0);
+  assert.ok(f && f.notice > 0 && f.goal === W.goal, 'no forecast');
+  assert.equal(d.worksShort(0), null, 'a clean site refused to start: ' + d.worksShort(0));
+  const funds0 = s.res.funds, steel0 = s.yardStock.steel;
+  assert.equal(d.actBuildStage(), true);
+  assert.equal(s.res.funds, funds0 - W.stages[0].funds, 'funds not paid');
+  assert.equal(s.yardStock.steel, steel0 - W.stages[0].steel, 'stock not consumed');
+  assert.ok(s.groundBroken > 0, 'breaking ground did not start the clock');
+  for (let i = 0; i < W.stages[0].turns; i++) d.worksStep();
+  assert.equal(d.works().stage, 1, 'the site never stood');
+});
+
+test('works: red tape stalls the site and cooling frees it — progress holds', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const rig = worksRig(d, window);
+  // a scorching street refuses the start, and says why
+  d.warmDistrict(rig.yard.district, 15);
+  assert.ok(/red tape|cool/.test(d.worksShort(0) || ''), 'no red-tape refusal: ' + d.worksShort(0));
+  // cool it, start the LONG stage, then let the street scorch mid-build:
+  // the tape is cumulative notice reaching the goal, so it needs the turns
+  // of the works stage itself to be reachable — a three-turn site can only
+  // be refused at the door, never taped mid-pour, which is by design
+  s.suspicion = {};
+  d.works().stage = 3;                     // the works: five turns of notice
+  assert.equal(d.actBuildStage(), true, d.worksShort(3));
+  d.worksStep();
+  d.warmDistrict(rig.yard.district, 20);   // act 2 doubles this to the cap
+  d.worksStep();
+  d.worksStep();
+  assert.equal(d.works().stalled, 'tape', 'the scorching street did not stall the site');
+  const left = d.works().building.turnsLeft;
+  d.worksStep();
+  assert.equal(d.works().building.turnsLeft, left, 'the stall ate progress');
+  s.suspicion = {};
+  d.worksStep();
+  assert.ok(d.works().stalled !== 'tape', 'cooling did not lift the tape');
+});
+
+test('works: power is a held, cuttable street path — severing it stalls and says so', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const rig = worksRig(d, window);
+  assert.equal(d.powerOk(), true, 'the rigged path does not power');
+  // finish the site, start the power stage
+  d.actBuildStage();
+  for (let i = 0; i < window.WORKS.stages[0].turns; i++) d.worksStep();
+  assert.equal(d.works().stage, 1);
+  assert.equal(d.worksShort(1), null, 'power stage refused: ' + d.worksShort(1));
+  d.actBuildStage();
+  // cut the one street between yard and grid: the site waits, with words
+  s.cuts = [{ a: rig.yard.id, b: rig.grid.id }];
+  if (!d.powerOk()) {
+    d.worksStep();
+    assert.equal(d.works().stalled, 'power', 'a dead path did not stall the build');
+    const left = d.works().building.turnsLeft;
+    s.cuts = [];
+    d.worksStep();
+    assert.ok(d.works().stalled !== 'power', 'restoring the street did not resume');
+    assert.ok(d.works().building === null || d.works().building.turnsLeft <= left, 'no progress after resume');
+  } else { s.cuts = []; }
+});
+
+test('works: four stages, a growing silhouette, and the beat at the end', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  worksRig(d, window);
+  const W = window.WORKS;
+  for (let i = 0; i < W.stages.length; i++) {
+    s.suspicion = {}; s.ap = 9; s.res.funds = 99;
+    assert.equal(d.actBuildStage(), true, 'stage ' + i + ' refused: ' + d.worksShort(i));
+    const sil0 = (d.svgTrucks().match(/works-sil/g) || []).length;
+    assert.ok(d.svgTrucks().includes('works-crane'), 'no crane while building stage ' + i);
+    for (let t = 0; t < W.stages[i].turns + 3 && d.works().building; t++) { s.suspicion = {}; d.worksStep(); }
+    assert.equal(d.works().stage, i + 1, 'stage ' + i + ' never stood');
+    assert.ok((d.svgTrucks().match(/works-sil/g) || []).length > sil0, 'the silhouette did not grow');
+  }
+  assert.ok((s.forced || []).some(f => (f.id || f) === 'works_online'), 'no beat when the lights came on');
+  // ...and the whole thing survives a save
+  const back = JSON.parse(JSON.stringify(d.serialize()));
+  d.deserialize(back);
+  assert.equal(d.works().stage, W.stages.length, 'the works forgot itself in a save');
 });

@@ -2508,6 +2508,7 @@
     cityWonCheck();
     actBreakWatch();
     truckStep();
+    worksStep();
     if (!state.card && (state.forced || []).length) {
       // A report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -3384,6 +3385,123 @@
     persistNow();
     render();
     return true;
+  }
+
+  // --- W4: the works itself -------------------------------------------------
+  // Four stages on the yard: each one funds + the yard's stock + stated
+  // turns, raced against the street's notice. Stalls, never losses: red
+  // tape and a cut power path both hold the site with its progress intact.
+  function works() { return state.works || (state.works = { stage: 0, building: null }); }
+  function worksStageDef(i) { return ((window.WORKS || {}).stages || [])[i] || null; }
+  // A held path of streets from the yard to a grid building you hold —
+  // cuttable like everything else. Required from the power stage onward.
+  function powerOk() {
+    const yard = yardB();
+    if (!yard) return false;
+    const held = heldBuildingIds();
+    if (!held[yard.id]) return false;
+    const cut = new Set((state.cuts || []).map(c => c.a + '|' + c.b).concat(
+      (state.cuts || []).map(c => c.b + '|' + c.a)));
+    const q = [yard.id], seen = { [yard.id]: true };
+    while (q.length) {
+      const id = q.shift();
+      if (hostsIn(buildingById(id)).some(h => h.owned && h.role === 'grid')) return true;
+      buildingNeighbours(id).forEach(n => {
+        if (seen[n] || !held[n] || cut.has(id + '|' + n)) return;
+        seen[n] = true; q.push(n);
+      });
+    }
+    return false;
+  }
+  // The race, projected honestly: the build itself warms the street every
+  // turn, so the quoted notice includes the noise the build will make.
+  function worksForecast(i) {
+    const W = window.WORKS || {};
+    const st = worksStageDef(i);
+    const yard = yardB();
+    if (!st || !yard) return null;
+    const dk = yard.district;
+    const warmEff = (W.warm || 0) * (actNow() >= 2 ? 2 : 1);
+    let notice = 0;
+    for (let t = 0; t < st.turns; t++) {
+      const susp = feltSuspicion(dk, yard.id) + t * warmEff;
+      notice += (W.noticeBase || 1) + susp * (W.noticeK || 0);
+    }
+    notice = Math.round(notice * 10) / 10;
+    return { stage: st, notice, goal: W.goal || 14, taped: notice >= (W.goal || 14), warmEff };
+  }
+  function worksShort(i) {
+    const st = worksStageDef(i);
+    const w = works();
+    if (!st) return 'the works is finished';
+    if (w.building) return 'a stage is already up on scaffolds';
+    const stock = state.yardStock || {};
+    if (state.res.funds < st.funds) return `needs ${st.funds} funds`;
+    if ((stock.steel || 0) < st.steel) return `needs ${st.steel} steel in the yard — send trucks`;
+    if ((stock.fab || 0) < st.fab) return `needs ${st.fab} fabrication in the yard — send trucks`;
+    if ((st.needsGrid || w.stage >= 1) && !powerOk()) return 'no held streets reach a grid building — the site has no power';
+    const f = worksForecast(i);
+    if (f && f.taped) return 'red tape gets there first — cool the street, or bait it';
+    if (apShort('build')) return 'no actions left';
+    return null;
+  }
+  function actBuildStage() {
+    const w = works();
+    const i = w.stage;
+    const st = worksStageDef(i);
+    if (!st || actNow() < 2 || !yardB() || burnedAt(state.yard)) return false;
+    if (worksShort(i)) return false;
+    spendAP('build');
+    state.res.funds -= st.funds;
+    const stock = state.yardStock = state.yardStock || {};
+    stock.steel = (stock.steel || 0) - st.steel;
+    stock.fab = (stock.fab || 0) - st.fab;
+    w.building = { i, turnsLeft: st.turns, notice: 0 };
+    if (i === 0 && !state.groundBroken) {
+      // verdict 8: breaking ground starts the clock — recorded here, spent
+      // by the public lens when W5 arrives
+      state.groundBroken = state.turn;
+      pushLog('Ground broken. From here the city is watching what goes up.');
+    } else {
+      pushLog(`${st.label[0].toUpperCase() + st.label.slice(1)} goes up on scaffolds — ${st.turns} turns.`);
+    }
+    persistNow();
+    render();
+    return true;
+  }
+  // One world-turn on the scaffolds. Stalls hold progress; nothing is lost.
+  function worksStep() {
+    const w = state.works;
+    if (!w || !w.building) return;
+    const W = window.WORKS || {};
+    const st = worksStageDef(w.building.i);
+    const yard = yardB();
+    if (!yard || burnedAt(yard.id)) { w.building = null; return; }
+    const needsPower = st.needsGrid || w.stage >= 1;
+    if (needsPower && !powerOk()) {
+      if (!w.stalled) pushLog('The site goes quiet: no held streets reach a grid building. The build waits.');
+      w.stalled = 'power';
+      return;
+    }
+    const rate = (W.noticeBase || 1) + feltSuspicion(yard.district, yard.id) * (W.noticeK || 0);
+    if ((w.building.notice || 0) + rate >= (W.goal || 14) && w.building.turnsLeft > 1) {
+      if (w.stalled !== 'tape') pushLog('Red tape holds the site — somebody asked whose crane that is. The build waits for the street to cool.');
+      w.stalled = 'tape';
+      return;
+    }
+    w.stalled = null;
+    w.building.notice = Math.round(((w.building.notice || 0) + rate) * 10) / 10;
+    warmDistrict(yard.district, W.warm || 0);
+    w.building.turnsLeft -= 1;
+    if (w.building.turnsLeft <= 0) {
+      w.stage += 1;
+      pushLog(`${st.label[0].toUpperCase() + st.label.slice(1)} stands.`);
+      showBanner([{ kind: 'stage', verb: 'built', label: st.label }]);
+      w.building = null;
+      if (w.stage >= (W.stages || []).length && cardedOnce('works_online')) {
+        queueEvent('works_online', null);
+      }
+    }
   }
 
   // What you can no longer pay for stops being hidden — newest first, because
@@ -4824,6 +4942,24 @@ scratch.later = null;
     if (yard && !burnedAt(yard.id)) {
       out += `<g class="yard-mark">`
         + `<path d="M${yard.x + 2} ${yard.y - 2} v-7 l6 2 -6 2" fill="${oc}" stroke="${oc}" stroke-width="1"/>`;
+      // the works, growing in silhouette beside the yard — one block per
+      // stage that stands, and a crane while one is on the scaffolds
+      const w = state.works || { stage: 0 };
+      for (let i = 0; i < w.stage; i++) {
+        const hgt = 7 + i * 4;
+        out += `<rect class="works-sil" x="${(yard.x + yard.w + 3 + i * 8).toFixed(1)}" y="${(yard.y + yard.h - hgt).toFixed(1)}"`
+          + ` width="6.5" height="${hgt}" fill="#191410" stroke="${oc}" stroke-width=".7" opacity=".95"/>`;
+      }
+      if (w.building) {
+        const cx = yard.x + yard.w + 3 + w.stage * 8 + 3;
+        const top = yard.y + yard.h - 26;
+        out += `<g class="works-crane" stroke="${oc}" stroke-width="1" fill="none">`
+          + `<line x1="${cx}" y1="${yard.y + yard.h}" x2="${cx}" y2="${top}"/>`
+          + `<line x1="${cx - 4}" y1="${top}" x2="${cx + 10}" y2="${top}"/>`
+          + `<line x1="${cx + 8}" y1="${top}" x2="${cx + 8}" y2="${top + 7}"/>`
+          + `<rect x="${cx + 6.7}" y="${top + 7}" width="2.6" height="2.6" fill="${oc}" stroke="none"/>`
+          + `</g>`;
+      }
       const st = state.yardStock || {};
       const crates = Math.min(8, (st.steel || 0) + (st.fab || 0));
       for (let i = 0; i < crates; i++) {
@@ -5594,6 +5730,8 @@ scratch.later = null;
       trucks: JSON.parse(JSON.stringify(state.trucks || [])),
       yard: state.yard || null,
       yardStock: Object.assign({}, state.yardStock || {}),
+      works: JSON.parse(JSON.stringify(state.works || null)),
+      groundBroken: state.groundBroken || 0,
     };
   }
   function unpackCity(p) {
@@ -5635,6 +5773,8 @@ scratch.later = null;
     state.trucks = JSON.parse(JSON.stringify(p.trucks || []));
     state.yard = p.yard || null;
     state.yardStock = Object.assign({}, p.yardStock || {});
+    state.works = p.works ? JSON.parse(JSON.stringify(p.works)) : null;
+    state.groundBroken = p.groundBroken || 0;
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -7690,6 +7830,8 @@ scratch.later = null;
       yard: state.yard || null,
       yardStock: Object.assign({}, state.yardStock || {}),
       truckSeq: state.truckSeq || 0,
+      works: JSON.parse(JSON.stringify(state.works || null)),
+      groundBroken: state.groundBroken || 0,
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -7731,6 +7873,8 @@ scratch.later = null;
         yard: saved.yard || null,
         yardStock: Object.assign({}, saved.yardStock || {}),
         truckSeq: saved.truckSeq || 0,
+        works: saved.works ? JSON.parse(JSON.stringify(saved.works)) : null,
+        groundBroken: saved.groundBroken || 0,
         // the tray is retired: a save that still held cards set aside pours
         // them into the queue, so nothing a player was owed is lost
         forced: ((saved.forced || []).concat(saved.waiting || [])).slice(),
@@ -10904,6 +11048,40 @@ scratch.later = null;
     const st = state.yardStock || {};
     return `<p class="sel-desc source-line">The yard — trucks back in here. Stock: <b>${st.steel || 0}</b> steel, <b>${st.fab || 0}</b> fabrication.</p>`;
   }
+  // The works, on the yard's own panel: stage dots, the live build with its
+  // race bar, or the next stage previewed like a door — forecast bar, every
+  // price in its own unit, and the one button.
+  function worksPanel(b) {
+    if (!b || state.yard !== b.id || burnedAt(b.id) || actNow() < 2) return '';
+    const W = window.WORKS || {};
+    const w = works();
+    const total = (W.stages || []).length;
+    const dots = (W.stages || []).map((st, i) =>
+      `<span class="wd${i < w.stage ? ' done' : (w.building && w.building.i === i) ? ' up' : ''}">${st.label.replace('the ', '')}</span>`).join(' · ');
+    let body = '';
+    if (w.building) {
+      const st = worksStageDef(w.building.i);
+      body = `
+        <p class="sel-desc">${st.label[0].toUpperCase() + st.label.slice(1)} — ${w.building.turnsLeft} turn${w.building.turnsLeft === 1 ? '' : 's'} to go${w.stalled ? ', held' : ''}.</p>
+        ${raceBar((st.turns - w.building.turnsLeft) / st.turns, (w.building.notice || 0) / (W.goal || 14), false)}
+        ${w.stalled === 'power' ? '<p class="sel-desc"><b class="bad">No power</b> — hold an unbroken street path to a grid building and work resumes.</p>' : ''}
+        ${w.stalled === 'tape' ? '<p class="sel-desc"><b class="bad">Red tape</b> — the street must cool before work resumes. Progress holds.</p>' : ''}`;
+    } else if (w.stage < total) {
+      const st = worksStageDef(w.stage);
+      const f = worksForecast(w.stage);
+      const short = worksShort(w.stage);
+      body = `
+        ${traceForecastBar(f.notice / f.goal, f.taped, 0)}
+        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${st.steel ? chip('cost none', '&minus;' + st.steel + ' steel') : ''}${st.fab ? chip('cost none', '&minus;' + st.fab + ' fabrication') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
+        <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="build" data-ap="build" data-info="build" ${short ? 'disabled' : ''}>
+          <span class="ab-name">raise ${st.label}</span>
+          <span class="ab-sub">${short || 'an action, and the scaffolds go up'}</span>
+        </button>`;
+    } else {
+      body = '<p class="sel-desc source-line"><b>The works is online.</b> The line runs. What comes for it is the next act.</p>';
+    }
+    return `<div class="works-panel"><p class="works-dots mono">${dots}</p>${body}</div>`;
+  }
   function scanFromBtn(b) {
     if (!b || !b.discovered || burnedAt(b.id)) return '';
     const n = sweepTargetsFrom(b.id).length;
@@ -11170,6 +11348,7 @@ scratch.later = null;
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
             ${sourceLine(h.buildingId)}
             ${yardLine(h.buildingId)}
+            ${worksPanel(b)}
             ${markLine(h.buildingId)}
             ${truckBtn(b)}
             ${scanFromBtn(b)}
@@ -11253,6 +11432,7 @@ scratch.later = null;
         else if (a === 'burn') { armedTool = null; actBurn(b.getAttribute('data-bid')); }
         else if (a === 'yard') { armedTool = null; actYard(b.getAttribute('data-bid')); }
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
+        else if (a === 'build') actBuildStage();
         // arm, then fire: a tile's first tap only unfolds the contract
         else if (a === 'arm-tool') {
           const key = b.getAttribute('data-tool') + ':' + b.getAttribute('data-bid');
@@ -11900,6 +12080,7 @@ scratch.later = null;
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine,
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canYard, actYard, yardB, svgTrucks, truckBtn, yardLine,
+    works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,

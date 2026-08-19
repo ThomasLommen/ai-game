@@ -980,6 +980,11 @@ footer .build { opacity: .55; font-size: 10px; }
   pointer-events: none;
 }
 .truck-route.preview { stroke-dasharray: 4 4; opacity: .8; }
+/* W4: the works panel and its silhouette */
+.works-dots { font-size: 10px; letter-spacing: .12em; color: var(--ink-dim); }
+.works-dots .wd.done { color: #e0803f; }
+.works-dots .wd.up { color: var(--ink); }
+.works-panel { margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .truck.held { opacity: .55; }
 .yard-mark { pointer-events: none; }
 

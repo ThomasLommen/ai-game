@@ -154,6 +154,19 @@ stage, in silhouette.
 the build and says so; the invariant suite holds (a build can never strand a
 building).
 
+**W4 SHIPPED (2026-08-19):** four stages (site 6f/1s/3t → power 8f/1s/1f/4t →
+line 10f/2s/1f/4t → works 12f/1s/2f/5t) on the yard, each a previewed race:
+notice accrues at `1 + 0.15 × felt suspicion` per turn against a red-tape
+line of 14, and the quoted projection includes the noise the build itself
+makes (a bait genuinely helps a building site). Red tape and a cut power
+path are STALLS, never losses — progress holds, the panel says why, cooling
+or re-holding the path resumes. Power = a held street path from the yard to
+a grid building, BFS over held buildings minus cuts, required from the power
+stage on. Breaking ground stamps `groundBroken` (verdict 8's clock, spent by
+W5). The silhouette grows one block per standing stage with a crane while
+building; the fourth stage queues the `works_online` story beat. The graph
+is never modified — no build can strand a building, by construction.
+
 ### Stage W5 — the front (and the suspicion answer)
 
 The public lens: `pubStanding` and the `pub_*` cards come forward as Act 2's
