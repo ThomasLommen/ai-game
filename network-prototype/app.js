@@ -1834,6 +1834,9 @@
       bands: g.bands,
       view: null,          // pan/zoom, set on first render
       turn: 1,
+      act: 1,          // which act of the run this is — the break card advances it
+      winHist: [],     // rolling count of winnable takes, for the break's signal
+      loopPeak: 0,     // the best that count has ever been, same purpose
       heat: 0,
       upgrades: 0,
       ap: window.AP.base,
@@ -2471,6 +2474,7 @@
     if (state.card && state.card.kind === 'strike') state.card = null;
     if (!warOn() && !huntOn()) huntStart();
     cityWonCheck();
+    actBreakWatch();
     if (!state.card && (state.forced || []).length) {
       // A report that has to be delivered rather than drawn: it is about
       // something that has already happened, so it does not wait for the
@@ -2636,6 +2640,9 @@
   function noteDistrictAct(district, amount) {
     if (!district || !window.SUSPICION) return;
     const S = window.SUSPICION;
+    // Act 2: the old life is still there, it just stopped being free —
+    // every Act 1 verb warms its street twice as hard (acts-plan verdict 3)
+    if (actNow() >= 2) amount *= 2;
     // one decimal, always — float drift here would surface as "38.00000004%
     // faster" in the panel, and the panel is a contract
     const tidy = (v) => Math.round(v * 10) / 10;
@@ -2683,6 +2690,8 @@
     // While nobody is looking, nothing you do reaches a counter. One choke
     // point: every path that warms a street comes through here.
     if (ruleOn('nobody_looking')) return;
+    // the Act 2 tax, same rate as noteDistrictAct — one act, one price
+    if (actNow() >= 2) amount *= 2;
     const S = window.SUSPICION;
     const tidy = (v) => Math.round(v * 10) / 10;
     state.suspicion = state.suspicion || {};
@@ -2698,6 +2707,43 @@
   // thing (1: the lights, 2: the people, 3: the helicopter), so the map can
   // be read the way the card kinds can, while the exact figure stays in the
   // panel where the covenant keeps it.
+  // --- the act break's signal ----------------------------------------------
+  // Which act this run is in. Everything Act 2 adds gates on this.
+  function actNow() { return state.act || 1; }
+  // Doors the race maths says you would actually win, right now. The break
+  // watches this, not ownership share: the census (W0) showed the loop
+  // starves — frontier still standing, winnable takes at zero — long before
+  // the city is anything like taken.
+  function winnableNow() {
+    return (state.hosts || []).filter(h => isFrontier(h) && !hackForecast(h).caught).length;
+  }
+  // The break deals on the DOWNSLOPE, never at the wall: the player must
+  // not meet the next act feeling cornered. Signal: the loop had a real
+  // boom once (peak >= 4 winnable at once), and for the last five turns
+  // it has run at under half that peak while some street is properly warm.
+  // Measured in W0: this window opens 20-30 turns before the starve.
+  function actBreakWatch() {
+    if (actNow() !== 1 || state.scope !== 'city' || state.over) return;
+    const S = window.SUSPICION || {};
+    const hist = state.winHist = (state.winHist || []);
+    const now = winnableNow();
+    hist.push(now);
+    if (hist.length > 8) hist.shift();
+    state.loopPeak = Math.max(state.loopPeak || 0, now);
+    if ((state.loopPeak || 0) < 4) return;
+    // a story floor, not a timer: a small-boom game can sag honestly by
+    // turn 18, but an act that turns before the tenancy has been lived
+    // reads as a wall, not a chapter (probe: 10/10 arrivals, median ~38)
+    if (state.turn < 24) return;
+    const recent = hist.slice(-5);
+    if (recent.length < 5) return;
+    if (!recent.every(v => v < state.loopPeak / 2)) return;
+    const warm = Object.values(state.suspicion || {}).some(v => v >= ((S.bands || [[6], [12]])[1] || [12])[0]);
+    if (!warm) return;
+    if (!cardedOnce('act_break')) return;
+    queueEvent('act_break', null);
+  }
+
   function suspBand(district) {
     const S = window.SUSPICION;
     if (!S || !S.bands) return 0;
@@ -4056,6 +4102,7 @@ scratch.later = null;
     // on — and both say, out loud, when they stop.
     scratch.rule = null;        // { id, turns } — capped at two live at once
     scratch.bank = null;        // id of a one-shot to hold until you spend it
+    scratch.actBreak = false;   // the story turns: this card advances the act
     ch.apply(scratch);
     if (scratch.rule && scratch.rule.id) startRule(scratch.rule.id, scratch.rule.turns);
     if (scratch.bank) bank(scratch.bank, 1);
@@ -4082,6 +4129,12 @@ scratch.later = null;
     }
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
+    // The act turns. One direction only — an act, like a mark, never undoes.
+    if (scratch.actBreak && actNow() === 1) {
+      state.act = 2;
+      pushLog('The tenancy stops being the question. Whatever comes next needs walls, power, and a name.');
+      showBanner([{ kind: 'stage', verb: 'act two', label: 'the works' }]);
+    }
 
     if (scratch.shedWeakest > 0) {
       const weakest = owned().filter(h => !h.origin).sort((a, b) => a.threads - b.threads).slice(0, scratch.shedWeakest);
@@ -7295,6 +7348,11 @@ scratch.later = null;
       // with the run and not with the ground
       rules: (state.rules || []).slice(),
       banked: Object.assign({}, state.banked || {}),
+      // the act travels with the run, like a rule does — a save made in
+      // Act 1 must load as Act 1
+      act: state.act || 1,
+      winHist: (state.winHist || []).slice(),
+      loopPeak: state.loopPeak || 0,
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -7329,6 +7387,9 @@ scratch.later = null;
         marks: saved.marks || {},
         rules: (saved.rules || []).slice(),
         banked: Object.assign({}, saved.banked || {}),
+        act: saved.act || 1,
+        winHist: (saved.winHist || []).slice(),
+        loopPeak: saved.loopPeak || 0,
         // the tray is retired: a save that still held cards set aside pours
         // them into the queue, so nothing a player was owed is lost
         forced: ((saved.forced || []).concat(saved.waiting || [])).slice(),
@@ -11400,6 +11461,7 @@ scratch.later = null;
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
+    actNow, winnableNow, actBreakWatch,
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,

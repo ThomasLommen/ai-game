@@ -1386,6 +1386,27 @@ window.EVENTS = [
     ],
   },
 {
+    // The first story beat: the act break. Delivered by the loop's own
+    // arithmetic (actBreakWatch — the boom has halved, a street is warm),
+    // never drawn, and dealt on the downslope so it reads as a turning
+    // point, not a wall. `beat: true` marks the act-scale cards; the
+    // chapter dress they will wear is a bench decision (acts-plan verdict
+    // 2), but the flag lands with the card so the class exists.
+    id: 'act_break',
+    kind: 'own',
+    beat: true,
+    once: true,
+    cond: () => false,
+    title: 'The Last Easy Door',
+    flavor: 'The city is not finished, but the part of it that opens to a quiet hand is. What you hold now hums through more rooms than some utilities. Things that hum get noticed; things that get noticed need a name, walls, power — something the daylight can be told. You have been a tenant everywhere. It is time to build.',
+    choices: [
+      { text: 'Begin the works',
+        shows: 'Act 2 — the old verbs stay; from here the city watches harder',
+        after: 'Somewhere in the industrial belt there is a floor big enough. You catch yourself reading the city differently — not for doors, for ground. Nothing about the night has changed, except what you want from it.',
+        apply: (s) => { s.actBreak = true; } },
+    ],
+  },
+{
     id: 'rotors',
     kind: 'closing',
     once: true,

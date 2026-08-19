@@ -71,6 +71,15 @@ The break is dealt as a card — the deck is the act structure. Crossing it:
 **Check:** the break fires from the loop at the measured knee; a save made in
 Act 1 loads as Act 1; the shift is visible in one screenshot.
 
+**W1 mechanics SHIPPED (2026-08-19):** `state.act` (old saves default 1, act
+survives save/load, one direction only); `actBreakWatch` deals `act_break`
+on the downslope — boom of ≥4 winnable takes, five turns under half peak,
+a street at band 2, past a turn-24 story floor. Probe: 9-10 of 10 bot games,
+arrivals 24-80, median ~37 (a game still booming rightly gets no break).
+Verdict 3 shipped with it: both warming choke points double in Act 2. The
+card carries `beat: true` — the chapter dress the beat class wears is the
+next bench; the palette shift lands with it.
+
 ### Stage W2 — materials and the survey
 
 Suppliers are what the look-verb finds now: buildings yield **materials** as

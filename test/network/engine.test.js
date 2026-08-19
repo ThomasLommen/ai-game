@@ -10184,7 +10184,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 60, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 61, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -11779,4 +11779,78 @@ test('suspicion: the rotation rule is said where it applies', () => {
   assert.ok(/Working elsewhere cools this street/.test(d.suspicionLine('commercial')),
     'the rule the player cannot see is a rule they will not use');
   assert.equal(d.suspicionLine('business'), '', 'a quiet street lectures nobody');
+});
+
+// --- the act break: dealt on the downslope, never at the wall ---------------
+
+test('act: a run starts in act one, and an old save loads as act one', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  assert.equal(d.actNow(), 1);
+  const saved = JSON.parse(JSON.stringify(d.serialize()));
+  delete saved.act;                       // a save from before acts existed
+  d.deserialize(saved);
+  assert.equal(d.actNow(), 1, 'a pre-acts save did not default to act one');
+});
+
+test('act break: the signal needs a real boom, a real sag, and a warm street', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const queued = () => (s.forced || []).some(f => (f.id || f) === 'act_break');
+  // starve the frontier completely so winnableNow is 0
+  s.hosts.forEach(h => { h.owned = true; });
+  s.turn = 30;                             // past the story floor
+
+  // no boom ever: five sagging turns and a warm street change nothing
+  d.noteDistrictAct('commercial', 14);
+  for (let i = 0; i < 6; i++) d.actBreakWatch();
+  assert.equal(queued(), false, 'the break fired without a boom to fall from');
+
+  // a boom, but the street is cold: still nothing
+  s.loopPeak = 6; s.winHist = [];
+  s.suspicion = {};
+  for (let i = 0; i < 6; i++) d.actBreakWatch();
+  assert.equal(queued(), false, 'the break fired on a cold city');
+
+  // boom + sag + warmth: the card queues, exactly once
+  d.noteDistrictAct('commercial', 14);
+  for (let i = 0; i < 6; i++) d.actBreakWatch();
+  assert.equal(queued(), true, 'the downslope signal never fired');
+  const n = (s.forced || []).filter(f => (f.id || f) === 'act_break').length;
+  for (let i = 0; i < 6; i++) d.actBreakWatch();
+  assert.equal((s.forced || []).filter(f => (f.id || f) === 'act_break').length, n,
+    'the break queued twice');
+});
+
+test('act break: resolving the card turns the act, and the act survives a save', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.offerCard('act_break', null);
+  if (s.card.facedown) s.card.facedown = false;
+  d.resolveEvent(0);
+  assert.equal(d.actNow(), 2, 'the break card did not turn the act');
+  assert.equal(s.card && s.card.kind, 'after', 'no ending was shown');
+  s.card = null;
+  const back = JSON.parse(JSON.stringify(d.serialize()));
+  d.deserialize(back);
+  assert.equal(d.actNow(), 2, 'act two did not survive a save');
+  // and the beat class exists on the card itself, for the dress to hang on
+  assert.equal(d.eventById('act_break').beat, true, 'the break is not marked as a story beat');
+});
+
+test('act two: the old verbs stay live, at doubled street-warming', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  d.noteDistrictAct('commercial', 5);
+  const one = d.suspicionOf('commercial');
+  s.act = 2;
+  d.noteDistrictAct('business', 5);
+  assert.equal(d.suspicionOf('business') >= one * 2 - 0.001, true,
+    'act two did not double the warming');
+  s.suspicion = {};
+  d.warmDistrict('commercial', 3);
+  assert.equal(d.suspicionOf('commercial'), 6, 'warmDistrict missed the act two tax');
 });
