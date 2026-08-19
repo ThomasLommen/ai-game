@@ -167,6 +167,13 @@ W5). The silhouette grows one block per standing stage with a crane while
 building; the fourth stage queues the `works_online` story beat. The graph
 is never modified — no build can strand a building, by construction.
 
+**Spine census (overnight, 2026-08-19):** 14 bot games through the whole
+arc: the break fires 14/14 (median ~40), the yard follows — and the works
+came online in ZERO games. Blocked-turn census: funds ~930, materials 430,
+red tape 116, power 0. Three findings and their proposals (the haulage
+front, the deal, the 2-unit load) are written up in
+`act2-economy-and-the-deal.md` for the grill. Nothing is built.
+
 ### Stage W5 — the front (and the suspicion answer)
 
 The public lens: `pubStanding` and the `pub_*` cards come forward as Act 2's

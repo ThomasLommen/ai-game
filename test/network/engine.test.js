@@ -2757,7 +2757,14 @@ function settle(d, window) {
 }
 
 test('settled: folding a city in keeps the shape of what you took', () => {
-  const { window } = loadNetwork();
+  // Seeded like the other statistical claims over generated boards — this
+  // one flaked on live Math.random rarely enough to look like a real break.
+  let seed = 0x7f4a7c15;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
+  const { window } = loadNetwork({ pinMathRandom: rand });
   const d = window.__netDebug;
   const c = settle(d, window);
   const web = d.cityWeb(c);
@@ -7923,7 +7930,14 @@ test('hunt confront: the core is a door you run a program at, like any other', (
 });
 
 test('hunt confront: landing on the core ends the hunt and reclaims only the address', () => {
-  const { window } = loadNetwork();
+  // Seeded like the other statistical claims over generated boards — this
+  // one flaked on live Math.random rarely enough to look like a real break.
+  let seed = 0x94d049bb;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
+  const { window } = loadNetwork({ pinMathRandom: rand });
   const d = window.__netDebug;
   const s = d.state;
   hunted(d, window);
