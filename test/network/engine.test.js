@@ -7043,10 +7043,12 @@ test('screen: the page itself is an app shell and does not scroll', () => {
   assert.ok(/height:\s*100dvh/.test(body), 'the window is the whole of it');
   assert.ok(/overflow:\s*hidden/.test(body), 'and it does not scroll as a document');
 
-  // the slack has to live somewhere, and it is the panel
+  // the slack lives in the map now: the panel floats over its lower edge at
+  // natural height, and the graph flexes to fill everything above the bar
   const panel = rule('#panel');
-  assert.ok(/overflow-y:\s*auto/.test(panel), 'the panel takes up the slack itself');
-  assert.ok(/min-height/.test(panel), 'but can never be squeezed to nothing');
+  assert.ok(/overflow-y:\s*auto/.test(panel), 'the panel can still spill safely');
+  const wrap = rule('#graph-wrap');
+  assert.ok(/flex:\s*1 1 auto/.test(wrap), 'the map does not take up the slack');
 
   // the tray no longer needs bounding because it can no longer grow: it is one
   // line of pills that opens the sheet, rather than a row per awake faction
@@ -7055,10 +7057,12 @@ test('screen: the page itself is an app shell and does not scroll', () => {
   assert.ok(!/#tray\s*\{[^}]*max-height/.test(css2),
     'and so needs no cap — a capped scroll is the thing we were removing');
 
-  // and the map keeps a fixed share rather than absorbing panel changes
+  // the map absorbs the slack now — the panel floats over its lower edge
+  // at natural height, so the map's box never changes on a tap and the
+  // bottom bar sits on the floor
   const map = rule('#graph-wrap');
-  assert.ok(/height:\s*clamp\(/.test(map), 'the map is sized to the window, not to the leftovers');
-  assert.ok(!/flex:\s*1[^ ]/.test(map), 'it is not the flexible one any more');
+  assert.ok(/flex:\s*1 1 auto/.test(map), 'the map does not take up the slack');
+  assert.ok(/min-height/.test(map), 'but it can be squeezed to nothing');
 });
 
 test('screen: the bottom of the screen belongs to the system, and we stay off it', () => {
@@ -12289,5 +12293,6 @@ test('panel: the footer is gone and the gear sheet holds the housekeeping', () =
   // and the panel is height-capped so the map never shrinks
   const css = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
-  assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*max-height/.test(css), 'the panel has no height budget');
+  assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*position:\s*fixed/.test(css), 'the panel no longer floats over the map');
+  assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*max-height/.test(css), 'the panel has no ceiling at all');
 });

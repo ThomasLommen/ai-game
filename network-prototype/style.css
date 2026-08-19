@@ -204,9 +204,13 @@ body {
      the order of priority when a small screen runs out of room is chrome
      first, then a usable panel, and the map yields last. It still never
      changes because of anything as ordinary as tapping a building. */
-  flex: 0 1 auto;
-  height: clamp(200px, 38vh, 420px);
-  min-height: 158px;
+  /* The P2 layout: the panel floats over the map's lower edge (below), so
+     the map takes every row between the chrome and the bottom bar and its
+     box never changes because of anything as ordinary as tapping a
+     building — the panel slides over it instead of squeezing it. */
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 200px;
   margin-top: 10px;
 }
 /* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
@@ -296,22 +300,6 @@ body {
 /* panel — selection, actions, and cards all live here */
 #panel {
   padding-bottom: 2px;
-  /* the slack lives here: the map is a fixed share and the chrome is fixed, so
-     whatever is left over is the panel's, and it scrolls within itself rather
-     than pushing the page around */
-  flex: 1 1 0;
-  /* it may be squeezed, but never to the point of being useless */
-  /* raised once the map was allowed down to 158: on a 640-tall phone the panel
-     was pinned at its floor while the map sat 17px above its own, so the
-     overflow was a distribution problem rather than a content one */
-  /* Raised once the map was allowed down to 158: on a 640-tall phone the panel
-     was pinned at its floor while the map sat above its own, so the country
-     panel's overflow was a distribution problem rather than a content one.
-     Measured further: at 45vh the panel never scrolls, but the page starts to
-     (6-38px) and the map is squashed to its floor. On a screen that short you
-     cannot have a readable map, every verb, and no scrolling at all — and a
-     page that scrolls is the worst of the three. */
-  min-height: min(206px, 36vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -983,7 +971,24 @@ footer .build { opacity: .55; font-size: 10px; }
 /* --- the P2 panel: instruments first, prose behind the tap ---------------
    Chips and bars carry every fact; the full sentences live in the drawer
    behind the i. The panel is height-capped so the map never shrinks. */
-#panel:not(.card-open) { max-height: 36vh; overflow-y: auto; }
+/* The panel floats over the map's lower edge at its natural height — the
+   worst-case compact panel measured ~500px and no fixed split can host that
+   scroll-free AND a readable map. Floating solves all three complaints at
+   once: the bar sits on the bottom, the map fills everything above it, and
+   the panel is exactly as tall as its content (scrolling only if it would
+   ever outgrow the ceiling — the drawer's business, not the compact's). */
+#panel:not(.card-open) {
+  position: fixed;
+  padding-bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--safe-bottom) + 74px);
+  z-index: 8;
+  max-height: calc(100dvh - var(--safe-top) - 240px);
+  overflow-y: auto;
+  pointer-events: none;              /* the gaps around .sel stay pannable */
+}
+#panel:not(.card-open) > * { pointer-events: auto; }
 .cp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
 .cp-id .cp-name { font-weight: 700; font-size: 17px; margin-right: 2px; }
 .cp-chip {
