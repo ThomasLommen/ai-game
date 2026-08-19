@@ -978,8 +978,12 @@ footer .build { opacity: .55; font-size: 10px; }
   transform: translateX(-50%);
   width: 100%;
   max-width: 480px;
-  bottom: var(--dock-bar-h, 70px);
-  z-index: 9;
+  /* tucked 2px BEHIND the bar: the bar is opaque and draws its own
+     hairline, so the overlap is invisible — and fractional device-pixel
+     rounding between the measured bar height and this edge can never
+     open a hairline of map between the two */
+  bottom: calc(var(--dock-bar-h, 70px) - 2px);
+  z-index: 8;
   padding: 0;
   max-height: calc(100dvh - var(--safe-top) - 240px);
   overflow-y: auto;
