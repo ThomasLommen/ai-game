@@ -2544,6 +2544,42 @@ footer .build { opacity: .55; font-size: 10px; }
 .race.close i { animation: racePulse 650ms ease-in-out infinite; }
 @keyframes racePulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .race.close i { animation: none; } }
+/* The suspicion scale: 0 to the cap, the three band lines as ticks, the
+   current value filled in the ladder's own sodium. One instrument, three
+   homes (panel, card, burn button) — and etched, never gold, even on a
+   card: it is an instrument that happens to be lying on the filigree.
+   overflow stays visible so the landing pins can stand taller than the
+   track and read as pins rather than as segments. */
+.susp-bar {
+  position: relative; display: block; height: 6px;
+  margin: 6px 0 3px; border-radius: 3px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+  /* both the card face and the action buttons are centering flex columns,
+     which collapse a width-less block to a sliver — stretch is a no-op
+     everywhere else */
+  align-self: stretch;
+}
+.susp-bar i { position: absolute; top: 0; bottom: 0; display: block; }
+.susp-bar .sb-fill {
+  left: 0; border-radius: 3px;
+  background: color-mix(in srgb, #e8c27a 78%, transparent);
+}
+/* the band lines: where the lamps, the vans and the helicopter arrive */
+.susp-bar .sb-tick { width: 1px; top: -2px; bottom: -2px; background: var(--ink-dim); opacity: .8; }
+/* the district's counter, when a bait makes the felt value differ */
+.susp-bar .sb-raw { width: 1px; top: -3px; bottom: -3px; background: #e8c27a; opacity: .45; }
+/* where a choice would land — a pin, matched to a dot on its choice row */
+.susp-bar .sb-mark { width: 2px; top: -3px; bottom: -3px; border-radius: 1px; }
+.sb-c0 { background: var(--cover); }
+.sb-c1 { background: var(--compute); }
+.sb-c2 { background: var(--item); }
+.sb-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 5px; vertical-align: 1px;
+}
+/* on the card it sits between flavor and choices, inset like the plate */
+.tface .susp-bar { margin: 6px 10px 0; }
+
 /* The forecast answers a different question — "how close do they get" — so it
    is one meter filling from the left toward the point where they have you.
    Short is safe, full is caught, and it is dashed because it is a projection

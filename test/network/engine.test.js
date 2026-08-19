@@ -4684,7 +4684,14 @@ test('city: a house does not draw the same size as an office', () => {
 });
 
 test('city: the blocks the big things stand on are bigger', () => {
-  const { window } = loadNetwork();
+  // Seeded like the other statistical claims over generated boards — live
+  // Math.random let variance fail the mean comparison one run in a while.
+  let seed = 0x2545f491;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
+  const { window } = loadNetwork({ pinMathRandom: rand });
   const d = window.__netDebug;
   const L = d.cityLayout();
   const area = {};
@@ -11602,4 +11609,77 @@ test('bait and burn: no waiting loop hides inside the valves', () => {
   s.res.funds = 99; s.ap = 9;
   d.actBait(open.id);
   assert.ok(total() >= t0, 'the everyday valve lowered the citywide total');
+});
+
+// --- the suspicion scale: one instrument, three homes -----------------------
+
+test('susp-bar: the geometry states the scale, the bands, and the landings', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const S = window.SUSPICION;
+  const bar = d.suspBar(14, { raw: 20, marks: [{ at: 8, cls: 'sb-c0' }, { at: 60, cls: 'sb-c1' }] });
+  const pc = (x) => (x / S.max * 100).toFixed(1);
+  assert.ok(bar.includes(`width:${pc(14)}%`), 'the fill is not the value');
+  S.bands.forEach(([at]) => {
+    assert.ok(bar.includes(`left:${pc(at)}%`), `no tick at the ${at} band line`);
+  });
+  assert.ok(bar.includes(`sb-raw" style="left:${pc(20)}%`), 'the raw tick is missing');
+  assert.ok(bar.includes(`sb-c0" style="left:${pc(8)}%`), 'a landing pin is missing');
+  assert.ok(bar.includes('left:100.0%'), 'a landing past the cap did not clamp to it');
+  // and no raw tick when nothing differs
+  assert.ok(!d.suspBar(14, { raw: 14 }).includes('sb-raw'), 'a raw tick with nothing to say');
+});
+
+test('susp-bar: deltas are read from the stated contract, not the machinery', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  assert.equal(d.suspDelta('{DISTRICT} cools by 6, from {SUSP}'), -6);
+  assert.equal(d.suspDelta('+7 funds; {DISTRICT} warms by 2'), 2);
+  assert.equal(d.suspDelta('+8 funds'), null, 'a choice that says nothing about suspicion got a pin');
+});
+
+test('susp-bar: it stands in all three homes', () => {
+  const { window, document } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+
+  // home one: the building panel, with the bait's draw as geometry
+  const open = s.buildings.find(b => b.district === 'commercial' && d.canBait(b.id));
+  d.setMark(open.id, 'bait', true);
+  const other = s.buildings.find(b => b.district === 'commercial' && b.id !== open.id);
+  const line = d.suspicionLine('commercial', other.id);
+  assert.ok(line.includes('susp-bar'), 'no scale on the panel');
+  assert.ok(line.includes('sb-raw'), 'the bait moved the felt value and the counter tick vanished');
+  d.setMark(open.id, 'bait', false);
+
+  // home two: the burn button
+  const mine = s.buildings.find(x => x.district === 'commercial' && d.hostsIn(x).length && x.id !== open.id);
+  d.hostsIn(mine).forEach(h => { h.owned = true; });
+  assert.ok(d.burnBtn(mine).includes('susp-bar'), 'no scale on the burn button');
+
+  // home three: a card whose choices move suspicion, pins matched to dots
+  s.card = { kind: 'event', eventId: 'insurance_assessor', subject: { district: 'commercial' } };
+  d.render();
+  const panel = document.getElementById('panel').innerHTML;
+  assert.ok(panel.includes('susp-bar'), 'no scale on the card');
+  assert.ok(panel.includes('sb-mark sb-c0') && panel.includes('sb-mark sb-c1'),
+    'the choices did not land as pins');
+  assert.ok(panel.includes('sb-dot sb-c0'), 'a pin with no matching dot on its choice');
+  s.card = null;
+
+  // ...and a card whose choices leave suspicion alone carries no scale
+  const silent = window.EVENTS.find(e => e.choices && e.choices.length
+    && e.choices.some(c => c.after)
+    && e.choices.every(c => d.suspDelta(c.shows) === null));
+  assert.ok(silent, 'the deck has no suspicion-silent card to check against');
+  s.card = { kind: 'event', eventId: silent.id, subject: { district: 'commercial' } };
+  d.render();
+  const quiet = document.getElementById('panel').innerHTML;
+  s.card = null;
+  if (quiet.includes('tcard')) {
+    assert.ok(!quiet.includes('susp-bar'), silent.id + ' has nothing to say but drew the scale anyway');
+  }
 });

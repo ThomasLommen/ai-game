@@ -2767,7 +2767,8 @@
     const note = bait && v !== raw
       ? (bait.id === bid ? ' The bait gathers the street’s eyes here.' : ' The bait is drawing eyes away from here.')
       : '';
-    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.${note}</p>`;
+    return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.${note}</p>`
+      + suspBar(v, { raw });
   }
   // A mark, said out loud. Everything a card did to a building is permanent
   // and mechanical, so the building has to be able to state it — the covenant
@@ -10326,6 +10327,7 @@ scratch.later = null;
         <span class="ab-name">burn it down</span>
         <span class="ab-sub">${short ? 'no actions left'
           : `${chip('cost heat', 'this building and its ' + own.length + ' machine' + (own.length === 1 ? '' : 's') + ', for good')}${chip('cover', dLabel + ' cools ' + before + ' &rarr; ' + after)}`}</span>
+        ${short ? '' : suspBar(before, { marks: [{ at: after, cls: 'sb-c0' }] })}
       </button>`;
   }
   function scanFromBtn(b) {
@@ -10339,6 +10341,43 @@ scratch.later = null;
         <span class="ab-sub">${short ? 'no actions left'
           : `${chip('compute', 'turns up ' + Math.min(sweepReach(), n))}${chip('cost heat', 'the street notices')}`}</span>
       </button>`;
+  }
+
+  // The suspicion scale, drawn: 0 to the cap, the three band lines as ticks,
+  // the current value filled in sodium. One instrument, three homes — the
+  // building panel, a card whose choices move suspicion, and the burn
+  // button. The bands are where the consequences step (lamps, vans, the
+  // helicopter), so the question every home is answering is the same one:
+  // does this cross a line?
+  // opts.raw: the district's counter, drawn as a faint tick when it differs
+  // from the felt value — the bait's draw made visible as geometry.
+  // opts.marks: [{at, cls}] — where a choice would land, one pin each.
+  function suspBar(v, opts) {
+    const S = window.SUSPICION;
+    if (!S || !S.max) return '';
+    const pct = (x) => (Math.max(0, Math.min(S.max, x)) / S.max * 100).toFixed(1);
+    let out = `<span class="susp-bar" aria-hidden="true"><i class="sb-fill" style="width:${pct(v)}%"></i>`;
+    (S.bands || []).forEach(([at]) => { out += `<i class="sb-tick" style="left:${pct(at)}%"></i>`; });
+    if (opts && opts.raw !== undefined && opts.raw !== v) {
+      out += `<i class="sb-raw" style="left:${pct(opts.raw)}%"></i>`;
+    }
+    ((opts && opts.marks) || []).forEach(m => {
+      out += `<i class="sb-mark${m.cls ? ' ' + m.cls : ''}" style="left:${pct(m.at)}%"></i>`;
+    });
+    return out + '</span>';
+  }
+  // What a choice does to suspicion, read from its stated contract. The
+  // shows line is the covenant's own text — every cool and warm is written
+  // there and guarded by a test — so parsing it is reading the promise, not
+  // guessing at the machinery.
+  function suspDelta(shows) {
+    if (!shows) return null;
+    let d = 0, hit = false;
+    const cool = shows.match(/cools by (\d+)/);
+    const warm = shows.match(/warms by (\d+)/);
+    if (cool) { d -= parseInt(cool[1], 10); hit = true; }
+    if (warm) { d += parseInt(warm[1], 10); hit = true; }
+    return hit ? d : null;
   }
 
   function raceBar(done, seen, close) {
@@ -11049,6 +11088,18 @@ scratch.later = null;
 
       const turning = state.card.turning ? ' turning' : '';
       if (state.card.turning) delete state.card.turning;
+      // A card whose choices move suspicion carries the scale itself: the
+      // street's current warmth, the three band lines, and a pin where each
+      // choice would land — matched to a dot on the choice's own contract
+      // line. The bar answers the only question the numbers were making the
+      // player compute: does this cross a line?
+      const barDk = subjectDistrict(subject);
+      const deltas = chs.map(ch => suspDelta(ch.shows));
+      const barV = barDk ? suspicionOf(barDk) : 0;
+      const barMarks = deltas
+        .map((d, i) => d === null ? null : { at: barV + d, cls: 'sb-c' + i })
+        .filter(Boolean);
+      const cardBar = barDk && barMarks.length ? suspBar(barV, { marks: barMarks }) : '';
       $p.innerHTML = `
         <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${beat}">
           ${cardFrame(ev.kind)}
@@ -11060,6 +11111,7 @@ scratch.later = null;
             <div class="temblem">${inset}</div>
             <h2 class="serif">${cardText(ev.title, subject)}</h2>
             <p class="flavor">${cardText(ev.flavor, subject)}</p>
+            ${cardBar}
         <div class="tdivide" aria-hidden="true">
               <svg viewBox="0 0 240 8" preserveAspectRatio="none">
                 <path d="M2 4 H98 M142 4 H238" stroke="#c9a15c" stroke-width=".7" opacity=".8"/>
@@ -11097,7 +11149,9 @@ scratch.later = null;
                 contracts.push(`<span class="cshow cost">&minus;${n} ${word}</span>`);
               });
             }
-            if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${cardText(ch.shows, cs)}</span>`);
+            // the dot ties this choice to its pin on the card's scale
+            const dot = cardBar && deltas[i] !== null ? `<i class="sb-dot sb-c${i}"></i>` : '';
+            if (ch.shows && !ch.gamble) contracts.push(`<span class="cshow">${dot}${cardText(ch.shows, cs)}</span>`);
             if (ch.gamble) contracts.push('<span class="gamble-tell">could go either way</span>');
             // `place`, not `pick`: the map already owns `.pick` for the selection
             // bracket, and that rule turns pointer events off — which made every
@@ -11269,7 +11323,7 @@ scratch.later = null;
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
-    baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn,
+    baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,

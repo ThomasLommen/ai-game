@@ -1818,6 +1818,33 @@ turn one, neither able to zero suspicion:
   moves the citywide total, and the burn is priced in territory — neither
   can be pressed repeatedly to wait a city quiet.
 
+### The suspicion scale, drawn
+
+The anchor text ("cools by 6, from 14") still made the player do arithmetic
+against thresholds. The consequences of suspicion are stepped — lamps at 6,
+vans at 12, the helicopter at 26 — so the real question a cool card answers
+is *does this cross a line?* That is now geometry: `suspBar`, one instrument
+in three homes.
+
+- **On a card** whose choices move suspicion: the scale sits between flavor
+  and choices — current value filled in the ladder's own sodium, the three
+  band lines as bare ticks, and a pin where each choice would land, matched
+  to a colored dot on that choice's contract line. Deltas are read from the
+  stated `shows` text (`suspDelta`), never from the machinery — parsing the
+  promise, not the implementation.
+- **On the building panel**, under the suspicion sentence: same scale at the
+  felt value, with the district's raw counter as a faint tick when a bait
+  makes them differ — the bait's draw made visible as geometry.
+- **On the burn button**, with the landing pin at the after value — the
+  biggest delta in the game earns the bar most.
+
+Etched, never gold, even on the card: an instrument that happens to be lying
+on the filigree. Ticks stay bare (the map teaches what the lines mean);
+glyphs are the fallback if a playtest reads them wrong. One CSS trap
+recorded: the card face and the action buttons are centering flex columns,
+which collapse a width-less block to a sliver — the bar carries its own
+`align-self: stretch`.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware
