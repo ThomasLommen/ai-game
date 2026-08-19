@@ -11896,3 +11896,77 @@ test('story beats: the chapter dress — silver thread, eclipse arch, same back'
   const stripDeal = (h) => h.replace(/<div class="deal-line">[\s\S]*$/, '');
   assert.equal(stripDeal(back), stripDeal(back2), 'a story beat is a marked card');
 });
+
+
+// --- W2: materials and the survey -------------------------------------------
+// Suppliers are places, decided at generation, dormant until the act turns.
+// Materials are cargo, never a currency chip.
+
+test('sources: every city can build — the floor holds, and the trades sort by district', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SOURCES;
+  const steel = s.buildings.filter(b => b.source === 'steel');
+  const fab = s.buildings.filter(b => b.source === 'fab');
+  assert.ok(steel.length >= S.min.steel, 'not enough steel to build with');
+  assert.ok(fab.length >= S.min.fab, 'not enough fabrication to build with');
+  // the suburbs source nothing by share (the floor may promote a stray one)
+  const resi = s.buildings.filter(b => b.district === 'residential' && b.source);
+  assert.ok(resi.length <= 2, 'the suburbs are an industrial estate');
+  // a district sources its own trade
+  s.buildings.filter(b => b.district === 'industrial' && b.source)
+    .forEach(b => assert.equal(b.source, 'steel', 'the industrial edge sources the wrong trade'));
+  s.buildings.filter(b => b.district === 'business' && b.source)
+    .forEach(b => assert.equal(b.source, 'fab', 'the business park sources the wrong trade'));
+});
+
+test('sources: dormant in act one, spoken in act two — and never a number', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const src = s.buildings.find(b => b.source);
+  assert.ok(src, 'no supplier to test with');
+
+  // act one: the ground knows, nothing says
+  assert.equal(d.sourceLine(src.id), '', 'act one leaked a supplier line');
+  assert.ok(!d.svgBuilding(src).includes('src-mark'), 'act one drew a supplier mark');
+
+  // act two: the panel names it, the map wears the orange
+  s.act = 2;
+  assert.ok(d.sourceLine(src.id).includes('supplier'), 'act two says nothing');
+  assert.ok(d.svgBuilding(src).includes('src-mark'), 'act two draws no mark');
+
+  // cargo, not a chip: no resource was minted anywhere
+  assert.equal(s.res.steel, undefined, 'steel became a currency');
+  assert.equal(s.res.fab, undefined, 'fabrication became a currency');
+});
+
+test('sources: the survey names what it found, and the fact survives a save', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2;
+  s.ap = 5;
+  // stand next to a supplier so the survey can find it
+  const src = s.buildings.find(b => b.source);
+  src.discovered = false;
+  // make a vantage adjacent to it
+  const from = (s.adjacency[src.id] || []).map(id => d.buildingById(id))[0];
+  if (from) {
+    from.discovered = true;
+    d.hostsIn(from).forEach(h => { h.discovered = true; h.owned = true; });
+    const logBefore = s.log.length;
+    d.actScan(from.id);
+    // the log unshifts {turn, text} objects — newest first
+    const said = s.log.slice(0, s.log.length - logBefore).map(e => e.text).join(' ');
+    if (src.discovered) {
+      assert.ok(/survey reads the street/.test(said), 'the survey found a supplier and said nothing');
+    }
+  }
+  // the fact packs with the city and survives the save, like every fact
+  const back = JSON.parse(JSON.stringify(d.serialize()));
+  d.deserialize(back);
+  assert.equal(d.buildingById(src.id).source, src.source, 'a supplier forgot its trade');
+});

@@ -196,6 +196,35 @@
   // chosen by ranking hosts against a seed rather than rolling per host, so
   // the share is a bound and not a hope, and a landmark always carries: the
   // biggest thing in the city is never an empty box.
+  // What a district can source — Act 2's materials, decided at generation
+  // like every fact about the ground (the loot laws apply: chosen upstream
+  // against a seed, revealed by looking, stated exactly, dormant until the
+  // act turns). A supplier is a place, never a number.
+  function assignSources(bldgs, seed) {
+    const S = window.SOURCES;
+    if (!S) return;
+    const byDistrict = {};
+    bldgs.forEach(b => {
+      // real premises only — a street cabinet is not a steel yard
+      if (b.w >= 18 && b.h >= 14) (byDistrict[b.district] = byDistrict[b.district] || []).push(b);
+    });
+    Object.keys(byDistrict).forEach(dk => {
+      const share = S.share[dk] || 0;
+      if (!share) return;
+      const pool = byDistrict[dk].slice().sort((a, b) =>
+        cityNoise(seed, idSeed(a.id)) - cityNoise(seed, idSeed(b.id)));
+      pool.slice(0, Math.round(pool.length * share)).forEach(b => {
+        b.source = S.trade[dk] || (cityNoise(seed, idSeed(b.id) + 7) < 0.5 ? 'steel' : 'fab');
+      });
+    });
+    // the floor: a city that cannot source cannot build
+    Object.keys(S.min || {}).forEach(kind => {
+      let have = bldgs.filter(b => b.source === kind).length;
+      const cands = bldgs.filter(b => !b.source && b.w >= 18 && b.h >= 14)
+        .sort((a, b) => cityNoise(seed, idSeed(a.id) + 31) - cityNoise(seed, idSeed(b.id) + 31));
+      while (have < S.min[kind] && cands.length) { cands.shift().source = kind; have++; }
+    });
+  }
   function assignCarry(hostList, seed) {
     const C = window.CARRY;
     if (!C) return;
@@ -830,6 +859,8 @@
 
     // what is on these machines — decided now, carried forever
     assignCarry(hosts, (layout.seed || 1) + 17);
+    // ...and what the ground itself can source, same laws, same moment
+    assignSources(buildings, (layout.seed || 1) + 53);
 
     // --- links ---------------------------------------------------------
     const byId = {};
@@ -1289,6 +1320,7 @@
 
       // the new ground's machines have contents too, off the same seed
       assignCarry(newHosts, ((state.layout && state.layout.seed) || 1) + startRow * 31);
+      assignSources(newBuildings, ((state.layout && state.layout.seed) || 1) + startRow * 47);
 
       // append first, so link indices are stable and final before any get used
       const hostIndex = {};
@@ -2822,6 +2854,17 @@
   // A mark, said out loud. Everything a card did to a building is permanent
   // and mechanical, so the building has to be able to state it — the covenant
   // applies to your own doing as much as to the world's.
+  // A supplier, said out loud — but only once the act has turned. In Act 1
+  // the fact sleeps in the ground where generation put it; surfacing it
+  // early would be the deck telling you about a game you are not in yet.
+  function sourceLine(bid) {
+    if (actNow() < 2) return '';
+    const b = buildingById(bid);
+    if (!b || !b.discovered || !b.source || burnedAt(bid)) return '';
+    const K = ((window.SOURCES || {}).kinds || {})[b.source];
+    if (!K) return '';
+    return `<p class="sel-desc source-line">A supplier — <b>${K.label}</b>: ${K.line}. What you build will send for it.</p>`;
+  }
   function markLine(bid) {
     const m = markOf(bid);
     if (!m) return '';
@@ -4356,6 +4399,19 @@ scratch.later = null;
     // The discovery moment is where loot was getting missed — the glint is
     // small and the eye is on the sweep ring. Say it in the log, but never
     // what: the tap is the scouting verb, and this is only the reason to tap.
+    // In Act 2 the same look is a survey, and it reads the ground's trade:
+    // a scan that turns up suppliers says so, by name.
+    if (actNow() >= 2) {
+      const src = found.filter(b => b.source);
+      if (src.length) {
+        const n = { steel: 0, fab: 0 };
+        src.forEach(b => { n[b.source] = (n[b.source] || 0) + 1; });
+        const bits = [];
+        if (n.steel) bits.push(n.steel === 1 ? 'a steel supplier' : n.steel + ' steel suppliers');
+        if (n.fab) bits.push(n.fab === 1 ? 'a fabricator' : n.fab + ' fabricators');
+        pushLog(`The survey reads the street: ${bits.join(', ')}.`);
+      }
+    }
     const laden = found.filter(b => hostsIn(b).some(x => x.carry && !x.owned));
     const note = laden.length === 1
       ? ` Something is sitting on the ${window.BUILDING_KINDS[laden[0].kind].label}.`
@@ -8459,6 +8515,14 @@ scratch.later = null;
           + ` y="${(b.y + b.h - 3).toFixed(1)}" width="6" height="2.2" rx="1"/>`;
       }
     }
+    // a supplier's trade mark, in the grid orange — Act 2's second thread
+    // debuts here. Dormant in Act 1: the ground knows, the map does not say.
+    if (!drawingInset && actNow() >= 2 && b.discovered && b.source && !(mk && mk.burned)) {
+      const oc = (window.SOURCES || {}).accent || '#e0803f';
+      out += b.source === 'steel'
+        ? `<rect class="src-mark" x="${(b.x - 2).toFixed(1)}" y="${(b.y + b.h - 1).toFixed(1)}" width="7" height="2.4" rx=".6" fill="${oc}"/>`
+        : `<circle class="src-mark" cx="${(b.x + 1).toFixed(1)}" cy="${(b.y + b.h).toFixed(1)}" r="2.1" fill="${oc}"/>`;
+    }
     // a soft halo in the role's colour, so what you hold reads at a glance
     if (mine) {
       out += `<rect class="glow" x="${b.x - 2.5}" y="${b.y - 2.5}" width="${b.w + 5}" height="${b.h + 5}" rx="4"/>`;
@@ -10507,7 +10571,7 @@ scratch.later = null;
     const short = apShort('sweep');
     return `
       <button class="act-btn${short ? ' no-ap' : ''}" data-act="scanfrom" data-bid="${b.id}" data-ap="sweep" data-info="sweep">
-        <span class="ab-name">scan from here</span>
+        <span class="ab-name">${actNow() >= 2 ? 'survey from here' : 'scan from here'}</span>
         <span class="ab-sub">${short ? 'no actions left'
           : `${chip('compute', 'turns up ' + Math.min(sweepReach(), n))}${chip('cost heat', 'the street notices')}`}</span>
       </button>`;
@@ -10653,6 +10717,7 @@ scratch.later = null;
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
       ${suspicionLine(h.district, h.buildingId)}
+      ${sourceLine(h.buildingId)}
       ${markLine(h.buildingId)}
       ${carryContract}
       ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
@@ -10763,6 +10828,7 @@ scratch.later = null;
             <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
             <p class="yield-row">${yieldTxt}</p>
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
+            ${sourceLine(h.buildingId)}
             ${markLine(h.buildingId)}
             ${scanFromBtn(b)}
             ${toolRail(b)}
@@ -10796,7 +10862,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${toolRail(b)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${sourceLine(h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${toolRail(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -11487,7 +11553,7 @@ scratch.later = null;
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
-    actNow, winnableNow, actBreakWatch,
+    actNow, winnableNow, actBreakWatch, assignSources, sourceLine,
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,

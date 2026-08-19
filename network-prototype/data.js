@@ -548,6 +548,27 @@ window.RIVAL = {
 // suburbs and work toward the industrial edge. `tier` is what the rest of the
 // engine reads, so difficulty stays a single number even though the fiction
 // is now geographic.
+// --- what a district can source (Act 2's materials) --------------------
+// Suppliers are buildings, decided at generation like every other fact
+// about the ground, and dormant until the act turns. Materials are cargo,
+// never a currency chip: nothing here mints a number — a supplier is a
+// place a delivery can start from, and cargo exists only in transit or at
+// a site (W3/W4). The grid orange is Act 2's second thread, and it debuts
+// on the supplier marks.
+window.SOURCES = {
+  kinds: {
+    steel: { label: 'steel',       line: 'girders, plate, rebar — structure by the tonne' },
+    fab:   { label: 'fabrication', line: 'precision parts, tooling, boards — the exact stuff' },
+  },
+  // how much of a district can source anything at all
+  share: { industrial: 0.45, business: 0.40, commercial: 0.12, residential: 0 },
+  // a district sources its own trade; commercial goes either way
+  trade: { industrial: 'steel', business: 'fab', commercial: null },
+  // a city that cannot source cannot build — topped up at generation
+  min: { steel: 3, fab: 2 },
+  accent: '#e0803f',
+};
+
 window.DISTRICTS = {
   // Feeder pillars are suburban street furniture, and cheap enough to belong
   // at this tier — the grid has to start somewhere you can actually reach on

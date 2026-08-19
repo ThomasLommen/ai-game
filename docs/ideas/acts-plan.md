@@ -91,6 +91,18 @@ street-warming — looking is still activity.
 **Check:** a survey names what a district can source; materials obey every
 carry law; no new meter (materials are cargo, not a currency chip).
 
+**W2 SHIPPED (2026-08-19):** `b.source` ('steel'|'fab') assigned at
+generation off the city seed — industrial sources steel (45%), the business
+park fabrication (40%), the high street either (12%), the suburbs nothing;
+every city floors at 3 steel + 2 fab, because a city that cannot source
+cannot build. Dormant in Act 1 (no line, no mark — the ground knows, the map
+does not say). In Act 2 the scan button reads "survey from here", a survey
+that turns up suppliers names them in the log, the panel states the trade,
+and the map wears the first grid orange (`.src-mark`: a beam for steel, a
+dot for fabrication). Nothing mints a number: a supplier is a place a
+delivery will start from (W3), and cargo will exist only in trucks and at
+sites (W4).
+
 ### Stage W3 — deliveries drive on roads
 
 The exclusivity fix of Act 2, and its visual thesis. Materials move from
