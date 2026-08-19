@@ -220,8 +220,16 @@ trucks, the front.
 5. **Trucks are real glyphs**, driving the roads turn by turn.
 6. **The pad does not change at the break.** No sound work until most of the
    game is solid.
-7. **Act 2's length: under discussion** — see the pacing note below when it
-   lands.
+7. **Act 2 is shorter and denser than Act 1** — a sprint, not a second
+   life: ~60-70% of Act 1's healthy phase, emergent from stage costs and
+   supply distances (tuned on bots, never a timer). It ends on an event:
+   the final works stage lands, the Act 3 seed card deals.
+8. **Breaking ground starts the clock.** The act has a free prologue —
+   arrive, survey, stockpile, place fronts (Act 1's suspicion clock never
+   stops, so the prologue cannot be grazed) — and the first works stage
+   wakes the public lens and the inspectors' escalation. The break card is
+   dealt *to* you; breaking ground is the answer you give it. Casing is
+   free; the moment you touch the door, the race is on.
 
 ## Open questions for the grill
 
