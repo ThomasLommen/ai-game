@@ -7091,12 +7091,13 @@ test('screen: a panel with more in it than fits says so', () => {
   assert.ok($p, 'the panel is addressable');
   assert.doesNotThrow(() => d.markPanelOverflow(), 'and asking is safe with no layout');
 
-  // the fade is hung off the controls below it, since a pseudo-element on a
-  // scrolling box would scroll away with the content
+  // the fade is a sticky strip inside the dock now — it stays at the
+  // visible edge while the drawer's content scrolls under it
   const css = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
-  assert.ok(/#panel\.more \+ #turn-row::before/.test(css),
-    'the fade sits on the row below the panel');
+  assert.ok(/#panel\.more::after/.test(css), 'the overflow fade is gone');
+  assert.ok(/position:\s*sticky/.test(css.split('#panel.more::after')[1].split('}')[0]),
+    'the fade would scroll away with the content');
 });
 
 // --- the tallest panel in the game ----------------------------------------

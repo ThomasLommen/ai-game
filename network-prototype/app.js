@@ -12289,6 +12289,23 @@ scratch.later = null;
     } catch (e) {}
   }
 
+  // The dock: the panel sits exactly on the bar's top edge, so the bar's
+  // real height (safe areas, wrapped labels and all) is measured into a
+  // CSS variable rather than guessed.
+  const $dockBar = document.getElementById('turn-row');
+  const dockFit = () => {
+    try {
+      if (!$dockBar || !$dockBar.getBoundingClientRect) return;
+      document.documentElement.style.setProperty('--dock-bar-h',
+        Math.ceil($dockBar.getBoundingClientRect().height) + 'px');
+    } catch (e) { /* the test harness has no boxes to measure */ }
+  };
+  dockFit();
+  try {
+    window.addEventListener('resize', dockFit);
+    if (window.ResizeObserver && $dockBar) new window.ResizeObserver(dockFit).observe($dockBar);
+  } catch (e) { /* same */ }
+
   // The gear: the settings sheet, between allocation and end turn.
   const $settings = document.getElementById('settings-btn');
   const $settingsSheet = document.getElementById('settings-sheet');
