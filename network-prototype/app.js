@@ -7832,6 +7832,7 @@ scratch.later = null;
       truckSeq: state.truckSeq || 0,
       works: JSON.parse(JSON.stringify(state.works || null)),
       groundBroken: state.groundBroken || 0,
+      hints: Object.assign({}, state.hints || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
       layout: state.layout, wob: state.wob, props: state.props, paths: state.paths, region: state.region, homeGrowth: state.homeGrowth || 0,
@@ -7875,6 +7876,7 @@ scratch.later = null;
         truckSeq: saved.truckSeq || 0,
         works: saved.works ? JSON.parse(JSON.stringify(saved.works)) : null,
         groundBroken: saved.groundBroken || 0,
+        hints: Object.assign({}, saved.hints || {}),
         // the tray is retired: a save that still held cards set aside pours
         // them into the queue, so nothing a player was owed is lost
         forced: ((saved.forced || []).concat(saved.waiting || [])).slice(),
@@ -11229,25 +11231,107 @@ scratch.later = null;
         : C.blurbs.diary()}</p>`;
   }
 
+  // --- the P2 panel: instruments first, prose behind the tap ----------------
+  // The panel drifted into prose: every honest system added its own sentence
+  // and together they were a wall that ate the map. The compact panel speaks
+  // in chips and bars; the full sentences live one tap away, behind the i.
+  // Whether that drawer is open — presentation only, reset on subject change.
+  let panelInfoOpen = false;
+  let pendingTeach = [];
+  function cpChip(cls, text) { return `<span class="cp-chip${cls ? ' ' + cls : ''}">${text}</span>`; }
+  function cpInfo() { return '<button class="cp-info" data-act="panel-info" aria-label="the whole story">i</button>'; }
+  // The teaching budget: a line that exists to teach shows on its first
+  // three encounters (counted per change of subject, saved with the run),
+  // then retires into the drawer. A rule read three times is furniture.
+  function teach(id) { return ((state.hints || {})[id] || 0) < 3; }
+  function cpTeach(id, html) {
+    if (!html || !teach(id)) return '';
+    pendingTeach.push(id);
+    return html;
+  }
+  function cpIdentity(h, b, extra) {
+    const T = window.HOST_TYPES[h.type];
+    const K = b ? window.BUILDING_KINDS[b.kind] : null;
+    return `<div class="cp-row cp-id"><span class="cp-name">${K ? K.label : T.label}</span>`
+      + `<span class="tag-pill ${h.role}">${h.role}</span>${extra || ''}${cpInfo()}</div>`;
+  }
+  // Every fact the prose used to carry, as one row of instruments: the
+  // suspicion bar with its exact figure, the trade, the yard, the marks,
+  // what is sitting on the machine. Chips drop out when absent.
+  function cpInstruments(h, b) {
+    const bid = b ? b.id : (h && h.buildingId);
+    const bb = b || (bid && buildingById(bid));
+    if (!bb) return '';
+    const dk = h ? h.district : bb.district;
+    const chips = [];
+    let bar = '';
+    const raw = suspicionOf(dk);
+    if (raw > 0) {
+      const felt = feltSuspicion(dk, bid);
+      const pct = Math.round(felt * ((window.SUSPICION || {}).slope || 0) * 100);
+      bar = suspBar(felt, { raw });
+      chips.push(cpChip('susp', felt + ' · +' + pct + '%'));
+    }
+    if (actNow() >= 2 && bb.source && !burnedAt(bid)) {
+      chips.push(cpChip('src', (((window.SOURCES || {}).kinds || {})[bb.source] || {}).label || bb.source));
+    }
+    if (state.yard === bid && !burnedAt(bid)) {
+      const st = state.yardStock || {};
+      chips.push(cpChip('src', `yard · ${st.steel || 0} steel · ${st.fab || 0} fab`));
+    }
+    const m = markOf(bid);
+    if (m && !m.burned) {
+      if (m.bait) chips.push(cpChip('mark', 'bait'));
+      if (m.watch) chips.push(cpChip('mark', 'watched'));
+      if (m.harden > 0) chips.push(cpChip('mark', 'hardened'));
+      if (m.harden < 0) chips.push(cpChip('mark', 'softened'));
+      if (m.opened) chips.push(cpChip('mark', 'back door'));
+    }
+    if (h && h.carry && !h.owned) {
+      // exact, even as a chip — a wallet that hides its amount is a gamble
+      const C = window.CARRY || {};
+      const lbl = (C.labels || {})[h.carry] || 'something on it';
+      chips.push(cpChip('mark', h.carry === 'wallet'
+        ? `${lbl} · pays ${h.carryAmt || (C.wallet || {}).base || 0}`
+        : lbl));
+    }
+    const S = window.SUSPICION || {};
+    const band0 = ((S.bands || [[6]])[0] || [6])[0];
+    return (bar || chips.length ? `<div class="cp-row cp-inst">${bar}${chips.join('')}</div>` : '')
+      + cpTeach('rotation', raw >= band0
+        ? '<p class="sel-desc dim rotate-line">Working elsewhere cools this street. Waiting cools nothing.</p>' : '');
+  }
+  // The drawer: the covenant's full sentences, one tap away.
+  function cpDrawer(h, b) {
+    if (!panelInfoOpen) return '';
+    const bid = b ? b.id : (h && h.buildingId);
+    const dk = h ? h.district : (b && b.district);
+    const where = b ? (window.DISTRICTS[b.district] || {}).label : '';
+    return `<div class="cp-drawer">
+      <p class="sel-desc dim">${where}${h ? ` · ${h.threads} thread${h.threads === 1 ? '' : 's'}` : ''}${h && !h.owned ? ` · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''}` : ''}</p>
+      ${dk ? suspicionLine(dk, bid) : ''}
+      ${bid ? sourceLine(bid) : ''}
+      ${bid ? markLine(bid) : ''}
+      ${h ? carryLine(h) : ''}
+    </div>`;
+  }
+
   function targetPanel(h) {
     const f = hackForecast(h, mounted());
     const p = f.prog;
     const stopped = apShort('breach') ? 'no actions left'
       : !f.affordable ? `needs ${f.need} TFLOPS free, you have ${Math.max(0, allocFree())}`
       : null;
-    const carryContract = carryLine(h);
     return `
       <p class="sel-desc">Mounted: <b>${p.label}</b> — ${p.turns} turn${p.turns === 1 ? '' : 's'} at ${f.need} TFLOPS.</p>
-      ${suspicionLine(h.district, h.buildingId)}
-      ${sourceLine(h.buildingId)}
-      ${markLine(h.buildingId)}
-      ${carryContract}
-      ${f.keyed ? `<p class="sel-desc carry-line">They would see this one — someone's keys cover it, and the trace stays at zero. Uses the keys${(state.keys || 0) > 1 ? ` (${state.keys} held)` : ''}.</p>` : ''}
+      ${cpInstruments(h, buildingById(h.buildingId))}
+      ${cpDrawer(h, buildingById(h.buildingId))}
       ${traceForecastBar(f.traceAtEnd / f.goal, f.caught, f.rate / f.goal)}
       <p class="yield-row">${
-        f.caught ? chip('cost heat', `they reach ${f.goal} before you are in — it finds you`)
-                 : chip('cover', `they only get to ${f.traceAtEnd} of the ${f.goal} they need — you are in first`)
-      }${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + ' a turn')}</p>
+        f.caught ? chip('cost heat', `${f.goal} reached first — it finds you`)
+                 : chip('cover', `${f.traceAtEnd} of ${f.goal} — you are in first`)
+      }${chip('compute', f.need + ' TFLOPS held')}${chip('cost heat', 'notices ' + f.rate + ' a turn')}${
+        f.keyed ? chip('cover', 'keys cover it — trace stays 0') : ''}</p>
       ${f.spread ? `<p class="yield-row">${
         f.spread.upTo
           ? chip('cover', `and up to ${f.spread.upTo} more beside it, its choice`)
@@ -11274,7 +11358,9 @@ scratch.later = null;
     // looking at something else folds whatever tool was armed — an armed
     // burn must never survive a change of subject
     const subjNow = (state.selectedBuilding || '') + ':' + (state.selected || '');
-    if (subjNow !== lastPanelSubject) armedTool = null;
+    const subjChanged = subjNow !== lastPanelSubject;
+    if (subjChanged) { armedTool = null; panelInfoOpen = false; }
+    pendingTeach = [];
     // A card interrupting play — a breach, an event, the hunter — used to sit
     // in the same small scrolling box as everything else, competing with the
     // map for attention. It is the moment the game is actually asking you
@@ -11347,13 +11433,11 @@ scratch.later = null;
         const cutOffHere = strandedHosts().includes(h);
         sel = `
           <div class="sel">
-            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="yield-row">${yieldTxt}</p>
-            <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
-            ${sourceLine(h.buildingId)}
-            ${yardLine(h.buildingId)}
+            ${cpIdentity(h, b)}
+            <p class="cp-row">${yieldTxt}${cutOffHere ? cpChip('bad', 'cut off — paying nothing') : ''}</p>
+            ${cpInstruments(h, b)}
+            ${cpDrawer(h, b)}
             ${worksPanel(b)}
-            ${markLine(h.buildingId)}
             ${truckBtn(b)}
             ${scanFromBtn(b)}
             ${toolRail(b)}
@@ -11373,9 +11457,8 @@ scratch.later = null;
       } else if (isFrontier(h)) {
         sel = `
           <div class="sel">
-            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
-            <p class="yield-row">${yieldTxt}</p>
-            <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
+            ${cpIdentity(h, b, cpChip('', 'def ' + defenseOf(h)))}
+            <p class="cp-row">${yieldTxt}</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
             ${scanFromBtn(b)}
             ${toolRail(b)}
@@ -11383,11 +11466,18 @@ scratch.later = null;
       } else if (hackOn(h.id)) {
         sel = `
           <div class="sel">
-            <div class="sel-top"><span class="sel-name">${K ? K.label : T.label}</span><span class="tag-pill ${h.role}">${h.role}</span></div>
+            ${cpIdentity(h, b)}
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${sourceLine(h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${toolRail(b)}</div>`;
+        sel = `<div class="sel">
+          ${cpIdentity(h, b, cpChip('', 'no route yet'))}
+          ${cpInstruments(h, b)}
+          ${cpTeach('noroute', '<p class="sel-desc dim">No route to it yet — take something on the same street first.</p>')}
+          ${cpDrawer(h, b)}
+          ${scanFromBtn(b)}
+          ${toolRail(b)}
+        </div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -11409,6 +11499,10 @@ scratch.later = null;
     const subject = (state.selectedBuilding || '') + ':' + (state.selected || '');
     if (subject !== lastPanelSubject) {
       lastPanelSubject = subject;
+      // teaching lines are only counted when they were actually met on a
+      // fresh subject — a repaint is not an encounter
+      const hints = state.hints = state.hints || {};
+      pendingTeach.forEach(id => { hints[id] = (hints[id] || 0) + 1; });
       const card = $p.querySelector('.sel');
       if (card) { card.classList.remove('settle'); void card.offsetWidth; card.classList.add('settle'); }
     }
@@ -11437,6 +11531,7 @@ scratch.later = null;
         else if (a === 'yard') { armedTool = null; actYard(b.getAttribute('data-bid')); }
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
         else if (a === 'build') actBuildStage();
+        else if (a === 'panel-info') { panelInfoOpen = !panelInfoOpen; renderPanel(); }
         // arm, then fire: a tile's first tap only unfolds the contract
         else if (a === 'arm-tool') {
           const key = b.getAttribute('data-tool') + ':' + b.getAttribute('data-bid');
@@ -12096,6 +12191,7 @@ scratch.later = null;
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canYard, actYard, yardB, svgTrucks, truckBtn, yardLine,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
+    cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,
@@ -12191,6 +12287,16 @@ scratch.later = null;
     try {
       if (localStorage.getItem('net-sound') === '1') $sound.classList.add('remembered');
     } catch (e) {}
+  }
+
+  // The gear: the settings sheet, between allocation and end turn.
+  const $settings = document.getElementById('settings-btn');
+  const $settingsSheet = document.getElementById('settings-sheet');
+  if ($settings && $settingsSheet) {
+    $settings.addEventListener('click', () => { $settingsSheet.hidden = !$settingsSheet.hidden; });
+    const $close = document.getElementById('settings-close');
+    if ($close) $close.addEventListener('click', () => { $settingsSheet.hidden = true; });
+    $settingsSheet.addEventListener('click', (e) => { if (e.target === $settingsSheet) $settingsSheet.hidden = true; });
   }
 
   const $restart = document.getElementById('restart');

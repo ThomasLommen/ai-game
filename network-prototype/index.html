@@ -71,7 +71,23 @@
 
   <div id="turn-row">
     <button id="caps-btn" type="button" class="caps-btn">allocation</button>
+    <button id="settings-btn" type="button" class="settings-btn" aria-label="settings">&#9881;</button>
     <button id="end-turn" type="button" class="end-turn-btn">end turn</button>
+  </div>
+
+  <!-- The housekeeping, off the playfield: everything that used to live in
+       the footer, one gear away. The map got the rows back. -->
+  <div id="settings-sheet" hidden>
+    <div class="settings-panel">
+      <div class="sheet-top">
+        <span class="eyebrow mono">SETTINGS</span>
+        <button id="settings-close" type="button" class="sheet-close">&times;</button>
+      </div>
+      <button id="sound-btn" type="button" aria-pressed="false">sound off</button>
+      <button id="restart" type="button">restart</button>
+      <p class="sel-desc dim"><span id="footer-hint">drag to look around · pinch to zoom · tap a building to size it up</span></p>
+      <p class="sel-desc dim"><span class="build mono">build __BUILD__</span></p>
+    </div>
   </div>
 
   <!-- One full-screen surface for everything that does not fit in the panel.
@@ -88,12 +104,7 @@
     </div>
   </div>
 
-  <footer>
-    <span id="footer-hint">drag to look around · pinch to zoom · tap a building to size it up</span>
-    <span class="build mono">build __BUILD__</span>
-    <button id="sound-btn" type="button" aria-pressed="false">sound off</button>
-    <button id="restart" type="button">restart</button>
-  </footer>
+
 
   <script src="data.js"></script>
   <script src="sound.js"></script>

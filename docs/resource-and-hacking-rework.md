@@ -1872,6 +1872,33 @@ on the second tap.*
   dashed ring, hide a crossed-out eye, burn a flame — stroke only, never
   gold. A lone tile is width-capped so it cannot read as a primary verb.
 
+### The P2 panel: instruments first, prose behind the tap
+
+The covenant made every system speak in sentences and every sentence honest
+— and together they were a wall that ate the map. The playtest verdict:
+"too much screen real estate taken up by pure text." The panel bench (three
+candidates, screenshots on the worst-case building) picked P2, the dense
+strip:
+
+- **Chips and bars carry every fact.** Identity row (name · role · ⓘ),
+  yields, then one instrument row: the suspicion bar inline with its exact
+  figure (`32 · +70%`), the trade in orange, the marks, what is sitting on
+  the machine (wallets stay exact even as chips — an amount withheld is a
+  gamble). Chips drop out when absent.
+- **The whole story is one tap away.** The ⓘ opens a drawer with the full
+  covenant sentences — suspicion words, the rotation rule, the supplier
+  line, mark prose, carry contract. Closed on every change of subject.
+- **Teaching text retires itself.** Lines that exist to teach (the rotation
+  rule, "no route yet — take something on the same street") show on their
+  first three met subjects, counted per subject change (a repaint is not an
+  encounter), saved with the run, then live in the drawer.
+- **A height budget.** The panel caps at 36vh and the compact state fits
+  inside it; the worst-case building measured ~280px. The map got the rest
+  back permanently.
+- **The bottom bar diet.** The footer is gone. `allocation · ⚙ · end turn`
+  on one row; the gear opens a settings sheet holding sound, restart (its
+  two-tap confirm kept), the movement help, and the build label.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

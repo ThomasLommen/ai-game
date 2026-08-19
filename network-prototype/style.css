@@ -980,6 +980,54 @@ footer .build { opacity: .55; font-size: 10px; }
   pointer-events: none;
 }
 .truck-route.preview { stroke-dasharray: 4 4; opacity: .8; }
+/* --- the P2 panel: instruments first, prose behind the tap ---------------
+   Chips and bars carry every fact; the full sentences live in the drawer
+   behind the i. The panel is height-capped so the map never shrinks. */
+#panel:not(.card-open) { max-height: 36vh; overflow-y: auto; }
+.cp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.cp-id .cp-name { font-weight: 700; font-size: 17px; margin-right: 2px; }
+.cp-chip {
+  font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+  padding: 2px 7px; border-radius: 9px; border: 1px solid var(--line);
+  color: var(--ink-dim); letter-spacing: .04em; white-space: nowrap;
+}
+.cp-chip.susp { color: #e8c27a; border-color: #e8c27a55; }
+.cp-chip.src { color: #e0803f; border-color: #e0803f66; }
+.cp-chip.mark { color: var(--item); border-color: color-mix(in srgb, var(--item) 45%, transparent); }
+.cp-chip.bad { color: var(--heat); border-color: color-mix(in srgb, var(--heat) 50%, transparent); }
+.cp-info {
+  margin-left: auto; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line); color: var(--ink-dim); background: none;
+  font-size: 12px; font-family: Georgia, 'Times New Roman', serif; font-style: italic;
+  cursor: pointer;
+}
+.cp-inst .susp-bar { flex: 1 1 60px; margin: 0; }
+.cp-drawer {
+  margin: 6px 0 2px; padding: 8px 10px;
+  border: 1px dashed var(--line); border-radius: 10px;
+}
+.cp-drawer .sel-desc { margin: 4px 0; }
+
+/* the gear and its sheet: the old footer, one tap away */
+.settings-btn {
+  flex: 0 0 48px; border: 1px solid var(--line); border-radius: 12px;
+  background: transparent; color: var(--ink-dim); font-size: 17px; cursor: pointer;
+}
+#settings-sheet {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(6, 9, 8, .72);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+#settings-sheet[hidden] { display: none; }
+.settings-panel {
+  width: min(430px, 100%); margin: 0 8px 14px; padding: 14px 16px 16px;
+  background: var(--panel, #101613); border: 1px solid var(--line); border-radius: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.settings-panel button { padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.settings-panel .sheet-close { align-self: auto; width: 30px; padding: 2px; }
+.settings-panel .sheet-top { display: flex; justify-content: space-between; align-items: center; }
+
 /* a place-choice's own facts: etched, dim, before the outcome line */
 .cshow.pickfacts {
   font-family: ui-monospace, Menlo, monospace;

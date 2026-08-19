@@ -8626,9 +8626,16 @@ test('carry: the panel names the contents exactly, before any commitment', () =>
   assert.ok(carrier, 'a wallet somewhere on the board');
   carrier.owned = false;
   const html = d.targetPanel(carrier);
-  assert.ok(html.includes('On this machine'), 'the contract line is missing');
+  // the contract is a chip now, but it is still exact — and the full
+  // sentence is one tap away in the drawer
+  const C = window.CARRY;
+  assert.ok(html.includes(C.labels.wallet), 'the contents are unnamed');
   assert.ok(html.includes(String(carrier.carryAmt)),
     'the wallet does not state its exact amount — that is a gamble');
+  d.panelInfo(true);
+  assert.ok(d.targetPanel(carrier).includes('On this machine'),
+    'the drawer lost the full contract sentence');
+  d.panelInfo(false);
 });
 
 test('carry: a wallet pays what it said, once, however you got in', () => {
@@ -12215,4 +12222,72 @@ test('cards: two places on one card each state their own door', () => {
     assert.notEqual(facts[0], facts[1], 'two different doors stated the same facts');
   }
   s.card = null;
+});
+
+// --- the P2 panel: instruments first, prose behind the tap ------------------
+
+test('panel: compact speaks in chips, the drawer keeps the sentences', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 14);
+  const t = s.hosts.find(h => h.district === 'commercial' && !h.owned && d.isFrontier(h))
+    || s.hosts.find(h => h.district === 'commercial' && !h.owned);
+  s.selected = t.id; s.selectedBuilding = t.buildingId;
+  s.hints = { rotation: 9, noroute: 9 };          // teaching already retired
+  d.render();
+  const compact = $p.innerHTML;
+  assert.ok(compact.includes('cp-inst'), 'no instrument row');
+  assert.ok(compact.includes('susp-bar'), 'the scale left the panel');
+  assert.ok(!compact.includes('doors here notice you'), 'the suspicion sentence is still inline');
+  assert.ok(!compact.includes('Working elsewhere'), 'retired teaching text still showing');
+  // one tap: the whole story
+  d.panelInfo(true);
+  d.render();
+  const open = $p.innerHTML;
+  assert.ok(open.includes('cp-drawer'), 'no drawer');
+  assert.ok(open.includes('doors here notice you'), 'the drawer lost the covenant sentence');
+  d.panelInfo(false);
+});
+
+test('panel: teaching lines retire after three met subjects, and the count saves', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 14);
+  const doors = s.hosts.filter(h => h.district === 'commercial' && !h.owned).slice(0, 5);
+  assert.ok(doors.length >= 4, 'need four warm doors');
+  for (let i = 0; i < 4; i++) {
+    s.selected = doors[i].id; s.selectedBuilding = doors[i].buildingId;
+    d.render();
+    const showing = $p.innerHTML.includes('Working elsewhere');
+    if (i < 3) assert.ok(showing, `the rule went quiet on encounter ${i + 1}`);
+    else assert.ok(!showing, 'the rule is still talking on the fourth meeting');
+    d.render();   // a repaint is not an encounter
+  }
+  assert.equal((s.hints || {}).rotation, 3, 'repaints were counted as encounters');
+  const back = JSON.parse(JSON.stringify(d.serialize()));
+  d.deserialize(back);
+  assert.equal((d.state.hints || {}).rotation, 3, 'the teaching count did not save');
+});
+
+test('panel: the footer is gone and the gear sheet holds the housekeeping', () => {
+  const html = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/index.html'), 'utf8');
+  assert.ok(!/<footer>[\s\S]*sound-btn[\s\S]*<\/footer>/.test(html), 'sound still lives in a footer');
+  assert.ok(html.includes('id="settings-btn"'), 'no gear between allocation and end turn');
+  const sheet = html.match(/<div id="settings-sheet"[\s\S]*?<\/div>\s*<\/div>/);
+  assert.ok(sheet, 'no settings sheet');
+  ['sound-btn', 'restart', 'footer-hint', 'build'].forEach(id =>
+    assert.ok(sheet[0].includes(id), `the sheet is missing ${id}`));
+  // and the panel is height-capped so the map never shrinks
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*max-height/.test(css), 'the panel has no height budget');
 });
