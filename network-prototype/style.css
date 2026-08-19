@@ -980,6 +980,12 @@ footer .build { opacity: .55; font-size: 10px; }
   pointer-events: none;
 }
 .truck-route.preview { stroke-dasharray: 4 4; opacity: .8; }
+/* a place-choice's own facts: etched, dim, before the outcome line */
+.cshow.pickfacts {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px; color: var(--ink-dim);
+  display: block; letter-spacing: .04em;
+}
 /* W4: the works panel and its silhouette */
 .works-dots { font-size: 10px; letter-spacing: .12em; color: var(--ink-dim); }
 .works-dots .wd.done { color: #e0803f; }

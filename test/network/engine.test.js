@@ -12177,3 +12177,42 @@ test('works: four stages, a growing silhouette, and the beat at the end', () => 
   d.deserialize(back);
   assert.equal(d.works().stage, W.stages.length, 'the works forgot itself in a save');
 });
+
+test('cards: a map question skips the crown — no empty arch behind the title', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.hosts.forEach(h => { h.discovered = true; });
+  const ev = window.EVENTS.find(e => e.pair && e.choices.some(c => c.after));
+  const sj = d.safeSubject(ev);
+  assert.ok(sj && sj.pair, 'no pair to deal');
+  s.card = { kind: 'event', eventId: ev.id, subject: sj };
+  d.render();
+  assert.ok(!$p.innerHTML.includes('M112 182'), 'the empty arch is back on a pair card');
+  // ...and an ordinary card keeps its crown
+  s.card = { kind: 'event', eventId: 'insurance_assessor', subject: { district: 'commercial' } };
+  d.render();
+  assert.ok($p.innerHTML.includes('M112 182'), 'an ordinary card lost its crown');
+  s.card = null;
+});
+
+test('cards: two places on one card each state their own door', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  s.hosts.forEach(h => { h.discovered = true; });
+  const ev = window.EVENTS.find(e => e.pair && e.choices.some(c => c.after));
+  const sj = d.safeSubject(ev);
+  assert.ok(sj && sj.pair, 'no pair to deal');
+  s.card = { kind: 'event', eventId: ev.id, subject: sj };
+  d.render();
+  const facts = $p.innerHTML.match(/pickfacts">([^<]*)</g) || [];
+  assert.equal(facts.length, 2, 'a place-choice is missing its facts');
+  const [a, b] = sj.pair.map(id => d.hostsIn(d.buildingById(id)).filter(x => !x.origin)[0]);
+  if (a && b && (d.defenseOf(a) !== d.defenseOf(b) || a.threads !== b.threads)) {
+    assert.notEqual(facts[0], facts[1], 'two different doors stated the same facts');
+  }
+  s.card = null;
+});

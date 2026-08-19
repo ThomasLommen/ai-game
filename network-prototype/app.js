@@ -9068,9 +9068,12 @@ scratch.later = null;
     closing: '#c98a72', own: '#5fb3d9', found: '#c9a15c',
     opening: '#6f8f83', someone: '#a8b0aa',
   };
-  function cardFrame(kind, beat) {
+  // `bare`: a card that asks about two places puts its drawings on the
+  // choices, so its frame skips the crown — an empty arch with the title
+  // flowing up through it read as a printing error, because it was one.
+  function cardFrame(kind, beat, bare) {
     const t = CARD_THREAD[kind] || '#c98a72';
-    const id = 'wc-' + (beat ? 'b-' : '') + (kind || 'x');
+    const id = 'wc-' + (beat ? 'b-' : '') + (bare ? 'p-' : '') + (kind || 'x');
     const dash = kind === 'opening' ? '5 4' : '2 3';
     // one structural change per kind, so two cards never differ by hue alone
     const tells = {
@@ -9102,19 +9105,20 @@ scratch.later = null;
       + `<use href="#${id}"/><use href="#${id}" transform="translate(340 0) scale(-1 1)"/>`
       + `<use href="#${id}" transform="translate(0 580) scale(.8 -.8)"/>`
       + `<use href="#${id}" transform="translate(340 580) scale(-.8 -.8)"/>`
-      // the crown: an arch on solder points, finished with the aerial
-      + `<path d="M112 182 C112 92 138 56 170 56 C202 56 228 92 228 182" fill="none" stroke="#c9a15c" stroke-width=".9" opacity=".9"/>`
+      // the crown: an arch on solder points, finished with the aerial —
+      // only on a card whose emblem will stand inside it
+      + (bare ? '' : `<path d="M112 182 C112 92 138 56 170 56 C202 56 228 92 228 182" fill="none" stroke="#c9a15c" stroke-width=".9" opacity=".9"/>`
       + `<path d="M118 182 C118 96 142 62 170 62 C198 62 222 96 222 182" fill="none" stroke="#c9a15c" stroke-width=".45" opacity=".7"/>`
       + `<circle cx="112" cy="182" r="1.8" fill="#c9a15c"/><circle cx="228" cy="182" r="1.8" fill="#c9a15c"/>`
       + `<path d="M170 56 V44" stroke="#c9a15c" stroke-width="1"/><circle cx="170" cy="40" r="2.1" fill="#e3b451"/>`
-      + `<path d="M126 96 l-4 -3 M214 96 l4 -3 M116 136 h-5 M224 136 h5" stroke="#c9a15c" stroke-width=".8" opacity=".8"/>`
+      + `<path d="M126 96 l-4 -3 M214 96 l4 -3 M116 136 h-5 M224 136 h5" stroke="#c9a15c" stroke-width=".8" opacity=".8"/>`)
       + `<g fill="#c9a15c"><circle cx="13" cy="290" r="1.7"/><circle cx="327" cy="290" r="1.7"/>`
       + `<rect x="9" y="279" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="279" width="2.6" height="2.6" opacity=".7"/>`
       + `<rect x="9" y="298" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="298" width="2.6" height="2.6" opacity=".7"/></g>`
       + (tells[kind] || '')
       // the eclipse: etched rays behind the arch, only on a story beat —
       // the moment happens in the emblem (bench verdict: B's silver, D's arch)
-      + (beat ? Array.from({ length: 28 }, (_, i) => {
+      + (beat && !bare ? Array.from({ length: 28 }, (_, i) => {
           const a = (i / 28) * Math.PI * 2;
           const r1 = 72, r2 = i % 2 ? 82 : 90;
           const cx = 170, cy = 122;
@@ -11854,7 +11858,7 @@ scratch.later = null;
       const cardBar = barDk && barMarks.length ? suspBar(barV, { marks: barMarks }) : '';
       $p.innerHTML = `
         <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${beat}">
-          ${cardFrame(ev.kind, story)}
+          ${cardFrame(ev.kind, story, asks)}
           <div class="tface">
             <div class="tplate mono">
               <span class="tkicker">${kicker}</span>
@@ -11900,6 +11904,17 @@ scratch.later = null;
                   : (unit[k] || k);
                 contracts.push(`<span class="cshow cost">&minus;${n} ${word}</span>`);
               });
+            }
+            // A card about two places has to make them two DIFFERENT places
+            // — two same-kind doors with symmetric text read as no choice at
+            // all. Each place-choice states its own door: defense, threads,
+            // and whether something is sitting on it. The playtest caught a
+            // pair of houses whose only difference was the letter.
+            if (ch.pick && pb) {
+              const pf = hostsIn(pb).filter(x => !x.origin)[0];
+              if (pf) {
+                contracts.push(`<span class="cshow pickfacts">defense ${defenseOf(pf)} · ${pf.threads} thread${pf.threads === 1 ? '' : 's'}${pf.carry && !pf.owned ? ' · something sitting on it' : ''}${markOf(pb.id) ? ' · marked' : ''}</span>`);
+              }
             }
             // the dot ties this choice to its pin on the card's scale
             const dot = cardBar && deltas[i] !== null ? `<i class="sb-dot sb-c${i}"></i>` : '';
