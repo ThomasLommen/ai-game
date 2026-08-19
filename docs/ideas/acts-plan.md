@@ -200,6 +200,29 @@ W0 and the rotation-surfacing line from W5.1 are immediate. If the whole
 thing has to shrink: W1 + W3 + W5 is the irreducible act — the break, the
 trucks, the front.
 
+## The grill's verdicts (2026-08-19)
+
+1. **The break lands *before* the loop starves, dealt as a card.** Never
+   player-chosen, never at the wall — the player must not feel cornered into
+   the next act. The census gives the leading signal: winnable takes start
+   sagging (growth halved) a full 20-30 turns before the starve, so the
+   break card deals on the *downslope*, while there is still meat — first
+   sampled window where winnable takes fall and stay under half their peak
+   with suspicion in band 2+. Tune on bots, verify by feel.
+2. **Story beats get their own dress.** Act-scale cards (the break, the
+   response arriving, endings) are a marked class the player learns to
+   recognize on sight — a heavier chapter frame, its own thread, the deal
+   given more ceremony. The **back stays identical** (a back that varies is
+   a marked card — the drama belongs on the face and in the deal, not in
+   information leaked before the flip).
+3. **Act 1's verbs stay live in Act 2, at doubled street-warming.**
+4. **Materials are cargo only.** Never a HUD chip, never a meter.
+5. **Trucks are real glyphs**, driving the roads turn by turn.
+6. **The pad does not change at the break.** No sound work until most of the
+   game is solid.
+7. **Act 2's length: under discussion** — see the pacing note below when it
+   lands.
+
 ## Open questions for the grill
 
 1. **Where does the break land** — at the measured knee, on taking the
