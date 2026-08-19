@@ -218,3 +218,43 @@ trucks, the front.
    needs your ears)*
 6. **How long is Act 2** — target turn count before Act 3 seeds? *(measure
    in bot play first, like everything else)*
+
+## W0 result — the census ran (2026-08-19)
+
+16 bot games × 100 turns (greedy-with-rotation bot: hacks coolest winnable
+door, buys what sells, plays cards randomly; no allocation tuning, so the
+absolute plateau is bot-limited — the *shape* is the claim, not the level).
+
+| turn | frontier | winnable takes | owned | districts | susp mean/max | acts/turn |
+|---|---|---|---|---|---|---|
+| 10 | 1.0 | 1.0 | 5% | 1.5 | 13/15 | 1.6 |
+| 20 | 2.0 | 1.3 | 10% | 1.8 | 18/24 | 1.6 |
+| 30 | 3.8 | 0.8 | 15% | 2.3 | 20/29 | 1.7 |
+| 40 | 4.3 | 0.5 | 19% | 2.3 | 20/34 | 1.8 |
+| 50 | 4.8 | 0.7 | 21% | 2.5 | 20/35 | 1.7 |
+| 60 | 5.9 | 0.8 | 22% | 2.6 | 19/34 | 1.4 |
+| 70 | 5.3 | 0.1 | 23% | 2.6 | 19/33 | 1.1 |
+| 80 | 5.8 | 0.1 | 24% | 2.6 | 19/33 | 0.6 |
+| 90 | 5.0 | 0.0 | 24% | 2.7 | 20/33 | 0.6 |
+| 100 | 4.2 | 0.1 | 24% | 2.7 | 19/33 | 0.4 |
+
+**The knee is ~40–60.** Growth halves after turn 40 and the loop starves by
+70: the frontier still *exists* (5+ doors) but winnable takes go to ~0 while
+suspicion parks at ~19 mean — the doors are there, the race maths says no.
+Acts per turn then decays to idling. Full series in `w0-census.json`.
+
+Consequences adopted:
+- **The act break should key on the loop starving, not on % city owned** —
+  winnable takes ≈ 0 across streets while suspicion holds, is the signal; a
+  human hits it later than the bot but hits the same wall.
+- **The valve corner is real**: 10–13 of 16 games spent time at ≤1 district
+  held with a street past band 2 — the bait/burn exist for a state the game
+  actually visits.
+- **Watch-list closed, differently than expected**: roadworks/power_cut conds
+  are fine (eligible 424/480 turns; the draw is fair at ~1/27). The scarce
+  resource is *unprompted deals* — triggered cards outnumber them ~3:1. Not
+  a bug; noted for W6 so the Act 2 batch is not written into a faucet that
+  cannot pour it.
+- W5.4 shipped with this pass: the panel now says the rotation rule out loud
+  on every warm street ("Working elsewhere cools this street. Waiting cools
+  nothing.").

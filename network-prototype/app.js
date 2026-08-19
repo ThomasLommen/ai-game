@@ -2768,7 +2768,10 @@
       ? (bait.id === bid ? ' The bait gathers the street’s eyes here.' : ' The bait is drawing eyes away from here.')
       : '';
     return `<p class="sel-desc susp-line">${phrase[0].toUpperCase() + phrase.slice(1)} — doors here notice you ${pct}% faster.${note}</p>`
-      + suspBar(v, { raw });
+      + suspBar(v, { raw })
+      // the rotation rule, said out loud where it applies — a rule the
+      // player cannot see is a rule they will not use (acts-plan W5.4)
+      + '<p class="sel-desc dim rotate-line">Working elsewhere cools this street. Waiting cools nothing.</p>';
   }
   // A mark, said out loud. Everything a card did to a building is permanent
   // and mechanical, so the building has to be able to state it — the covenant

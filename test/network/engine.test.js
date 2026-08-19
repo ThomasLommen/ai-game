@@ -11771,3 +11771,12 @@ test('tool rail: changing the subject disarms whatever was armed', () => {
   assert.ok(!document.getElementById('panel').innerHTML.includes('data-act="burn"'),
     'an armed burn survived a change of subject');
 });
+
+test('suspicion: the rotation rule is said where it applies', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  d.noteDistrictAct('commercial', 14);
+  assert.ok(/Working elsewhere cools this street/.test(d.suspicionLine('commercial')),
+    'the rule the player cannot see is a rule they will not use');
+  assert.equal(d.suspicionLine('business'), '', 'a quiet street lectures nobody');
+});
