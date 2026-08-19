@@ -2544,6 +2544,37 @@ footer .build { opacity: .55; font-size: 10px; }
 .race.close i { animation: racePulse 650ms ease-in-out infinite; }
 @keyframes racePulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .race.close i { animation: none; } }
+/* The tool rail: the situational verbs as small etched tiles in slots that
+   never move — held buildings wear hide · burn, unheld wear bait. A tile
+   that cannot fire greys out with its reason rather than vanishing; a
+   stable layout is what makes the wrong-click impossible from memory.
+   First tap arms (unfolds the contract below), second tap commits. */
+.tool-rail { display: flex; gap: 8px; margin-top: 10px; }
+.tool {
+  /* capped: a lone tile stretched full width reads as a primary verb,
+     which is exactly what a rail tool is not */
+  flex: 0 1 118px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 6px;
+  background: transparent;
+  border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink-dim);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; letter-spacing: .1em;
+  cursor: pointer;
+}
+.tool svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.2; }
+.tool.armed { border-color: var(--ink-dim); color: var(--ink); background: color-mix(in srgb, var(--line) 30%, transparent); }
+.tool.t-burn.armed { border-color: color-mix(in srgb, var(--heat) 60%, var(--line)); color: var(--heat); }
+.tool.held-off { opacity: .45; }
+/* the unfolded contract: dashed, like every projection in this game */
+.tool-fold {
+  margin-top: 8px; padding: 10px 10px 8px;
+  border: 1px dashed var(--line); border-radius: 10px;
+}
+.tool-fold .sel-desc { margin-top: 0; }
+.tool-fold .act-btn { margin-top: 6px; }
+
 /* The suspicion scale: 0 to the cap, the three band lines as ticks, the
    current value filled in the ladder's own sodium. One instrument, three
    homes (panel, card, burn button) — and etched, never gold, even on a

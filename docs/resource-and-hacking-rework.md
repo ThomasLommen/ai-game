@@ -1845,6 +1845,33 @@ recorded: the card face and the action buttons are centering flex columns,
 which collapse a width-less block to a sliver — the bar carries its own
 `align-self: stretch`.
 
+### The tool rail: fixed geography, arm-then-fire
+
+The panel's buttons had grown crowded — every verb carried its full contract
+all the time, and the set changed per building, so nothing was ever where it
+was last time and the wrong tap was easy. The redesign is one idea worn four
+ways: *primary verb big, tools small and fixed, contracts on demand, commit
+on the second tap.*
+
+- **Fixed geography.** Race/buy stays the full strip (it is why you tapped),
+  scan stays a strip below it (it is the loop). The situational verbs —
+  hide, bait, burn — moved to a rail of small etched tiles whose slots never
+  move.
+- **Two geographies, one question.** Is this yours? Held buildings wear
+  hide · burn (hide only once the hunt exists); unheld wear bait. The
+  panel's shape itself says what you are looking at.
+- **Grey, don't vanish.** A tool that exists but cannot fire (street quiet,
+  bait already standing, no funds, slots full) greys with its reason instead
+  of disappearing — stable layout, and the player learns the verb exists.
+- **Arm, then fire.** One interaction rule for every tile: first tap unfolds
+  the whole contract (prose, chips, the suspicion scale, the price — or the
+  refusal), second tap commits. Nothing situational fires on a single touch;
+  the burn was one misclick from losing a building. An armed tool never
+  survives a change of subject.
+- The tiles speak the map's language: the bait tile wears the mark's own
+  dashed ring, hide a crossed-out eye, burn a flame — stroke only, never
+  gold. A lone tile is width-capped so it cannot read as a primary verb.
+
 ## Not changing
 
 The rival · cities, terrain and traits · the war layer · plant/hardware

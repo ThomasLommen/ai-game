@@ -10294,41 +10294,128 @@ scratch.later = null;
   // neighbours — seeing a place is what makes it a vantage, owning it is
   // not required. The stated price is the street noticing; the heat line
   // stays under the hood for the (dormant) country game.
-  // The everyday valve, offered on any warm street's unheld door. The chips
-  // state all three sides of the deal: the props, the draw, the double.
-  function baitBtn(b) {
-    if (!b || !canBait(b.id)) return '';
-    const S = window.SUSPICION || {};
-    const funds = S.baitFunds || 0;
-    const short = apShort('bait');
-    const broke = state.res.funds < funds;
-    return `
-      <button class="act-btn${short || broke ? ' no-ap' : ''}" data-act="bait" data-ap="bait" data-bid="${b.id}" data-info="bait">
-        <span class="ab-name">leave it open on purpose</span>
-        <span class="ab-sub">${short ? 'no actions left' : broke ? `needs ${funds} funds`
-          : `${chip('cost funds', '&minus;' + funds + ' funds')}${chip('cover', Math.round(S.baitDraw * 100) + '% of the street’s eyes gather here')}${chip('cost heat', 'caught here counts double')}`}</span>
-      </button>`;
+  // --- the tool rail --------------------------------------------------------
+  // The situational verbs — hide, bait, burn — live in a fixed rail of small
+  // etched tiles under the panel's primary verb, in slots that never move.
+  // Two geographies, keyed to one question ("is this mine?"): held buildings
+  // wear hide · burn, unheld wear bait. A tool that exists but cannot fire
+  // right now greys out with its reason instead of vanishing — a stable
+  // layout is what makes the wrong-click impossible to make from memory.
+  //
+  // One interaction rule for every tile: the first tap unfolds the tool's
+  // whole contract (chips, scale, price — or the reason it is refused), the
+  // second tap commits. Nothing situational fires on a single touch; the
+  // burn used to be one misclick away from losing a building.
+  // Which tool is unfolded — presentation only, never serialized.
+  let armedTool = null;
+  function panelTools(b) {
+    if (!b || !b.discovered || burnedAt(b.id) || huntHolds(b.id)) return [];
+    if (!buildingHeld(b)) return ['bait'];
+    return huntOn() ? ['hide', 'burn'] : ['burn'];
   }
-  // The panic lever, on anything you hold in a warm district. The price and
-  // the relief are both exact, because this button is the covenant's edge
-  // case: a permanent loss you are choosing on purpose.
+  // Why a tool cannot fire right now — null when it can. The tile greys on
+  // this, and the unfolded fold repeats it where the commit would be.
+  function toolOff(tool, b) {
+    const S = window.SUSPICION || {};
+    if (tool === 'bait') {
+      const standing = baitIn(b.district);
+      if (standing) return 'one bait per district — it is at the ' + (window.BUILDING_KINDS[standing.kind] || {}).label;
+      if (!(suspicionOf(b.district) > 0)) return 'the street is quiet — nothing to aim';
+      if (state.res.funds < (S.baitFunds || 0)) return `needs ${S.baitFunds} funds`;
+      if (apShort('bait')) return 'no actions left';
+      return null;
+    }
+    if (tool === 'burn') {
+      if (!(suspicionOf(b.district) > 0)) return 'the street is quiet — nothing to burn for';
+      if (apShort('burn')) return 'no actions left';
+      return null;
+    }
+    if (tool === 'hide') {
+      if (isHidden(b.id)) return null;                       // letting go is free
+      if (ladderStage() >= 3) return `${ladderStageName(3)} is watching the quiet`;
+      if (!(state.adjacency[b.id] || []).some(n => huntHolds(n))) return 'not where they reach yet';
+      if (!hideSlots()) return `needs more covert.ops — ${window.ALLOC_STATS.hidePer} of it buys somewhere to keep one`;
+      if (!hideSlotsFree()) return `all ${hideSlots()} covert slots are occupied`;
+      if (apShort('hide')) return 'no actions left';
+      return null;
+    }
+    return null;
+  }
+  // The glyphs speak the map's own language: the bait tile wears the dashed
+  // ring the mark draws on the map, the hide tile a crossed-out eye, the
+  // burn a flame. Etched — stroke only, no fill, never gold.
+  const TOOL_GLYPH = {
+    hide: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M1.5 7 Q7 2.5 12.5 7 Q7 11.5 1.5 7 Z"/><line x1="3.5" y1="11.5" x2="10.5" y2="2.5"/></svg>',
+    bait: '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="2.5" width="9" height="9" rx="2" stroke-dasharray="2 2.4"/></svg>',
+    burn: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.6 C8.6 4 10.8 5.4 10.8 8.4 A3.8 3.8 0 0 1 3.2 8.4 C3.2 6.2 5.4 4 7 1.6 Z"/></svg>',
+  };
+  function toolRail(b) {
+    const tools = panelTools(b);
+    if (!tools.length) return '';
+    const tiles = tools.map(t => {
+      const key = t + ':' + b.id;
+      const off = toolOff(t, b);
+      const word = t === 'hide' && isHidden(b.id) ? 'unhide' : t;
+      return `<button class="tool t-${t}${armedTool === key ? ' armed' : ''}${off ? ' held-off' : ''}"`
+        + ` data-act="arm-tool" data-tool="${t}" data-bid="${b.id}" data-info="${t}">`
+        + `${TOOL_GLYPH[t]}<span>${word}</span></button>`;
+    }).join('');
+    const armed = tools.find(t => armedTool === t + ':' + b.id);
+    const fold = armed === 'bait' ? baitBtn(b)
+      : armed === 'burn' ? burnBtn(b)
+      : armed === 'hide' ? hideFold(b) : '';
+    return `<div class="tool-rail">${tiles}</div>${fold}`;
+  }
+  // The unfolded contracts. Each states the whole deal, then offers the one
+  // commit — or the reason there is nothing to commit.
+  function toolCommit(off, cls, act, ap, bid, name, sub) {
+    if (off) return `<button class="act-btn no-ap" disabled><span class="ab-name">${name}</span><span class="ab-sub">${off}</span></button>`;
+    return `<button class="act-btn ${cls}" data-act="${act}" data-ap="${ap}" data-bid="${bid}">
+        <span class="ab-name">${name}</span><span class="ab-sub">${sub}</span></button>`;
+  }
+  function baitBtn(b) {
+    if (!b || burnedAt(b.id)) return '';
+    const S = window.SUSPICION || {};
+    const off = toolOff('bait', b);
+    return `<div class="tool-fold">
+      <p class="sel-desc">A door left open on purpose. The street cannot resist an easy mark — a third of its suspicion is felt here instead of everywhere else. Permanent, one per district.</p>
+      <p class="yield-row">${chip('cost funds', '&minus;' + (S.baitFunds || 0) + ' funds')}${chip('cover', Math.round((S.baitDraw || 0) * 100) + '% of the street’s eyes gather here')}${chip('cost heat', 'caught here counts double')}</p>
+      ${toolCommit(off, 'primary', 'bait', 'bait', b.id, 'leave it open on purpose', 'an action, and the street looks here')}
+    </div>`;
+  }
+  // The panic lever's fold: the covenant's edge case — a permanent loss you
+  // are choosing on purpose, so the price and the relief are both exact.
   function burnBtn(b) {
     if (!b || burnedAt(b.id)) return '';
     const own = hostsIn(b).filter(h => h.owned);
     if (!own.length) return '';
     const S = window.SUSPICION || {};
     const before = suspicionOf(b.district);
-    if (!before || !S.burnCool) return '';
-    const after = Math.max(0, Math.round((before - S.burnCool) * 10) / 10);
-    const short = apShort('burn');
+    const after = Math.max(0, Math.round((before - (S.burnCool || 0)) * 10) / 10);
+    const off = toolOff('burn', b);
     const dLabel = (window.DISTRICTS[b.district] || {}).label || 'the district';
-    return `
-      <button class="act-btn broken${short ? ' no-ap' : ''}" data-act="burn" data-ap="burn" data-bid="${b.id}" data-info="burn">
-        <span class="ab-name">burn it down</span>
-        <span class="ab-sub">${short ? 'no actions left'
-          : `${chip('cost heat', 'this building and its ' + own.length + ' machine' + (own.length === 1 ? '' : 's') + ', for good')}${chip('cover', dLabel + ' cools ' + before + ' &rarr; ' + after)}`}</span>
-        ${short ? '' : suspBar(before, { marks: [{ at: after, cls: 'sb-c0' }] })}
-      </button>`;
+    return `<div class="tool-fold">
+      <p class="sel-desc">Everything in it is gone for good — the street gets a different story to tell, and it is not you.</p>
+      <p class="yield-row">${chip('cost heat', 'this building and its ' + own.length + ' machine' + (own.length === 1 ? '' : 's') + ', for good')}${chip('cover', dLabel + ' cools ' + before + ' &rarr; ' + after)}</p>
+      ${off ? '' : suspBar(before, { marks: [{ at: after, cls: 'sb-c0' }] })}
+      ${toolCommit(off, 'broken', 'burn', 'burn', b.id, 'burn it down', 'an action, and there is no taking it back')}
+    </div>`;
+  }
+  function hideFold(b) {
+    if (!b) return '';
+    const off = toolOff('hide', b);
+    if (isHidden(b.id)) {
+      return `<div class="tool-fold">
+        <p class="sel-desc">Off their map, for as long as the covert.ops holding it up is paid.</p>
+        <p class="yield-row">${chip('cover', 'frees a slot')}${chip('cost none', 'back on their map')}</p>
+        ${toolCommit(null, 'hiding', 'unhide', '', b.id, 'stop hiding it', 'free — you are letting go of something')}
+      </div>`;
+    }
+    return `<div class="tool-fold">
+      <p class="sel-desc">They cannot take what they cannot see. Keeping it hidden costs covert.ops every turn it stays that way.</p>
+      <p class="yield-row">${chip('cover', 'they cannot see it')}${chip('cost none', Math.max(0, hideSlotsFree() - 1) + ' more slots after this')}</p>
+      ${toolCommit(off, '', 'hide', 'hide', b.id, 'hide it', 'an action, and it is off their map')}
+    </div>`;
   }
   function scanFromBtn(b) {
     if (!b || !b.discovered || burnedAt(b.id)) return '';
@@ -10505,30 +10592,6 @@ scratch.later = null;
       ${buyPanel(h)}`;
   }
 
-  // stays where it is.
-  function hidePanel(b) {
-    if (!huntOn() || !b) return '';
-    const H = window.HUNT;
-    if (isHidden(b.id)) {
-      return `<button class="act-btn hiding" data-act="unhide" data-bid="${b.id}">
-        <span class="ab-name">stop hiding it</span>
-        <span class="ab-sub">${chip('cover', 'frees a slot')}${chip('cost none', 'back on their map')}</span>
-      </button>`;
-    }
-    // only worth offering where it does something: on the edge of their reach
-    const touching = (state.adjacency[b.id] || []).some(n => huntHolds(n));
-    if (!touching) return '';
-    const able = canHide(b.id);
-    return `<button class="act-btn${able ? '' : ' no-ap'}${ladderStage() >= 3 ? ' broken' : ''}" data-act="hide" data-ap="hide" data-bid="${b.id}">
-      <span class="ab-name">hide it</span>
-      <span class="ab-sub">${ladderStage() >= 3 ? `${ladderStageName(3)} is watching the quiet`
-        : able ? `${chip('cover', 'they cannot see it')}${chip('cost none', hideSlotsFree() - 1 + ' more slots after this')}`
-        : !hideSlots() ? `needs more covert.ops — ${window.ALLOC_STATS.hidePer} of it buys somewhere to keep one`
-        : !hideSlotsFree() ? `all ${hideSlots()} covert slots are occupied`
-        : 'needs an action'}</span>
-    </button>`;
-  }
-
   // Tapping one of their streets rather than one of their buildings: the same
   // action, named for the thing you actually pointed at.
   // what the panel was last talking about, so a repaint and a change of
@@ -10538,6 +10601,10 @@ scratch.later = null;
   let lastCardFocus = null;
   function renderPanel() {
     const $p = document.getElementById('panel');
+    // looking at something else folds whatever tool was armed — an armed
+    // burn must never survive a change of subject
+    const subjNow = (state.selectedBuilding || '') + ':' + (state.selected || '');
+    if (subjNow !== lastPanelSubject) armedTool = null;
     // A card interrupting play — a breach, an event, the hunter — used to sit
     // in the same small scrolling box as everything else, competing with the
     // map for attention. It is the moment the game is actually asking you
@@ -10615,8 +10682,7 @@ scratch.later = null;
             <p class="sel-desc">${where} · ${h.threads} threads${cutOffHere ? ' · <b class="bad">cut off — paying nothing</b>' : ''}</p>
             ${markLine(h.buildingId)}
             ${scanFromBtn(b)}
-            ${hidePanel(b)}
-            ${burnBtn(b)}
+            ${toolRail(b)}
           </div>`;
       } else if (huntBlocks(h)) {
         // Theirs. There is no street to take away any more — they do not walk
@@ -10638,7 +10704,7 @@ scratch.later = null;
             <p class="sel-desc">${where} · ${T.label} · defense ${defenseOf(h)}${defenseOf(h) !== h.defense ? ' (hardened)' : ''} · ${h.threads} threads</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
             ${scanFromBtn(b)}
-            ${baitBtn(b)}
+            ${toolRail(b)}
           </div>`;
       } else if (hackOn(h.id)) {
         sel = `
@@ -10647,7 +10713,7 @@ scratch.later = null;
             ${hackPanel(h)}
           </div>`;
       } else {
-        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${baitBtn(b)}</div>`;
+        sel = `<div class="sel"><p class="sel-desc">${K ? K.label : T.label} — no route to it yet. Take something on the same street first.</p>${carryLine(h)}${suspicionLine(h.district, h.buildingId)}${markLine(h.buildingId)}${scanFromBtn(b)}${toolRail(b)}</div>`;
       }
     } else if (state.ap <= 0) {
       sel = `<div class="sel"><p class="sel-desc">Out of actions. <b>End the turn</b> and let the city run.</p></div>`;
@@ -10690,10 +10756,16 @@ scratch.later = null;
         else if (a === 'buy-hw') buyHardware(b.getAttribute('data-hw'));
         else if (a === 'hack') startHack(b.getAttribute('data-host'));
         else if (a === 'buy-bldg') buyBuilding(b.getAttribute('data-host'));
-        else if (a === 'hide') actHide(b.getAttribute('data-bid'));
-        else if (a === 'unhide') actUnhide(b.getAttribute('data-bid'));
-        else if (a === 'bait') actBait(b.getAttribute('data-bid'));
-        else if (a === 'burn') actBurn(b.getAttribute('data-bid'));
+        else if (a === 'hide') { armedTool = null; actHide(b.getAttribute('data-bid')); }
+        else if (a === 'unhide') { armedTool = null; actUnhide(b.getAttribute('data-bid')); }
+        else if (a === 'bait') { armedTool = null; actBait(b.getAttribute('data-bid')); }
+        else if (a === 'burn') { armedTool = null; actBurn(b.getAttribute('data-bid')); }
+        // arm, then fire: a tile's first tap only unfolds the contract
+        else if (a === 'arm-tool') {
+          const key = b.getAttribute('data-tool') + ':' + b.getAttribute('data-bid');
+          armedTool = armedTool === key ? null : key;
+          renderPanel();
+        }
       });
     });
   }
@@ -11324,9 +11396,10 @@ scratch.later = null;
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
+    panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
-    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hidePanel, rawCovertOps,
+    hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,
     horizonCities, svgHorizon,
     buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,

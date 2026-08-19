@@ -8390,11 +8390,11 @@ test('covert: without the cover to pay for it, hiding is not on offer at all', (
   if (d.hideSlots() === 0) {
     assert.equal(held.some(id => d.canHide(id)), false,
       'without the cover to pay for it, there is nowhere to put anything');
-    // and the panel says why rather than going quiet
+    // and the tool's fold says why rather than going quiet
     const touching = held.find(id => (s.adjacency[id] || []).some(n => d.huntHolds(n)));
     if (touching) {
-      assert.ok(/cover/.test(d.hidePanel(d.buildingById(touching))),
-        'the button names what is missing');
+      assert.ok(/cover/.test(d.hideFold(d.buildingById(touching))),
+        'the fold names what is missing');
     }
   }
 });
@@ -11682,4 +11682,92 @@ test('susp-bar: it stands in all three homes', () => {
   if (quiet.includes('tcard')) {
     assert.ok(!quiet.includes('susp-bar'), silent.id + ' has nothing to say but drew the scale anyway');
   }
+});
+
+// --- the tool rail: fixed slots, arm-then-fire ------------------------------
+
+test('tool rail: two geographies, keyed to whether it is yours', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+
+  const mine = s.buildings.find(b => d.buildingHeld(b));
+  const open = s.buildings.find(b => b.discovered && !d.buildingHeld(b));
+  assert.equal(d.panelTools(mine).join(','), 'burn', 'a held building off the hunt wears burn alone');
+  assert.equal(d.panelTools(open).join(','), 'bait', 'an unheld building wears bait alone');
+  // ...and hide joins the held rail only once there is something to hide from
+  s.hunt = { on: true, nodes: [open.id], since: 0, lastActed: 0 };
+  assert.equal(d.panelTools(mine).join(','), 'hide,burn', 'the hunt did not put hide on the rail');
+  s.hunt = null;
+});
+
+test('tool rail: a tile never fires — the commit lives in the fold', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+  s.res.funds = 20; s.ap = 3;
+  const open = s.buildings.find(b => b.district === 'commercial' && !d.buildingHeld(b) && !d.burnedAt(b.id));
+
+  const folded = d.toolRail(open);
+  assert.ok(folded.includes('data-tool="bait"'), 'no bait tile on the rail');
+  assert.ok(!folded.includes('data-act="bait"'), 'an unarmed rail already offers the commit');
+  assert.ok(folded.split('data-act="arm-tool"').length === 2, 'tiles should arm, nothing else');
+
+  d.armTool('bait:' + open.id);
+  const armed = d.toolRail(open);
+  assert.ok(armed.includes('tool-fold'), 'arming did not unfold the contract');
+  assert.ok(armed.includes('data-act="bait"'), 'the fold has no commit');
+  assert.ok(armed.includes('counts double'), 'the fold does not state the whole deal');
+  d.armTool(null);
+});
+
+test('tool rail: a tool that cannot fire greys with its reason instead of vanishing', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const open = s.buildings.find(b => !d.buildingHeld(b) && !d.burnedAt(b.id));
+
+  // quiet street: the tile stands, greyed, and the fold says why
+  assert.ok(d.toolRail(open).includes('held-off'), 'a quiet street removed the tile instead of greying it');
+  assert.ok(/quiet/.test(d.toolOff('bait', open)), 'no reason for the refusal');
+  d.armTool('bait:' + open.id);
+  const fold = d.toolRail(open);
+  assert.ok(/quiet/.test(fold), 'the armed fold does not repeat the reason');
+  assert.ok(!fold.includes('data-act="bait"'), 'a refused tool still offers its commit');
+  d.armTool(null);
+
+  // a burned shell wears no rail at all — refusal is for the living
+  d.hostsIn(open).forEach(h => { h.owned = true; });
+  d.noteDistrictAct(open.district, 10);
+  s.ap = 3;
+  d.actBurn(open.id);
+  assert.equal(d.toolRail(open), '', 'a burned shell still offers tools');
+});
+
+test('tool rail: changing the subject disarms whatever was armed', () => {
+  const { window, document } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  d.noteDistrictAct('commercial', 20);
+  s.ap = 3; s.res.funds = 20;
+  const mine = s.buildings.find(b => b.district === 'commercial' && d.hostsIn(b).length);
+  d.hostsIn(mine).forEach(h => { h.owned = true; });
+  s.selectedBuilding = mine.id; s.selected = d.hostsIn(mine)[0].id;
+  d.render();
+  d.armTool('burn:' + mine.id);
+  d.render();
+  assert.ok(document.getElementById('panel').innerHTML.includes('tool-fold'),
+    'arming the burn did not unfold it');
+  // look at something else: the armed burn must not survive
+  const other = s.buildings.find(b => b.id !== mine.id && d.hostsIn(b).length);
+  s.selectedBuilding = other.id; s.selected = d.hostsIn(other)[0].id;
+  d.render();
+  assert.ok(!document.getElementById('panel').innerHTML.includes('data-act="burn"'),
+    'an armed burn survived a change of subject');
 });

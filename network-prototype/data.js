@@ -1026,6 +1026,7 @@ window.ACTION_INFO = {
   sweep: 'Look at what is next to what you already hold. Costs nothing and takes an action, and every scan puts a little heat on you. You can only see one step past your own territory — to see further, take more. The little arcs on a building mark a vantage whose scan would still find something new.',
   bait: 'Leave a door open on purpose. The street cannot resist an easy mark: a third of this district’s suspicion is felt at the bait instead of everywhere else, so doors elsewhere in the district notice you slower and the bait itself notices faster. Getting caught at the bait counts double toward the response. One bait per district, permanent, and rigging it is activity — the street notices a little.',
   burn: 'Torch a building you hold. Everything in it is gone for good — the machines, the income, the building itself. The street gets a different story to tell than yours, and the district cools by a large, stated amount. This is the one act that lowers the number, and its price is territory.',
+  hide: 'Take a building of yours off their map. They cannot take what they cannot see — but keeping it hidden costs covert.ops every turn, and what you can no longer pay for comes back into view on its own.',
 };
 
 // --- tags --------------------------------------------------------------
