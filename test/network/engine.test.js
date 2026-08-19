@@ -11970,3 +11970,98 @@ test('sources: the survey names what it found, and the fact survives a save', ()
   d.deserialize(back);
   assert.equal(d.buildingById(src.id).source, src.source, 'a supplier forgot its trade');
 });
+
+// --- W3: deliveries drive on roads ------------------------------------------
+
+test('roads: a route rides the lattice — axis-aligned, on real streets, no diagonals', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const L = d.cityLayout();
+  const a = s.buildings.find(b => b.source);
+  const b = s.buildings.filter(x => x.id !== a.id && x.district !== a.district).pop();
+  const route = d.roadRoute(a, b);
+  assert.ok(route && route.points.length >= 2, 'no route across the city');
+  const onRoad = (p) => L.xs.some(x => Math.abs(x - p[0]) < 1) || L.ys.some(y => Math.abs(y - p[1]) < 1);
+  route.points.forEach((p, i) => {
+    if (i > 0) {
+      const q = route.points[i - 1];
+      assert.ok(p[0] === q[0] || p[1] === q[1], 'a truck drove a diagonal');
+    }
+    if (i > 0 && i < route.points.length - 1) {
+      assert.ok(onRoad(p), `a waypoint off every road: ${p}`);
+    }
+  });
+});
+
+test('roads: a cut closes the street and the truck takes the long way round', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const a = s.buildings.find(b => b.source);
+  const b = s.buildings.filter(x => x.id !== a.id && x.district !== a.district).pop();
+  const before = d.roadRoute(a, b);
+  assert.ok(before && before.edges.length, 'no lattice edges to cut');
+  // cut the street that maps to the route's first lattice edge: find a pair
+  // of buildings whose midpoint sits nearest that edge — the cut fiction
+  const L = d.cityLayout();
+  const [kind, c, r] = before.edges[0].split(':').map((v, i) => i ? parseInt(v, 10) : v);
+  const ex = kind === 'h' ? (L.xs[c] + L.xs[c + 1]) / 2 : L.xs[c];
+  const ey = kind === 'h' ? L.ys[r] : (L.ys[r] + L.ys[r + 1]) / 2;
+  const near = s.buildings.slice().sort((p, q) =>
+    Math.hypot(p.x + p.w / 2 - ex, p.y + p.h / 2 - ey) - Math.hypot(q.x + q.w / 2 - ex, q.y + q.h / 2 - ey));
+  s.cuts = [{ a: near[0].id, b: near[1].id }];
+  const blocked = d.cutRoadEdges();
+  if (blocked.has(before.edges[0])) {
+    const after = d.roadRoute(a, b);
+    assert.ok(after, 'the cut sealed the city instead of one street');
+    assert.ok(!after.edges.includes(before.edges[0]), 'the truck drove through the cut');
+    assert.ok(after.length >= before.length, 'the long way round was shorter');
+  }
+  s.cuts = [];
+});
+
+test('trucks: dispatch is priced and previewed, the drive takes turns, the yard takes stock', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SOURCES.truck;
+  const src = s.buildings.find(b => b.source === 'steel');
+  d.hostsIn(src).forEach(h => { h.owned = true; h.discovered = true; });
+  src.discovered = true;
+  const yard = s.buildings.find(b => b.id !== src.id && d.hostsIn(b).length && !d.hostsIn(b).some(h => h.origin));
+  d.hostsIn(yard).forEach(h => { h.owned = true; h.discovered = true; });
+  yard.discovered = true;
+
+  // act one: none of it exists
+  assert.equal(d.canYard(yard.id), false, 'a yard in act one');
+  s.act = 2; s.ap = 9; s.res.funds = 20;
+  assert.equal(d.actYard(yard.id), true);
+  assert.equal(d.canYard(src.id), false, 'a second yard');
+
+  const pv = d.truckPreview(src.id);
+  assert.ok(pv && pv.turns >= 1, 'no preview');
+  const f0 = s.res.funds, ap0 = s.ap;
+  assert.equal(d.actSendTruck(src.id), true);
+  assert.equal(s.res.funds, f0 - S.funds, 'the dispatch was free');
+  assert.equal(s.ap, ap0 - 1, 'no action spent');
+  assert.equal(d.trucks().length, 1, 'no truck on the road');
+  assert.ok(d.svgTrucks().includes('class="truck'), 'no glyph for the truck');
+
+  // mid-transit survives a save, exactly where it was
+  d.endTurn({ silent: true });
+  if (d.trucks().length) {
+    const t0 = JSON.parse(JSON.stringify(d.trucks()[0]));
+    const back = JSON.parse(JSON.stringify(d.serialize()));
+    d.deserialize(back);
+    const t1 = d.trucks()[0];
+    assert.ok(t1 && t1.seg === t0.seg && t1.done === t0.done, 'the reload teleported the truck');
+  }
+  // ...and it arrives
+  let guard = 0;
+  while (d.trucks().length && guard++ < 30) { s.card = null; d.endTurn({ silent: true }); }
+  assert.equal(d.trucks().length, 0, 'the truck never arrived');
+  assert.equal((s.yardStock || {}).steel, 1, 'the yard took no stock');
+  assert.equal(s.res.steel, undefined, 'steel became a currency');
+  assert.ok(d.yardLine(yard.id).includes('1'), 'the yard does not state its stock');
+});

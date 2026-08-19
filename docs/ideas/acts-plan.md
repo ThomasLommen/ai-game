@@ -125,6 +125,22 @@ built for this without knowing it.
 it and the preview updates; a delivery seen mid-transit after a reload is
 still mid-transit.
 
+**W3 pass 1 SHIPPED (2026-08-19):** the road lattice as a graph (a junction
+at every crossing, a door per building straight out to its nearest street —
+pathsFor's own move), Dijkstra routes, every segment axis-aligned on a real
+road, guard-tested against diagonals. A cut closes the lattice edge nearest
+the pair's midpoint ("the street between", as The Cut always said) — live
+trucks reroute from where they stand, or park when nothing goes through.
+The **yard** is a rail tool on any held building in Act 2 (one per city);
+**send a truck** is the primary strip on held suppliers — priced (1 action
++ 2 funds), previewed to the turn (route drawn on the map on selection,
+speed 520 px/turn ⇒ 3-7 turns across the city) and the street (+1 suspicion
+per district crossed, act-doubling included in the quote). Trucks are real
+glyphs driving turn by turn with their remaining road ghosted; arrivals
+stack as crates at the yard (`yardStock` — cargo at a site, no HUD chip);
+mid-transit survives save/load exactly. Still to come in W3: inspectors
+sitting on routes (W5's response), and consumption (W4 builds on the yard).
+
 ### Stage W4 — the works itself
 
 A site among buildings you hold, built in stages — site, power, line, works —

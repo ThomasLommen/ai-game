@@ -972,6 +972,16 @@ footer .build { opacity: .55; font-size: 10px; }
    turns — sourceLine and the map tell both gate on it. */
 .sel-desc.source-line { color: #d99a63; }
 .sel-desc.source-line b { color: #e0803f; }
+/* W3: the drive. Routes ride the roads in the same orange; the preview is
+   dashed (a projection), a live truck's remaining road is faint and solid. */
+.truck-route {
+  fill: none; stroke: #e0803f; stroke-width: 1.6;
+  stroke-linejoin: round; opacity: .5;
+  pointer-events: none;
+}
+.truck-route.preview { stroke-dasharray: 4 4; opacity: .8; }
+.truck.held { opacity: .55; }
+.yard-mark { pointer-events: none; }
 
 /* the building itself, drawn onto the card in its own viewBox by the same
    code that draws the map. The same shopfront, on the card about it. */

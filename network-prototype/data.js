@@ -567,6 +567,10 @@ window.SOURCES = {
   // a city that cannot source cannot build — topped up at generation
   min: { steel: 3, fab: 2 },
   accent: '#e0803f',
+  // the truck: what a dispatch costs, how much road a turn covers, and how
+  // loudly a load rumbles through a street (warmDistrict doubles it in Act 2,
+  // where trucks live — the chip quotes the doubled figure)
+  truck: { funds: 2, speed: 520, warm: 0.5 },
 };
 
 window.DISTRICTS = {
@@ -1048,6 +1052,8 @@ window.ACTION_INFO = {
   bait: 'Leave a door open on purpose. The street cannot resist an easy mark: a third of this district’s suspicion is felt at the bait instead of everywhere else, so doors elsewhere in the district notice you slower and the bait itself notices faster. Getting caught at the bait counts double toward the response. One bait per district, permanent, and rigging it is activity — the street notices a little.',
   burn: 'Torch a building you hold. Everything in it is gone for good — the machines, the income, the building itself. The street gets a different story to tell than yours, and the district cools by a large, stated amount. This is the one act that lowers the number, and its price is territory.',
   hide: 'Take a building of yours off their map. They cannot take what they cannot see — but keeping it hidden costs covert.ops every turn, and what you can no longer pay for comes back into view on its own.',
+  yard: 'Pick the one building deliveries drive to. Everything the works needs arrives here first, by road — pick it where the streets are kind, because a cut on the way means the long way round.',
+  truck: 'Send a load from a supplier you hold to the yard, by road — never through buildings. The route, the turns and the streets that will hear it are stated before you pay. A cut street reroutes it; a street with no way round parks it.',
 };
 
 // --- tags --------------------------------------------------------------
