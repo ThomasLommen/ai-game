@@ -884,6 +884,17 @@ footer .build { opacity: .55; font-size: 10px; }
   to   { opacity: 1; transform: none; }
 }
 /* and it turns over once, then it is simply a card */
+/* The chapter dress (bench verdict: B's silver + D's eclipse arch). A story
+   beat — `beat: true` on the event, class `story` here — wears moon silver
+   where every ordinary card wears gold, with etched rays behind the arch.
+   Structure identical to the millimetre; the back never changes. The
+   ceremony: a beat deals and turns at half speed. */
+.tcard.story h2.serif { color: #d6ded9; }
+.tcard.story .tkicker { color: #b9c4bf; }
+.tcard.story .tmark { color: #b9c4bf; }
+.tcard.story { animation-duration: 840ms; }
+.tcard.story.turning { animation-duration: 780ms; }
+
 @keyframes cardTurn {
   from { transform: rotateY(-92deg) scale(.82); opacity: .35; }
   to   { transform: none; opacity: 1; }

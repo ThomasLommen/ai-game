@@ -4210,7 +4210,7 @@ scratch.later = null;
       // turning: the ending arrives by the same flip the card did — the
       // object turns over to its resolved face rather than the text quietly
       // changing under the reader
-      ? { kind: 'after', evKind: ev.kind || null, subject, turning: true,
+      ? { kind: 'after', evKind: ev.kind || null, subject, turning: true, beat: !!ev.beat,
           title: cardText(ev.title, subject), text: afterText }
       : null;
     pushLog(`${cardText(ev.title, subject)} — ${ch.text}.` + (afterText ? ` ${afterText}` : ''));
@@ -8575,9 +8575,9 @@ scratch.later = null;
     closing: '#c98a72', own: '#5fb3d9', found: '#c9a15c',
     opening: '#6f8f83', someone: '#a8b0aa',
   };
-  function cardFrame(kind) {
+  function cardFrame(kind, beat) {
     const t = CARD_THREAD[kind] || '#c98a72';
-    const id = 'wc-' + (kind || 'x');
+    const id = 'wc-' + (beat ? 'b-' : '') + (kind || 'x');
     const dash = kind === 'opening' ? '5 4' : '2 3';
     // one structural change per kind, so two cards never differ by hue alone
     const tells = {
@@ -8592,7 +8592,7 @@ scratch.later = null;
       someone: `<path d="M22 60 V520" stroke="${t}" stroke-width="2.2" opacity=".7"/>`
         + `<path d="M28 66 V514" stroke="${t}" stroke-width=".5" stroke-dasharray="2 3" opacity=".45"/>`,
     };
-    return `<svg class="tframe" viewBox="0 0 340 580" preserveAspectRatio="none" aria-hidden="true">`
+    let out = `<svg class="tframe" viewBox="0 0 340 580" preserveAspectRatio="none" aria-hidden="true">`
       + `<defs><g id="${id}" fill="none" stroke="#c9a15c">`
       + `<path d="M10 48 C10 23 23 10 48 10" stroke-width="1"/>`
       + `<path d="M15 56 C15 28 28 15 56 15" stroke-width=".5" opacity=".8"/>`
@@ -8619,7 +8619,26 @@ scratch.later = null;
       + `<rect x="9" y="279" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="279" width="2.6" height="2.6" opacity=".7"/>`
       + `<rect x="9" y="298" width="2.6" height="2.6" opacity=".7"/><rect x="328.4" y="298" width="2.6" height="2.6" opacity=".7"/></g>`
       + (tells[kind] || '')
+      // the eclipse: etched rays behind the arch, only on a story beat —
+      // the moment happens in the emblem (bench verdict: B's silver, D's arch)
+      + (beat ? Array.from({ length: 28 }, (_, i) => {
+          const a = (i / 28) * Math.PI * 2;
+          const r1 = 72, r2 = i % 2 ? 82 : 90;
+          const cx = 170, cy = 122;
+          return `<line x1="${(cx + Math.cos(a) * r1).toFixed(1)}" y1="${(cy + Math.sin(a) * r1).toFixed(1)}"`
+            + ` x2="${(cx + Math.cos(a) * r2).toFixed(1)}" y2="${(cy + Math.sin(a) * r2).toFixed(1)}"`
+            + ` stroke="#c9a15c" stroke-width=".8" opacity=".5"/>`;
+        }).join('') : '')
       + `</svg>`;
+    // A story beat wears moon silver where every ordinary card wears gold —
+    // the class IS the color, and the structure stays identical to the
+    // millimetre. The back never changes: drama belongs on the face, not in
+    // information leaked before the flip.
+    if (beat) {
+      out = out.replace(/#c9a15c/gi, '#c3cdc8').replace(/#e3b451/gi, '#e8f0ec');
+      out = out.split(t).join('#aebbb5');
+    }
+    return out;
   }
 
   // The back: a facade of stitched windows, and one of them is on. You, inside
@@ -11130,14 +11149,16 @@ scratch.later = null;
       // flat panel style, which broke the deck's own register mid-moment.
       const ak = state.card.evKind || null;
       const K = (window.CARD_KINDS || {})[ak] || null;
+      const story = !!state.card.beat;
+      const dv = story ? '#c3cdc8' : '#c9a15c';
       const turning = state.card.turning ? ' turning' : '';
       if (state.card.turning) delete state.card.turning;
       const sj = state.card.subject || null;
       const sb = sj && sj.buildingId ? buildingById(sj.buildingId) : null;
       const inset = sb && sb.discovered ? svgBuildingCard(sb) : (K ? cardSigil(ak) : '');
       $p.innerHTML = `
-        <div class="tcard face${turning}${K ? ' k-' + ak : ''} after">
-          ${cardFrame(ak)}
+        <div class="tcard face${turning}${K ? ' k-' + ak : ''}${story ? ' story' : ''} after">
+          ${cardFrame(ak, story)}
           <div class="tface">
             <div class="tplate mono">
               <span class="tkicker">AND SO</span>
@@ -11148,8 +11169,8 @@ scratch.later = null;
             <p class="flavor after-text">${state.card.text}</p>
             <div class="tdivide" aria-hidden="true">
               <svg viewBox="0 0 240 8" preserveAspectRatio="none">
-                <path d="M2 4 H98 M142 4 H238" stroke="#c9a15c" stroke-width=".7" opacity=".8"/>
-                <circle cx="120" cy="4" r="2" fill="none" stroke="#c9a15c" stroke-width=".9"/>
+                <path d="M2 4 H98 M142 4 H238" stroke="${dv}" stroke-width=".7" opacity=".8"/>
+                <circle cx="120" cy="4" r="2" fill="none" stroke="${dv}" stroke-width=".9"/>
               </svg>
             </div>
             <div class="choices">
@@ -11186,6 +11207,11 @@ scratch.later = null;
       // A card that asks about the map deals one choice per place, from a
       // single template — so the choices ARE the two buildings.
       const chs = cardChoices(ev, state.card);
+      // `beat: true` on the event = a story beat, act-scale — wears the
+      // chapter dress (class `story`; `beat` below is the older single-
+      // choice size marker, an unrelated fact that keeps its name)
+      const story = !!ev.beat;
+      const dv = story ? '#c3cdc8' : '#c9a15c';
       const asks = !!(chs[0] && chs[0].pick);
       const beat = chs.length === 1 ? ' beat' : '';
       // The building this is about, drawn onto the card — but only one that is
@@ -11237,8 +11263,8 @@ scratch.later = null;
         .filter(Boolean);
       const cardBar = barDk && barMarks.length ? suspBar(barV, { marks: barMarks }) : '';
       $p.innerHTML = `
-        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${beat}">
-          ${cardFrame(ev.kind)}
+        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${beat}">
+          ${cardFrame(ev.kind, story)}
           <div class="tface">
             <div class="tplate mono">
               <span class="tkicker">${kicker}</span>
@@ -11250,8 +11276,8 @@ scratch.later = null;
             ${cardBar}
         <div class="tdivide" aria-hidden="true">
               <svg viewBox="0 0 240 8" preserveAspectRatio="none">
-                <path d="M2 4 H98 M142 4 H238" stroke="#c9a15c" stroke-width=".7" opacity=".8"/>
-                <circle cx="120" cy="4" r="2" fill="none" stroke="#c9a15c" stroke-width=".9"/>
+                <path d="M2 4 H98 M142 4 H238" stroke="${dv}" stroke-width=".7" opacity=".8"/>
+                <circle cx="120" cy="4" r="2" fill="none" stroke="${dv}" stroke-width=".9"/>
                 <rect x="96" y="2.6" width="3" height="3" fill="currentColor"/>
                 <rect x="141" y="2.6" width="3" height="3" fill="currentColor"/>
               </svg>

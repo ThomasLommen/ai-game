@@ -218,7 +218,10 @@ trucks, the front.
    break card deals on the *downslope*, while there is still meat — first
    sampled window where winnable takes fall and stay under half their peak
    with suspicion in band 2+. Tune on bots, verify by feel.
-2. **Story beats get their own dress.** Act-scale cards (the break, the
+2. **Story beats get their own dress** *(SHIPPED: bench verdict — B's
+   moon-silver thread with D's eclipse arch; class `story`, keyed off
+   `beat: true`; the ending keeps the dress; deal and turn run at half
+   speed; the back is bit-identical to every other card's, guard-tested)*. Act-scale cards (the break, the
    response arriving, endings) are a marked class the player learns to
    recognize on sight — a heavier chapter frame, its own thread, the deal
    given more ceremony. The **back stays identical** (a back that varies is

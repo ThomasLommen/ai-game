@@ -11854,3 +11854,45 @@ test('act two: the old verbs stay live, at doubled street-warming', () => {
   d.warmDistrict('commercial', 3);
   assert.equal(d.suspicionOf('commercial'), 6, 'warmDistrict missed the act two tax');
 });
+
+test('story beats: the chapter dress — silver thread, eclipse arch, same back', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+
+  d.state.card = { kind: 'event', eventId: 'act_break', subject: null };
+  d.render();
+  const html = $p.innerHTML;
+  assert.ok(/class="tcard face[^"]*\bstory\b/.test(html), 'the beat does not wear the story class');
+  assert.ok(html.includes('#c3cdc8'), 'no silver thread');
+  assert.ok(!/#c9a15c/i.test(html), 'gold survived on a story beat');
+  const rays = (html.match(/<line /g) || []).length;
+  assert.ok(rays >= 28, 'the eclipse arch is missing its rays');
+
+  // an ordinary card is untouched: gold, no rays, no story class
+  d.state.card = { kind: 'event', eventId: 'insurance_assessor', subject: { district: 'commercial' } };
+  d.render();
+  const plain = $p.innerHTML;
+  assert.ok(/#c9a15c/i.test(plain), 'an ordinary card lost its gold');
+  assert.ok(!/\bstory\b/.test(plain), 'an ordinary card wears the chapter dress');
+
+  // the ending keeps the dress it belongs to
+  d.state.card = { kind: 'event', eventId: 'act_break', subject: null };
+  d.render();
+  d.resolveEvent(0);
+  d.render();
+  assert.ok(/class="tcard face[^"]*\bstory\b[^"]*\bafter\b|class="tcard face[^"]*\bstory\b/.test($p.innerHTML)
+    && /story/.test($p.innerHTML), 'the ending dropped the chapter dress');
+  d.state.card = null;
+
+  // and the back is the same back — one deck, whatever the card carries
+  d.state.card = { kind: 'event', eventId: 'act_break', subject: null, facedown: true };
+  d.render();
+  const back = $p.innerHTML;
+  d.state.card = { kind: 'event', eventId: 'insurance_assessor', subject: { district: 'commercial' }, facedown: true };
+  d.render();
+  const back2 = $p.innerHTML;
+  d.state.card = null;
+  const stripDeal = (h) => h.replace(/<div class="deal-line">[\s\S]*$/, '');
+  assert.equal(stripDeal(back), stripDeal(back2), 'a story beat is a marked card');
+});
