@@ -570,7 +570,19 @@ window.SOURCES = {
   // the truck: what a dispatch costs, how much road a turn covers, and how
   // loudly a load rumbles through a street (warmDistrict doubles it in Act 2,
   // where trucks live — the chip quotes the doubled figure)
-  truck: { funds: 2, speed: 520, warm: 0.5 },
+  // A truck carries two units (a lorry hauling one girder was always a bit
+  // silly), and the fleet is finite: commercial jobs and supply runs fight
+  // for the same cabs, which is the front system's real cap.
+  truck: { funds: 2, speed: 520, warm: 0.5, load: 2 },
+  fleet: 3,
+  // The deal: a supplier you do not hold will sell to a stranger — at a
+  // stranger's price. The door Act 2's abstraction always promised.
+  dealMult: 3,
+  // The haulage front: a legitimate business in a building you hold. Its
+  // trucks run commercial jobs the city pays for; an earning run cools the
+  // front's district (the street sees a working company), and the firm is
+  // visible, exposed, and stops the moment its building is lost.
+  front: { open: 10, payBase: 4, payPerTurn: 2, cool: 2 },
 };
 
 // --- W4: the works ------------------------------------------------------
@@ -1076,6 +1088,7 @@ window.ACTION_INFO = {
   hide: 'Take a building of yours off their map. They cannot take what they cannot see — but keeping it hidden costs covert.ops every turn, and what you can no longer pay for comes back into view on its own.',
   yard: 'Pick the one building deliveries drive to. Everything the works needs arrives here first, by road — pick it where the streets are kind, because a cut on the way means the long way round.',
   truck: 'Send a load from a supplier you hold to the yard, by road — never through buildings. The route, the turns and the streets that will hear it are stated before you pay. A cut street reroutes it; a street with no way round parks it.',
+  front: 'Open a legitimate business in a building you hold. It offers real delivery jobs the city pays for — an earning run cools this district, because the street sees a working company instead of a mystery. Jobs occupy real trucks from the same fleet as your supply runs, and the firm is exposed: lose the building and the front goes with it.',
   build: 'Raise the next stage of the works on the yard. It costs funds and the yard\'s stock, takes stated turns, and the street notices every one of them — if notice reaches the red-tape line first, the site stalls until the street cools, keeping its progress. From the power stage on, the build needs a held path of streets to a grid building; cut it and the site waits.',
 };
 

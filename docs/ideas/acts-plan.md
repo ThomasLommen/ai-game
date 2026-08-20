@@ -205,6 +205,22 @@ lie-low button would repeal it. Relief stays things you **do**:
 both; the census shows suspicion pressure survives (no strategy holds every
 district cold for free).
 
+**W5 economy half SHIPPED (2026-08-20, per the five verdicts):** the
+haulage front (open on a held building for 10f; offers deterministic,
+previewed delivery jobs — pay 4 + 2/turn, cools its district 2 on
+delivery, occupies a real truck, dies with its building); **the deal**
+(unheld suppliers sell at 3× — 6f a load); trucks carry 2; the fleet caps
+3 concurrent cabs so jobs and supply runs fight for them. Re-census:
+games with a powered yard finish Act 2 in **26-29 turns — the sprint
+verdict hit exactly** (was: zero games finished at all). The remaining
+soft-lock is **grid access**: the power stage has no deal-equivalent, so
+a run that never takes a grid building near the yard stalls forever.
+Morning grill: (a) a power hookup deal (funds for grid power without
+holding a grid building — the deal covering both of Act 2's doors), (b)
+the break signal waiting for grid access, or (c) leave it hard and let
+canYard warn. Public lens + inspectors deliberately NOT in this pass
+(verdict: economy first, re-census, then pressure — done, measured).
+
 ### Stage W6 — the Act 2 deck
 
 The batch, written for the act: inspections, the union, the journalist

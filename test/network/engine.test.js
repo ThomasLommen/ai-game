@@ -12087,9 +12087,9 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   let guard = 0;
   while (d.trucks().length && guard++ < 30) { s.card = null; d.endTurn({ silent: true }); }
   assert.equal(d.trucks().length, 0, 'the truck never arrived');
-  assert.equal((s.yardStock || {}).steel, 1, 'the yard took no stock');
+  assert.equal((s.yardStock || {}).steel, window.SOURCES.truck.load, 'the yard took no stock');
   assert.equal(s.res.steel, undefined, 'steel became a currency');
-  assert.ok(d.yardLine(yard.id).includes('1'), 'the yard does not state its stock');
+  assert.ok(d.yardLine(yard.id).includes(String(window.SOURCES.truck.load)), 'the yard does not state its stock');
 });
 
 // --- W4: the works ----------------------------------------------------------
@@ -12314,4 +12314,93 @@ test('panel: the footer is gone and the gear sheet holds the housekeeping', () =
   assert.ok(/#panel:not\(\.card-open\)\s*{[^}]*max-height/.test(css), 'the panel has no ceiling at all');
   // stacked in flow: no measured offsets anywhere near the seam
   assert.ok(!/--dock-bar-h/.test(css), 'the seam is arithmetic again');
+});
+
+// --- the act 2 economy: fronts, the deal, loads, the fleet ------------------
+
+function econRig(d, window) {
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  const grid = s.hosts.find(h => h.role === 'grid');
+  d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
+  const yard = (s.adjacency[grid.buildingId] || []).map(id => d.buildingById(id))
+    .find(b => d.hostsIn(b).length && !d.hostsIn(b).some(x => x.origin));
+  d.hostsIn(yard).forEach(h => { h.owned = true; });
+  d.actYard(yard.id);
+  return { yard };
+}
+
+test('the deal: a stranger sells at a stranger price, and the fleet is finite', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const S = window.SOURCES;
+  econRig(d, window);
+  const held = s.buildings.find(b => b.source && !d.buildingHeld(b));
+  d.hostsIn(held).forEach(h => { h.owned = true; });
+  const stranger = s.buildings.find(b => b.source && !d.buildingHeld(b) && b.id !== s.yard);
+  assert.equal(d.truckCost(held.id), S.truck.funds, 'your own dock overcharges');
+  assert.equal(d.truckCost(stranger.id), S.truck.funds * S.dealMult, 'the stranger undercharges');
+  assert.equal(d.canSendTruck(stranger.id), true, 'the deal is closed');
+  const f0 = s.res.funds;
+  assert.equal(d.actSendTruck(stranger.id), true);
+  assert.equal(s.res.funds, f0 - S.truck.funds * S.dealMult, 'the premium was not paid');
+  // the fleet cap: fill it, then be refused
+  s.ap = 9; s.res.funds = 99;
+  let sent = 1, guard = 0;
+  while (sent < S.fleet && guard++ < 6) { if (d.actSendTruck(held.id)) sent++; }
+  assert.equal(d.trucks().length, S.fleet, 'could not fill the fleet');
+  assert.equal(d.actSendTruck(held.id), false, 'a fourth cab appeared from nowhere');
+});
+
+test('loads: a truck carries two, and the yard counts them', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  econRig(d, window);
+  const src = s.buildings.find(b => b.source === 'steel' && b.id !== s.yard);
+  d.hostsIn(src).forEach(h => { h.owned = true; });
+  assert.equal(d.actSendTruck(src.id), true);
+  let guard = 0;
+  while (d.trucks().length && guard++ < 30) d.truckStep();
+  assert.equal((s.yardStock || {}).steel, window.SOURCES.truck.load, 'the load miscounted');
+});
+
+test('fronts: the sign is priced, the job previews exactly, the run pays and cools', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const F = window.SOURCES.front;
+  econRig(d, window);
+  const spot = s.buildings.find(b => d.canFront(b.id));
+  assert.ok(spot, 'nowhere to put a sign');
+  const f0 = s.res.funds;
+  assert.equal(d.actFront(spot.id), true);
+  assert.equal(s.res.funds, f0 - F.open, 'the sign was free');
+  assert.equal(d.canFront(spot.id), false, 'a second sign on the same building');
+
+  const job = d.frontJob(spot.id);
+  assert.ok(job && job.pay === F.payBase + F.payPerTurn * job.turns, 'the pay is not the stated arithmetic');
+  d.warmDistrict(spot.district, 5);
+  const suspBefore = d.suspicionOf(spot.district);
+  const fundsBefore = s.res.funds;
+  assert.equal(d.actRunJob(spot.id), true);
+  assert.equal(d.frontJob(spot.id), null, 'a second job while one is on the road');
+  let guard = 0;
+  while (d.trucks().some(t => t.kind === 'job') && guard++ < 30) d.truckStep();
+  assert.equal(s.res.funds, fundsBefore + job.pay, 'the job did not pay what it said');
+  assert.equal(d.suspicionOf(spot.district), Math.max(0, Math.round((suspBefore - job.cool) * 10) / 10),
+    'the earning did not cool the street');
+
+  // the firm dies with its building
+  d.noteDistrictAct(spot.district, 5);
+  s.ap = 9;
+  d.actBurn(spot.id);
+  assert.equal(d.isFront(spot.id), false, 'a burned building kept its sign');
+  // ...and the whole ledger survives a save
+  const back = JSON.parse(JSON.stringify(d.serialize()));
+  d.deserialize(back);
+  assert.ok(Array.isArray(d.state.fronts), 'the fronts did not survive');
 });

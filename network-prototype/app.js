@@ -3304,19 +3304,31 @@
       warmEach: Math.round((S.warm || 0) * (actNow() >= 2 ? 2 : 1) * 10) / 10,
     };
   }
+  // Held supplier: your own loading dock, base price. Unheld: the deal —
+  // they sell to a stranger at a stranger's price (dealMult), no race, no
+  // take. The door Act 2's abstraction always promised.
   function canSendTruck(bid) {
     const b = buildingById(bid);
-    return !!(actNow() >= 2 && b && b.source && buildingHeld(b) && !burnedAt(bid)
+    return !!(actNow() >= 2 && b && b.source && b.discovered && !burnedAt(bid)
+      && !huntHolds(bid)
       && state.yard && state.yard !== bid && yardB() && !burnedAt(state.yard));
   }
+  function truckCost(bid) {
+    const S = (window.SOURCES || {});
+    const base = (S.truck || {}).funds || 0;
+    const b = buildingById(bid);
+    return b && buildingHeld(b) ? base : base * (S.dealMult || 3);
+  }
+  function fleetSize() { return (window.SOURCES || {}).fleet || 3; }
+  function fleetFree() { return fleetSize() - trucks().length; }
   function actSendTruck(bid) {
-    const S = (window.SOURCES || {}).truck || {};
-    if (!canSendTruck(bid)) return false;
+    if (!canSendTruck(bid) || fleetFree() <= 0) return false;
     const pv = truckPreview(bid);
     if (!pv) return false;
-    if (!canAfford('truck') || state.res.funds < (S.funds || 0)) return false;
+    const cost = truckCost(bid);
+    if (!canAfford('truck') || state.res.funds < cost) return false;
     spendAP('truck');
-    state.res.funds -= (S.funds || 0);
+    state.res.funds -= cost;
     const b = buildingById(bid);
     trucks().push({
       id: 't' + (state.truckSeq = (state.truckSeq || 0) + 1),
@@ -3325,7 +3337,7 @@
       seg: 0, done: 0, turnsLeft: pv.turns,
     });
     // a loaded lorry is not subtle — every street on the route hears it
-    pv.districts.forEach(dk => warmDistrict(dk, S.warm || 0));
+    pv.districts.forEach(dk => warmDistrict(dk, (((window.SOURCES || {}).truck || {}).warm) || 0));
     pushLog(`A truck leaves the ${window.BUILDING_KINDS[b.kind].label} loaded with ${((window.SOURCES || {}).kinds[b.source] || {}).label}. ${pv.turns} turn${pv.turns === 1 ? '' : 's'} to the yard.`);
     persistNow();
     render();
@@ -3340,8 +3352,8 @@
     trucks().forEach(t => {
       if ((t.edges || []).some(e => blocked.has(e))) {
         const pos = truckPos(t);
-        const yard = yardB();
-        const back = yard ? roadRoute({ x: pos.x, y: pos.y, w: 0, h: 0 }, yard) : null;
+        const dest = t.kind === 'job' ? buildingById(t.to) : yardB();
+        const back = dest ? roadRoute({ x: pos.x, y: pos.y, w: 0, h: 0 }, dest) : null;
         if (back) {
           t.points = back.points; t.edges = back.edges; t.seg = 0; t.done = 0;
           t.turnsLeft = Math.max(1, Math.ceil(back.length / speed));
@@ -3363,12 +3375,27 @@
       t.turnsLeft = Math.max(0, (t.turnsLeft || 1) - 1);
     });
     const arrived = trucks().filter(t => t.seg >= t.points.length - 1);
-    if (arrived.length) {
+    const supply = arrived.filter(t => t.kind !== 'job');
+    if (supply.length) {
       state.yardStock = state.yardStock || {};
-      arrived.forEach(t => { state.yardStock[t.kind] = (state.yardStock[t.kind] || 0) + 1; });
+      const load = ((window.SOURCES || {}).truck || {}).load || 1;
+      supply.forEach(t => { state.yardStock[t.kind] = (state.yardStock[t.kind] || 0) + load; });
       const st = state.yardStock;
-      pushLog(`${arrived.length === 1 ? 'A truck backs' : arrived.length + ' trucks back'} into the yard. Stock: ${st.steel || 0} steel, ${st.fab || 0} fabrication.`);
+      pushLog(`${supply.length === 1 ? 'A truck backs' : supply.length + ' trucks back'} into the yard. Stock: ${st.steel || 0} steel, ${st.fab || 0} fabrication.`);
     }
+    // a commercial run pays on delivery, and the earning cools the front's
+    // street — a working company is the opposite of a mystery
+    arrived.filter(t => t.kind === 'job').forEach(t => {
+      state.res.funds += t.pay || 0;
+      const fb = buildingById(t.front);
+      if (fb && !burnedAt(fb.id)) {
+        state.suspicion = state.suspicion || {};
+        const cur = state.suspicion[fb.district] || 0;
+        const next = Math.max(0, Math.round((cur - (t.cool || 0)) * 10) / 10);
+        if (next) state.suspicion[fb.district] = next; else delete state.suspicion[fb.district];
+      }
+      pushLog(`A job delivered: +${t.pay || 0} funds${fb ? `, and ${(window.DISTRICTS[fb.district] || {}).label || 'the district'} sees a working company (−${t.cool || 0})` : ''}.`);
+    });
     state.trucks = trucks().filter(t => t.seg < t.points.length - 1);
   }
   // The yard: the one building deliveries drive to — the works' forecourt
@@ -3502,6 +3529,64 @@
         queueEvent('works_online', null);
       }
     }
+  }
+
+  // --- W5, the economy half: the haulage front ------------------------------
+  // A legitimate business in a building you hold. It offers real delivery
+  // jobs the city pays for, run by the same fleet as your supply trucks —
+  // an earning run cools the front's district, and the firm stops the
+  // moment its building burns or is lost. Income, the suspicion valve, and
+  // "Act 2 must show the city something" are one object.
+  function fronts() { return state.fronts || (state.fronts = []); }
+  function isFront(bid) { return fronts().indexOf(bid) !== -1 && !burnedAt(bid); }
+  function canFront(bid) {
+    const b = buildingById(bid);
+    return !!(actNow() >= 2 && b && buildingHeld(b) && !burnedAt(bid)
+      && !isFront(bid) && state.yard !== bid);
+  }
+  function actFront(bid) {
+    const F = (window.SOURCES || {}).front || {};
+    if (!canFront(bid) || !canAfford('front') || state.res.funds < (F.open || 0)) return false;
+    spendAP('front');
+    state.res.funds -= (F.open || 0);
+    fronts().push(bid);
+    pushLog(`A sign goes up on the ${window.BUILDING_KINDS[buildingById(bid).kind].label}. The company exists now, on paper and on the street.`);
+    persistNow();
+    render();
+    return true;
+  }
+  // The job a front is offering: destination, pay, turns — chance upstream
+  // (deterministic per front, re-rolled every few turns), previewed exactly.
+  function frontJob(bid) {
+    const F = (window.SOURCES || {}).front || {};
+    const fb = buildingById(bid);
+    if (!fb || !isFront(bid)) return null;
+    if (trucks().some(t => t.kind === 'job' && t.front === bid)) return null;
+    const cands = (state.buildings || []).filter(x => x.discovered && x.id !== bid
+      && x.district !== fb.district && !burnedAt(x.id) && x.w >= 18);
+    if (!cands.length) return null;
+    const seedBase = idSeed(bid) + Math.floor(state.turn / 4) * 17;
+    const pick = cands[Math.floor(cityNoise(seedBase, 3) * cands.length)] || cands[0];
+    const route = roadRoute(fb, pick);
+    if (!route) return null;
+    const S = (window.SOURCES || {}).truck || {};
+    const turns = Math.max(1, Math.ceil(route.length / (S.speed || 520)));
+    return { to: pick.id, route, turns,
+      pay: (F.payBase || 4) + (F.payPerTurn || 2) * turns, cool: F.cool || 2 };
+  }
+  function actRunJob(bid) {
+    const job = frontJob(bid);
+    if (!job || fleetFree() <= 0 || !canAfford('job')) return false;
+    spendAP('job');
+    trucks().push({
+      id: 't' + (state.truckSeq = (state.truckSeq || 0) + 1),
+      kind: 'job', front: bid, to: job.to, pay: job.pay, cool: job.cool,
+      points: job.route.points, edges: job.route.edges, seg: 0, done: 0, turnsLeft: job.turns,
+    });
+    pushLog(`A job goes out: ${job.turns} turn${job.turns === 1 ? '' : 's'} on the road for ${job.pay} funds.`);
+    persistNow();
+    render();
+    return true;
   }
 
   // What you can no longer pay for stops being hidden — newest first, because
@@ -5732,6 +5817,7 @@ scratch.later = null;
       yardStock: Object.assign({}, state.yardStock || {}),
       works: JSON.parse(JSON.stringify(state.works || null)),
       groundBroken: state.groundBroken || 0,
+      fronts: (state.fronts || []).slice(),
     };
   }
   function unpackCity(p) {
@@ -5775,6 +5861,7 @@ scratch.later = null;
     state.yardStock = Object.assign({}, p.yardStock || {});
     state.works = p.works ? JSON.parse(JSON.stringify(p.works)) : null;
     state.groundBroken = p.groundBroken || 0;
+    state.fronts = (p.fronts || []).slice();
     state.caughtAt = p.caughtAt || [];
     state.view = null;
   }
@@ -7832,6 +7919,7 @@ scratch.later = null;
       truckSeq: state.truckSeq || 0,
       works: JSON.parse(JSON.stringify(state.works || null)),
       groundBroken: state.groundBroken || 0,
+      fronts: (state.fronts || []).slice(),
       hints: Object.assign({}, state.hints || {}),
       everCrossed: !!state.everCrossed,
       scope: state.scope, country: state.country, cityId: state.cityId, dims: state.dims,
@@ -7876,6 +7964,7 @@ scratch.later = null;
         truckSeq: saved.truckSeq || 0,
         works: saved.works ? JSON.parse(JSON.stringify(saved.works)) : null,
         groundBroken: saved.groundBroken || 0,
+        fronts: (saved.fronts || []).slice(),
         hints: Object.assign({}, saved.hints || {}),
         // the tray is retired: a save that still held cards set aside pours
         // them into the queue, so nothing a player was owed is lost
@@ -8945,6 +9034,12 @@ scratch.later = null;
         out += `<rect class="mark-${mk.harden > 0 ? 'hard' : 'soft'}" x="${(b.x + b.w - 7).toFixed(1)}"`
           + ` y="${(b.y + b.h - 3).toFixed(1)}" width="6" height="2.2" rx="1"/>`;
       }
+    }
+    // a front's sign, orange outline at the top-right — the company on the map
+    if (!drawingInset && actNow() >= 2 && (state.fronts || []).indexOf(b.id) !== -1 && !(mk && mk.burned)) {
+      const oc2 = (window.SOURCES || {}).accent || '#e0803f';
+      out += `<rect class="front-mark" x="${(b.x + b.w - 6).toFixed(1)}" y="${(b.y - 3).toFixed(1)}"`
+        + ` width="7" height="4.6" rx="1" fill="none" stroke="${oc2}" stroke-width="1"/>`;
     }
     // a supplier's trade mark, in the grid orange — Act 2's second thread
     // debuts here. Dormant in Act 1: the ground knows, the map does not say.
@@ -10895,8 +10990,12 @@ scratch.later = null;
     if (!b || !b.discovered || burnedAt(b.id) || huntHolds(b.id)) return [];
     if (!buildingHeld(b)) return ['bait'];
     const held = huntOn() ? ['hide', 'burn'] : ['burn'];
-    // Act 2, no yard yet: any held building offers to become it
-    if (actNow() >= 2 && !state.yard) held.unshift('yard');
+    // Act 2: any held building offers to become the yard (until one is),
+    // or to put a sign up and become a front
+    if (actNow() >= 2) {
+      if (canFront(b.id)) held.unshift('front');
+      if (!state.yard) held.unshift('yard');
+    }
     return held;
   }
   // Why a tool cannot fire right now — null when it can. The tile greys on
@@ -10920,6 +11019,12 @@ scratch.later = null;
       if (apShort('yard')) return 'no actions left';
       return null;
     }
+    if (tool === 'front') {
+      const F = (window.SOURCES || {}).front || {};
+      if (state.res.funds < (F.open || 0)) return `needs ${F.open} funds`;
+      if (apShort('front')) return 'no actions left';
+      return null;
+    }
     if (tool === 'hide') {
       if (isHidden(b.id)) return null;                       // letting go is free
       if (ladderStage() >= 3) return `${ladderStageName(3)} is watching the quiet`;
@@ -10939,6 +11044,7 @@ scratch.later = null;
     bait: '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="2.5" width="9" height="9" rx="2" stroke-dasharray="2 2.4"/></svg>',
     burn: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.6 C8.6 4 10.8 5.4 10.8 8.4 A3.8 3.8 0 0 1 3.2 8.4 C3.2 6.2 5.4 4 7 1.6 Z"/></svg>',
     yard: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 12.5 V2 l7 2.4 -7 2.4"/></svg>',
+    front: '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="3" width="10" height="5.5" rx="1"/><path d="M7 8.5 V12.5 M4.5 12.5 h5"/></svg>',
   };
   function toolRail(b) {
     const tools = panelTools(b);
@@ -10955,7 +11061,8 @@ scratch.later = null;
     const fold = armed === 'bait' ? baitBtn(b)
       : armed === 'burn' ? burnBtn(b)
       : armed === 'hide' ? hideFold(b)
-      : armed === 'yard' ? yardFold(b) : '';
+      : armed === 'yard' ? yardFold(b)
+      : armed === 'front' ? frontFold(b) : '';
     return `<div class="tool-rail">${tiles}</div>${fold}`;
   }
   // The unfolded contracts. Each states the whole deal, then offers the one
@@ -11018,34 +11125,76 @@ scratch.later = null;
       ${toolCommit(off, 'primary', 'yard', 'yard', b.id, 'make this the yard', 'an action, and the trucks know where to go')}
     </div>`;
   }
+  function frontFold(b) {
+    if (!b) return '';
+    const F = (window.SOURCES || {}).front || {};
+    const off = toolOff('front', b);
+    return `<div class="tool-fold">
+      <p class="sel-desc">A legitimate business, with your name near it. It offers real delivery jobs the city pays for — an earning run cools this district, and the firm is exposed: lose the building and the front goes with it.</p>
+      <p class="yield-row">${chip('cost funds', '&minus;' + (F.open || 0) + ' funds to open')}${chip('cover', 'jobs pay, and earning cools this street')}${chip('cost heat', 'a thing the world can target')}</p>
+      ${toolCommit(off, 'primary', 'front', 'front', b.id, 'put the sign up', 'an action, and the company exists')}
+    </div>`;
+  }
+  // The job strip on a front's own panel: the offer, previewed exactly.
+  function jobBtn(b) {
+    if (!b || !isFront(b.id)) return '';
+    const running = trucks().find(t => t.kind === 'job' && t.front === b.id);
+    if (running) {
+      return `<button class="act-btn no-ap" disabled>
+        <span class="ab-name">a job is on the road</span>
+        <span class="ab-sub">${running.turnsLeft} turn${running.turnsLeft === 1 ? '' : 's'} out — pays ${running.pay} on delivery</span>
+      </button>`;
+    }
+    const job = frontJob(b.id);
+    if (!job) {
+      return `<button class="act-btn no-ap" disabled>
+        <span class="ab-name">run a job</span>
+        <span class="ab-sub">nothing on offer this week — the phone will ring</span>
+      </button>`;
+    }
+    const dest = buildingById(job.to);
+    const short = apShort('job');
+    const noTruck = fleetFree() <= 0;
+    return `
+      <button class="act-btn${short || noTruck ? ' no-ap' : ' primary'}" data-act="job" data-ap="job" data-bid="${b.id}" data-info="front">
+        <span class="ab-name">run a job — to the ${window.BUILDING_KINDS[dest.kind].label}</span>
+        <span class="ab-sub">${short ? 'no actions left' : noTruck ? 'every truck is out'
+          : `${chip('cover', '+' + job.pay + ' funds on delivery')}${chip('cover', (window.DISTRICTS[b.district] || {}).label + ' cools ' + job.cool)}${chip('cost none', job.turns + ' turn' + (job.turns === 1 ? '' : 's') + ' · occupies a truck')}`}</span>
+      </button>`;
+  }
   // Act 2's primary verb on a held supplier: the dispatch, previewed to the
   // turn and the street. The route itself is drawn on the map the moment
   // the supplier is selected (svgTrucks).
   function truckBtn(b) {
-    if (!b || actNow() < 2 || !b.source || !buildingHeld(b) || burnedAt(b.id)) return '';
+    if (!b || actNow() < 2 || !b.source || !b.discovered || burnedAt(b.id) || huntHolds(b.id)) return '';
     if (state.yard === b.id) return '';
     const S = (window.SOURCES || {}).truck || {};
     const K = ((window.SOURCES || {}).kinds || {})[b.source] || {};
+    const held = buildingHeld(b);
+    const cost = truckCost(b.id);
+    const label = held ? `send a truck — ${K.label}` : `buy a load — ${K.label} (the deal)`;
+    const carry = (S.load || 1) > 1 ? `carries ${S.load}` : null;
     if (!state.yard || !yardB() || burnedAt(state.yard)) {
       return `<button class="act-btn no-ap" disabled>
-        <span class="ab-name">send a truck</span>
+        <span class="ab-name">${label}</span>
         <span class="ab-sub">no yard yet — the rail on any held building can make one</span>
       </button>`;
     }
     const pv = truckPreview(b.id);
     if (!pv) {
       return `<button class="act-btn no-ap" disabled>
-        <span class="ab-name">send a truck</span>
+        <span class="ab-name">${label}</span>
         <span class="ab-sub">no street reaches it — every road that way is cut</span>
       </button>`;
     }
     const short = apShort('truck');
-    const broke = state.res.funds < (S.funds || 0);
+    const broke = state.res.funds < cost;
+    const noTruck = fleetFree() <= 0;
     return `
-      <button class="act-btn${short || broke ? ' no-ap' : ' primary'}" data-act="truck" data-ap="truck" data-bid="${b.id}">
-        <span class="ab-name">send a truck — ${K.label}</span>
-        <span class="ab-sub">${short ? 'no actions left' : broke ? `needs ${S.funds} funds`
-          : `${chip('cost funds', '&minus;' + (S.funds || 0) + ' funds')}${chip('cost none', pv.turns + ' turn' + (pv.turns === 1 ? '' : 's') + ' on the road')}${chip('cost heat', '+' + pv.warmEach + ' suspicion in ' + pv.districts.length + ' street' + (pv.districts.length === 1 ? '' : 's'))}`}</span>
+      <button class="act-btn${short || broke || noTruck ? ' no-ap' : ' primary'}" data-act="truck" data-ap="truck" data-bid="${b.id}" data-info="truck">
+        <span class="ab-name">${label}</span>
+        <span class="ab-sub">${short ? 'no actions left' : noTruck ? 'every truck is out' : broke ? `needs ${cost} funds`
+          : `${chip('cost funds', '&minus;' + cost + ' funds')}${carry ? chip('cover', carry) : ''}${chip('cost none', pv.turns + ' turn' + (pv.turns === 1 ? '' : 's') + ' on the road')}${chip('cost heat', '+' + pv.warmEach + ' suspicion in ' + pv.districts.length + ' street' + (pv.districts.length === 1 ? '' : 's'))}`}</span>
       </button>`;
   }
   // The yard says what it is and what it holds, on its own panel.
@@ -11275,6 +11424,9 @@ scratch.later = null;
     if (actNow() >= 2 && bb.source && !burnedAt(bid)) {
       chips.push(cpChip('src', (((window.SOURCES || {}).kinds || {})[bb.source] || {}).label || bb.source));
     }
+    if (isFront(bid)) {
+      chips.push(cpChip('src', 'front'));
+    }
     if (state.yard === bid && !burnedAt(bid)) {
       const st = state.yardStock || {};
       chips.push(cpChip('src', `yard · ${st.steel || 0} steel · ${st.fab || 0} fab`));
@@ -11439,6 +11591,7 @@ scratch.later = null;
             ${cpDrawer(h, b)}
             ${worksPanel(b)}
             ${truckBtn(b)}
+            ${jobBtn(b)}
             ${scanFromBtn(b)}
             ${toolRail(b)}
           </div>`;
@@ -11460,6 +11613,7 @@ scratch.later = null;
             ${cpIdentity(h, b, cpChip('', 'def ' + defenseOf(h)))}
             <p class="cp-row">${yieldTxt}</p>
             ${hackOn(h.id) ? hackPanel(h) : targetPanel(h)}
+            ${truckBtn(b)}
             ${scanFromBtn(b)}
             ${toolRail(b)}
           </div>`;
@@ -11475,6 +11629,7 @@ scratch.later = null;
           ${cpInstruments(h, b)}
           ${cpTeach('noroute', '<p class="sel-desc dim">No route to it yet — take something on the same street first.</p>')}
           ${cpDrawer(h, b)}
+          ${truckBtn(b)}
           ${scanFromBtn(b)}
           ${toolRail(b)}
         </div>`;
@@ -11529,6 +11684,8 @@ scratch.later = null;
         else if (a === 'bait') { armedTool = null; actBait(b.getAttribute('data-bid')); }
         else if (a === 'burn') { armedTool = null; actBurn(b.getAttribute('data-bid')); }
         else if (a === 'yard') { armedTool = null; actYard(b.getAttribute('data-bid')); }
+        else if (a === 'front') { armedTool = null; actFront(b.getAttribute('data-bid')); }
+        else if (a === 'job') actRunJob(b.getAttribute('data-bid'));
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
         else if (a === 'build') actBuildStage();
         else if (a === 'panel-info') { panelInfoOpen = !panelInfoOpen; renderPanel(); }
@@ -12191,6 +12348,7 @@ scratch.later = null;
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canYard, actYard, yardB, svgTrucks, truckBtn, yardLine,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
+    fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn,
     cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
