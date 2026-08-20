@@ -11929,7 +11929,13 @@ test('story beats: the chapter dress — silver thread, eclipse arch, same back'
 // Materials are cargo, never a currency chip.
 
 test('sources: every city can build — the floor holds, and the trades sort by district', () => {
-  const { window } = loadNetwork({ cityOnly: true });
+  // seeded: the suburbs-stray bound is statistical over generated boards
+  let seed = 0x1b873593;
+  const rand = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
+  const { window } = loadNetwork({ cityOnly: true, pinMathRandom: rand });
   const d = window.__netDebug;
   const s = d.state;
   const S = window.SOURCES;
@@ -12403,4 +12409,45 @@ test('fronts: the sign is priced, the job previews exactly, the run pays and coo
   const back = JSON.parse(JSON.stringify(d.serialize()));
   d.deserialize(back);
   assert.ok(Array.isArray(d.state.fronts), 'the fronts did not survive');
+});
+
+test('the power deal: no grid path means a metered hookup, priced and immune to cuts', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const W = window.WORKS;
+  s.act = 2; s.ap = 9; s.res.funds = 99;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  // a yard with NO grid building held anywhere: the old hard soft-lock
+  const spot = s.buildings.find(b => d.hostsIn(b).length
+    && !d.hostsIn(b).some(h => h.origin || h.role === 'grid'));
+  d.hostsIn(spot).forEach(h => { h.owned = true; });
+  d.actYard(spot.id);
+  s.yardStock = { steel: 9, fab: 9 };
+  assert.equal(d.powerOk(), false, 'the rig accidentally has power');
+
+  // the site stage needs no power and no hookup
+  assert.equal(d.stageHookup(0), 0, 'the site paid for power it does not need');
+  assert.equal(d.actBuildStage(), true, d.worksShort(0));
+  for (let i = 0; i < W.stages[0].turns; i++) { s.suspicion = {}; d.worksStep(); }
+  assert.equal(d.works().stage, 1);
+
+  // the power stage: refused no longer — the utility sells, at its price
+  assert.equal(d.stageHookup(1), W.hookup, 'no premium quoted');
+  assert.equal(d.worksShort(1), null, 'still refused: ' + d.worksShort(1));
+  const f0 = s.res.funds;
+  s.ap = 9;
+  assert.equal(d.actBuildStage(), true);
+  assert.equal(s.res.funds, f0 - W.stages[1].funds - W.hookup, 'the premium was not paid');
+  assert.equal(d.works().building.metered, true, 'the meter is not on the ticket');
+  // metered power does not care whose streets are cut
+  s.cuts = [{ a: spot.id, b: (s.adjacency[spot.id] || [])[0] }];
+  d.worksStep();
+  assert.notEqual(d.works().stalled, 'power', 'a metered stage stalled for power');
+  s.cuts = [];
+  // and with a held path, the premium disappears
+  const grid = s.hosts.find(h => h.role === 'grid');
+  d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
+  if (d.powerOk()) assert.equal(d.stageHookup(2), 0, 'the premium survived a real connection');
 });

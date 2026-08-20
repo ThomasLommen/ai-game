@@ -3457,16 +3457,26 @@
     notice = Math.round(notice * 10) / 10;
     return { stage: st, notice, goal: W.goal || 14, taped: notice >= (W.goal || 14), warmEff };
   }
+  // The metered hookup: a stage that needs power but has no held path to a
+  // grid building is not refused any more — the utility sells power at a
+  // stranger's price, paid per stage and stated on the button. The deal
+  // covers both of Act 2's doors.
+  function stageHookup(i) {
+    const st = worksStageDef(i);
+    if (!st) return 0;
+    const needsPower = st.needsGrid || works().stage >= 1;
+    return needsPower && !powerOk() ? ((window.WORKS || {}).hookup || 0) : 0;
+  }
   function worksShort(i) {
     const st = worksStageDef(i);
     const w = works();
     if (!st) return 'the works is finished';
     if (w.building) return 'a stage is already up on scaffolds';
     const stock = state.yardStock || {};
-    if (state.res.funds < st.funds) return `needs ${st.funds} funds`;
+    const bill = st.funds + stageHookup(i);
+    if (state.res.funds < bill) return `needs ${bill} funds`;
     if ((stock.steel || 0) < st.steel) return `needs ${st.steel} steel in the yard — send trucks`;
     if ((stock.fab || 0) < st.fab) return `needs ${st.fab} fabrication in the yard — send trucks`;
-    if ((st.needsGrid || w.stage >= 1) && !powerOk()) return 'no held streets reach a grid building — the site has no power';
     const f = worksForecast(i);
     if (f && f.taped) return 'red tape gets there first — cool the street, or bait it';
     if (apShort('build')) return 'no actions left';
@@ -3479,11 +3489,16 @@
     if (!st || actNow() < 2 || !yardB() || burnedAt(state.yard)) return false;
     if (worksShort(i)) return false;
     spendAP('build');
-    state.res.funds -= st.funds;
+    const hookup = stageHookup(i);
+    state.res.funds -= st.funds + hookup;
     const stock = state.yardStock = state.yardStock || {};
     stock.steel = (stock.steel || 0) - st.steel;
     stock.fab = (stock.fab || 0) - st.fab;
-    w.building = { i, turnsLeft: st.turns, notice: 0 };
+    // a stage started on the meter stays on the meter: paid up front, so a
+    // cut street cannot stall it — the utility does not care whose streets
+    // those are
+    w.building = { i, turnsLeft: st.turns, notice: 0, metered: hookup > 0 };
+    if (hookup > 0) pushLog('The utility takes its money and connects the site. Metered power hums.');
     if (i === 0 && !state.groundBroken) {
       // verdict 8: breaking ground starts the clock — recorded here, spent
       // by the public lens when W5 arrives
@@ -3504,7 +3519,7 @@
     const st = worksStageDef(w.building.i);
     const yard = yardB();
     if (!yard || burnedAt(yard.id)) { w.building = null; return; }
-    const needsPower = st.needsGrid || w.stage >= 1;
+    const needsPower = (st.needsGrid || w.stage >= 1) && !w.building.metered;
     if (needsPower && !powerOk()) {
       if (!w.stalled) pushLog('The site goes quiet: no held streets reach a grid building. The build waits.');
       w.stalled = 'power';
@@ -11227,7 +11242,7 @@ scratch.later = null;
       const short = worksShort(w.stage);
       body = `
         ${traceForecastBar(f.notice / f.goal, f.taped, 0)}
-        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${st.steel ? chip('cost none', '&minus;' + st.steel + ' steel') : ''}${st.fab ? chip('cost none', '&minus;' + st.fab + ' fabrication') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
+        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${stageHookup(w.stage) ? chip('cost funds', '+' + stageHookup(w.stage) + ' metered hookup — no held path to the grid') : ''}${st.steel ? chip('cost none', '&minus;' + st.steel + ' steel') : ''}${st.fab ? chip('cost none', '&minus;' + st.fab + ' fabrication') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
         <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="build" data-ap="build" data-info="build" ${short ? 'disabled' : ''}>
           <span class="ab-name">raise ${st.label}</span>
           <span class="ab-sub">${short || 'an action, and the scaffolds go up'}</span>
@@ -12348,7 +12363,7 @@ scratch.later = null;
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canYard, actYard, yardB, svgTrucks, truckBtn, yardLine,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
-    fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn,
+    fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn, stageHookup,
     cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,

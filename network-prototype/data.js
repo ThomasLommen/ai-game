@@ -602,6 +602,10 @@ window.WORKS = {
     { id: 'works', label: 'the works', funds: 12, steel: 1, fab: 2, turns: 5 },
   ],
   goal: 14,          // notice that brings the red tape
+  // The power deal: no held path to a grid building? The utility will sell
+  // you a metered hookup — a stranger's price per stage, stated on the
+  // button. The deal covers both of Act 2's doors: suppliers and power.
+  hookup: 6,
   noticeBase: 1,     // what a quiet street notices per turn of building
   noticeK: 0.15,     // ...plus this per point of felt suspicion
   warm: 0.5,         // the noise a build turn makes (doubled by Act 2 itself)

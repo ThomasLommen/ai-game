@@ -215,11 +215,15 @@ games with a powered yard finish Act 2 in **26-29 turns — the sprint
 verdict hit exactly** (was: zero games finished at all). The remaining
 soft-lock is **grid access**: the power stage has no deal-equivalent, so
 a run that never takes a grid building near the yard stalls forever.
-Morning grill: (a) a power hookup deal (funds for grid power without
-holding a grid building — the deal covering both of Act 2's doors), (b)
-the break signal waiting for grid access, or (c) leave it hard and let
-canYard warn. Public lens + inspectors deliberately NOT in this pass
-(verdict: economy first, re-census, then pressure — done, measured).
+Verdict: (a) — **the metered hookup, SHIPPED (2026-08-20)**: a stage
+with no held path to a grid building is not refused; the utility sells
+power at a stranger's price (+6f per stage, quoted as its own chip), and
+a metered stage is immune to street cuts — paid up front, the utility
+does not care whose streets those are. A held path stays free, so the
+grid building is the good road and the meter the expensive one. Census:
+12/20 works online (from 0), zero power blocks; powered-yard games run
+Act 2 in 37-44 turns, metered ones slower but alive. Public lens +
+inspectors still parked per the sequencing verdict — next grill.
 
 ### Stage W6 — the Act 2 deck
 
