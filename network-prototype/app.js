@@ -3626,10 +3626,16 @@
   // "Act 2 must show the city something" are one object.
   function fronts() { return state.fronts || (state.fronts = []); }
   function isFront(bid) { return fronts().indexOf(bid) !== -1 && !burnedAt(bid); }
+  // Only a shopfront-class place can wear a sign: somewhere the street can
+  // walk into. A company nobody can visit is not a company.
+  function frontKindOk(b) {
+    const kinds = ((window.SOURCES || {}).front || {}).kinds;
+    return !kinds || kinds.indexOf(b.kind) !== -1;
+  }
   function canFront(bid) {
     const b = buildingById(bid);
     return !!(actNow() >= 2 && b && buildingHeld(b) && !burnedAt(bid)
-      && !isFront(bid));
+      && !isFront(bid) && frontKindOk(b));
   }
   function actFront(bid) {
     const F = (window.SOURCES || {}).front || {};
@@ -9186,11 +9192,18 @@ scratch.later = null;
       out += `<g class="caught-mark"><circle cx="${(b.x + b.w - 3).toFixed(1)}" cy="${(b.y + 2).toFixed(1)}" r="2.6" fill="none" stroke="#d9705f" stroke-width="1"/>`
         + `<circle cx="${(b.x + b.w - 3).toFixed(1)}" cy="${(b.y + 2).toFixed(1)}" r=".9" fill="#d9705f"/></g>`;
     }
-    // a front's sign, orange outline at the top-right — the company on the map
+    // a front's dress: the hanging sign at the corner, and a striped awning
+    // across the walk-in edge — a company the street can see is the point
     if (!drawingInset && actNow() >= 2 && (state.fronts || []).indexOf(b.id) !== -1 && !(mk && mk.burned)) {
       const oc2 = (window.SOURCES || {}).accent || '#e0803f';
       out += `<rect class="front-mark" x="${(b.x + b.w - 6).toFixed(1)}" y="${(b.y - 3).toFixed(1)}"`
         + ` width="7" height="4.6" rx="1" fill="none" stroke="${oc2}" stroke-width="1"/>`;
+      const aw = Math.min(b.w - 6, Math.max(12, b.w * 0.55));
+      const ax = b.x + (b.w - aw) / 2, ay = b.y + b.h - 1.4;
+      out += `<rect class="front-awning" x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${aw.toFixed(1)}"`
+        + ` height="3.2" rx="1" fill="${oc2}" opacity=".9"/>`
+        + `<line x1="${ax.toFixed(1)}" y1="${(ay + 1.6).toFixed(1)}" x2="${(ax + aw).toFixed(1)}" y2="${(ay + 1.6).toFixed(1)}"`
+        + ` stroke="#191410" stroke-width="3.2" stroke-dasharray="2.6 2.6" opacity=".45"/>`;
     }
     // a supplier's trade mark, in the grid orange — Act 2's second thread
     // debuts here. Dormant in Act 1: the ground knows, the map does not say.

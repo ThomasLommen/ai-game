@@ -12462,12 +12462,22 @@ test('fronts: the sign is priced, the job previews exactly, the run pays and coo
   const s = d.state;
   const F = window.SOURCES.front;
   econRig(d, window);
-  const spot = s.buildings.find(b => d.canFront(b.id));
-  assert.ok(spot, 'nowhere to put a sign');
+  // only a shopfront-class place can wear a sign
+  const wrong = s.buildings.find(b => (F.kinds || []).indexOf(b.kind) === -1 && d.hostsIn(b).length);
+  d.hostsIn(wrong).forEach(h => { h.owned = true; });
+  assert.equal(d.canFront(wrong.id), false, 'a sign went up somewhere the street cannot walk into');
+  const spot = s.buildings.find(b => (F.kinds || []).indexOf(b.kind) !== -1 && d.hostsIn(b).length);
+  assert.ok(spot, 'no shopfront to test with');
+  d.hostsIn(spot).forEach(h => { h.owned = true; });
+  assert.equal(d.canFront(spot.id), true, 'a held shopfront refused the sign');
   const f0 = s.res.funds;
   assert.equal(d.actFront(spot.id), true);
   assert.equal(s.res.funds, f0 - F.open, 'the sign was free');
   assert.equal(d.canFront(spot.id), false, 'a second sign on the same building');
+  // ...and the dress is visible: sign and awning on the map
+  const svg = d.svgBuilding(spot);
+  assert.ok(svg.includes('front-mark'), 'no sign on the front');
+  assert.ok(svg.includes('front-awning'), 'no awning on the front');
 
   const job = d.frontJob(spot.id);
   assert.ok(job && job.pay === F.payBase + F.payPerTurn * job.turns, 'the pay is not the stated arithmetic');

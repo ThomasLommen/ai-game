@@ -584,7 +584,7 @@ window.SOURCES = {
   // trucks run commercial jobs the city pays for; an earning run cools the
   // front's district (the street sees a working company), and the firm is
   // visible, exposed, and stops the moment its building is lost.
-  front: { open: 10, payBase: 4, payPerTurn: 2, cool: 2 },
+  front: { open: 10, payBase: 4, payPerTurn: 2, cool: 2, kinds: ['shop', 'office'] },
 };
 
 // --- W4: the works ------------------------------------------------------
@@ -1094,7 +1094,7 @@ window.ACTION_INFO = {
   hide: 'Take a building of yours off their map. They cannot take what they cannot see — but keeping it hidden costs covert.ops every turn, and what you can no longer pay for comes back into view on its own.',
   yard: 'Break ground on a vacant lot — the dashed orange ground the map already has. The lot becomes the yard: the one place trucks back into, and the ground the works itself rises on. Pick it where the roads are kind, because a cut on the way means the long way round.',
   truck: 'Send a load from a supplier you hold to the yard, by road — never through buildings. The route, the turns and the streets that will hear it are stated before you pay. A cut street reroutes it; a street with no way round parks it.',
-  front: 'Open a legitimate business in a building you hold. It offers real delivery jobs the city pays for — an earning run cools this district, because the street sees a working company instead of a mystery. Jobs occupy real trucks from the same fleet as your supply runs, and the firm is exposed: lose the building and the front goes with it.',
+  front: 'Open a legitimate business in a shopfront or offices you hold — a place the street can walk into; a company nobody can visit is not a company. It offers real delivery jobs the city pays for — an earning run cools this district, because the street sees a working company instead of a mystery. Jobs occupy real trucks from the same fleet as your supply runs, and the firm is exposed: lose the building and the front goes with it.',
   build: 'Raise the next stage of the works on the lot. It costs funds and the yard\'s stock, takes stated turns, and the street notices every one of them — if notice reaches the red-tape line first, the site stalls until the street cools, keeping its progress. From the power stage on, the build needs a held path of streets to a grid building; cut it and the site waits.',
 };
 
@@ -1486,7 +1486,7 @@ window.EVENTS = [
     once: true,
     cond: () => false,
     title: 'The First Morning',
-    flavor: 'THE WORKS is the factory you are going to raise: four stages — site, power, line, works — built on a VACANT LOT, the open ground the map draws with a dashed orange edge. Tap a lot and break ground; it becomes THE YARD, the one place trucks back into. Fill it by road: buildings wearing an orange mark are SUPPLIERS of materials — your own load a truck for 2, strangers sell for 6. The survey (your old scan) finds more of them. And a FRONT — the sign tile — is a legitimate business that runs paying jobs and cools its street while it earns. The label at the top of the map will tell you the next step until the lights come on.',
+    flavor: 'THE WORKS is the factory you are going to raise: four stages — site, power, line, works — built on a VACANT LOT, the open ground the map draws with a dashed orange edge. Tap a lot and break ground; it becomes THE YARD, the one place trucks back into. Fill it by road: buildings wearing an orange mark are SUPPLIERS of materials — your own load a truck for 2, strangers sell for 6. The survey (your old scan) finds more of them. And a FRONT — the sign tile on a shopfront or offices you hold — is a legitimate business that runs paying jobs and cools its street while it earns. The label at the top of the map will tell you the next step until the lights come on.',
     choices: [
       { text: 'Get to work',
         shows: 'the map label carries your next step from here',
