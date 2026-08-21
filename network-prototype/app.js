@@ -3419,6 +3419,10 @@
       state.yardStock = state.yardStock || {};
       const load = ((window.SOURCES || {}).truck || {}).load || 1;
       supply.forEach(t => { state.yardStock[t.kind] = (state.yardStock[t.kind] || 0) + load; });
+      // the arrival is a moment: the fleet layer pops the crates in
+      state.deliverySeq = (state.deliverySeq || 0) + 1;
+      state.lastDelivery = state.turn;
+      state.lastDeliveryLoad = supply.length * load;
       const st = state.yardStock;
       pushLog(`${supply.length === 1 ? 'A truck backs' : supply.length + ' trucks back'} into the yard. Stock: ${st.materials || 0} materials.`);
     }
@@ -5114,17 +5118,6 @@ scratch.later = null;
         out += `<polyline class="truck-route preview" points="${pv.route.points.map(p => p.join(',')).join(' ')}"/>`;
       }
     }
-    trucks().forEach(t => {
-      const rest = [];
-      const pos = truckPos(t);
-      rest.push([Math.round(pos.x), Math.round(pos.y)]);
-      for (let i = t.seg + 1; i < t.points.length; i++) rest.push(t.points[i]);
-      out += `<polyline class="truck-route" points="${rest.map(p => p.join(',')).join(' ')}"/>`;
-      out += `<g class="truck${t.held ? ' held' : ''}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)}) rotate(${pos.a.toFixed(0)})">`
-        + `<rect x="-5" y="-2.6" width="10" height="5.2" rx="1" fill="${oc}"/>`
-        + `<rect x="2.2" y="-2.2" width="2.6" height="4.4" fill="#7c4a28"/>`
-        + `</g>`;
-    });
     const yard = yardB();
     if (yard) {
       // the works rises ON the lot: stage silhouettes stand inside the
@@ -5160,6 +5153,61 @@ scratch.later = null;
       for (let i = 0; i < crates; i++) {
         out += `<rect x="${(yard.x + yard.w - pad - 20 + (i % 4) * 5).toFixed(1)}" y="${(yard.y + yard.h - pad - 1 - Math.floor(i / 4) * 4.6).toFixed(1)}"`
           + ` width="4" height="3.6" fill="${oc}" opacity=".85"/>`;
+      }
+      out += `</g>`;
+    }
+    return out;
+  }
+
+  // The fleet, alive between turns: each truck creeps a stretch of this
+  // turn's road in real time on a CSS motion path, exactly like the
+  // helicopter's patrol — its own layer, rewritten only when the fleet's
+  // truth changes (fleetKey), so a tap or a pan never resets a wheel.
+  // The truth still moves once per turn; the creep never overtakes it.
+  function fleetKey() {
+    if (actNow() < 2 || state.scope !== 'city') return '';
+    return trucks().map(t => t.id + ':' + t.seg + ':' + Math.round(t.done) + (t.held ? 'h' : ''))
+      .join('|') + '#' + (state.deliverySeq || 0) + '#' + (state.yardLot == null ? '' : state.yardLot);
+  }
+  function svgFleet() {
+    if (actNow() < 2 || state.scope !== 'city') return '';
+    let out = '';
+    const oc = (window.SOURCES || {}).accent || '#e0803f';
+    const S = (window.SOURCES || {}).truck || {};
+    const speed = S.speed || 150;
+    trucks().forEach(t => {
+      const rest = [];
+      const pos = truckPos(t);
+      rest.push([pos.x, pos.y]);
+      for (let i = t.seg + 1; i < t.points.length; i++) rest.push(t.points[i]);
+      out += `<polyline class="truck-route" points="${rest.map(p => p.map(v => Math.round(v)).join(',')).join(' ')}"/>`;
+      const body = `<rect x="-5" y="-2.6" width="10" height="5.2" rx="1" fill="${oc}"/>`
+        + `<rect x="2.2" y="-2.2" width="2.6" height="4.4" fill="#7c4a28"/>`;
+      let restLen = 0;
+      for (let i = 1; i < rest.length; i++) restLen += Math.hypot(rest[i][0] - rest[i - 1][0], rest[i][1] - rest[i - 1][1]);
+      if (!t.held && restLen > 4) {
+        // creep most of one turn's drive, slowly, then rest at the truth
+        const crawl = Math.min(restLen, speed * 0.65);
+        const frac = Math.min(100, (crawl / restLen) * 100);
+        const dur = Math.max(6, Math.round(crawl / 11));
+        const path = 'M ' + rest.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L ');
+        out += `<g class="truck truck-live" style="offset-path: path('${path}'); --creep-to: ${frac.toFixed(1)}%; --creep-dur: ${dur}s">${body}</g>`;
+        // the no-motion-path fallback: the same glyph, standing at the truth
+        out += `<g class="truck truck-still${t.held ? ' held' : ''}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)}) rotate(${pos.a.toFixed(0)})">${body}</g>`;
+      } else {
+        out += `<g class="truck${t.held ? ' held' : ''}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)}) rotate(${pos.a.toFixed(0)})">${body}</g>`;
+      }
+    });
+    // the arrival: crates pop at the yard gate the moment a delivery backs in
+    const yard = yardB();
+    if (yard && (state.deliverySeq || 0) > 0 && state.lastDelivery === state.turn) {
+      const pad = Math.min(8, yard.w * 0.08);
+      const n = Math.min(4, state.lastDeliveryLoad || 2);
+      out += `<g class="crate-pop">`
+        + `<circle cx="${(yard.x + yard.w - pad - 10).toFixed(1)}" cy="${(yard.y + yard.h - pad - 2).toFixed(1)}" r="9" fill="none" stroke="${oc}" stroke-width="1.2" class="pop-ring"/>`;
+      for (let i = 0; i < n; i++) {
+        out += `<rect class="pop-crate" style="animation-delay:${i * 110}ms" x="${(yard.x + yard.w - pad - 20 + (i % 4) * 5).toFixed(1)}"`
+          + ` y="${(yard.y + yard.h - pad - 6).toFixed(1)}" width="4" height="3.6" fill="${oc}"/>`;
       }
       out += `</g>`;
     }
@@ -10108,22 +10156,27 @@ scratch.later = null;
   function mapLayers($svg) {
     let ground = $svg.querySelector('g.map-ground');
     let live = $svg.querySelector('g.map-live');
+    let fleet = $svg.querySelector('g.map-fleet');
     let sky = $svg.querySelector('g.map-sky');
-    if (!ground || !live || !sky) {
+    if (!ground || !live || !fleet || !sky) {
       // The sky sits above the live layer and is rewritten only when what is
       // in it changes. The helicopter used to live in the live layer, which
       // is rebuilt on every render — every tap restarted its orbit from
       // zero, so it hung in one spot forever, resetting instead of flying.
-      $svg.innerHTML = '<g class="map-ground"></g><g class="map-live"></g><g class="map-sky"></g>';
+      // The fleet layer works the same way for the trucks' road creep.
+      $svg.innerHTML = '<g class="map-ground"></g><g class="map-live"></g><g class="map-fleet"></g><g class="map-sky"></g>';
       ground = $svg.querySelector('g.map-ground');
       live = $svg.querySelector('g.map-live');
+      fleet = $svg.querySelector('g.map-fleet');
       sky = $svg.querySelector('g.map-sky');
       groundEl = null;
       skyKey = null;
+      fleetLayerKey = null;
     }
-    return { ground, live, sky };
+    return { ground, live, fleet, sky };
   }
   let skyKey = null;
+  let fleetLayerKey = null;
 
   function renderGraph() {
     const $svg = document.getElementById('graph');
@@ -10160,6 +10213,10 @@ scratch.later = null;
     out += svgSweep();
 
     layers.live.innerHTML = out;
+    // the fleet only rewrites when a truck's truth moves (see fleetKey) —
+    // in between, the creep animation owns the wheels
+    const fk = fleetKey();
+    if (fk !== fleetLayerKey) { layers.fleet.innerHTML = svgFleet(); fleetLayerKey = fk; }
     // the sky only changes when the helicopter's business does
     const heli = svgHeli();
     const hk = heli ? heli.slice(0, 80) : '';
@@ -12649,7 +12706,7 @@ scratch.later = null;
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canBreakGround, actBreakGround, breakShort, lotRect, openLots, lotNeighbours, pickLot, lotSel,
-    yardB, svgTrucks, truckBtn, yardLine, heliCircuit,
+    yardB, svgTrucks, svgFleet, fleetKey, truckBtn, yardLine, heliCircuit,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
     fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn, stageHookup,
     cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },

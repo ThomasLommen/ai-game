@@ -2910,6 +2910,39 @@ footer .build { opacity: .55; font-size: 10px; }
   .heli.patrol .heli-path { animation: heliOrbit 32s linear infinite; transform-box: fill-box; transform-origin: center; }
 }
 .heli.hover .heli-craft { animation: heliBob 3400ms ease-in-out infinite alternate; }
+
+/* the fleet, creeping: a truck rides its own remaining road on a motion
+   path (svgFleet), covering a stretch of this turn's drive in real time
+   and then resting at the truth — the truth still moves once per turn */
+.truck-live {
+  offset-rotate: auto;
+  animation: truckCreep var(--creep-dur, 20s) linear forwards;
+}
+@keyframes truckCreep { from { offset-distance: 0%; } to { offset-distance: var(--creep-to, 60%); } }
+.truck-still { display: none; }
+/* no motion paths? the parked glyph at its true position, like before */
+@supports not (offset-path: path('M0 0 H10')) {
+  .truck-live { display: none; }
+  .truck-still { display: initial; }
+}
+/* the arrival: the crates pop in at the gate, and a ring says "here" */
+.crate-pop { pointer-events: none; }
+.crate-pop .pop-ring { animation: popRing 900ms ease-out forwards; }
+.crate-pop .pop-crate { animation: popCrate 700ms cubic-bezier(.2, 1.6, .4, 1) forwards; opacity: 0; }
+@keyframes popRing {
+  0% { opacity: .9; transform: none; }
+  100% { opacity: 0; transform: scale(1.8); transform-box: fill-box; transform-origin: center; }
+}
+@keyframes popCrate {
+  0% { opacity: 0; transform: translateY(-7px) scale(1.5); transform-box: fill-box; transform-origin: center; }
+  60% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .truck-live { animation: none; display: none; }
+  .truck-still { display: initial; }
+  .crate-pop { display: none; }
+}
 @keyframes rotorSpin { to { transform: rotate(180deg); } }
 @keyframes heliOrbit { to { transform: rotate(360deg); } }
 @keyframes heliBob { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }

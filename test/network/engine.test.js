@@ -12090,7 +12090,12 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   assert.equal(s.res.funds, f0 - S.funds, 'the dispatch was free');
   assert.equal(s.ap, ap0 - 1, 'no action spent');
   assert.equal(d.trucks().length, 1, 'no truck on the road');
-  assert.ok(d.svgTrucks().includes('class="truck'), 'no glyph for the truck');
+  assert.ok(d.svgFleet().includes('class="truck'), 'no glyph for the truck');
+  // the creep: a live glyph on a motion path, never past this turn's truth
+  assert.ok(d.svgFleet().includes('truck-live'), 'the truck does not creep');
+  assert.ok(d.svgFleet().includes('offset-path'), 'no motion path under the truck');
+  const key0 = d.fleetKey();
+  assert.ok(key0.includes('t1'), 'the fleet key cannot see the truck');
 
   // mid-transit survives a save, exactly where it was
   d.endTurn({ silent: true });
@@ -12106,6 +12111,10 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   while (d.trucks().length && guard++ < 30) { s.card = null; d.endTurn({ silent: true }); }
   assert.equal(d.trucks().length, 0, 'the truck never arrived');
   assert.equal((s.yardStock || {}).materials, window.SOURCES.truck.load, 'the yard took no stock');
+  assert.ok((s.deliverySeq || 0) > 0, 'the arrival left no mark for the pop');
+  if (s.lastDelivery === s.turn) {
+    assert.ok(d.svgFleet().includes('crate-pop'), 'no crate-pop at the gate');
+  }
   assert.equal(s.res.materials, undefined, 'materials became a currency');
   assert.ok(d.yardLine().includes(String(window.SOURCES.truck.load)), 'the yard does not state its stock');
 });
