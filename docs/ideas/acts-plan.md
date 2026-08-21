@@ -369,3 +369,53 @@ Consequences adopted:
 - W5.4 shipped with this pass: the panel now says the rotation rule out loud
   on every warm street ("Working elsewhere cools this street. Waiting cools
   nothing.").
+
+## The simplify pass shipped (2026-08-21) — one material, lots, shopfronts
+
+Playtest verdicts (half-map, first real Act 2 run) landed as six commits:
+
+1. **One material.** Steel/fabrication collapsed into `materials` — half
+   the nouns, same trucks. Stages priced in `mat`; old saves fold both
+   piles into one, nothing lost.
+2. **The works rises on a vacant lot.** The yard is ground, not a
+   building: open blocks wear a dashed orange edge in Act 2, tapping one
+   offers *break ground* — a single act that pays the site stage, clears
+   the lot, and starts the clock. Silhouette, crane, flag and crates all
+   live on the lot; it cannot burn. The power path runs from held
+   buildings across the street from the lot; the flag tile is retired.
+   Legacy building-yard saves migrate to the nearest lot with stock and
+   scaffolds intact.
+3. **Fronts are shopfront-class.** A sign goes up only on a shopfront or
+   offices — with a striped awning and the hanging sign on the map.
+4. **The caught count is a chip.** Red eye in the top row, pulses at
+   one-away, tap walks the map to the doors. The explaining bar keeps a
+   3-catch teaching budget, then retires.
+5. **The fleet is alive.** Trucks creep their remaining road in real time
+   (own keyed layer, motion path, never past the per-turn truth);
+   deliveries pop crates at the gate.
+6. **Measured perf pass.** At a held half-map, zoomed out, 10× CPU
+   throttle: idle 10fps → ~50, drag 8fps → ~37. Fixes: one flicking
+   window per building; planning zoom stills every ambient tick; the
+   drag rides a composited `#graph-slide` layer with staged viewBox
+   commits; pinch writes at a 90ms stride.
+
+### Post-rework spine census (20 bot games × 150 turns, unseeded)
+
+Works online in 3–9/20 across bot variants (pre-rework baseline: 12/20).
+High run-to-run variance, but two blocks dominate every run:
+
+- **The metered premium recurs.** Bots break ground on unheld lots and pay
+  `hookup 6` on every stage from power on (~18f extra) — "needs 14/16/18
+  funds" is the top blocked-turn bucket. A held street to the lot erases
+  it (lots average 2–5 buildings within power reach), but the bot never
+  invests in one. Watch the human playtest: if the premium feels like a
+  tax rather than a choice, candidate knobs are a one-time hookup or a
+  cheaper repeat price — grill before touching.
+- **Red tape at the lot** (~300–560 blocked turns/run): bots neither cool
+  the yard's street nor pick cool lots. The bait does aim at the lot
+  (felt suspicion at the lot benefits from the district's bait), so the
+  designed answer exists; humans may simply play it.
+
+Bot income also confirmed the shopfront restriction has teeth: variants
+that never held a shop ran 0 jobs and starved. The morning card now says
+where the sign goes.
