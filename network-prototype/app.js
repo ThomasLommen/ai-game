@@ -416,8 +416,9 @@
     // the mean chance across the blocks that exist, as a count, so however the
     // districts fell there is a fixed ceiling on how much of the city is holes
     const mean = scored.reduce((a, x) => a + x.OB.chance, 0) / Math.max(1, scored.length);
-    const want = Math.min(Math.round(layout.blocks.length * mean),
-                          Math.floor(layout.blocks.length * 0.22));
+    // never zero: Act 2 breaks ground on a vacant lot, so a city must have one
+    const want = Math.max(1, Math.min(Math.round(layout.blocks.length * mean),
+                          Math.floor(layout.blocks.length * 0.22)));
     scored.slice(0, Math.max(0, want)).forEach(({ b, OB }) => {
       b.open = true;
       b.openKind = OB.kind;
@@ -1886,6 +1887,8 @@
       links: g.links,
       selected: null,
       selectedBuilding: null,
+      selectedLot: null,
+      yardLot: null,   // the vacant lot ground was broken on — the yard
       keys: 0,         // credentials found on machines, spent one door at a time
       suspicion: {},   // how warm each district is — a fact about here
       carded: {},      // per-place beats the deck has already dealt here
@@ -3270,7 +3273,44 @@
     return { points: clean, length: Math.round(dist.B), edges: used };
   }
   function trucks() { return state.trucks || (state.trucks = []); }
-  function yardB() { return state.yard ? buildingById(state.yard) : null; }
+  // The yard is ground, not a building: a vacant lot the map generated,
+  // chosen by breaking ground on it. It cannot be burned and it cannot be
+  // lost — it is where the works itself rises.
+  function lotRect(i) {
+    const blk = (cityLayout().blocks || [])[i];
+    if (!blk) return null;
+    const cx = blk.x + blk.w / 2, cy = blk.y + blk.h / 2;
+    const dk = blk.district || ((state.buildings || []).reduce((best, b) => {
+      const d = distToRect(cx, cy, b.x, b.y, b.w, b.h);
+      return d < best.d ? { d, dk: b.district } : best;
+    }, { d: Infinity, dk: 'industrial' }).dk);
+    return { id: 'lot:' + i, lot: i, x: blk.x, y: blk.y, w: blk.w, h: blk.h, district: dk };
+  }
+  function openLots() {
+    return (cityLayout().blocks || [])
+      .map((blk, i) => (blk.open ? i : -1)).filter(i => i !== -1);
+  }
+  // A save from the building-yard era: the nearest vacant lot inherits the
+  // job — the stock, the works and its progress all carry over.
+  function migrateYardToLot() {
+    const b = buildingById(state.yard);
+    state.yard = null;
+    if (!b || state.yardLot != null) return;
+    let best = null, bd = Infinity;
+    openLots().forEach(i => {
+      const l = lotRect(i);
+      const d = Math.hypot(l.x + l.w / 2 - (b.x + b.w / 2), l.y + l.h / 2 - (b.y + b.h / 2));
+      if (d < bd) { bd = d; best = i; }
+    });
+    if (best != null) {
+      state.yardLot = best;
+      pushLog('The yard moves to open ground — the vacant lot nearby takes the stock and the scaffolds.');
+    }
+  }
+  function yardB() {
+    if (state.yard != null) migrateYardToLot();
+    return state.yardLot != null ? lotRect(state.yardLot) : null;
+  }
   // Where a truck is right now, for the glyph and for rerouting.
   function truckPos(t) {
     const pts = t.points;
@@ -3310,8 +3350,7 @@
   function canSendTruck(bid) {
     const b = buildingById(bid);
     return !!(actNow() >= 2 && b && b.source && b.discovered && !burnedAt(bid)
-      && !huntHolds(bid)
-      && state.yard && state.yard !== bid && yardB() && !burnedAt(state.yard));
+      && !huntHolds(bid) && yardB());
   }
   function truckCost(bid) {
     const S = (window.SOURCES || {});
@@ -3398,17 +3437,40 @@
     });
     state.trucks = trucks().filter(t => t.seg < t.points.length - 1);
   }
-  // The yard: the one building deliveries drive to — the works' forecourt
-  // before the works exists (W4 builds on this exact spot).
-  function canYard(bid) {
-    const b = buildingById(bid);
-    return !!(actNow() >= 2 && !state.yard && b && buildingHeld(b) && !burnedAt(bid));
+  // Breaking ground: pick a vacant lot and the site starts in the same act.
+  // The lot becomes the yard — deliveries drive here, and the works rises
+  // on this exact ground. One choice, not two.
+  function canBreakGround(i) {
+    const blk = (cityLayout().blocks || [])[i];
+    return !!(actNow() >= 2 && !state.yard && state.yardLot == null && blk && blk.open);
   }
-  function actYard(bid) {
-    if (!canYard(bid) || !canAfford('yard')) return false;
-    spendAP('yard');
-    state.yard = bid;
-    pushLog(`The ${window.BUILDING_KINDS[buildingById(bid).kind].label} is the yard now. Trucks back in here.`);
+  // Why the ground cannot break right now — null when it can.
+  function breakShort(i) {
+    if (!canBreakGround(i)) return 'the ground is spoken for';
+    const st = worksStageDef(0);
+    if (!st) return 'nothing to build';
+    if (state.res.funds < st.funds) return `needs ${st.funds} funds`;
+    const f = worksForecast(0, lotRect(i));
+    if (f && f.taped) return 'red tape gets there first — cool the street, or bait it';
+    if (apShort('build')) return 'no actions left';
+    return null;
+  }
+  function actBreakGround(i) {
+    if (breakShort(i) || !canAfford('build')) return false;
+    const st = worksStageDef(0);
+    spendAP('build');
+    state.res.funds -= st.funds;
+    state.yardLot = i;
+    // the ground is cleared: whatever furniture the open block wore goes,
+    // because a work yard is not a park with a crane in it
+    const lot = lotRect(i);
+    state.props = (state.props || []).filter(p =>
+      !(p.x > lot.x && p.x < lot.x + lot.w && p.y > lot.y && p.y < lot.y + lot.h));
+    dropGroundCache();
+    const w = works();
+    w.building = { i: 0, turnsLeft: st.turns, notice: 0, metered: false };
+    state.groundBroken = state.turn;
+    pushLog('Ground broken. The lot is the yard now — trucks back in here, and from here the city is watching what goes up.');
     persistNow();
     render();
     return true;
@@ -3420,16 +3482,28 @@
   // tape and a cut power path both hold the site with its progress intact.
   function works() { return state.works || (state.works = { stage: 0, building: null }); }
   function worksStageDef(i) { return ((window.WORKS || {}).stages || [])[i] || null; }
-  // A held path of streets from the yard to a grid building you hold —
+  // A held path of streets from the lot to a grid building you hold —
   // cuttable like everything else. Required from the power stage onward.
+  // The lot is not on the graph, so the path starts from any held building
+  // across the street from it.
+  function lotNeighbours(lot) {
+    const reach = ((window.CITY || {}).street || 14) * 1.6;
+    return (state.buildings || []).filter(b => {
+      const dx = Math.max(lot.x - (b.x + b.w), b.x - (lot.x + lot.w), 0);
+      const dy = Math.max(lot.y - (b.y + b.h), b.y - (lot.y + lot.h), 0);
+      return Math.hypot(dx, dy) <= reach;
+    });
+  }
   function powerOk() {
     const yard = yardB();
     if (!yard) return false;
     const held = heldBuildingIds();
-    if (!held[yard.id]) return false;
+    const seeds = lotNeighbours(yard).filter(b => held[b.id]).map(b => b.id);
+    if (!seeds.length) return false;
     const cut = new Set((state.cuts || []).map(c => c.a + '|' + c.b).concat(
       (state.cuts || []).map(c => c.b + '|' + c.a)));
-    const q = [yard.id], seen = { [yard.id]: true };
+    const q = seeds.slice(), seen = {};
+    seeds.forEach(id => { seen[id] = true; });
     while (q.length) {
       const id = q.shift();
       if (hostsIn(buildingById(id)).some(h => h.owned && h.role === 'grid')) return true;
@@ -3442,10 +3516,10 @@
   }
   // The race, projected honestly: the build itself warms the street every
   // turn, so the quoted notice includes the noise the build will make.
-  function worksForecast(i) {
+  function worksForecast(i, lotArg) {
     const W = window.WORKS || {};
     const st = worksStageDef(i);
-    const yard = yardB();
+    const yard = lotArg || yardB();
     if (!st || !yard) return null;
     const dk = yard.district;
     const warmEff = (W.warm || 0) * (actNow() >= 2 ? 2 : 1);
@@ -3485,7 +3559,7 @@
     const w = works();
     const i = w.stage;
     const st = worksStageDef(i);
-    if (!st || actNow() < 2 || !yardB() || burnedAt(state.yard)) return false;
+    if (!st || actNow() < 2 || !yardB()) return false;
     if (worksShort(i)) return false;
     spendAP('build');
     const hookup = stageHookup(i);
@@ -3516,7 +3590,7 @@
     const W = window.WORKS || {};
     const st = worksStageDef(w.building.i);
     const yard = yardB();
-    if (!yard || burnedAt(yard.id)) { w.building = null; return; }
+    if (!yard) { w.building = null; return; }
     const needsPower = (st.needsGrid || w.stage >= 1) && !w.building.metered;
     if (needsPower && !powerOk()) {
       if (!w.stalled) pushLog('The site goes quiet: no held streets reach a grid building. The build waits.');
@@ -3555,7 +3629,7 @@
   function canFront(bid) {
     const b = buildingById(bid);
     return !!(actNow() >= 2 && b && buildingHeld(b) && !burnedAt(bid)
-      && !isFront(bid) && state.yard !== bid);
+      && !isFront(bid));
   }
   function actFront(bid) {
     const F = (window.SOURCES || {}).front || {};
@@ -5014,6 +5088,17 @@ scratch.later = null;
     if (actNow() < 2) return '';
     let out = '';
     const oc = (window.SOURCES || {}).accent || '#e0803f';
+    // vacant lots, offered: every open block wears the dashed orange edge
+    // the morning card names, until ground breaks somewhere
+    if (state.yardLot == null && !state.yard) {
+      (cityLayout().blocks || []).forEach((blk, i) => {
+        if (!blk.open) return;
+        const sel = state.selectedLot === i;
+        out += `<rect class="lot-mark${sel ? ' sel' : ''}" x="${blk.x + 1.5}" y="${blk.y + 1.5}"`
+          + ` width="${blk.w - 3}" height="${blk.h - 3}" rx="5" fill="none" stroke="${oc}"`
+          + ` stroke-width="${sel ? '1.8' : '1.2'}" stroke-dasharray="4 3" opacity="${sel ? '1' : '.55'}"/>`;
+      });
+    }
     // a held supplier selected with a yard set: the drive it would make,
     // previewed on the ground before the button is pressed
     const selB = state.selectedBuilding ? buildingById(state.selectedBuilding) : null;
@@ -5035,31 +5120,39 @@ scratch.later = null;
         + `</g>`;
     });
     const yard = yardB();
-    if (yard && !burnedAt(yard.id)) {
+    if (yard) {
+      // the works rises ON the lot: stage silhouettes stand inside the
+      // ground that was broken, a crane over whatever is on the scaffolds,
+      // the stock as crates by the gate — cargo visible at the site, never
+      // a number in the bar
+      const pad = Math.min(8, yard.w * 0.08);
       out += `<g class="yard-mark">`
-        + `<path d="M${yard.x + 2} ${yard.y - 2} v-7 l6 2 -6 2" fill="${oc}" stroke="${oc}" stroke-width="1"/>`;
-      // the works, growing in silhouette beside the yard — one block per
-      // stage that stands, and a crane while one is on the scaffolds
+        + `<rect class="yard-ground" x="${yard.x}" y="${yard.y}" width="${yard.w}" height="${yard.h}" rx="6"`
+        + ` fill="#16130e" fill-opacity=".92" stroke="${oc}" stroke-width="${state.selectedLot === state.yardLot && state.selectedLot != null ? '2' : '1.2'}" stroke-opacity=".8"/>`
+        + `<path d="M${yard.x + pad} ${yard.y + pad + 9} v-9 l6 2 -6 2" fill="${oc}" stroke="${oc}" stroke-width="1"/>`;
       const w = state.works || { stage: 0 };
+      const bw = Math.min(30, Math.max(10, yard.w * 0.16));
+      const gap = bw * 0.22;
+      const baseX = yard.x + pad + 2, baseY = yard.y + yard.h - pad;
       for (let i = 0; i < w.stage; i++) {
-        const hgt = 7 + i * 4;
-        out += `<rect class="works-sil" x="${(yard.x + yard.w + 3 + i * 8).toFixed(1)}" y="${(yard.y + yard.h - hgt).toFixed(1)}"`
-          + ` width="6.5" height="${hgt}" fill="#191410" stroke="${oc}" stroke-width=".7" opacity=".95"/>`;
+        const hgt = Math.max(12, yard.h * (0.2 + i * 0.09));
+        out += `<rect class="works-sil" x="${(baseX + i * (bw + gap)).toFixed(1)}" y="${(baseY - hgt).toFixed(1)}"`
+          + ` width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}" fill="#191410" stroke="${oc}" stroke-width=".7" opacity=".95"/>`;
       }
       if (w.building) {
-        const cx = yard.x + yard.w + 3 + w.stage * 8 + 3;
-        const top = yard.y + yard.h - 26;
+        const cx = baseX + w.stage * (bw + gap) + bw * 0.5;
+        const top = baseY - Math.max(34, yard.h * 0.55);
         out += `<g class="works-crane" stroke="${oc}" stroke-width="1" fill="none">`
-          + `<line x1="${cx}" y1="${yard.y + yard.h}" x2="${cx}" y2="${top}"/>`
-          + `<line x1="${cx - 4}" y1="${top}" x2="${cx + 10}" y2="${top}"/>`
-          + `<line x1="${cx + 8}" y1="${top}" x2="${cx + 8}" y2="${top + 7}"/>`
-          + `<rect x="${cx + 6.7}" y="${top + 7}" width="2.6" height="2.6" fill="${oc}" stroke="none"/>`
+          + `<line x1="${cx}" y1="${baseY}" x2="${cx}" y2="${top}"/>`
+          + `<line x1="${cx - 5}" y1="${top}" x2="${cx + 12}" y2="${top}"/>`
+          + `<line x1="${cx + 10}" y1="${top}" x2="${cx + 10}" y2="${top + 8}"/>`
+          + `<rect x="${cx + 8.7}" y="${top + 8}" width="2.6" height="2.6" fill="${oc}" stroke="none"/>`
           + `</g>`;
       }
       const st = state.yardStock || {};
       const crates = Math.min(8, st.materials || 0);
       for (let i = 0; i < crates; i++) {
-        out += `<rect x="${yard.x + 8 + (i % 4) * 5}" y="${yard.y + yard.h - 4 - Math.floor(i / 4) * 4.6}"`
+        out += `<rect x="${(yard.x + yard.w - pad - 20 + (i % 4) * 5).toFixed(1)}" y="${(yard.y + yard.h - pad - 1 - Math.floor(i / 4) * 4.6).toFixed(1)}"`
           + ` width="4" height="3.6" fill="${oc}" opacity=".85"/>`;
       }
       out += `</g>`;
@@ -5825,6 +5918,7 @@ scratch.later = null;
       marks: Object.assign({}, state.marks || {}),
       trucks: JSON.parse(JSON.stringify(state.trucks || [])),
       yard: state.yard || null,
+      yardLot: (state.yardLot == null ? null : state.yardLot),
       yardStock: Object.assign({}, state.yardStock || {}),
       works: JSON.parse(JSON.stringify(state.works || null)),
       groundBroken: state.groundBroken || 0,
@@ -5869,6 +5963,7 @@ scratch.later = null;
     state.marks = p.marks || {};
     state.trucks = JSON.parse(JSON.stringify(p.trucks || []));
     state.yard = p.yard || null;
+    state.yardLot = (p.yardLot == null ? null : p.yardLot);
     state.yardStock = Object.assign({}, p.yardStock || {});
     state.works = p.works ? JSON.parse(JSON.stringify(p.works)) : null;
     state.groundBroken = p.groundBroken || 0;
@@ -7927,6 +8022,7 @@ scratch.later = null;
       // the works' logistics: what is on the road, and where it backs in
       trucks: JSON.parse(JSON.stringify(state.trucks || [])),
       yard: state.yard || null,
+      yardLot: (state.yardLot == null ? null : state.yardLot),
       yardStock: Object.assign({}, state.yardStock || {}),
       truckSeq: state.truckSeq || 0,
       works: JSON.parse(JSON.stringify(state.works || null)),
@@ -7985,6 +8081,7 @@ scratch.later = null;
         loopPeak: saved.loopPeak || 0,
         trucks: JSON.parse(JSON.stringify(saved.trucks || [])),
         yard: saved.yard || null,
+        yardLot: (saved.yardLot == null ? null : saved.yardLot),
         yardStock: Object.assign({}, saved.yardStock || {}),
         truckSeq: saved.truckSeq || 0,
         works: saved.works ? JSON.parse(JSON.stringify(saved.works)) : null,
@@ -8078,6 +8175,16 @@ scratch.later = null;
         const d = distToRect(at.x, at.y, b.x, b.y, b.w, b.h);
         if (d <= reach && (!best || d < best.d)) best = { d, id: b.id, city: false };
       });
+      // Act 2: vacant lots are places too — candidates while no ground is
+      // broken, and the yard itself once it is
+      if (actNow() >= 2) {
+        (cityLayout().blocks || []).forEach((blk, i) => {
+          if (!blk.open) return;
+          if (state.yardLot != null && state.yardLot !== i) return;
+          const d = distToRect(at.x, at.y, blk.x, blk.y, blk.w, blk.h);
+          if (d <= reach && (!best || d < best.d)) best = { d, lot: i };
+        });
+      }
     }
     return best;
   }
@@ -8088,6 +8195,13 @@ scratch.later = null;
     const h = b ? hostsIn(b)[0] : null;
     state.selectedBuilding = b ? b.id : null;
     state.selected = h ? h.id : null;
+    state.selectedLot = null;
+    render();
+  }
+  function pickLot(i) {
+    state.selectedLot = i;
+    state.selectedBuilding = null;
+    state.selected = null;
     render();
   }
   function clearSelection() {
@@ -8095,9 +8209,10 @@ scratch.later = null;
       if (CO().selected == null) return;
       CO().selected = null;
     } else {
-      if (state.selectedBuilding == null && state.selected == null) return;
+      if (state.selectedBuilding == null && state.selected == null && state.selectedLot == null) return;
       state.selectedBuilding = null;
       state.selected = null;
+      state.selectedLot = null;
     }
     render();
   }
@@ -8717,7 +8832,11 @@ scratch.later = null;
   function svgOpenBlocks() {
     const L = cityLayout();
     let out = '';
-    L.blocks.filter(b => b.open).forEach(b => {
+    // (lot affordances — the Act 2 dashed edges and selection — live on the
+    // live layer in svgTrucks: this layer is cached against a key that
+    // cannot see them)
+    L.blocks.forEach((b) => {
+      if (!b.open) return;
       out += `<rect class="open-ground ${b.openKind || 'park'}" x="${b.x}" y="${b.y}"`
         + ` width="${b.w}" height="${b.h}" rx="6"/>`;
       // a path across it, so it reads as somewhere people walk rather than a
@@ -9436,8 +9555,8 @@ scratch.later = null;
     const W = window.WORKS || {};
     const w = state.works || { stage: 0 };
     if (w.stage >= (W.stages || []).length) return null;
-    if (!state.yard || !yardB() || burnedAt(state.yard)) {
-      return 'the works needs a yard — the flag tile on any held building';
+    if (!yardB()) {
+      return 'the works needs ground — tap a vacant lot, dashed in orange';
     }
     if (w.building) {
       return w.stalled === 'tape' ? 'red tape holds the site — cool the yard\u2019s street'
@@ -10060,7 +10179,12 @@ scratch.later = null;
       // size in *screen* terms whatever the zoom, so the reach has to be too.
       const at = toWorld(e.clientX, e.clientY);
       const near = nearestTarget(at);
-      if (near) { (near.city ? pickCity : pickBuilding)(near.id); return; }
+      if (near) {
+        if (near.city) pickCity(near.id);
+        else if (near.lot != null) pickLot(near.lot);
+        else pickBuilding(near.id);
+        return;
+      }
 
       // Nothing near: that is a deselect, which there was previously no way
       // of doing at all.
@@ -11099,7 +11223,6 @@ scratch.later = null;
     // or to put a sign up and become a front
     if (actNow() >= 2) {
       if (canFront(b.id)) held.unshift('front');
-      if (!state.yard) held.unshift('yard');
     }
     return held;
   }
@@ -11118,10 +11241,6 @@ scratch.later = null;
     if (tool === 'burn') {
       if (!(suspicionOf(b.district) > 0)) return 'the street is quiet — nothing to burn for';
       if (apShort('burn')) return 'no actions left';
-      return null;
-    }
-    if (tool === 'yard') {
-      if (apShort('yard')) return 'no actions left';
       return null;
     }
     if (tool === 'front') {
@@ -11166,7 +11285,6 @@ scratch.later = null;
     const fold = armed === 'bait' ? baitBtn(b)
       : armed === 'burn' ? burnBtn(b)
       : armed === 'hide' ? hideFold(b)
-      : armed === 'yard' ? yardFold(b)
       : armed === 'front' ? frontFold(b) : '';
     return `<div class="tool-rail">${tiles}</div>${fold}`;
   }
@@ -11221,15 +11339,6 @@ scratch.later = null;
       ${toolCommit(off, '', 'hide', 'hide', b.id, 'hide it', 'an action, and it is off their map')}
     </div>`;
   }
-  function yardFold(b) {
-    if (!b) return '';
-    const off = toolOff('yard', b);
-    return `<div class="tool-fold">
-      <p class="sel-desc">The yard: the one place trucks back into. Everything the works needs drives here first — pick it where the roads are kind.</p>
-      <p class="yield-row">${chip('cover', 'deliveries get a destination')}${chip('cost none', 'one yard per city')}</p>
-      ${toolCommit(off, 'primary', 'yard', 'yard', b.id, 'make this the yard', 'an action, and the trucks know where to go')}
-    </div>`;
-  }
   function frontFold(b) {
     if (!b) return '';
     const F = (window.SOURCES || {}).front || {};
@@ -11272,17 +11381,16 @@ scratch.later = null;
   // the supplier is selected (svgTrucks).
   function truckBtn(b) {
     if (!b || actNow() < 2 || !b.source || !b.discovered || burnedAt(b.id) || huntHolds(b.id)) return '';
-    if (state.yard === b.id) return '';
     const S = (window.SOURCES || {}).truck || {};
     const K = ((window.SOURCES || {}).kinds || {})[b.source] || {};
     const held = buildingHeld(b);
     const cost = truckCost(b.id);
     const label = held ? `send a truck — ${K.label}` : `buy a load — ${K.label} (the deal)`;
     const carry = (S.load || 1) > 1 ? `carries ${S.load}` : null;
-    if (!state.yard || !yardB() || burnedAt(state.yard)) {
+    if (!yardB()) {
       return `<button class="act-btn no-ap" disabled>
         <span class="ab-name">${label}</span>
-        <span class="ab-sub">no yard yet — the rail on any held building can make one</span>
+        <span class="ab-sub">no ground broken yet — tap a vacant lot, dashed in orange</span>
       </button>`;
     }
     const pv = truckPreview(b.id);
@@ -11302,17 +11410,17 @@ scratch.later = null;
           : `${chip('cost funds', '&minus;' + cost + ' funds')}${carry ? chip('cover', carry) : ''}${chip('cost none', pv.turns + ' turn' + (pv.turns === 1 ? '' : 's') + ' on the road')}${chip('cost heat', '+' + pv.warmEach + ' suspicion in ' + pv.districts.length + ' street' + (pv.districts.length === 1 ? '' : 's'))}`}</span>
       </button>`;
   }
-  // The yard says what it is and what it holds, on its own panel.
-  function yardLine(bid) {
-    if (state.yard !== bid || burnedAt(bid)) return '';
+  // The yard says what it is and what it holds, on the lot's own panel.
+  function yardLine() {
+    if (state.yardLot == null) return '';
     const st = state.yardStock || {};
     return `<p class="sel-desc source-line">The yard — trucks back in here. Stock: <b>${st.materials || 0}</b> materials.</p>`;
   }
-  // The works, on the yard's own panel: stage dots, the live build with its
+  // The works, on the lot's own panel: stage dots, the live build with its
   // race bar, or the next stage previewed like a door — forecast bar, every
   // price in its own unit, and the one button.
-  function worksPanel(b) {
-    if (!b || state.yard !== b.id || burnedAt(b.id) || actNow() < 2) return '';
+  function worksPanel() {
+    if (state.yardLot == null || actNow() < 2) return '';
     const W = window.WORKS || {};
     const w = works();
     const total = (W.stages || []).length;
@@ -11341,6 +11449,39 @@ scratch.later = null;
       body = '<p class="sel-desc source-line"><b>The works is online.</b> The line runs. What comes for it is the next act.</p>';
     }
     return `<div class="works-panel"><p class="works-dots mono">${dots}</p>${body}</div>`;
+  }
+  // A lot's own panel: ground you can break, or the yard the works rises on.
+  function lotSel(i) {
+    const lot = lotRect(i);
+    if (!lot) return '';
+    const dLabel = (window.DISTRICTS[lot.district] || {}).label || 'the district';
+    if (state.yardLot === i) {
+      return `<div class="sel">
+        <div class="sel-top"><span class="sel-name">the yard</span><span class="tag-pill">${dLabel}</span></div>
+        ${yardLine()}
+        ${worksPanel()}
+      </div>`;
+    }
+    if (state.yardLot != null || state.yard) {
+      return `<div class="sel">
+        <div class="sel-top"><span class="sel-name">a vacant lot</span><span class="tag-pill">${dLabel}</span></div>
+        <p class="sel-desc dim">Open ground. The works is already sited — one yard per city.</p>
+      </div>`;
+    }
+    const st = worksStageDef(0);
+    if (!st) return '';
+    const f = worksForecast(0, lot);
+    const short = breakShort(i);
+    return `<div class="sel">
+      <div class="sel-top"><span class="sel-name">a vacant lot</span><span class="tag-pill">${dLabel}</span></div>
+      <p class="sel-desc">Ground big enough for the works. Break it, and this is the yard — trucks back in here, and the factory rises on this exact spot.</p>
+      ${f ? traceForecastBar(f.notice / f.goal, f.taped, 0) : ''}
+      <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${chip('cost none', st.turns + ' turns of groundwork')}${f ? (f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')) : ''}</p>
+      <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="break-ground" data-lot="${i}" data-ap="build" data-info="yard" ${short ? 'disabled' : ''}>
+        <span class="ab-name">break ground</span>
+        <span class="ab-sub">${short || 'an action, and the lot is the yard'}</span>
+      </button>
+    </div>`;
   }
   function scanFromBtn(b) {
     if (!b || !b.discovered || burnedAt(b.id)) return '';
@@ -11532,10 +11673,6 @@ scratch.later = null;
     if (isFront(bid)) {
       chips.push(cpChip('src', 'front'));
     }
-    if (state.yard === bid && !burnedAt(bid)) {
-      const st = state.yardStock || {};
-      chips.push(cpChip('src', `yard · ${st.materials || 0} materials`));
-    }
     const m = markOf(bid);
     if (m && !m.burned) {
       if (m.bait) chips.push(cpChip('mark', 'bait'));
@@ -11617,7 +11754,7 @@ scratch.later = null;
     const $p = document.getElementById('panel');
     // looking at something else folds whatever tool was armed — an armed
     // burn must never survive a change of subject
-    const subjNow = (state.selectedBuilding || '') + ':' + (state.selected || '');
+    const subjNow = (state.selectedBuilding || '') + ':' + (state.selected || '') + ':' + (state.selectedLot == null ? '' : 'lot' + state.selectedLot);
     const subjChanged = subjNow !== lastPanelSubject;
     if (subjChanged) { armedTool = null; panelInfoOpen = false; }
     pendingTeach = [];
@@ -11677,7 +11814,9 @@ scratch.later = null;
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
     let sel = '';
 
-    if (h && h.discovered) {
+    if (state.selectedLot != null) {
+      sel = lotSel(state.selectedLot);
+    } else if (h && h.discovered) {
       const T = window.HOST_TYPES[h.type];
       const K = b ? window.BUILDING_KINDS[b.kind] : null;
       const yieldTxt = yieldChips(h);
@@ -11697,7 +11836,6 @@ scratch.later = null;
             <p class="cp-row">${yieldTxt}${cutOffHere ? cpChip('bad', 'cut off — paying nothing') : ''}</p>
             ${cpInstruments(h, b)}
             ${cpDrawer(h, b)}
-            ${worksPanel(b)}
             ${truckBtn(b)}
             ${jobBtn(b)}
             ${scanFromBtn(b)}
@@ -11759,7 +11897,7 @@ scratch.later = null;
     // nothing you looked away for. So the settle fires on the one transition
     // that is actually a change of subject: looking at a different building.
     // The eye tracks a transition; it does not track a repaint.
-    const subject = (state.selectedBuilding || '') + ':' + (state.selected || '');
+    const subject = (state.selectedBuilding || '') + ':' + (state.selected || '') + ':' + (state.selectedLot == null ? '' : 'lot' + state.selectedLot);
     if (subject !== lastPanelSubject) {
       lastPanelSubject = subject;
       // teaching lines are only counted when they were actually met on a
@@ -11791,7 +11929,7 @@ scratch.later = null;
         else if (a === 'unhide') { armedTool = null; actUnhide(b.getAttribute('data-bid')); }
         else if (a === 'bait') { armedTool = null; actBait(b.getAttribute('data-bid')); }
         else if (a === 'burn') { armedTool = null; actBurn(b.getAttribute('data-bid')); }
-        else if (a === 'yard') { armedTool = null; actYard(b.getAttribute('data-bid')); }
+        else if (a === 'break-ground') actBreakGround(+b.getAttribute('data-lot'));
         else if (a === 'front') { armedTool = null; actFront(b.getAttribute('data-bid')); }
         else if (a === 'job') actRunJob(b.getAttribute('data-bid'));
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
@@ -12472,7 +12610,8 @@ scratch.later = null;
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
-    canYard, actYard, yardB, svgTrucks, truckBtn, yardLine, heliCircuit,
+    canBreakGround, actBreakGround, breakShort, lotRect, openLots, lotNeighbours, pickLot, lotSel,
+    yardB, svgTrucks, truckBtn, yardLine, heliCircuit,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
     fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn, stageHookup,
     cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },

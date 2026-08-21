@@ -12078,10 +12078,10 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   yard.discovered = true;
 
   // act one: none of it exists
-  assert.equal(d.canYard(yard.id), false, 'a yard in act one');
+  assert.equal(d.canBreakGround(d.openLots()[0]), false, 'ground broke in act one');
   s.act = 2; s.ap = 9; s.res.funds = 20;
-  assert.equal(d.actYard(yard.id), true);
-  assert.equal(d.canYard(src.id), false, 'a second yard');
+  assert.equal(d.actBreakGround(d.openLots()[0]), true, 'ground refused: ' + d.breakShort(d.openLots()[0]));
+  assert.equal(d.canBreakGround(d.openLots()[0]), false, 'a second yard');
 
   const pv = d.truckPreview(src.id);
   assert.ok(pv && pv.turns >= 1, 'no preview');
@@ -12107,44 +12107,63 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   assert.equal(d.trucks().length, 0, 'the truck never arrived');
   assert.equal((s.yardStock || {}).materials, window.SOURCES.truck.load, 'the yard took no stock');
   assert.equal(s.res.materials, undefined, 'materials became a currency');
-  assert.ok(d.yardLine(yard.id).includes(String(window.SOURCES.truck.load)), 'the yard does not state its stock');
+  assert.ok(d.yardLine().includes(String(window.SOURCES.truck.load)), 'the yard does not state its stock');
 });
 
 // --- W4: the works ----------------------------------------------------------
 
+// Hold the whole city and break ground on a lot with held neighbours, so
+// the power path exists. Returns with the site stage on the scaffolds.
 function worksRig(d, window) {
   const s = d.state;
   s.act = 2; s.ap = 9; s.res.funds = 99;
+  s.suspicion = {};
   s.buildings.forEach(b => { b.discovered = true; });
-  s.hosts.forEach(h => { h.discovered = true; });
-  // hold a grid building and a neighbour of it as the yard, so power holds
-  const grid = s.hosts.find(h => h.role === 'grid');
-  d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
-  const nb = (s.adjacency[grid.buildingId] || []).map(id => d.buildingById(id))
-    .find(b => d.hostsIn(b).length && !d.hostsIn(b).some(h => h.origin));
-  d.hostsIn(nb).forEach(h => { h.owned = true; });
-  d.actYard(nb.id);
+  s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
+  const lots = d.openLots();
+  const lot = lots.find(i => d.lotNeighbours(d.lotRect(i)).some(b => d.buildingHeld(b)));
+  assert.ok(lot != null, 'no lot with held neighbours to rig with');
+  assert.equal(d.actBreakGround(lot), true, 'ground refused: ' + d.breakShort(lot));
   s.yardStock = { materials: 18 };
-  return { grid: d.buildingById(grid.buildingId), yard: nb };
+  return { lot, lotR: d.lotRect(lot) };
+}
+// ...and let whatever is on the scaffolds stand, quietly.
+function standStage(d) {
+  const s = d.state;
+  let guard = 0;
+  while (d.works().building && guard++ < 30) { s.suspicion = {}; d.worksStep(); }
 }
 
-test('works: a stage previews like a door, is priced in every unit, and stands', () => {
+test('ground: breaking it is one act — priced, forecast, and the lot becomes the yard', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const d = window.__netDebug;
   const s = d.state;
   const W = window.WORKS;
-  worksRig(d, window);
-
-  const f = d.worksForecast(0);
-  assert.ok(f && f.notice > 0 && f.goal === W.goal, 'no forecast');
-  assert.equal(d.worksShort(0), null, 'a clean site refused to start: ' + d.worksShort(0));
-  const funds0 = s.res.funds, mat0 = s.yardStock.materials;
-  assert.equal(d.actBuildStage(), true);
+  s.act = 2; s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
+  const lots = d.openLots();
+  assert.ok(lots.length >= 1, 'a city with no vacant lot');
+  const i = lots[0];
+  const f = d.worksForecast(0, d.lotRect(i));
+  assert.ok(f && f.notice > 0 && f.goal === W.goal, 'no forecast on unbroken ground');
+  assert.equal(d.breakShort(i), null, 'clean ground refused: ' + d.breakShort(i));
+  const funds0 = s.res.funds, ap0 = s.ap;
+  assert.equal(d.actBreakGround(i), true);
   assert.equal(s.res.funds, funds0 - W.stages[0].funds, 'funds not paid');
-  assert.equal(s.yardStock.materials, mat0 - W.stages[0].mat, 'stock not consumed');
+  assert.equal(s.ap, ap0 - 1, 'no action spent');
   assert.ok(s.groundBroken > 0, 'breaking ground did not start the clock');
-  for (let i = 0; i < W.stages[0].turns; i++) d.worksStep();
+  assert.ok(d.yardB() && d.yardB().lot === i, 'the lot did not become the yard');
+  assert.ok(d.works().building && d.works().building.i === 0, 'the site is not on the scaffolds');
+  standStage(d);
   assert.equal(d.works().stage, 1, 'the site never stood');
+  // the next stage is priced in every unit, and consumes the yard's stock
+  s.yardStock = { materials: 18 }; s.ap = 9;
+  assert.equal(d.worksShort(1), null, 'the power stage refused: ' + d.worksShort(1));
+  const f1 = s.res.funds, hook = d.stageHookup(1);
+  assert.equal(d.actBuildStage(), true);
+  assert.equal(s.res.funds, f1 - W.stages[1].funds - hook, 'funds not paid for the power stage');
+  assert.equal(s.yardStock.materials, 18 - W.stages[1].mat, 'stock not consumed');
 });
 
 test('works: red tape stalls the site and cooling frees it — progress holds', () => {
@@ -12152,18 +12171,27 @@ test('works: red tape stalls the site and cooling frees it — progress holds', 
   const d = window.__netDebug;
   const s = d.state;
   const rig = worksRig(d, window);
-  // a scorching street refuses the start, and says why
-  d.warmDistrict(rig.yard.district, 15);
-  assert.ok(/red tape|cool/.test(d.worksShort(0) || ''), 'no red-tape refusal: ' + d.worksShort(0));
-  // cool it, start the LONG stage, then let the street scorch mid-build:
+  standStage(d);
+  // a scorching street refuses unbroken ground too, and says why
+  const other = d.openLots().find(i => i !== rig.lot);
+  if (other != null) {
+    const was = { yardLot: s.yardLot, works: JSON.parse(JSON.stringify(s.works)), gb: s.groundBroken };
+    s.yardLot = null; s.works = null; s.groundBroken = 0;
+    d.warmDistrict(d.lotRect(other).district, 15);
+    assert.ok(/red tape|cool/.test(d.breakShort(other) || ''), 'no red-tape refusal: ' + d.breakShort(other));
+    s.suspicion = {};
+    s.yardLot = was.yardLot; s.works = was.works; s.groundBroken = was.gb;
+  }
+  // start the LONG stage, then let the street scorch mid-build:
   // the tape is cumulative notice reaching the goal, so it needs the turns
   // of the works stage itself to be reachable — a three-turn site can only
   // be refused at the door, never taped mid-pour, which is by design
   s.suspicion = {};
   d.works().stage = 3;                     // the works: five turns of notice
+  s.ap = 9; s.res.funds = 99;
   assert.equal(d.actBuildStage(), true, d.worksShort(3));
   d.worksStep();
-  d.warmDistrict(rig.yard.district, 20);   // act 2 doubles this to the cap
+  d.warmDistrict(rig.lotR.district, 20);   // act 2 doubles this to the cap
   d.worksStep();
   d.worksStep();
   assert.equal(d.works().stalled, 'tape', 'the scorching street did not stall the site');
@@ -12182,22 +12210,25 @@ test('works: power is a held, cuttable street path — severing it stalls and sa
   const rig = worksRig(d, window);
   assert.equal(d.powerOk(), true, 'the rigged path does not power');
   // finish the site, start the power stage
-  d.actBuildStage();
-  for (let i = 0; i < window.WORKS.stages[0].turns; i++) d.worksStep();
+  standStage(d);
   assert.equal(d.works().stage, 1);
+  s.ap = 9; s.res.funds = 99;
   assert.equal(d.worksShort(1), null, 'power stage refused: ' + d.worksShort(1));
   d.actBuildStage();
-  // cut the one street between yard and grid: the site waits, with words
-  s.cuts = [{ a: rig.yard.id, b: rig.grid.id }];
-  if (!d.powerOk()) {
-    d.worksStep();
-    assert.equal(d.works().stalled, 'power', 'a dead path did not stall the build');
-    const left = d.works().building.turnsLeft;
-    s.cuts = [];
-    d.worksStep();
-    assert.ok(d.works().stalled !== 'power', 'restoring the street did not resume');
-    assert.ok(d.works().building === null || d.works().building.turnsLeft <= left, 'no progress after resume');
-  } else { s.cuts = []; }
+  assert.equal(d.works().building.metered, false, 'a held path still paid the meter');
+  // lose the path: the site waits, with words
+  const owned = s.hosts.filter(h => h.owned);
+  owned.forEach(h => { h.owned = false; });
+  assert.equal(d.powerOk(), false, 'no held streets, yet power holds');
+  s.suspicion = {};
+  d.worksStep();
+  assert.equal(d.works().stalled, 'power', 'a dead path did not stall the build');
+  const left = d.works().building.turnsLeft;
+  owned.forEach(h => { h.owned = true; });
+  s.suspicion = {};
+  d.worksStep();
+  assert.ok(d.works().stalled !== 'power', 'restoring the path did not resume');
+  assert.ok(d.works().building === null || d.works().building.turnsLeft <= left, 'no progress after resume');
 });
 
 test('works: four stages, a growing silhouette, and the beat at the end', () => {
@@ -12207,8 +12238,10 @@ test('works: four stages, a growing silhouette, and the beat at the end', () => 
   worksRig(d, window);
   const W = window.WORKS;
   for (let i = 0; i < W.stages.length; i++) {
-    s.suspicion = {}; s.ap = 9; s.res.funds = 99;
-    assert.equal(d.actBuildStage(), true, 'stage ' + i + ' refused: ' + d.worksShort(i));
+    s.suspicion = {}; s.ap = 9; s.res.funds = 99; s.yardStock = { materials: 18 };
+    if (!d.works().building) {
+      assert.equal(d.actBuildStage(), true, 'stage ' + i + ' refused: ' + d.worksShort(i));
+    }
     const sil0 = (d.svgTrucks().match(/works-sil/g) || []).length;
     assert.ok(d.svgTrucks().includes('works-crane'), 'no crane while building stage ' + i);
     for (let t = 0; t < W.stages[i].turns + 3 && d.works().building; t++) { s.suspicion = {}; d.worksStep(); }
@@ -12220,6 +12253,45 @@ test('works: four stages, a growing silhouette, and the beat at the end', () => 
   const back = JSON.parse(JSON.stringify(d.serialize()));
   d.deserialize(back);
   assert.equal(d.works().stage, W.stages.length, 'the works forgot itself in a save');
+});
+
+test('lots: every city generates at least one, the map offers them, a tap selects one', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.ok(d.openLots().length >= 1, 'a city with nowhere to break ground');
+  // act one: the ground is just ground
+  assert.ok(!d.svgTrucks().includes('lot-mark'), 'act one dressed the lots');
+  s.act = 2;
+  assert.ok(d.svgTrucks().includes('lot-mark'), 'act two offers no lots');
+  // a tap lands on the lot and the panel offers the break
+  const i = d.openLots()[0];
+  const lot = d.lotRect(i);
+  const near = d.nearestTarget({ x: lot.x + lot.w / 2, y: lot.y + lot.h / 2 });
+  assert.ok(near && near.lot === i, 'a tap on the lot missed it');
+  assert.ok(/break ground/.test(d.lotSel(i)), 'the lot panel does not offer the break');
+  // once ground breaks, the offers retire and the chosen lot is the yard
+  s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  assert.equal(d.actBreakGround(i), true, d.breakShort(i));
+  assert.ok(!d.svgTrucks().includes('lot-mark'), 'lots still offered after the break');
+  assert.ok(d.svgTrucks().includes('yard-ground'), 'the yard does not dress its ground');
+  assert.ok(/the yard/.test(d.lotSel(i)), 'the yard lot lost its panel');
+});
+
+test('lots: a building-yard save folds onto the nearest lot — stock and scaffolds carry', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2;
+  const b = s.buildings.find(x => d.hostsIn(x).length);
+  s.yard = b.id; s.yardLot = null;
+  s.yardStock = { materials: 4 };
+  s.works = { stage: 1, building: null };
+  const yard = d.yardB();
+  assert.ok(yard && yard.lot != null, 'the legacy yard did not migrate to a lot');
+  assert.equal(s.yard, null, 'the building is still the yard');
+  assert.equal((s.yardStock || {}).materials, 4, 'the stock was lost in the move');
+  assert.equal(d.works().stage, 1, 'the scaffolds were lost in the move');
 });
 
 test('cards: a map question skips the crown — no empty arch behind the title', () => {
@@ -12343,11 +12415,9 @@ function econRig(d, window) {
   s.hosts.forEach(h => { h.discovered = true; });
   const grid = s.hosts.find(h => h.role === 'grid');
   d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
-  const yard = (s.adjacency[grid.buildingId] || []).map(id => d.buildingById(id))
-    .find(b => d.hostsIn(b).length && !d.hostsIn(b).some(x => x.origin));
-  d.hostsIn(yard).forEach(h => { h.owned = true; });
-  d.actYard(yard.id);
-  return { yard };
+  const lot = d.openLots()[0];
+  assert.equal(d.actBreakGround(lot), true, 'ground refused: ' + d.breakShort(lot));
+  return { lot };
 }
 
 test('the deal: a stranger sells at a stranger price, and the fleet is finite', () => {
@@ -12358,7 +12428,7 @@ test('the deal: a stranger sells at a stranger price, and the fleet is finite', 
   econRig(d, window);
   const held = s.buildings.find(b => b.source && !d.buildingHeld(b));
   d.hostsIn(held).forEach(h => { h.owned = true; });
-  const stranger = s.buildings.find(b => b.source && !d.buildingHeld(b) && b.id !== s.yard);
+  const stranger = s.buildings.find(b => b.source && !d.buildingHeld(b));
   assert.equal(d.truckCost(held.id), S.truck.funds, 'your own dock overcharges');
   assert.equal(d.truckCost(stranger.id), S.truck.funds * S.dealMult, 'the stranger undercharges');
   assert.equal(d.canSendTruck(stranger.id), true, 'the deal is closed');
@@ -12431,18 +12501,15 @@ test('the power deal: no grid path means a metered hookup, priced and immune to 
   s.act = 2; s.ap = 9; s.res.funds = 99;
   s.buildings.forEach(b => { b.discovered = true; });
   s.hosts.forEach(h => { h.discovered = true; });
-  // a yard with NO grid building held anywhere: the old hard soft-lock
-  const spot = s.buildings.find(b => d.hostsIn(b).length
-    && !d.hostsIn(b).some(h => h.origin || h.role === 'grid'));
-  d.hostsIn(spot).forEach(h => { h.owned = true; });
-  d.actYard(spot.id);
+  // ground broken with NOTHING held anywhere near it: the old hard soft-lock
+  const lot = d.openLots()[0];
+  assert.equal(d.actBreakGround(lot), true, 'ground refused: ' + d.breakShort(lot));
   s.yardStock = { materials: 18 };
   assert.equal(d.powerOk(), false, 'the rig accidentally has power');
 
   // the site stage needs no power and no hookup
-  assert.equal(d.stageHookup(0), 0, 'the site paid for power it does not need');
-  assert.equal(d.actBuildStage(), true, d.worksShort(0));
-  for (let i = 0; i < W.stages[0].turns; i++) { s.suspicion = {}; d.worksStep(); }
+  let guard = 0;
+  while (d.works().building && guard++ < 30) { s.suspicion = {}; d.worksStep(); }
   assert.equal(d.works().stage, 1);
 
   // the power stage: refused no longer — the utility sells, at its price
@@ -12454,7 +12521,8 @@ test('the power deal: no grid path means a metered hookup, priced and immune to 
   assert.equal(s.res.funds, f0 - W.stages[1].funds - W.hookup, 'the premium was not paid');
   assert.equal(d.works().building.metered, true, 'the meter is not on the ticket');
   // metered power does not care whose streets are cut
-  s.cuts = [{ a: spot.id, b: (s.adjacency[spot.id] || [])[0] }];
+  const anyB = s.buildings.find(b => (s.adjacency[b.id] || []).length);
+  s.cuts = [{ a: anyB.id, b: (s.adjacency[anyB.id] || [])[0] }];
   d.worksStep();
   assert.notEqual(d.works().stalled, 'power', 'a metered stage stalled for power');
   s.cuts = [];
@@ -12563,21 +12631,22 @@ test('act 2: the morning after defines the nouns, and the label carries the spin
   s.card = null;
   assert.ok((s.forced || []).some(f => (f.id || f) === 'the_first_morning'), 'no plan after the fiction');
   const ev = d.eventById('the_first_morning');
-  ['works', 'yard', 'flag tile', 'supplier', 'front'].forEach(word =>
+  ['works', 'yard', 'vacant lot', 'break ground', 'supplier', 'materials', 'front'].forEach(word =>
     assert.ok(new RegExp(word, 'i').test(ev.flavor), `the morning does not define: ${word}`));
   assert.equal(ev.beat, true, 'the morning is not a story beat');
 
   // the spine line walks the ladder
-  assert.ok(/needs a yard — the flag tile/.test(d.actSpineLine()), 'step one is unsaid');
+  assert.ok(/needs ground — tap a vacant lot/.test(d.actSpineLine()), 'step one is unsaid');
   s.buildings.forEach(b => { b.discovered = true; });
-  const mine = s.buildings.find(b => d.hostsIn(b).length);
-  d.hostsIn(mine).forEach(h => { h.owned = true; });
-  s.ap = 9;
-  d.actYard(mine.id);
+  s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  assert.equal(d.actBreakGround(d.openLots()[0]), true, d.breakShort(d.openLots()[0]));
+  assert.ok(/going up on the yard/.test(d.actSpineLine()), 'the pour is unsaid');
+  let guard = 0;
+  while (d.works().building && guard++ < 30) { s.suspicion = {}; d.worksStep(); }
   assert.ok(/needs materials — a truck/.test(d.actSpineLine()), 'step two is unsaid');
   s.yardStock = { materials: 18 }; s.res.funds = 99;
   const line = d.actSpineLine();
-  assert.ok(/raise the site|needs \d+ funds|red tape|no actions/.test(line), 'step three is unsaid: ' + line);
+  assert.ok(/raise the power|needs \d+ funds|red tape|no actions/.test(line), 'step three is unsaid: ' + line);
   // and it retires when the lights come on
   d.works().stage = window.WORKS.stages.length;
   assert.equal(d.actSpineLine(), null, 'the spine outlived the works');
