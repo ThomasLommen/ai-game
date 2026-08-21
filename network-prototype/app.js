@@ -12259,12 +12259,18 @@ scratch.later = null;
     }
   }
 
-  // The deploy pipeline substitutes __BUILD__; a local checkout never runs it,
-  // and the footer read "build __BUILD__" — a stagehand visible from the
-  // seats. Local play says what it is instead.
+  // The deploy pipeline substitutes __BUILD__ and refuses to ship if any
+  // is left — so a page still wearing the literal is NOT the deployed
+  // site. On a real phone that means the home-screen app is pinned to a
+  // raw copy (an old /network-prototype/ path, a preview), and it will
+  // never update from there. Say so, instead of the old "local build",
+  // which read as normal and hid exactly this bug.
   (() => {
     const $b = document.querySelector('.build');
-    if ($b && /__BUILD__/.test($b.textContent)) $b.textContent = 'local build';
+    if (!$b || !/__BUILD__/.test($b.textContent)) return;
+    const local = /^(localhost|127\.|0\.0\.0\.0|192\.168\.)/.test(location.hostname) || location.protocol === 'file:';
+    $b.textContent = local ? 'local build'
+      : 'unstamped copy — reinstall from the deployed site';
   })();
 
   // What the pad is allowed to know: how big you are, and how warm the place
