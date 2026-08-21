@@ -10106,6 +10106,11 @@ scratch.later = null;
   function markPanelOverflow() {
     const $p = document.getElementById('panel');
     if (!$p) return;
+    // Measure with the marker OFF: the fade strip the marker adds inflates
+    // scrollHeight, which kept the marker latched on long after the content
+    // shrank — a transparent 22px band above the bottom bar, read by the
+    // playtest as "the gap is back".
+    $p.classList.remove('more');
     const more = $p.scrollHeight > $p.clientHeight + 2;
     $p.classList.toggle('more', more);
   }

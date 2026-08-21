@@ -12471,3 +12471,19 @@ test('build label: the stamp can never stamp its own detector', () => {
   assert.ok(stamped.includes("['__BU', 'ILD__'].join"),
     'stamping altered the detector');
 });
+
+test('dock: the overflow marker cannot latch, and the panel is its own surface', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const $p = window.document.getElementById('panel');
+  // a stale marker from taller content must clear on remeasure — the fade
+  // strip it adds inflates scrollHeight, which is exactly the latch
+  $p.classList.add('more');
+  d.markPanelOverflow();
+  assert.ok(!$p.classList.contains('more'), 'the overflow marker latched');
+  const css = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/style.css'), 'utf8');
+  const rule = /#panel:not\(\.card-open\)\s*{[^}]*}/.exec(css)[0];
+  assert.ok(/background:\s*var\(--surface\)/.test(rule),
+    'the panel column is transparent — any stray pixel is a window to the map');
+});
