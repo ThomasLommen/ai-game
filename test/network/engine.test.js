@@ -10210,7 +10210,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 62, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 63, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -12519,4 +12519,54 @@ test('helicopter: the patrol flies the streets, not a circle', () => {
   s.hunt = { on: true, nodes: [s.buildings.find(b => !d.buildingHeld(b)).id], since: 1, lastActed: 1 };
   const hover = d.svgHeli();
   if (hover) assert.ok(!hover.includes('offset-path'), 'the hover borrowed the patrol path');
+});
+
+// --- catch legibility and the act 2 spine -----------------------------------
+
+test('catches: the door wears the scar, the panel says it, the bar points', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; });
+  const b = s.buildings.find(x => d.hostsIn(x).length && !d.hostsIn(x).some(h => h.origin));
+  s.caughtAt = [b.id]; s.caughtHere = 1;
+  assert.ok(d.svgBuilding(b).includes('caught-mark'), 'no red eye on the caught door');
+  assert.ok(d.cpInstruments(d.hostsIn(b)[0], b).includes('points at you'), 'the panel is silent about the catch');
+  s.selectedBuilding = b.id; s.selected = d.hostsIn(b)[0].id;
+  d.render();
+  const $p = window.document.getElementById('panel');
+  assert.ok(/data-act="show-caught"/.test($p.innerHTML), 'the bar does not point at the doors');
+  assert.ok($p.innerHTML.includes('1 of ' + window.HUNT.caughtToStart), 'the count lost its threshold');
+});
+
+test('act 2: the morning after defines the nouns, and the label carries the spine', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  // resolving the break queues the morning card, once
+  d.offerCard('act_break', null);
+  if (s.card.facedown) s.card.facedown = false;
+  d.resolveEvent(0);
+  s.card = null;
+  assert.ok((s.forced || []).some(f => (f.id || f) === 'the_first_morning'), 'no plan after the fiction');
+  const ev = d.eventById('the_first_morning');
+  ['works', 'yard', 'flag tile', 'supplier', 'front'].forEach(word =>
+    assert.ok(new RegExp(word, 'i').test(ev.flavor), `the morning does not define: ${word}`));
+  assert.equal(ev.beat, true, 'the morning is not a story beat');
+
+  // the spine line walks the ladder
+  assert.ok(/needs a yard — the flag tile/.test(d.actSpineLine()), 'step one is unsaid');
+  s.buildings.forEach(b => { b.discovered = true; });
+  const mine = s.buildings.find(b => d.hostsIn(b).length);
+  d.hostsIn(mine).forEach(h => { h.owned = true; });
+  s.ap = 9;
+  d.actYard(mine.id);
+  assert.ok(/needs steel — a truck/.test(d.actSpineLine()), 'step two is unsaid');
+  s.yardStock = { steel: 9, fab: 9 }; s.res.funds = 99;
+  const line = d.actSpineLine();
+  assert.ok(/raise the site|needs \d+ funds|red tape|no actions/.test(line), 'step three is unsaid: ' + line);
+  // and it retires when the lights come on
+  d.works().stage = window.WORKS.stages.length;
+  assert.equal(d.actSpineLine(), null, 'the spine outlived the works');
 });

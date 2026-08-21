@@ -4622,6 +4622,9 @@ scratch.later = null;
       state.act = 2;
       pushLog('The tenancy stops being the question. Whatever comes next needs walls, power, and a name.');
       showBanner([{ kind: 'stage', verb: 'act two', label: 'the works' }]);
+      // the night you decide; the morning you plan — the logistics card
+      // deals immediately after the fiction
+      if (cardedOnce('first_morning')) queueEvent('the_first_morning', null);
     }
 
     if (scratch.shedWeakest > 0) {
@@ -9013,6 +9016,7 @@ scratch.later = null;
     // What a card did here, still on the map twenty turns later. A mark that
     // could not be seen would be a number pretending to be a place.
     const mk = markOf(b.id);
+    if ((state.caughtAt || []).indexOf(b.id) !== -1) cls.push('caught-door');
     if (mk && mk.burned) cls.push('burnt');
     if (mk && mk.bait && !mk.burned) cls.push('baited');
     if (mk && mk.watch) cls.push('watched');
@@ -9049,6 +9053,12 @@ scratch.later = null;
         out += `<rect class="mark-${mk.harden > 0 ? 'hard' : 'soft'}" x="${(b.x + b.w - 7).toFixed(1)}"`
           + ` y="${(b.y + b.h - 3).toFixed(1)}" width="6" height="2.2" rx="1"/>`;
       }
+    }
+    // the scar: a door that caught a program wears the response's red eye,
+    // permanently — the hunt bar's count finally has places on the map
+    if (!drawingInset && (state.caughtAt || []).indexOf(b.id) !== -1) {
+      out += `<g class="caught-mark"><circle cx="${(b.x + b.w - 3).toFixed(1)}" cy="${(b.y + 2).toFixed(1)}" r="2.6" fill="none" stroke="#d9705f" stroke-width="1"/>`
+        + `<circle cx="${(b.x + b.w - 3).toFixed(1)}" cy="${(b.y + 2).toFixed(1)}" r=".9" fill="#d9705f"/></g>`;
     }
     // a front's sign, orange outline at the top-right — the company on the map
     if (!drawingInset && actNow() >= 2 && (state.fronts || []).indexOf(b.id) !== -1 && !(mk && mk.burned)) {
@@ -9411,6 +9421,31 @@ scratch.later = null;
       : `M ${left} ${top} H ${right} V ${bot} H ${left} Z`;
     const len = 2 * (right - left) + 2 * (bot - top) + (mid ? 2 * (bot - top) : 0);
     return { d, len };
+  }
+
+  // Act 2's spine, said out loud where the game already narrates: the next
+  // real step toward the works, derived from state, naming the exact thing
+  // to look for. Retires forever when the lights come on.
+  function actSpineLine() {
+    if (actNow() < 2 || state.scope !== 'city') return null;
+    const W = window.WORKS || {};
+    const w = state.works || { stage: 0 };
+    if (w.stage >= (W.stages || []).length) return null;
+    if (!state.yard || !yardB() || burnedAt(state.yard)) {
+      return 'the works needs a yard — the flag tile on any held building';
+    }
+    if (w.building) {
+      return w.stalled === 'tape' ? 'red tape holds the site — cool the yard\u2019s street'
+        : w.stalled === 'power' ? 'the site lost power — hold streets to a grid building'
+        : `${worksStageDef(w.building.i).label} is going up on the yard`;
+    }
+    const st = worksStageDef(w.stage);
+    const stock = state.yardStock || {};
+    if ((stock.steel || 0) < st.steel) return 'the yard needs steel — a truck from an orange-marked supplier';
+    if ((stock.fab || 0) < st.fab) return 'the yard needs fabrication — a truck from an orange-marked supplier';
+    const short = worksShort(w.stage);
+    if (short) return short;
+    return `ready — raise ${st.label} on the yard`;
   }
 
   function svgHeli() {
@@ -10308,7 +10343,7 @@ scratch.later = null;
         `${CO().presence} presence · ${done}/${CO().cities.length}`;
     } else {
       document.getElementById('stage-label').textContent =
-        state.cityWon ? window.CITY_WON.label : st.label;
+        state.cityWon ? window.CITY_WON.label : (actSpineLine() || st.label);
       const theirs = rivalHeld().length;
       // the count of what you hold is the loop's own scoreboard — it gets the
       // same pulse as the resources it feeds
@@ -10986,11 +11021,11 @@ scratch.later = null;
       const c = caughtHere();
       if (!c) return '';
       const left = window.HUNT.caughtToStart - c;
-      return `<div class="hunt-bar coming${left <= 1 ? ' urgent' : ''}">
-        <p><b>${c}</b> door${c === 1 ? '' : 's'} here ${c === 1 ? 'has' : 'have'} caught you and can point back.
-          ${left <= 1 ? 'One more and somebody comes and stands in it.'
-            : `${left} more and somebody comes and stands in one.`}</p>
-        <p class="hb-hint">Only doors that catch you count, and only in this city. Lose fewer races.</p>
+      return `<div class="hunt-bar coming${left <= 1 ? ' urgent' : ''}" data-act="show-caught" role="button">
+        <p><b>${c} of ${window.HUNT.caughtToStart}</b> — door${c === 1 ? '' : 's'} here that caught a program of yours and can point back.
+          ${left <= 1 ? 'One more and the response arrives, standing in one of them.'
+            : `${left} more and the response arrives, standing in one of them.`}</p>
+        <p class="hb-hint">They wear the red eye on the map — tap here to look at them. Lose fewer races.</p>
       </div>`;
     }
     const H = window.HUNT;
@@ -11505,6 +11540,9 @@ scratch.later = null;
       if (m.harden < 0) chips.push(cpChip('mark', 'softened'));
       if (m.opened) chips.push(cpChip('mark', 'back door'));
     }
+    if ((state.caughtAt || []).indexOf(bid) !== -1) {
+      chips.push(cpChip('bad', 'caught a program · points at you'));
+    }
     if (h && h.carry && !h.owned) {
       // exact, even as a chip — a wallet that hides its amount is a gamble
       const C = window.CARRY || {};
@@ -11755,6 +11793,11 @@ scratch.later = null;
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
         else if (a === 'build') actBuildStage();
         else if (a === 'panel-info') { panelInfoOpen = !panelInfoOpen; renderPanel(); }
+        else if (a === 'show-caught') {
+          const pts = (state.caughtAt || []).map(buildingById).filter(Boolean)
+            .map(x => ({ x: x.x + x.w / 2, y: x.y + x.h / 2 }));
+          if (pts.length) focusOn(pts);
+        }
         // arm, then fire: a tile's first tap only unfolds the contract
         else if (a === 'arm-tool') {
           const key = b.getAttribute('data-tool') + ':' + b.getAttribute('data-bid');
@@ -12423,7 +12466,7 @@ scratch.later = null;
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
-    actNow, winnableNow, actBreakWatch, assignSources, sourceLine,
+    actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
     canYard, actYard, yardB, svgTrucks, truckBtn, yardLine, heliCircuit,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,

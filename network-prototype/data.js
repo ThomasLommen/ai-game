@@ -1474,6 +1474,25 @@ window.EVENTS = [
     ],
   },
 {
+    // The morning after the break: the act's nouns, defined. The break card
+    // is fiction; this one is the plan — what the works IS, what the yard
+    // IS, where to look, what everything costs. Dealt once, right after
+    // the break resolves.
+    id: 'the_first_morning',
+    kind: 'own',
+    beat: true,
+    once: true,
+    cond: () => false,
+    title: 'The First Morning',
+    flavor: 'THE WORKS is the factory you are going to raise: four stages — site, power, line, works — built on THE YARD, which is one building of yours that every truck delivers to. Pick it with the flag tile on any held building\u2019s tool rail. Fill it by road: buildings wearing an orange mark are SUPPLIERS — your own load a truck for 2, strangers sell for 6. The survey (your old scan) finds more of them. And a FRONT — the sign tile — is a legitimate business that runs paying jobs and cools its street while it earns. The label at the top of the map will tell you the next step until the lights come on.',
+    choices: [
+      { text: 'Get to work',
+        shows: 'the map label carries your next step from here',
+        after: 'Coffee at a counter you own, watching a street you used to case. Steel first, you decide. Everything else follows the trucks.',
+        apply: () => {} },
+    ],
+  },
+{
     // The second story beat: the works comes online. Delivered by
     // worksStep when the fourth stage lands; seeds Act 3 without
     // building it (the plan defers the siege until Act 2 has been
@@ -2153,7 +2172,7 @@ window.EVENTS = [
     kind: 'closing',
     cond: () => false,
     title: 'The Door That Fought Back',
-    flavor: 'Whoever runs {PLACE} found your run and killed it — and then told people. First blood to {DISTRICT}.',
+    flavor: 'Whoever runs {PLACE} found your program mid-race and killed it. That machine is a door that CAUGHT you now — it keeps the evidence, it wears a red eye on the map, and it can point back at you. Doors that catch you are counted on the bar above the panel: at three in one city, the response arrives in person, standing in one of them. First blood to {DISTRICT}.',
     choices: [
       { text: 'Study what they saw', cost: { funds: 4 },
         shows: 'tooling +1 — doors come easier',
