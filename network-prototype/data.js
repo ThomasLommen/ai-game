@@ -556,16 +556,18 @@ window.RIVAL = {
 // a site (W3/W4). The grid orange is Act 2's second thread, and it debuts
 // on the supplier marks.
 window.SOURCES = {
+  // ONE cargo. Steel-versus-fabrication doubled every noun downstream —
+  // suppliers, deals, stock lines, spine steps — and the decision it added
+  // was nil: both were fetched the same way. The rework verdict: materials
+  // are materials.
   kinds: {
-    steel: { label: 'steel',       line: 'girders, plate, rebar — structure by the tonne' },
-    fab:   { label: 'fabrication', line: 'precision parts, tooling, boards — the exact stuff' },
+    materials: { label: 'materials', line: 'steel, parts, tooling — everything a build eats' },
   },
   // how much of a district can source anything at all
   share: { industrial: 0.45, business: 0.40, commercial: 0.12, residential: 0 },
-  // a district sources its own trade; commercial goes either way
-  trade: { industrial: 'steel', business: 'fab', commercial: null },
+  trade: { industrial: 'materials', business: 'materials', commercial: 'materials' },
   // a city that cannot source cannot build — topped up at generation
-  min: { steel: 3, fab: 2 },
+  min: { materials: 5 },
   accent: '#e0803f',
   // the truck: what a dispatch costs, how much road a turn covers, and how
   // loudly a load rumbles through a street (warmDistrict doubles it in Act 2,
@@ -596,10 +598,10 @@ window.SOURCES = {
 // everything else.
 window.WORKS = {
   stages: [
-    { id: 'site',  label: 'the site',  funds: 6,  steel: 1, fab: 0, turns: 3 },
-    { id: 'power', label: 'the power', funds: 8,  steel: 1, fab: 1, turns: 4, needsGrid: true },
-    { id: 'line',  label: 'the line',  funds: 10, steel: 2, fab: 1, turns: 4 },
-    { id: 'works', label: 'the works', funds: 12, steel: 1, fab: 2, turns: 5 },
+    { id: 'site',  label: 'the site',  funds: 6,  mat: 1, turns: 3 },
+    { id: 'power', label: 'the power', funds: 8,  mat: 2, turns: 4, needsGrid: true },
+    { id: 'line',  label: 'the line',  funds: 10, mat: 3, turns: 4 },
+    { id: 'works', label: 'the works', funds: 12, mat: 3, turns: 5 },
   ],
   goal: 14,          // notice that brings the red tape
   // The power deal: no held path to a grid building? The utility will sell
@@ -1488,7 +1490,7 @@ window.EVENTS = [
     choices: [
       { text: 'Get to work',
         shows: 'the map label carries your next step from here',
-        after: 'Coffee at a counter you own, watching a street you used to case. Steel first, you decide. Everything else follows the trucks.',
+        after: 'Coffee at a counter you own, watching a street you used to case. Materials first, you decide. Everything else follows the trucks.',
         apply: () => {} },
     ],
   },

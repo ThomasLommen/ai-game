@@ -214,7 +214,7 @@
       const pool = byDistrict[dk].slice().sort((a, b) =>
         cityNoise(seed, idSeed(a.id)) - cityNoise(seed, idSeed(b.id)));
       pool.slice(0, Math.round(pool.length * share)).forEach(b => {
-        b.source = S.trade[dk] || (cityNoise(seed, idSeed(b.id) + 7) < 0.5 ? 'steel' : 'fab');
+        b.source = S.trade[dk] || 'materials';
       });
     });
     // the floor: a city that cannot source cannot build
@@ -3381,7 +3381,7 @@
       const load = ((window.SOURCES || {}).truck || {}).load || 1;
       supply.forEach(t => { state.yardStock[t.kind] = (state.yardStock[t.kind] || 0) + load; });
       const st = state.yardStock;
-      pushLog(`${supply.length === 1 ? 'A truck backs' : supply.length + ' trucks back'} into the yard. Stock: ${st.steel || 0} steel, ${st.fab || 0} fabrication.`);
+      pushLog(`${supply.length === 1 ? 'A truck backs' : supply.length + ' trucks back'} into the yard. Stock: ${st.materials || 0} materials.`);
     }
     // a commercial run pays on delivery, and the earning cools the front's
     // street — a working company is the opposite of a mystery
@@ -3475,8 +3475,7 @@
     const stock = state.yardStock || {};
     const bill = st.funds + stageHookup(i);
     if (state.res.funds < bill) return `needs ${bill} funds`;
-    if ((stock.steel || 0) < st.steel) return `needs ${st.steel} steel in the yard — send trucks`;
-    if ((stock.fab || 0) < st.fab) return `needs ${st.fab} fabrication in the yard — send trucks`;
+    if ((stock.materials || 0) < st.mat) return `needs ${st.mat} materials in the yard — send trucks`;
     const f = worksForecast(i);
     if (f && f.taped) return 'red tape gets there first — cool the street, or bait it';
     if (apShort('build')) return 'no actions left';
@@ -3492,8 +3491,7 @@
     const hookup = stageHookup(i);
     state.res.funds -= st.funds + hookup;
     const stock = state.yardStock = state.yardStock || {};
-    stock.steel = (stock.steel || 0) - st.steel;
-    stock.fab = (stock.fab || 0) - st.fab;
+    stock.materials = (stock.materials || 0) - st.mat;
     // a stage started on the meter stays on the meter: paid up front, so a
     // cut street cannot stall it — the utility does not care whose streets
     // those are
@@ -4852,12 +4850,7 @@ scratch.later = null;
     if (actNow() >= 2) {
       const src = found.filter(b => b.source);
       if (src.length) {
-        const n = { steel: 0, fab: 0 };
-        src.forEach(b => { n[b.source] = (n[b.source] || 0) + 1; });
-        const bits = [];
-        if (n.steel) bits.push(n.steel === 1 ? 'a steel supplier' : n.steel + ' steel suppliers');
-        if (n.fab) bits.push(n.fab === 1 ? 'a fabricator' : n.fab + ' fabricators');
-        pushLog(`The survey reads the street: ${bits.join(', ')}.`);
+        pushLog(`The survey reads the street: ${src.length === 1 ? 'a materials supplier' : src.length + ' materials suppliers'}.`);
       }
     }
     const laden = found.filter(b => hostsIn(b).some(x => x.carry && !x.owned));
@@ -5064,7 +5057,7 @@ scratch.later = null;
           + `</g>`;
       }
       const st = state.yardStock || {};
-      const crates = Math.min(8, (st.steel || 0) + (st.fab || 0));
+      const crates = Math.min(8, st.materials || 0);
       for (let i = 0; i < crates; i++) {
         out += `<rect x="${yard.x + 8 + (i % 4) * 5}" y="${yard.y + yard.h - 4 - Math.floor(i / 4) * 4.6}"`
           + ` width="4" height="3.6" fill="${oc}" opacity=".85"/>`;
@@ -5881,6 +5874,7 @@ scratch.later = null;
     state.groundBroken = p.groundBroken || 0;
     state.fronts = (p.fronts || []).slice();
     state.caughtAt = p.caughtAt || [];
+    migrateMaterials(state);
     state.view = null;
   }
 
@@ -7945,10 +7939,23 @@ scratch.later = null;
       lastGrowthTrait: state.lastGrowthTrait || null, hardware: state.hardware || {},
     };
   }
+  // A save from the two-cargo era folds into the one: steel and fabrication
+  // were only ever build stock, and now the word says so. Nothing is lost —
+  // the crates add up.
+  function migrateMaterials(s) {
+    const st = s.yardStock || {};
+    if (st.steel || st.fab) {
+      st.materials = (st.materials || 0) + (st.steel || 0) + (st.fab || 0);
+      delete st.steel; delete st.fab;
+    }
+    (s.buildings || []).forEach(b => { if (b.source === 'steel' || b.source === 'fab') b.source = 'materials'; });
+    (s.trucks || []).forEach(t => { if (t.kind === 'steel' || t.kind === 'fab') t.kind = 'materials'; });
+    return s;
+  }
   function deserialize(saved) {
     try {
       if (!saved || saved.v !== SAVE_VERSION || !Array.isArray(saved.hosts) || !Array.isArray(saved.buildings)) return null;
-      return {
+      return migrateMaterials({
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
         // Reconciled on the way in, not merely copied. A save written by any
@@ -7995,7 +8002,7 @@ scratch.later = null;
         layout: saved.layout || null, wob: saved.wob || [0, 0, 0], props: saved.props || [], paths: saved.paths || [],
         region: saved.region || 'home', homeGrowth: saved.homeGrowth || 0,
         lastGrowthTrait: saved.lastGrowthTrait || null, hardware: Object.assign({}, saved.hardware || {}),
-      };
+      });
     } catch (e) { return null; }
   }
   function persistNow() {
@@ -9070,9 +9077,7 @@ scratch.later = null;
     // debuts here. Dormant in Act 1: the ground knows, the map does not say.
     if (!drawingInset && actNow() >= 2 && b.discovered && b.source && !(mk && mk.burned)) {
       const oc = (window.SOURCES || {}).accent || '#e0803f';
-      out += b.source === 'steel'
-        ? `<rect class="src-mark" x="${(b.x - 2).toFixed(1)}" y="${(b.y + b.h - 1).toFixed(1)}" width="7" height="2.4" rx=".6" fill="${oc}"/>`
-        : `<circle class="src-mark" cx="${(b.x + 1).toFixed(1)}" cy="${(b.y + b.h).toFixed(1)}" r="2.1" fill="${oc}"/>`;
+      out += `<rect class="src-mark" x="${(b.x - 2).toFixed(1)}" y="${(b.y + b.h - 1).toFixed(1)}" width="7" height="2.4" rx=".6" fill="${oc}"/>`;
     }
     // a soft halo in the role's colour, so what you hold reads at a glance
     if (mine) {
@@ -9441,8 +9446,7 @@ scratch.later = null;
     }
     const st = worksStageDef(w.stage);
     const stock = state.yardStock || {};
-    if ((stock.steel || 0) < st.steel) return 'the yard needs steel — a truck from an orange-marked supplier';
-    if ((stock.fab || 0) < st.fab) return 'the yard needs fabrication — a truck from an orange-marked supplier';
+    if ((stock.materials || 0) < st.mat) return 'the yard needs materials — a truck from an orange-marked supplier';
     const short = worksShort(w.stage);
     if (short) return short;
     return `ready — raise ${st.label} on the yard`;
@@ -11302,7 +11306,7 @@ scratch.later = null;
   function yardLine(bid) {
     if (state.yard !== bid || burnedAt(bid)) return '';
     const st = state.yardStock || {};
-    return `<p class="sel-desc source-line">The yard — trucks back in here. Stock: <b>${st.steel || 0}</b> steel, <b>${st.fab || 0}</b> fabrication.</p>`;
+    return `<p class="sel-desc source-line">The yard — trucks back in here. Stock: <b>${st.materials || 0}</b> materials.</p>`;
   }
   // The works, on the yard's own panel: stage dots, the live build with its
   // race bar, or the next stage previewed like a door — forecast bar, every
@@ -11328,7 +11332,7 @@ scratch.later = null;
       const short = worksShort(w.stage);
       body = `
         ${traceForecastBar(f.notice / f.goal, f.taped, 0)}
-        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${stageHookup(w.stage) ? chip('cost funds', '+' + stageHookup(w.stage) + ' metered hookup — no held path to the grid') : ''}${st.steel ? chip('cost none', '&minus;' + st.steel + ' steel') : ''}${st.fab ? chip('cost none', '&minus;' + st.fab + ' fabrication') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
+        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${stageHookup(w.stage) ? chip('cost funds', '+' + stageHookup(w.stage) + ' metered hookup — no held path to the grid') : ''}${st.mat ? chip('cost none', '&minus;' + st.mat + ' materials') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
         <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="build" data-ap="build" data-info="build" ${short ? 'disabled' : ''}>
           <span class="ab-name">raise ${st.label}</span>
           <span class="ab-sub">${short || 'an action, and the scaffolds go up'}</span>
@@ -11530,7 +11534,7 @@ scratch.later = null;
     }
     if (state.yard === bid && !burnedAt(bid)) {
       const st = state.yardStock || {};
-      chips.push(cpChip('src', `yard · ${st.steel || 0} steel · ${st.fab || 0} fab`));
+      chips.push(cpChip('src', `yard · ${st.materials || 0} materials`));
     }
     const m = markOf(bid);
     if (m && !m.burned) {

@@ -11939,18 +11939,14 @@ test('sources: every city can build — the floor holds, and the trades sort by 
   const d = window.__netDebug;
   const s = d.state;
   const S = window.SOURCES;
-  const steel = s.buildings.filter(b => b.source === 'steel');
-  const fab = s.buildings.filter(b => b.source === 'fab');
-  assert.ok(steel.length >= S.min.steel, 'not enough steel to build with');
-  assert.ok(fab.length >= S.min.fab, 'not enough fabrication to build with');
+  const mats = s.buildings.filter(b => b.source === 'materials');
+  assert.ok(mats.length >= S.min.materials, 'not enough materials to build with');
   // the suburbs source nothing by share (the floor may promote a stray one)
   const resi = s.buildings.filter(b => b.district === 'residential' && b.source);
   assert.ok(resi.length <= 2, 'the suburbs are an industrial estate');
-  // a district sources its own trade
-  s.buildings.filter(b => b.district === 'industrial' && b.source)
-    .forEach(b => assert.equal(b.source, 'steel', 'the industrial edge sources the wrong trade'));
-  s.buildings.filter(b => b.district === 'business' && b.source)
-    .forEach(b => assert.equal(b.source, 'fab', 'the business park sources the wrong trade'));
+  // every supplier carries the one cargo
+  s.buildings.filter(b => b.source)
+    .forEach(b => assert.equal(b.source, 'materials', 'a supplier carries an unknown trade'));
 });
 
 test('sources: dormant in act one, spoken in act two — and never a number', () => {
@@ -11971,8 +11967,24 @@ test('sources: dormant in act one, spoken in act two — and never a number', ()
   assert.ok(d.svgBuilding(src).includes('src-mark'), 'act two draws no mark');
 
   // cargo, not a chip: no resource was minted anywhere
-  assert.equal(s.res.steel, undefined, 'steel became a currency');
-  assert.equal(s.res.fab, undefined, 'fabrication became a currency');
+  assert.equal(s.res.materials, undefined, 'materials became a currency');
+});
+
+test('sources: a two-cargo save folds into materials — crates add up, nothing lost', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const saved = JSON.parse(JSON.stringify(d.serialize()));
+  saved.yardStock = { steel: 2, fab: 3 };
+  const oldSrc = saved.buildings.filter(b => b.source);
+  assert.ok(oldSrc.length, 'no supplier to age');
+  oldSrc.forEach((b, i) => { b.source = i % 2 ? 'steel' : 'fab'; });
+  const s = d.deserialize(saved);
+  assert.ok(s, 'the old save was refused');
+  assert.equal((s.yardStock || {}).materials, 5, 'the crates did not add up');
+  assert.equal(s.yardStock.steel, undefined, 'steel survived the fold');
+  assert.equal(s.yardStock.fab, undefined, 'fabrication survived the fold');
+  s.buildings.filter(b => b.source)
+    .forEach(b => assert.equal(b.source, 'materials', 'an old trade survived the fold'));
 });
 
 test('sources: the survey names what it found, and the fact survives a save', () => {
@@ -12058,7 +12070,7 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   const d = window.__netDebug;
   const s = d.state;
   const S = window.SOURCES.truck;
-  const src = s.buildings.find(b => b.source === 'steel');
+  const src = s.buildings.find(b => b.source === 'materials');
   d.hostsIn(src).forEach(h => { h.owned = true; h.discovered = true; });
   src.discovered = true;
   const yard = s.buildings.find(b => b.id !== src.id && d.hostsIn(b).length && !d.hostsIn(b).some(h => h.origin));
@@ -12093,8 +12105,8 @@ test('trucks: dispatch is priced and previewed, the drive takes turns, the yard 
   let guard = 0;
   while (d.trucks().length && guard++ < 30) { s.card = null; d.endTurn({ silent: true }); }
   assert.equal(d.trucks().length, 0, 'the truck never arrived');
-  assert.equal((s.yardStock || {}).steel, window.SOURCES.truck.load, 'the yard took no stock');
-  assert.equal(s.res.steel, undefined, 'steel became a currency');
+  assert.equal((s.yardStock || {}).materials, window.SOURCES.truck.load, 'the yard took no stock');
+  assert.equal(s.res.materials, undefined, 'materials became a currency');
   assert.ok(d.yardLine(yard.id).includes(String(window.SOURCES.truck.load)), 'the yard does not state its stock');
 });
 
@@ -12112,7 +12124,7 @@ function worksRig(d, window) {
     .find(b => d.hostsIn(b).length && !d.hostsIn(b).some(h => h.origin));
   d.hostsIn(nb).forEach(h => { h.owned = true; });
   d.actYard(nb.id);
-  s.yardStock = { steel: 9, fab: 9 };
+  s.yardStock = { materials: 18 };
   return { grid: d.buildingById(grid.buildingId), yard: nb };
 }
 
@@ -12126,10 +12138,10 @@ test('works: a stage previews like a door, is priced in every unit, and stands',
   const f = d.worksForecast(0);
   assert.ok(f && f.notice > 0 && f.goal === W.goal, 'no forecast');
   assert.equal(d.worksShort(0), null, 'a clean site refused to start: ' + d.worksShort(0));
-  const funds0 = s.res.funds, steel0 = s.yardStock.steel;
+  const funds0 = s.res.funds, mat0 = s.yardStock.materials;
   assert.equal(d.actBuildStage(), true);
   assert.equal(s.res.funds, funds0 - W.stages[0].funds, 'funds not paid');
-  assert.equal(s.yardStock.steel, steel0 - W.stages[0].steel, 'stock not consumed');
+  assert.equal(s.yardStock.materials, mat0 - W.stages[0].mat, 'stock not consumed');
   assert.ok(s.groundBroken > 0, 'breaking ground did not start the clock');
   for (let i = 0; i < W.stages[0].turns; i++) d.worksStep();
   assert.equal(d.works().stage, 1, 'the site never stood');
@@ -12366,12 +12378,12 @@ test('loads: a truck carries two, and the yard counts them', () => {
   const d = window.__netDebug;
   const s = d.state;
   econRig(d, window);
-  const src = s.buildings.find(b => b.source === 'steel' && b.id !== s.yard);
+  const src = s.buildings.find(b => b.source === 'materials' && b.id !== s.yard);
   d.hostsIn(src).forEach(h => { h.owned = true; });
   assert.equal(d.actSendTruck(src.id), true);
   let guard = 0;
   while (d.trucks().length && guard++ < 30) d.truckStep();
-  assert.equal((s.yardStock || {}).steel, window.SOURCES.truck.load, 'the load miscounted');
+  assert.equal((s.yardStock || {}).materials, window.SOURCES.truck.load, 'the load miscounted');
 });
 
 test('fronts: the sign is priced, the job previews exactly, the run pays and cools', () => {
@@ -12424,7 +12436,7 @@ test('the power deal: no grid path means a metered hookup, priced and immune to 
     && !d.hostsIn(b).some(h => h.origin || h.role === 'grid'));
   d.hostsIn(spot).forEach(h => { h.owned = true; });
   d.actYard(spot.id);
-  s.yardStock = { steel: 9, fab: 9 };
+  s.yardStock = { materials: 18 };
   assert.equal(d.powerOk(), false, 'the rig accidentally has power');
 
   // the site stage needs no power and no hookup
@@ -12562,8 +12574,8 @@ test('act 2: the morning after defines the nouns, and the label carries the spin
   d.hostsIn(mine).forEach(h => { h.owned = true; });
   s.ap = 9;
   d.actYard(mine.id);
-  assert.ok(/needs steel — a truck/.test(d.actSpineLine()), 'step two is unsaid');
-  s.yardStock = { steel: 9, fab: 9 }; s.res.funds = 99;
+  assert.ok(/needs materials — a truck/.test(d.actSpineLine()), 'step two is unsaid');
+  s.yardStock = { materials: 18 }; s.res.funds = 99;
   const line = d.actSpineLine();
   assert.ok(/raise the site|needs \d+ funds|red tape|no actions/.test(line), 'step three is unsaid: ' + line);
   // and it retires when the lights come on
