@@ -12487,3 +12487,36 @@ test('dock: the overflow marker cannot latch, and the panel is its own surface',
   assert.ok(/background:\s*var\(--surface\)/.test(rule),
     'the panel column is transparent — any stray pixel is a window to the map');
 });
+
+test('helicopter: the patrol flies the streets, not a circle', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const L = d.cityLayout();
+  d.warmDistrict('commercial', 30);          // band three: the machine comes out
+  const c = d.heliCircuit('commercial');
+  assert.ok(c && c.d.startsWith('M '), 'no circuit over the warm district');
+  // every coordinate in the path lies on a real road line
+  const nums = c.d.match(/-?\d+(\.\d+)?/g).map(Number);
+  const xsOk = (x) => L.xs.some(r => Math.abs(r - x) < 1);
+  const ysOk = (y) => L.ys.some(r => Math.abs(r - y) < 1);
+  const parts = c.d.trim().split(/\s+/);
+  // M x y then H x / V y tokens — horizontals land on road xs, verticals on ys
+  assert.ok(xsOk(parseFloat(parts[1])) && ysOk(parseFloat(parts[2])), 'the start is off-road');
+  for (let i = 3; i < parts.length; i++) {
+    if (parts[i] === 'H') assert.ok(xsOk(parseFloat(parts[++i])), 'an H leg left the road grid');
+    else if (parts[i] === 'V') assert.ok(ysOk(parseFloat(parts[++i])), 'a V leg left the road grid');
+  }
+  // and the drawn machine rides the path, not the old orbit
+  const svg = d.svgHeli();
+  assert.ok(svg.includes('offset-path'), 'the craft is not on the motion path');
+  assert.ok(!svg.includes('heli-orbit'), 'the pin-circle came back');
+  // the hover mode is untouched: aim it at something specific
+  s.suspicion = {};
+  s.hosts.filter(h => h.origin).forEach(h => { h.owned = true; });
+  const mine = s.hosts.find(h => !h.origin);
+  mine.owned = true; mine.discovered = true;
+  s.hunt = { on: true, nodes: [s.buildings.find(b => !d.buildingHeld(b)).id], since: 1, lastActed: 1 };
+  const hover = d.svgHeli();
+  if (hover) assert.ok(!hover.includes('offset-path'), 'the hover borrowed the patrol path');
+});

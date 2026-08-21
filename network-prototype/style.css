@@ -2876,13 +2876,25 @@ footer .build { opacity: .55; font-size: 10px; }
   animation: rotorSpin 340ms linear infinite;
 }
 .heli.patrol .heli-orbit { animation: heliOrbit 32s linear infinite; }
+/* the street patrol: the craft rides the district's bounding roads (and its
+   middle street, down and back) on a CSS motion path built by svgHeli —
+   looking moves along the roads, not on a pin */
+.heli.patrol .heli-path {
+  offset-rotate: 0deg;
+  animation: heliPatrol var(--patrol-dur, 60s) linear infinite;
+}
+@keyframes heliPatrol { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+/* no motion paths? the old circle is better than a parked machine */
+@supports not (offset-path: path('M0 0 H10')) {
+  .heli.patrol .heli-path { animation: heliOrbit 32s linear infinite; transform-box: fill-box; transform-origin: center; }
+}
 .heli.hover .heli-craft { animation: heliBob 3400ms ease-in-out infinite alternate; }
 @keyframes rotorSpin { to { transform: rotate(180deg); } }
 @keyframes heliOrbit { to { transform: rotate(360deg); } }
 @keyframes heliBob { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }
 @keyframes spotBreathe { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .heli .heli-rotor, .heli.patrol .heli-orbit, .heli.hover .heli-craft, .heli .spot { animation: none; }
+  .heli .heli-rotor, .heli.patrol .heli-orbit, .heli.patrol .heli-path, .heli.hover .heli-craft, .heli .spot { animation: none; }
 }
 
 /* the building an open card is about: the map acknowledging the deck.

@@ -9384,6 +9384,35 @@ scratch.later = null;
   // takes next — the map's most important warning made diegetic (the dry
   // next-up outline stays underneath it). With no response walking, it
   // patrols the warmest district only once that district is at the top band.
+  // The patrol circuit: the streets bounding the warm district, flown as a
+  // continuous loop. The machine reads as *looking* because it moves the way
+  // looking moves — along the roads, not on a pin.
+  function heliCircuit(dk) {
+    const L = cityLayout();
+    const bs = (state.buildings || []).filter(b => b.district === dk);
+    if (!bs.length || !L.xs || !L.ys) return null;
+    const minX = Math.min.apply(null, bs.map(b => b.x));
+    const maxX = Math.max.apply(null, bs.map(b => b.x + b.w));
+    const minY = Math.min.apply(null, bs.map(b => b.y));
+    const maxY = Math.max.apply(null, bs.map(b => b.y + b.h));
+    const pickLE = (arr, v) => arr.reduce((a, x) => (x <= v && (a === null || x > a)) ? x : a, null);
+    const pickGE = (arr, v) => arr.reduce((a, x) => (x >= v && (a === null || x < a)) ? x : a, null);
+    const left = pickLE(L.xs, minX) !== null ? pickLE(L.xs, minX) : L.xs[0];
+    const right = pickGE(L.xs, maxX) !== null ? pickGE(L.xs, maxX) : L.xs[L.xs.length - 1];
+    const top = pickLE(L.ys, minY) !== null ? pickLE(L.ys, minY) : L.ys[0];
+    const bot = pickGE(L.ys, maxY) !== null ? pickGE(L.ys, maxY) : L.ys[L.ys.length - 1];
+    if (right - left < 60 || bot - top < 60) return null;
+    // the middle street, when one crosses the district, gets its own pass —
+    // down and back — so the sweep reads as a search, not a lap of honour
+    const mids = L.xs.filter(x => x > left + 20 && x < right - 20);
+    const mid = mids.length ? mids[Math.floor(mids.length / 2)] : null;
+    const d = mid
+      ? `M ${left} ${top} H ${mid} V ${bot} V ${top} H ${right} V ${bot} H ${left} Z`
+      : `M ${left} ${top} H ${right} V ${bot} H ${left} Z`;
+    const len = 2 * (right - left) + 2 * (bot - top) + (mid ? 2 * (bot - top) : 0);
+    return { d, len };
+  }
+
   function svgHeli() {
     if (state.scope !== 'city') return '';
     let cx = null, cy = null, mode = null;
@@ -9392,17 +9421,22 @@ scratch.later = null;
       const b = nx ? buildingById(nx) : null;
       if (b) { cx = b.x + b.w / 2; cy = b.y + b.h / 2; mode = 'hover'; }
     }
+    let circuit = null, patrolDk = null;
     if (!mode) {
       let best = null, bestV = 0;
       Object.keys(window.DISTRICTS || {}).forEach(dk => {
         if (suspBand(dk) >= 3 && suspicionOf(dk) > bestV) { best = dk; bestV = suspicionOf(dk); }
       });
       if (best) {
-        const bs = (state.buildings || []).filter(b => b.district === best);
-        if (bs.length) {
-          cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / bs.length;
-          cy = bs.reduce((a, b) => a + b.y + b.h / 2, 0) / bs.length;
-          mode = 'patrol';
+        circuit = heliCircuit(best);
+        if (circuit) { mode = 'patrol'; patrolDk = best; cx = 0; cy = 0; }
+        else {
+          const bs = (state.buildings || []).filter(b => b.district === best);
+          if (bs.length) {
+            cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / bs.length;
+            cy = bs.reduce((a, b) => a + b.y + b.h / 2, 0) / bs.length;
+            mode = 'patrol';
+          }
         }
       }
     }
@@ -9414,6 +9448,18 @@ scratch.later = null;
       + `<path class="heli-tail" d="M17 -30 L21.5 -30"/>`
       + `<line class="heli-rotor" x1="8.5" y1="-30" x2="19.5" y2="-30"/>`
       + `</g>`;
+    // A street patrol rides the circuit with a CSS motion path — the sky
+    // layer only rewrites when the circuit changes (skyKey), so the flight
+    // keeps its clock across renders. Browsers without offset-path keep the
+    // old orbit as a fallback (see the stylesheet).
+    if (mode === 'patrol' && circuit) {
+      const dur = Math.max(30, Math.round(circuit.len / 26));
+      return `<g class="heli patrol" data-beat="${patrolDk}">`
+        + `<defs><radialGradient id="spotPool"><stop offset="0" stop-color="#f2dca6" stop-opacity=".6"/>`
+        + `<stop offset="1" stop-color="#f2dca6" stop-opacity="0"/></radialGradient></defs>`
+        + `<g class="heli-path" style="offset-path: path('${circuit.d}'); --patrol-dur: ${dur}s">${glyph}</g>`
+        + `</g>`;
+    }
     return `<g class="heli ${mode}" transform="translate(${cx.toFixed(1)} ${cy.toFixed(1)})">`
       + `<defs><radialGradient id="spotPool"><stop offset="0" stop-color="#f2dca6" stop-opacity=".6"/>`
       + `<stop offset="1" stop-color="#f2dca6" stop-opacity="0"/></radialGradient></defs>`
@@ -12379,7 +12425,7 @@ scratch.later = null;
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine,
     roadRoute, cutRoadEdges, trucks, truckStep, truckPos, truckPreview, canSendTruck, actSendTruck,
-    canYard, actYard, yardB, svgTrucks, truckBtn, yardLine,
+    canYard, actYard, yardB, svgTrucks, truckBtn, yardLine, heliCircuit,
     works, powerOk, worksForecast, worksShort, actBuildStage, worksStep, worksPanel,
     fronts, isFront, canFront, actFront, frontJob, actRunJob, truckCost, fleetFree, fleetSize, jobBtn, stageHookup,
     cpInstruments, cpDrawer, teach, panelInfo: (v) => { panelInfoOpen = v; },
