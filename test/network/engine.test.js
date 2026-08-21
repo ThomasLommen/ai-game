@@ -12451,3 +12451,23 @@ test('the power deal: no grid path means a metered hookup, priced and immune to 
   d.hostsIn(d.buildingById(grid.buildingId)).forEach(h => { h.owned = true; });
   if (d.powerOk()) assert.equal(d.stageHookup(2), 0, 'the premium survived a real connection');
 });
+
+test('build label: the stamp can never stamp its own detector', () => {
+  // the deploy replaces the placeholder in EVERY file — so the label check
+  // must not contain it in one piece, or stamping turns the check into
+  // "does the label contain the real build id" and every deployed page
+  // calls itself a local build (this happened; days of it)
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../network-prototype/app.js'), 'utf8');
+  const labelBlock = src.slice(src.indexOf("querySelector('.build')") - 200,
+    src.indexOf("querySelector('.build')") + 900);
+  assert.ok(!labelBlock.includes('__BU' + 'ILD__'),
+    'the label check carries the placeholder whole — the stamp will eat it');
+  assert.ok(labelBlock.includes("['__BU', 'ILD__'].join"),
+    'the split-token construction is gone');
+  // simulate the deploy: stamp the whole file, then confirm the detector
+  // string construction survives byte-identical
+  const stamped = src.replace(/__BUILD__/g, '20990101-0000-abcdef0');
+  assert.ok(stamped.includes("['__BU', 'ILD__'].join"),
+    'stamping altered the detector');
+});

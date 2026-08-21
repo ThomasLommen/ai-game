@@ -12267,7 +12267,14 @@ scratch.later = null;
   // which read as normal and hid exactly this bug.
   (() => {
     const $b = document.querySelector('.build');
-    if (!$b || !/__BUILD__/.test($b.textContent)) return;
+    if (!$b) return;
+    // The placeholder is assembled from two halves, because the deploy
+    // stamps the literal EVERYWHERE — including, previously, inside this
+    // very check, which turned it into "does the label contain the real
+    // build id" and rewrote every correctly stamped page to "local build".
+    // The deployed site spent days claiming to be a local checkout.
+    const raw = ['__BU', 'ILD__'].join('');
+    if ($b.textContent.indexOf(raw) === -1) return;
     const local = /^(localhost|127\.|0\.0\.0\.0|192\.168\.)/.test(location.hostname) || location.protocol === 'file:';
     $b.textContent = local ? 'local build'
       : 'unstamped copy — reinstall from the deployed site';
