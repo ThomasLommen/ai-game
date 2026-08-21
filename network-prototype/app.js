@@ -5614,6 +5614,9 @@ scratch.later = null;
       state.caughtHere = (state.caughtHere || 0)
         + (has('scrutiny') ? 2 : 1) + (baitAt(h.buildingId) ? 1 : 0);
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      // the explaining bar has a teaching budget: the first few catches say
+      // the whole sentence, after that the red-eye chip carries the count
+      (state.hints = state.hints || {}).caughtBar = ((state.hints || {}).caughtBar || 0) + 1;
       // and the neighbours definitely talked
       noteDistrictAct(h.district, window.SUSPICION.perCaught);
       if (h.district && cardedOnce('caught:' + h.district)) {
@@ -10590,6 +10593,27 @@ scratch.later = null;
       }
     }
 
+    // The red eye, counted where the response is summoned from. Tap walks
+    // the map to the doors that wear it.
+    const $ce = document.getElementById('res-caught-btn');
+    if ($ce) {
+      const c = caughtHere();
+      const show = state.scope === 'city' && c > 0 && !huntOn() && !state.over;
+      $ce.hidden = !show;
+      if (show) {
+        const goal = (window.HUNT || {}).caughtToStart || 3;
+        document.getElementById('res-caught').textContent = Math.min(c, goal) + '/' + goal;
+        $ce.className = 'res caught' + (goal - c <= 1 ? ' urgent' : '');
+      }
+      if (!$ce.dataset.wired) {
+        $ce.dataset.wired = '1';
+        $ce.addEventListener('click', () => {
+          const pts = (state.caughtAt || []).map(buildingById).filter(Boolean)
+            .map(x => ({ x: x.x + x.w / 2, y: x.y + x.h / 2 }));
+          if (pts.length) focusOn(pts);
+        });
+      }
+    }
     document.querySelectorAll('#res-row .res').forEach(el => {
       if (el.dataset.wired) return;
       el.dataset.wired = '1';
@@ -11161,12 +11185,13 @@ scratch.later = null;
       // ever learn about in the log is a trigger you learn about too late.
       const c = caughtHere();
       if (!c) return '';
+      // The count itself lives in the red-eye chip up top now. This bar only
+      // teaches — the first few catches get the whole sentence, then the
+      // screen goes back to the map.
+      if (((state.hints || {}).caughtBar || 0) > 3) return '';
       const left = window.HUNT.caughtToStart - c;
       return `<div class="hunt-bar coming${left <= 1 ? ' urgent' : ''}" data-act="show-caught" role="button">
-        <p><b>${c} of ${window.HUNT.caughtToStart}</b> — door${c === 1 ? '' : 's'} here that caught a program of yours and can point back.
-          ${left <= 1 ? 'One more and the response arrives, standing in one of them.'
-            : `${left} more and the response arrives, standing in one of them.`}</p>
-        <p class="hb-hint">They wear the red eye on the map — tap here to look at them. Lose fewer races.</p>
+        <p><b>${c} of ${window.HUNT.caughtToStart}</b> — doors here that caught a program of yours and can point back. At ${window.HUNT.caughtToStart} the response arrives, standing in one of them. They wear the red eye — the eye chip up top counts them, and tapping it walks you there. Lose fewer races.</p>
       </div>`;
     }
     const H = window.HUNT;

@@ -12626,8 +12626,21 @@ test('catches: the door wears the scar, the panel says it, the bar points', () =
   s.selectedBuilding = b.id; s.selected = d.hostsIn(b)[0].id;
   d.render();
   const $p = window.document.getElementById('panel');
-  assert.ok(/data-act="show-caught"/.test($p.innerHTML), 'the bar does not point at the doors');
-  assert.ok($p.innerHTML.includes('1 of ' + window.HUNT.caughtToStart), 'the count lost its threshold');
+  // the chip in the top row counts the doors, and shows the threshold
+  const $ce = window.document.getElementById('res-caught-btn');
+  assert.ok($ce && !$ce.hidden, 'no red-eye chip in the top row');
+  assert.equal(window.document.getElementById('res-caught').textContent,
+    '1/' + window.HUNT.caughtToStart, 'the count lost its threshold');
+  // the teaching bar says the whole sentence for the first catches...
+  s.hints = { caughtBar: 1 };
+  d.render();
+  assert.ok(/data-act="show-caught"/.test($p.innerHTML), 'the teaching bar does not point at the doors');
+  assert.ok($p.innerHTML.includes('1 of ' + window.HUNT.caughtToStart), 'the teaching bar lost its count');
+  // ...and retires when its budget is spent — the chip stays
+  s.hints = { caughtBar: 9 };
+  d.render();
+  assert.ok(!/data-act="show-caught"/.test($p.innerHTML), 'the bar outlived its teaching budget');
+  assert.ok(!$ce.hidden, 'the chip retired with the bar');
 });
 
 test('act 2: the morning after defines the nouns, and the label carries the spine', () => {
