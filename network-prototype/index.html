@@ -61,7 +61,9 @@
   <div id="tray"></div>
 
   <div id="graph-wrap">
-    <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
+    <!-- the slide exists so a drag can move the whole map as one composited
+         layer instead of re-rastering the svg per pointer frame -->
+    <div id="graph-slide"><svg id="graph" preserveAspectRatio="xMidYMid meet"></svg></div>
     <span id="stage-label" class="stage-label">a single foothold</span>
     <button id="scope-btn" type="button" class="scope-btn" hidden>the country</button>
     <button id="consolidate" type="button" hidden></button>

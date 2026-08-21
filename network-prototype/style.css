@@ -208,6 +208,8 @@ body {
 }
 /* fill the wrapper explicitly: left to itself an SVG sizes to its own viewBox
    aspect ratio, which fed the wrong height back into the view maths */
+#graph-slide { position: absolute; inset: 0; }
+#graph-slide.panning { will-change: transform; }
 #graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 
@@ -1844,10 +1846,13 @@ footer .build { opacity: .55; font-size: 10px; }
 /* ambient: a held building flicks the odd window off and on — somebody is
    in there. Long period, steps(1) so it costs two paints a cycle, staggered
    by the window's own index so the city never strobes in unison. */
-.bldg.all-held:not(.breached) .win.lit {
+.bldg.all-held:not(.breached) .win.lit.flick {
   animation: winFlick 11s steps(1) infinite;
   animation-delay: calc(var(--wi, 0) * -1.9s);
 }
+/* while the camera moves, every ambient animation holds its breath — each
+   tick repaints the whole svg, and the pan needs those frames more */
+#graph.panning * { animation-play-state: paused !important; }
 @keyframes winFlick {
   0%, 93% { opacity: 1; }
   93.01%, 95.5% { opacity: .3; }
@@ -1999,6 +2004,19 @@ footer .build { opacity: .55; font-size: 10px; }
   animation: wireFlow 1.9s linear infinite;
 }
 @keyframes wireFlow { to { stroke-dashoffset: -12; } }
+/* planning zoom: the drift pauses — invisible motion, real repaint cost */
+.wire.live.still { animation: none; }
+/* ...and so does every other ambient tick (see renderGraph's coarse toggle):
+   zoomed out, one running animation repaints the whole svg every frame */
+#graph.coarse .glint,
+#graph.coarse .ripple,
+#graph.coarse .pr-ripple,
+#graph.coarse .win.lit.flick,
+#graph.coarse .wire.live { animation: none; }
+#graph.coarse .truck-live { display: none; animation: none; }
+/* the drag slides the svg as one composited layer (see commitPan) */
+#graph.panning { will-change: transform; }
+#graph.coarse .truck-still { display: initial; }
 /* A link arriving. It runs from the ground you held toward the ground you
    just took — the renderer emits the endpoints in that order — and hands
    over to the ordinary drifting wire when it lands. Scoped past `.wire.live`

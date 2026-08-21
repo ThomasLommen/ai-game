@@ -5218,6 +5218,10 @@ scratch.later = null;
     const W = window.WIRE_FX || {};
     const fx = drawFxOn();
     const wires = heldWires();
+    // The drift is rationed like the packets: at planning zoom a moving dash
+    // is invisible, but its animation still damages the whole svg every
+    // frame — with a held half-map that damage was most of the frame budget.
+    const still = mapUnitsPerPx() > (W.packetMinPx || 0.9);
     let out = '';
     wires.forEach(({ ha, hc }) => {
       // the new holding goes second, so the draw runs toward it
@@ -5225,7 +5229,7 @@ scratch.later = null;
       const a = flip ? hc : ha, b = flip ? ha : hc;
       const drawing = fx && (a.buildingId === fx.bid || b.buildingId === fx.bid);
       const len = Math.hypot(b.x - a.x, b.y - a.y).toFixed(1);
-      out += `<line class="wire live${drawing ? ' drawing' : ''}"`
+      out += `<line class="wire live${drawing ? ' drawing' : ''}${still ? ' still' : ''}"`
         + ` x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"`
         + (drawing ? ` style="--len:${len};animation-delay:${drawDelay()}ms"` : '')
         + '/>';
@@ -9294,6 +9298,10 @@ scratch.later = null;
     const litCount = mine ? Math.ceil(canLight.length * (stranded ? 0.35 : 1)) : 0;
     const lightUp = {};
     canLight.slice(0, litCount).forEach(c => { lightUp[c.i] = true; });
+    // one window per building does the ambient flick — measured at half a
+    // map held, animating every lit pane (266 of them) ticked the whole svg
+    // into a repaint often enough to eat the idle frame budget
+    const flickAt = litCount ? canLight[Math.floor(cityNoise(idSeed(b.id), 91) * litCount)].i : -1;
     // People live in these buildings whether or not you do, and when the
     // street is warm they lie awake — more windows on the warmer it gets.
     // Sodium, never your compute blue. Stable per building, so the city does
@@ -9315,7 +9323,7 @@ scratch.later = null;
       // lit windows carry their index so the stylesheet can treat them as
       // individuals: the take cascades them on in sequence, and held
       // buildings flick the odd one off and on again (see winWake/winFlick)
-      out += `<rect class="win${lightUp[c.i] ? ' lit' : wake[c.i] ? ' awake' : ''}" x="${c.x}" y="${c.y}"`
+      out += `<rect class="win${lightUp[c.i] ? ' lit' + (c.i === flickAt ? ' flick' : '') : wake[c.i] ? ' awake' : ''}" x="${c.x}" y="${c.y}"`
         + ` width="${c.w}" height="${c.h}"${lightUp[c.i] ? ` style="--wi:${c.i}"` : ''}/>`;
     });
 
@@ -10193,6 +10201,13 @@ scratch.later = null;
     seen.forEach(b => { seenIds[b.id] = true; });
 
     const layers = mapLayers($svg);
+    // Planning zoom goes still: every continuously-ticking animation — a
+    // glint pulse, a water ripple, a creeping truck — damages the svg every
+    // frame, and zoomed out the raster of that damage IS the frame budget
+    // (measured: 9fps with any one of them running, 60 with none). Up close
+    // the viewport clips the raster and the life is cheap, so it all comes
+    // back the moment you lean in.
+    $svg.classList.toggle('coarse', mapUnitsPerPx() > ((window.WIRE_FX || {}).packetMinPx || 0.9));
     const ground = svgGround();
     if (groundEl !== ground) { layers.ground.innerHTML = ground; groundEl = ground; }
 
@@ -10264,7 +10279,8 @@ scratch.later = null;
       clearSelection();
     });
 
-    let dragging = false, last = null, pinch = null;
+    let dragging = false, last = null, pinch = null, panPx = null;
+    const $slide = document.getElementById('graph-slide');
     const toWorld = (cx, cy) => {
       const r = viewportRect();
       const v = state.view;
@@ -10287,18 +10303,49 @@ scratch.later = null;
         if ($svg.setPointerCapture && e.pointerId != null) {
           try { $svg.setPointerCapture(e.pointerId); } catch (_) {}
         }
+        // every ambient animation pauses while the camera moves: each tick
+        // repaints the whole svg, and the pan needs those frames more
+        $svg.classList.add('panning');
+        if ($slide) $slide.classList.add('panning');
       }
       if (!dragMoved) return;
-      const r = viewportRect();
-      state.view.x -= dx * (state.view.w / r.width);
-      state.view.y -= dy * (state.view.h / r.height);
-      clampView(state.view);
+      // The drag rides the compositor. Writing the viewBox per pointer
+      // frame re-rasters the whole svg every frame — at a half-map that
+      // raster IS the choppiness. Sliding the svg on a transform costs the
+      // GPU a blit; the viewBox commits when the finger has crossed a
+      // third of the screen (so the blank margin never grows past that)
+      // and once more on release.
+      panPx = panPx ? { x: panPx.x + dx, y: panPx.y + dy } : { x: dx, y: dy };
       last = { x: e.clientX, y: e.clientY };
-      applyView();
+      // the slide respects the map's own bounds, so the commit never snaps
+      const r = viewportRect();
+      const sx = state.view.w / r.width, sy = state.view.h / r.height;
+      const want = { x: state.view.x - panPx.x * sx, y: state.view.y - panPx.y * sy, w: state.view.w, h: state.view.h };
+      clampView(want);
+      panPx.x = (state.view.x - want.x) / sx;
+      panPx.y = (state.view.y - want.y) / sy;
+      ($slide || $svg).style.transform = `translate(${panPx.x.toFixed(1)}px, ${panPx.y.toFixed(1)}px)`;
+      if (Math.abs(panPx.x) > r.width * 0.34 || Math.abs(panPx.y) > r.height * 0.34) commitPan();
     });
+    function commitPan() {
+      if (!panPx) return;
+      const r = viewportRect();
+      state.view.x -= panPx.x * (state.view.w / r.width);
+      state.view.y -= panPx.y * (state.view.h / r.height);
+      clampView(state.view);
+      panPx = null;
+      ($slide || $svg).style.transform = '';
+      if (viewFrame) { cancelAnimationFrame(viewFrame); viewFrame = 0; }
+      const v = state.view;
+      $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+    }
     const endDrag = (e) => {
       if (!dragging) return;
       dragging = false;
+      commitPan();
+      $svg.classList.remove('panning');
+      if ($slide) $slide.classList.remove('panning');
+      if (dragMoved) settleView();
       if (e && $svg.releasePointerCapture && e.pointerId != null) {
         try { $svg.releasePointerCapture(e.pointerId); } catch (_) {}
       }
@@ -10312,24 +10359,34 @@ scratch.later = null;
       const at = toWorld(e.clientX, e.clientY);
       const k = e.deltaY > 0 ? 1.12 : 0.89;
       zoomAt(at, k);
+      settleView();
     }, { passive: false });
 
     $svg.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
         invalidateViewport();
-        pinch = { d: touchDist(e), mid: touchMid(e) };
+        commitPan();
+        pinch = { d: touchDist(e), mid: touchMid(e), wrote: 0 };
         dragMoved = true;
+        $svg.classList.add('panning');
+        if ($slide) $slide.classList.add('panning');
       }
     }, { passive: true });
     $svg.addEventListener('touchmove', (e) => {
       if (e.touches.length !== 2 || !pinch) return;
       const d = touchDist(e);
       if (!d || !pinch.d) return;
+      // a pinch re-rasters per write, so it writes at a stride: skipped
+      // events leave pinch.d alone and the next write applies the combined
+      // ratio — nothing of the gesture is lost, only intermediate rasters
+      const now = performance.now();
+      if (now - pinch.wrote < 90) return;
+      pinch.wrote = now;
       const mid = touchMid(e);
       zoomAt(toWorld(mid.x, mid.y), pinch.d / d);
       pinch.d = d; pinch.mid = mid;
     }, { passive: true });
-    $svg.addEventListener('touchend', () => { pinch = null; });
+    $svg.addEventListener('touchend', () => { if (pinch) settleView(); pinch = null; $svg.classList.remove('panning'); if ($slide) $slide.classList.remove('panning'); });
 
     function touchDist(e) {
       const a = e.touches[0], b = e.touches[1];
@@ -10341,6 +10398,15 @@ scratch.later = null;
     }
   }
   let dragMoved = false;
+  // Zoom-dependent detail (window culling, ambient wire flow, packet caps)
+  // is decided at render time, but pan and pinch only write the viewBox.
+  // One deferred render when the gesture settles brings the detail level
+  // back in line with where the camera ended up.
+  let settleT = 0;
+  function settleView() {
+    clearTimeout(settleT);
+    settleT = setTimeout(() => { if (state.scope === 'city' && !state.over) renderGraph(); }, 160);
+  }
 
   function zoomAt(at, k) {
     const v = state.view;
