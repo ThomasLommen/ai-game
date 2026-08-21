@@ -9453,7 +9453,7 @@ scratch.later = null;
     // keeps its clock across renders. Browsers without offset-path keep the
     // old orbit as a fallback (see the stylesheet).
     if (mode === 'patrol' && circuit) {
-      const dur = Math.max(30, Math.round(circuit.len / 26));
+      const dur = Math.max(20, Math.round(circuit.len / 44));
       return `<g class="heli patrol" data-beat="${patrolDk}">`
         + `<defs><radialGradient id="spotPool"><stop offset="0" stop-color="#f2dca6" stop-opacity=".6"/>`
         + `<stop offset="1" stop-color="#f2dca6" stop-opacity="0"/></radialGradient></defs>`
