@@ -3467,11 +3467,10 @@
     if (apShort('build')) return 'no actions left';
     return null;
   }
-  function actBreakGround(i) {
-    if (breakShort(i) || !canAfford('build')) return false;
+  // The act itself, with the payment left to whoever called it — the direct
+  // verb pays AP+funds; the called card pays through its own cost line.
+  function breakGroundCore(i, opts) {
     const st = worksStageDef(0);
-    spendAP('build');
-    state.res.funds -= st.funds;
     state.yardLot = i;
     // the ground is cleared: whatever furniture the open block wore goes,
     // because a work yard is not a park with a crane in it
@@ -3480,10 +3479,17 @@
       !(p.x > lot.x && p.x < lot.x + lot.w && p.y > lot.y && p.y < lot.y + lot.h));
     dropGroundCache();
     const w = works();
-    w.building = { i: 0, turnsLeft: st.turns, notice: 0, metered: false };
+    w.building = { i: 0, turnsLeft: st.turns, notice: 0, metered: false, quiet: !!(opts && opts.quiet) };
     state.groundBroken = state.turn;
     noteLedger('ground', null, lot.district);
-    pushLog('Ground broken. The lot is the yard now — trucks back in here, and from here the city is watching what goes up.');
+    pushLog('Ground broken. The lot is the yard now — trucks back in here, and from here the city is watching what goes up.'
+      + ((opts && opts.quiet) ? ' The crew works at night, and the street hears nothing.' : ''));
+  }
+  function actBreakGround(i) {
+    if (breakShort(i) || !canAfford('build')) return false;
+    spendAP('build');
+    state.res.funds -= worksStageDef(0).funds;
+    breakGroundCore(i);
     persistNow();
     render();
     return true;
@@ -3568,6 +3574,17 @@
     if (apShort('build')) return 'no actions left';
     return null;
   }
+  // A stage started on the meter stays on the meter: paid up front, so a
+  // cut street cannot stall it — the utility does not care whose streets
+  // those are. Payment is the caller's business (button or card).
+  function buildStageCore(i, opts) {
+    const st = worksStageDef(i);
+    const w = works();
+    w.building = { i, turnsLeft: st.turns, notice: 0,
+      metered: !!(opts && opts.metered), quiet: !!(opts && opts.quiet) };
+    if (w.building.metered) pushLog('The utility takes its money and connects the site. Metered power hums.');
+    pushLog(`${st.label[0].toUpperCase() + st.label.slice(1)} goes up on scaffolds — ${st.turns} turns.`);
+  }
   function actBuildStage() {
     const w = works();
     const i = w.stage;
@@ -3579,19 +3596,7 @@
     state.res.funds -= st.funds + hookup;
     const stock = state.yardStock = state.yardStock || {};
     stock.materials = (stock.materials || 0) - st.mat;
-    // a stage started on the meter stays on the meter: paid up front, so a
-    // cut street cannot stall it — the utility does not care whose streets
-    // those are
-    w.building = { i, turnsLeft: st.turns, notice: 0, metered: hookup > 0 };
-    if (hookup > 0) pushLog('The utility takes its money and connects the site. Metered power hums.');
-    if (i === 0 && !state.groundBroken) {
-      // verdict 8: breaking ground starts the clock — recorded here, spent
-      // by the public lens when W5 arrives
-      state.groundBroken = state.turn;
-      pushLog('Ground broken. From here the city is watching what goes up.');
-    } else {
-      pushLog(`${st.label[0].toUpperCase() + st.label.slice(1)} goes up on scaffolds — ${st.turns} turns.`);
-    }
+    buildStageCore(i, { metered: hookup > 0 });
     persistNow();
     render();
     return true;
@@ -3618,7 +3623,7 @@
     }
     w.stalled = null;
     w.building.notice = Math.round(((w.building.notice || 0) + rate) * 10) / 10;
-    warmDistrict(yard.district, W.warm || 0);
+    if (!w.building.quiet) warmDistrict(yard.district, W.warm || 0);
     w.building.turnsLeft -= 1;
     if (w.building.turnsLeft <= 0) {
       w.stage += 1;
@@ -4129,7 +4134,8 @@
         const w = state.works || { stage: 0, building: null };
         const lot = state.yardLot != null ? lotRect(state.yardLot) : null;
         return { stage: w.stage || 0, building: !!w.building,
-          district: lot ? lot.district : null, groundBroken: !!state.groundBroken };
+          district: lot ? lot.district : null, groundBroken: !!state.groundBroken,
+          powered: powerOk(), stock: (state.yardStock || {}).materials || 0 };
       })(),
       fronts: (state.fronts || []).filter(bid => !burnedAt(bid)).length,
       shells: Object.keys(state.marks || {})
@@ -4301,6 +4307,15 @@
     if (!ev) return null;
     noteEventDrawn(id);
     state.card = { kind: 'event', eventId: id, subject: subject || null, facedown: true };
+    return state.card;
+  }
+  // A card the player summoned: no flip ceremony, no deck timer touched —
+  // the button IS the deal, and walking away is one of its choices.
+  function callCard(id, subject) {
+    const ev = eventById(id);
+    if (!ev || state.card) return null;
+    state.card = { kind: 'event', eventId: id, subject: subject || null, facedown: false, called: true };
+    render();
     return state.card;
   }
 
@@ -4626,16 +4641,22 @@
   function haveFor(kind) {
     if (kind === 'ap') return state.ap;
     if (kind === 'keys') return state.keys || 0;
+    if (kind === 'materials') return (state.yardStock || {}).materials || 0;
     return state.res[kind] || 0;
   }
   function payFor(kind, n) {
     if (kind === 'ap') { state.ap = Math.max(0, state.ap - n); return; }
     if (kind === 'keys') { state.keys = Math.max(0, (state.keys || 0) - n); return; }
+    if (kind === 'materials') {
+      const st = state.yardStock = state.yardStock || {};
+      st.materials = Math.max(0, (st.materials || 0) - n);
+      return;
+    }
     state.res[kind] -= n;
   }
   function shortOf(ch) {
     const name = { funds: 'funds', tflops: 'TFLOPS', covert: 'covert.ops',
-                   ap: 'actions left', keys: 'keys' };
+                   ap: 'actions left', keys: 'keys', materials: 'materials in the yard' };
     if (ch.cost) {
       for (const k in ch.cost) {
         if (haveFor(k) < ch.cost[k]) return `not enough ${name[k] || k}`;
@@ -4740,6 +4761,8 @@ scratch.later = null;
     scratch.tapeProofNow = false;  // the stage on the scaffolds finishes tape-proof
     scratch.buildDelay = 0;        // the scaffolds hold, turns
     scratch.boardUp = false;       // the subject building boards up for good
+    scratch.breakGround = null;    // called: { quiet } — the lot becomes the yard
+    scratch.raiseStage = null;     // called: { stage, metered } — scaffolds go up
     ch.apply(scratch);
     if (scratch.rule && scratch.rule.id) startRule(scratch.rule.id, scratch.rule.turns);
     if (scratch.bank) bank(scratch.bank, 1);
@@ -4773,6 +4796,15 @@ scratch.later = null;
     }
     if (scratch.buildDelay && state.works && state.works.building) {
       state.works.building.turnsLeft += scratch.buildDelay;
+    }
+    if (scratch.breakGround && subject && subject.lot != null && canBreakGround(subject.lot)) {
+      breakGroundCore(subject.lot, scratch.breakGround);
+    }
+    if (scratch.raiseStage) {
+      const w = works();
+      if (!w.building && w.stage === scratch.raiseStage.stage && yardB()) {
+        buildStageCore(w.stage, scratch.raiseStage);
+      }
     }
     if (scratch.boardUp) {
       const sb = subjectBuilding(subject);
@@ -4887,6 +4919,8 @@ scratch.later = null;
     scratch.tapeProofNow = false;
     scratch.buildDelay = 0;
     scratch.boardUp = false;
+    scratch.breakGround = null;
+    scratch.raiseStage = null;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -11786,13 +11820,16 @@ scratch.later = null;
     } else if (w.stage < total) {
       const st = worksStageDef(w.stage);
       const f = worksForecast(w.stage);
-      const short = worksShort(w.stage);
+      // the raise is a called card: power path or the meter, framed as the
+      // choice it is. Red tape gates the call; every price greys with its
+      // reason on the card itself.
+      const off = f.taped ? 'red tape gets there first — cool the street, or bait it' : null;
       body = `
         ${traceForecastBar(f.notice / f.goal, f.taped, 0)}
-        <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${stageHookup(w.stage) ? chip('cost funds', '+' + stageHookup(w.stage) + ' metered hookup — no held path to the grid') : ''}${st.mat ? chip('cost none', '&minus;' + st.mat + ' materials') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
-        <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="build" data-ap="build" data-info="build" ${short ? 'disabled' : ''}>
+        <p class="yield-row">${chip('cost funds', 'from &minus;' + st.funds + ' funds')}${st.mat ? chip('cost none', '&minus;' + st.mat + ' materials') : ''}${chip('cost none', st.turns + ' turns')}${f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')}</p>
+        <button class="act-btn${off ? ' no-ap' : ' primary'}" data-act="call-raise" data-info="build" ${off ? 'disabled' : ''}>
           <span class="ab-name">raise ${st.label}</span>
-          <span class="ab-sub">${short || 'an action, and the scaffolds go up'}</span>
+          <span class="ab-sub">${off || 'the stage comes up as a card — your power, or the meter'}</span>
         </button>`;
     } else {
       body = '<p class="sel-desc source-line"><b>The works is online.</b> The line runs. What comes for it is the next act.</p>';
@@ -11820,15 +11857,20 @@ scratch.later = null;
     const st = worksStageDef(0);
     if (!st) return '';
     const f = worksForecast(0, lot);
-    const short = breakShort(i);
+    // the moment itself is a called card: the button deals it face-up, and
+    // the ways to do it (and their exact prices) are the card's choices.
+    // Only the world-state gate lives here: red tape says no before the
+    // ceremony, the same as it always did.
+    const off = !canBreakGround(i) ? 'the ground is spoken for'
+      : (f && f.taped) ? 'red tape gets there first — cool the street, or bait it' : null;
     return `<div class="sel">
       <div class="sel-top"><span class="sel-name">a vacant lot</span><span class="tag-pill">${dLabel}</span></div>
       <p class="sel-desc">Ground big enough for the works. Break it, and this is the yard — trucks back in here, and the factory rises on this exact spot.</p>
       ${f ? traceForecastBar(f.notice / f.goal, f.taped, 0) : ''}
-      <p class="yield-row">${chip('cost funds', '&minus;' + st.funds + ' funds')}${chip('cost none', st.turns + ' turns of groundwork')}${f ? (f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')) : ''}</p>
-      <button class="act-btn${short ? ' no-ap' : ' primary'}" data-act="break-ground" data-lot="${i}" data-ap="build" data-info="yard" ${short ? 'disabled' : ''}>
+      <p class="yield-row">${chip('cost funds', 'from &minus;' + st.funds + ' funds')}${chip('cost none', st.turns + ' turns of groundwork')}${f ? (f.taped ? chip('cost heat', 'notice ' + f.notice + ' — past the ' + f.goal + ' line') : chip('cover', 'notice ' + f.notice + ' of ' + f.goal + ' — it goes up')) : ''}</p>
+      <button class="act-btn${off ? ' no-ap' : ' primary'}" data-act="call-break" data-lot="${i}" data-info="yard" ${off ? 'disabled' : ''}>
         <span class="ab-name">break ground</span>
-        <span class="ab-sub">${short || 'an action, and the lot is the yard'}</span>
+        <span class="ab-sub">${off || 'the moment comes up as a card — dawn or dark, your call'}</span>
       </button>
     </div>`;
   }
@@ -12279,6 +12321,16 @@ scratch.later = null;
         else if (a === 'bait') { armedTool = null; actBait(b.getAttribute('data-bid')); }
         else if (a === 'burn') { armedTool = null; actBurn(b.getAttribute('data-bid')); }
         else if (a === 'break-ground') actBreakGround(+b.getAttribute('data-lot'));
+        else if (a === 'call-break') {
+          const i = +b.getAttribute('data-lot');
+          const l = lotRect(i);
+          if (l) callCard('breaking_ground', { lot: i, district: l.district });
+        }
+        else if (a === 'call-raise') {
+          const w = works();
+          const st = worksStageDef(w.stage);
+          if (st && !w.building && st.id !== 'site') callCard('raise_' + st.id, { district: (yardB() || {}).district });
+        }
         else if (a === 'front') { armedTool = null; actFront(b.getAttribute('data-bid')); }
         else if (a === 'job') actRunJob(b.getAttribute('data-bid'));
         else if (a === 'truck') actSendTruck(b.getAttribute('data-bid'));
@@ -12755,7 +12807,7 @@ scratch.later = null;
             // only one the strip knew how to say, which is exactly why every
             // card price used to be funds.
             if (ch.cost && usable) {
-              const unit = { funds: 'funds', ap: 'action', keys: 'keys', tflops: 'TFLOPS' };
+              const unit = { funds: 'funds', ap: 'action', keys: 'keys', tflops: 'TFLOPS', materials: 'materials' };
               Object.keys(ch.cost).forEach(k => {
                 const n = ch.cost[k];
                 if (!n) return;
@@ -12964,6 +13016,7 @@ scratch.later = null;
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     faces, faceStance, faceShift, faceLine, noteLedger, ledgerRecent, truckSpeed,
+    callCard, breakGroundCore, buildStageCore,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,

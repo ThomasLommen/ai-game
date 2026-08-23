@@ -2178,7 +2178,7 @@ test('deck: card ids are unique and every card is a real decision', () => {
       // both take (payFor) and say out loud on the strip. Anything else is a
       // silent price, which is the one thing a choice may never have.
       if (ch.cost) Object.keys(ch.cost).forEach(k =>
-        assert.ok(['funds', 'ap', 'keys'].includes(k), `${e.id}[${i}] costs unknown ${k}`));
+        assert.ok(['funds', 'ap', 'keys', 'materials'].includes(k), `${e.id}[${i}] costs unknown ${k}`));
     });
   });
 });
@@ -10226,7 +10226,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 69, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 73, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -12905,4 +12905,76 @@ test('the face on the card: portrait in the arch, stance under the title, incide
   d.render();
   assert.ok(/tcard face[^"]*incident/.test($p.innerHTML), 'the incident tier lost its dress');
   s.card = null;
+});
+
+
+// --- the called cards: the works' big verbs, dealt by their buttons ---------
+
+test('breaking ground by card: the button deals it face-up, and the night crew is quiet', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
+  const i = d.openLots()[0];
+  const lot = d.lotRect(i);
+  // the panel offers the call, not the commit
+  assert.ok(d.lotSel(i).includes('call-break'), 'the lot button does not deal the card');
+  const card = d.callCard('breaking_ground', { lot: i, district: lot.district });
+  assert.ok(card && !card.facedown, 'a called card should come up face first');
+  const f0 = s.res.funds, ap0 = s.ap;
+  d.resolveEvent(1);                      // break it at night, quietly
+  s.card = null;
+  assert.equal(s.res.funds, f0 - 10, 'the night crew was free');
+  assert.equal(s.ap, ap0 - 1, 'no action spent');
+  assert.equal(s.yardLot, i, 'the lot did not become the yard');
+  assert.ok(d.works().building && d.works().building.quiet, 'the crew is not quiet');
+  assert.ok(s.groundBroken > 0, 'the clock did not start');
+  // a quiet stage makes progress without warming the street
+  const susp0 = d.suspicionOf(lot.district);
+  d.worksStep();
+  assert.equal(d.suspicionOf(lot.district), susp0, 'the street heard the quiet crew');
+});
+
+test('the power stage by card: the meter is for strangers, and it charges the yard', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  s.buildings.forEach(b => { b.discovered = true; });
+  // nothing held: no power path anywhere
+  assert.equal(d.actBreakGround(d.openLots()[0]), true, d.breakShort(d.openLots()[0]));
+  let guard = 0;
+  while (d.works().building && guard++ < 30) { s.suspicion = {}; d.worksStep(); }
+  assert.equal(d.works().stage, 1);
+  s.yardStock = { materials: 5 }; s.ap = 9;
+  const ev = d.eventById('raise_power');
+  d.callCard('raise_power', { district: d.lotRect(s.yardLot).district });
+  const chs = d.cardChoices(ev, s.card);
+  assert.equal(d.choiceUsable(chs[0]), false, 'own-power offered with no held path');
+  assert.ok(/held street/.test(d.shortOf(chs[0])), 'the refusal does not say why');
+  assert.equal(d.choiceUsable(chs[1]), true, 'the meter refused a stranger');
+  const f0 = s.res.funds;
+  d.resolveEvent(1);                      // on the meter
+  s.card = null;
+  assert.equal(s.res.funds, f0 - 14, 'the meter premium was not paid');
+  assert.equal(s.yardStock.materials, 2, 'the yard stock was not consumed');
+  assert.ok(d.works().building && d.works().building.metered, 'the meter is not on the ticket');
+});
+
+test('a called card can be walked away from, and it costs nothing', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const i = d.openLots()[0];
+  d.callCard('breaking_ground', { lot: i, district: d.lotRect(i).district });
+  const f0 = s.res.funds, ap0 = s.ap;
+  d.resolveEvent(2);                      // not yet
+  s.card = null;
+  assert.equal(s.res.funds, f0, 'walking away cost money');
+  assert.equal(s.ap, ap0, 'walking away cost an action');
+  assert.equal(s.yardLot, null, 'the ground broke anyway');
 });

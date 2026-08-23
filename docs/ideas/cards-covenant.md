@@ -62,12 +62,24 @@ story beat (moon silver; an act turning).
   (the journalist's byline), the_paperwork (the inspector files the
   gap) — plus covenant tags on already-compliant cards. Ratchet at 21.
 
+## Phase 2 shipped — card-called works
+
+The works' big verbs are ceremonies now. The lot's *break ground* and the
+works panel's *raise* buttons deal a card face-up, instantly (`callCard`:
+no flip, no deck timer). The card frames the real ways to do the act —
+dawn openly (−6f) vs night quietly (−10f, the street hears nothing while
+it builds) for the ground; your own power vs the meter (priced +6, cut-
+immune) for each stage — with exact costs as chips (`materials` is a
+payable card unit now, drawn from the yard). Every called card keeps a
+free walk-away choice. Red tape still gates the call at the button; power
+and prices grey with their reasons on the card. The direct verbs
+(actBreakGround/actBuildStage) survive for bots and tests.
+
 ## Next (approved plan)
 
 1. Rewrite the worst resource-only offenders as reaction cards (keep
    frequency, deepen weight).
-2. Card-called works: lot/stage buttons deal instant ceremony cards
-   (≥2 real answers or they stay buttons); world-dealt stays ≤1/turn.
+2. ~~Card-called works~~ — shipped, see above.
 3. Postures + card-granted allocation upgrades; the allocation dial
    retires.
 4. Act 3 war, card-native from birth — parked until Act 2 playtests solid.
