@@ -100,3 +100,13 @@ channels (clean_room, ally_process) — no new plumbing needed.
 2. ~~Card-called works~~ — shipped, see above.
 3. ~~Postures + upgrades, dial retired~~ — shipped, see above.
 4. Act 3 war, card-native from birth — parked until Act 2 playtests solid.
+
+## Post-posture census (2026-08-23)
+
+20 bot games × 150 turns: **works online 13/20** (turns 79–133) — the
+best spine census yet (3–9/20 post-lot-rework, 12/20 before it). The
+bots never touched the dial; the day-job posture's automatic covert+dev
+split is what closed the gap. The unused allocation screen was real,
+measurable player power left on the table — the postures spend it.
+Funds blocks halved; red tape is now the main throttle, which is the
+designed tension.
