@@ -830,6 +830,13 @@ footer .build { opacity: .55; font-size: 10px; }
 .tcard .choice-strip:hover:not([disabled]) { border-color: color-mix(in srgb, var(--item) 26%, transparent); }
 .tcard .choice-strip:hover:not([disabled]) .ctext { color: var(--item); }
 .tcard .cshow, .tcard .short { font-size: calc(10.5px * var(--card-k)); }
+/* four choices (the posture card) live tighter, or the frame overflows */
+.tcard .choices.dense .choice-strip { padding: calc(5px * var(--card-k)) calc(2px * var(--card-k)); gap: calc(2px * var(--card-k)); }
+.tcard .choices.dense .cshow, .tcard .choices.dense .short { font-size: calc(9.5px * var(--card-k)); }
+.tcard .choices.dense + * , .tcard .choices.dense { margin-top: 0; }
+.tcard.dense .temblem .card-inset, .tcard.dense .temblem svg { width: calc(74px * var(--card-k)); height: calc(74px * var(--card-k)); }
+.tcard.dense .temblem { min-height: calc(96px * var(--card-k)); }
+.tcard.dense .flavor { font-size: calc(11.5px * var(--card-k)); }
 .tcard .choice-strip.gamble { border-style: none; }
 .tcard .choices.asks .choice-strip.place { flex-direction: row; align-items: center; gap: calc(10px * var(--card-k)); }
 .tcard .choice-strip.place .card-inset { width: calc(54px * var(--card-k)); height: calc(54px * var(--card-k)); }

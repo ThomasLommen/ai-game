@@ -1888,6 +1888,7 @@
       selected: null,
       selectedBuilding: null,
       selectedLot: null,
+      posture: 'working',   // the stance that owns the allocation (null = manual)
       yardLot: null,   // the vacant lot ground was broken on — the yard
       keys: 0,         // credentials found on machines, spent one door at a time
       suspicion: {},   // how warm each district is — a fact about here
@@ -2049,9 +2050,32 @@
     render();
     return true;
   }
+  // The posture owns the dials. Every turn the split is recomputed from the
+  // rack as it stands — shares of what is usable and not already inside a
+  // run — so growth flows into the stance you chose without a screen to
+  // visit. posture: null is manual (engine tests, the country scope).
+  function allocFromPosture() {
+    if (!state.posture || state.scope !== 'city') return;
+    const P = ((window.POSTURES || {}).kinds || {})[state.posture];
+    if (!P) return;
+    const pool = Math.max(0, usableTflops() - hackDraw());
+    state.alloc = state.alloc || {};
+    ALLOC_IDS().forEach(id => {
+      state.alloc[id] = Math.floor(pool * (P.shares[id] || 0));
+    });
+  }
+  function setPosture(id) {
+    const P = ((window.POSTURES || {}).kinds || {})[id];
+    if (!P || state.posture === id) return false;
+    state.posture = id;
+    allocFromPosture();
+    pushLog(`The network changes posture: ${P.label}. The racks re-shoulder the load over the next turns.`);
+    return true;
+  }
   // Each turn the live figure walks toward the dial. Nothing here is a fee —
   // the cost of changing your mind is the turns spent between the two.
   function rampAlloc() {
+    allocFromPosture();
     const step = window.GRID.rampPerTurn;
     state.allocLive = state.allocLive || {};
     ALLOC_IDS().forEach(id => {
@@ -4128,6 +4152,7 @@
       // the act, the ledger, the faces, the works: enough for a card to be
       // about what you actually just did, and about the people who noticed
       act: actNow(),
+      posture: state.posture || null,
       ledger: (kind, within) => ledgerRecent(kind, within),
       faces: Object.assign({}, faces()),
       works: (() => {
@@ -4763,6 +4788,7 @@ scratch.later = null;
     scratch.boardUp = false;       // the subject building boards up for good
     scratch.breakGround = null;    // called: { quiet } — the lot becomes the yard
     scratch.raiseStage = null;     // called: { stage, metered } — scaffolds go up
+    scratch.setPosture = null;     // called: the network leans a different way
     ch.apply(scratch);
     if (scratch.rule && scratch.rule.id) startRule(scratch.rule.id, scratch.rule.turns);
     if (scratch.bank) bank(scratch.bank, 1);
@@ -4806,6 +4832,7 @@ scratch.later = null;
         buildStageCore(w.stage, scratch.raiseStage);
       }
     }
+    if (scratch.setPosture) setPosture(scratch.setPosture);
     if (scratch.boardUp) {
       const sb = subjectBuilding(subject);
       if (sb && !burnedAt(sb.id)) {
@@ -4921,6 +4948,7 @@ scratch.later = null;
     scratch.boardUp = false;
     scratch.breakGround = null;
     scratch.raiseStage = null;
+    scratch.setPosture = null;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -8209,7 +8237,7 @@ scratch.later = null;
   function serialize() {
     return {
       v: SAVE_VERSION, turn: state.turn, heat: state.heat, res: state.res, upgrades: state.upgrades || 0, ap: state.ap,
-      alloc: state.alloc || {}, allocLive: state.allocLive || {},
+      alloc: state.alloc || {}, allocLive: state.allocLive || {}, posture: state.posture || null,
       hacks: state.hacks || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
       tags: [...(state.tags || [])], planted: state.planted || [], faces: Object.assign({}, state.faces || {}), ledger: (state.ledger || []).slice(), nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
@@ -8268,6 +8296,8 @@ scratch.later = null;
       return migrateMaterials({
         turn: saved.turn, heat: saved.heat, res: Object.assign({}, saved.res), upgrades: saved.upgrades || 0, ap: (saved.ap === undefined ? window.AP.base : saved.ap),
         alloc: Object.assign({}, saved.alloc || {}), allocLive: Object.assign({}, saved.allocLive || {}),
+        // a save from the dial era takes the balanced stance
+        posture: saved.posture === undefined ? 'working' : saved.posture,
         // Reconciled on the way in, not merely copied. A save written by any
         // earlier build can carry a hack against a door that is finished, or
         // against a host id from a city you are no longer standing in — and
@@ -10670,7 +10700,10 @@ scratch.later = null;
   function renderCapsBtn() {
     const $b = document.getElementById('caps-btn');
     if (!$b) return;
-    $b.innerHTML = 'allocation' + (capsBadge() ? '<span class="badge"></span>' : '');
+    // the allocation sheet retired: the button names the current posture and
+    // deals the switch as a called card
+    const P = ((window.POSTURES || {}).kinds || {})[state.posture] || null;
+    $b.innerHTML = P ? `posture &middot; ${P.label}` : 'allocation' + (capsBadge() ? '<span class="badge"></span>' : '');
   }
 
   function markPanelOverflow() {
@@ -12768,7 +12801,7 @@ scratch.later = null;
         .filter(Boolean);
       const cardBar = barDk && barMarks.length ? suspBar(barV, { marks: barMarks }) : '';
       $p.innerHTML = `
-        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${incident ? ' incident' : ''}${beat}">
+        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${incident ? ' incident' : ''}${chs.length >= 4 ? ' dense' : ''}${beat}">
           ${cardFrame(ev.kind, story, asks, ev.tier)}
           <div class="tface">
             <div class="tplate mono">
@@ -12788,7 +12821,7 @@ scratch.later = null;
                 <rect x="141" y="2.6" width="3" height="3" fill="currentColor"/>
               </svg>
             </div>
-        <div class="choices${asks ? ' asks' : ''}">
+        <div class="choices${asks ? ' asks' : ''}${chs.length >= 4 ? ' dense' : ''}">
           ${chs.map((ch, i) => {
             const usable = choiceUsable(ch);
             const why = usable ? '' : shortOf(ch);
@@ -13016,7 +13049,7 @@ scratch.later = null;
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
     faces, faceStance, faceShift, faceLine, noteLedger, ledgerRecent, truckSpeed,
-    callCard, breakGroundCore, buildStageCore,
+    callCard, breakGroundCore, buildStageCore, allocFromPosture, setPosture,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,
@@ -13063,7 +13096,12 @@ scratch.later = null;
   if ($banner) $banner.addEventListener('click', () => dismissBanner());
 
   const $capsBtn = document.getElementById('caps-btn');
-  if ($capsBtn) $capsBtn.addEventListener('click', () => openSheet('caps'));
+  if ($capsBtn) $capsBtn.addEventListener('click', () => {
+    // the posture card replaced the allocation sheet; the sheet survives
+    // only for saves running manual (posture null — engine and country)
+    if (state.posture && state.scope === 'city' && !state.card && !state.over) callCard('change_posture', null);
+    else openSheet('caps');
+  });
   const $sheetClose = document.getElementById('sheet-close');
   if ($sheetClose) $sheetClose.addEventListener('click', () => closeSheet());
 

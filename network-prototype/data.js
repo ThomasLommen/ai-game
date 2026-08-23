@@ -190,6 +190,37 @@ window.ALLOC_STATS = {
   hidePer: 5,              // covert.ops that buys somewhere to keep a building hidden
 };
 
+// --- postures -------------------------------------------------------------
+// The dials retired as a UI. What replaced them is a stance: one of three
+// named postures owns the allocation, splitting the rack by shares and
+// leaving a stated slice loose for runs. Switching is a called card — the
+// network changing posture is an event, and the effects still ramp, so the
+// cost of changing your mind is still the turns in between. The dial
+// mechanics stay underneath (posture: null = manual, for the engine).
+window.POSTURES = {
+  order: ['quiet', 'working', 'loud'],
+  kinds: {
+    quiet: {
+      label: 'running quiet',
+      shares: { covert: 0.45, intel: 0.15, dev: 0.10, ap: 0, agents: 0 },
+      loose: 0.30,
+      line: 'the street forgets you faster, the response drags its feet, and there is room to keep things hidden',
+    },
+    working: {
+      label: 'the day job',
+      shares: { covert: 0.20, intel: 0.10, dev: 0.25, ap: 0.15, agents: 0 },
+      loose: 0.30,
+      line: 'threads on the racks and tempo in the turn — the balanced hum of a network at work',
+    },
+    loud: {
+      label: 'all hands',
+      shares: { covert: 0, intel: 0.10, dev: 0.35, ap: 0.30, agents: 0 },
+      loose: 0.25,
+      line: 'every rack on the take — more actions, deeper threads, nothing spent on being forgettable',
+    },
+  },
+};
+
 // The mechanics that used to be capability nodes — the ones read directly by
 // name rather than through a generic effect key. Each is now a threshold on an
 // allocation instead of a thing bought once and kept forever, so it runs while
@@ -1602,6 +1633,38 @@ window.EVENTS = [
       { text: 'Let it wait',
         shows: 'the site keeps',
         after: 'One more week of sky over the machines. The tarps hold.',
+        apply: () => {} },
+    ],
+  },
+{
+    // The posture switch: the allocation sheet, reborn as one decision.
+    // Called from the bottom bar; the current posture greys with its name.
+    id: 'change_posture',
+    kind: 'own',
+    called: true,
+    covenant: ['rule'],
+    cond: () => false,
+    title: 'Change of Posture',
+    flavor: 'The whole network leans one way at a time. Pick the way, and the racks re-shoulder the load \u2014 the effects arrive over the next turns, the way a big machine turns.',
+    choices: [
+      { text: 'Run quiet', cost: { ap: 1 },
+        need: (c) => c.posture !== 'quiet', needText: 'you are already running quiet',
+        shows: 'covert 45 \u00b7 intel 15 \u00b7 dev 10 \u00b7 30 loose \u2014 the street forgets faster',
+        after: 'Fans spin down. Logs rotate into nothing. The city hears less of you by the day.',
+        apply: (s) => { s.setPosture = 'quiet'; } },
+      { text: 'The day job', cost: { ap: 1 },
+        need: (c) => c.posture !== 'working', needText: 'this is already the day job',
+        shows: 'dev 25 \u00b7 covert 20 \u00b7 tempo 15 \u00b7 intel 10 \u00b7 30 loose \u2014 the balanced hum',
+        after: 'Everything at a working idle. Nothing showing off, nothing starved.',
+        apply: (s) => { s.setPosture = 'working'; } },
+      { text: 'All hands', cost: { ap: 1 },
+        need: (c) => c.posture !== 'loud', needText: 'every hand is already out',
+        shows: 'dev 35 \u00b7 tempo 30 \u00b7 intel 10 \u00b7 25 loose \u2014 nothing on being forgettable',
+        after: 'The racks lean in. It is faster, and it is louder, and both of those are the point.',
+        apply: (s) => { s.setPosture = 'loud'; } },
+      { text: 'Stay as you are',
+        shows: 'the posture keeps',
+        after: 'The network holds its lean. Some weeks the right move is the one you are already making.',
         apply: () => {} },
     ],
   },

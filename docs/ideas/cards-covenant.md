@@ -75,11 +75,28 @@ free walk-away choice. Red tape still gates the call at the button; power
 and prices grey with their reasons on the card. The direct verbs
 (actBreakGround/actBuildStage) survive for bots and tests.
 
+## Phase 3 shipped — postures own the allocation, the dial retires
+
+Three named stances split the rack by shares, recomputed every turn from
+what is usable and not inside a run — growth flows into the lean you
+chose with no screen to visit:
+
+- **running quiet** — covert 45 / intel 15 / dev 10, 30 loose
+- **the day job** — dev 25 / covert 20 / tempo 15 / intel 10, 30 loose
+- **all hands** — dev 35 / tempo 30 / intel 10, 25 loose
+
+Switching is the called card *Change of Posture* (−1 action; the current
+stance greys with its name; free walk-away; dense 4-choice card dress).
+The bottom-bar button names the current posture and deals the card. The
+dial mechanics survive underneath (`posture: null` = manual — engine
+tests and the country scope); the allocation sheet only opens for manual
+saves. Card-granted permanent bumps ride the existing tag/hardware
+channels (clean_room, ally_process) — no new plumbing needed.
+
 ## Next (approved plan)
 
 1. Rewrite the worst resource-only offenders as reaction cards (keep
    frequency, deepen weight).
 2. ~~Card-called works~~ — shipped, see above.
-3. Postures + card-granted allocation upgrades; the allocation dial
-   retires.
+3. ~~Postures + upgrades, dial retired~~ — shipped, see above.
 4. Act 3 war, card-native from birth — parked until Act 2 playtests solid.

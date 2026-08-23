@@ -8152,6 +8152,7 @@ test('grid: the dial is instant but the effect ramps, and that is the switching 
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
+  s.posture = null;                       // manual dials: the engine under the postures
   s.hosts.forEach(h => { h.owned = true; });
   const A = window.ALLOC.find(a => a.id === 'ap');
 
@@ -8235,6 +8236,7 @@ test('grid: a dial shows what is running and what is still on its way', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
   const s = d.state;
+  s.posture = null;                       // manual dials: the engine under the postures
   s.hosts.forEach(h => { h.owned = true; });
   const A = window.ALLOC.find(a => a.id === 'ap');
 
@@ -10226,7 +10228,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 73, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 74, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -12977,4 +12979,63 @@ test('a called card can be walked away from, and it costs nothing', () => {
   assert.equal(s.res.funds, f0, 'walking away cost money');
   assert.equal(s.ap, ap0, 'walking away cost an action');
   assert.equal(s.yardLot, null, 'the ground broke anyway');
+});
+
+
+// --- postures: the stance that owns the allocation --------------------------
+
+test('postures: the stance splits the rack every turn, and leaves room for runs', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  assert.equal(s.posture, 'working', 'a new game does not take the day job');
+  s.hosts.forEach(h => { h.owned = true; });
+  s.card = null;
+  d.endTurn({ silent: true });
+  // measure against the same pool the engine sees right now
+  d.allocFromPosture();
+  const P = window.POSTURES.kinds.working;
+  const pool = Math.max(0, d.usableTflops() - d.hackDraw());
+  Object.keys(P.shares).forEach(id => {
+    assert.equal(d.allocDial(id), Math.floor(pool * P.shares[id]),
+      `the ${id} dial does not follow the stance`);
+  });
+  assert.ok(d.allocFree() >= Math.floor(pool * P.loose * 0.9), 'no room left for runs');
+});
+
+test('postures: the switch is a called card — it costs an action, greys where you stand, and ramps', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.ap = 4;
+  const ev = d.eventById('change_posture');
+  d.callCard('change_posture', null);
+  const chs = d.cardChoices(ev, s.card);
+  assert.equal(d.choiceUsable(chs[1]), false, 'the current posture is somehow news');
+  assert.ok(/already/.test(d.shortOf(chs[1])), 'the grey does not say where you stand');
+  assert.equal(d.choiceUsable(chs[0]), true, 'running quiet refused');
+  const ap0 = s.ap;
+  d.resolveEvent(0);
+  s.card = null;
+  assert.equal(s.posture, 'quiet', 'the network did not lean');
+  assert.equal(s.ap, ap0 - 1, 'the lean was free');
+  // the dials moved at once; the live figures ramp as ever
+  s.hosts.forEach(h => { h.owned = true; });
+  d.allocFromPosture();
+  const P = window.POSTURES.kinds.quiet;
+  const pool = Math.max(0, d.usableTflops() - d.hackDraw());
+  assert.equal(d.allocDial('covert'), Math.floor(pool * P.shares.covert), 'quiet does not favour covert');
+  assert.equal(d.allocDial('ap'), 0, 'quiet still spends on tempo');
+});
+
+test('postures: null is manual — the engine under the stances is untouched', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.posture = null;
+  s.hosts.forEach(h => { h.owned = true; });
+  d.setAlloc('dev', 5);
+  s.card = null;
+  d.endTurn({ silent: true });
+  assert.equal(d.allocDial('dev'), 5, 'manual dials were clobbered');
 });
