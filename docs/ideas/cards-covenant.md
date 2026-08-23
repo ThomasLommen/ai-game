@@ -55,6 +55,12 @@ story beat (moon silver; an act turning).
 - Cards: locksmiths_ledger (replaces the_locksmith), book_changes_hands,
   the_vigil, pothole_petition, clipboard, column_inches, sold_for_parts.
 - Covenant lint in the test suite.
+- Wave 2: nine of the flattest merchants deepened in place, keeping
+  their fiction — net_curtains (the street watches back), empty_office
+  and landlord (a way through, permanently), curfew_talk (organised
+  streets harden), dead_drop (it is the fixer's drop), buried_archive
+  (the journalist's byline), the_paperwork (the inspector files the
+  gap) — plus covenant tags on already-compliant cards. Ratchet at 21.
 
 ## Next (approved plan)
 

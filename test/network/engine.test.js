@@ -12711,7 +12711,7 @@ test('covenant: fields are valid, faces exist, and the batch is present', () => 
   const LEGS = ['map', 'rule', 'person', 'sequel'];
   const TIERS = ['incident'];
   const carrying = window.EVENTS.filter(e => e.covenant);
-  assert.ok(carrying.length >= 7, 'the covenant batch shrank');
+  assert.ok(carrying.length >= 21, 'the covenant batch shrank');
   carrying.forEach(e => {
     assert.ok(Array.isArray(e.covenant) && e.covenant.length, e.id + ': covenant must name its legs');
     e.covenant.forEach(l => assert.ok(LEGS.includes(l), e.id + ': unknown covenant leg ' + l));
