@@ -1218,6 +1218,28 @@ window.CARD_RULES = {
                     desc: 'nothing you do warms a street while it lasts' },
   free_hands:     { label: 'scans cost nothing', turns: 6,
                     desc: 'looking around takes no action while it lasts' },
+  watched_roads:  { label: 'watched roads', turns: 10,
+                    desc: 'the council is counting lorries — your trucks drive at two-thirds speed while it lasts' },
+};
+
+// --- the faces ------------------------------------------------------------
+// Recurring people with memory. Stance is a small serialized integer per
+// face (-3..3); the line under their name says where you stand, in words,
+// and the deck reads the number. A living world is mostly people who come
+// back with the stance you earned.
+window.FACES = {
+  fixer: { label: 'the fixer', lines: {
+    warm: 'he owes you, and knows it', kind: 'he remembers you kindly',
+    neutral: 'you are a customer, so far', cool: 'he counts the money twice',
+    hostile: 'he is done with you' } },
+  inspector: { label: 'the inspector', lines: {
+    warm: 'your file is thin, on purpose', kind: 'she files you under routine',
+    neutral: 'she has a file on you', cool: 'your file has a flag on it',
+    hostile: 'she is building a case' } },
+  journalist: { label: 'the journalist', lines: {
+    warm: 'you are a source now', kind: 'she owes you a story',
+    neutral: 'she has seen your shape', cool: 'she is asking about you',
+    hostile: 'you are the story' } },
 };
 // ...and things you bank rather than run down: one use, held until spent.
 window.CARD_BANKED = {
@@ -1280,25 +1302,203 @@ window.EVENTS = [
     ],
   },
 {
-    id: 'the_locksmith',
+    // The fixer's introduction. He cuts keys for half the district and
+    // writes every job in a book; the book is the business. Shorting him is
+    // the deck's first taught lesson in consequence: the sequel is named on
+    // the choice, and it arrives.
+    id: 'locksmiths_ledger',
     kind: 'someone',
+    face: 'fixer',
+    covenant: ['person', 'sequel'],
     cond: (s) => s.held >= 4 && s.turn >= 8,
     subject: (c, st) => EV_SPOT(c, st),
-    title: 'The Locksmith Retires',
-    flavor: 'Forty years of fitting the locks in {DISTRICT}, and a going-out-of-business box of everything that opens them. He would rather sell it than explain it.',
+    title: 'The Locksmith\u2019s Ledger',
+    flavor: 'He cuts keys for half of {DISTRICT} and writes every job in a book. The book is the business. Today he is selling a key you want, and watching you decide what kind of customer you are.',
     choices: [
-      { text: 'Buy his book', cost: { funds: 10 },
-        shows: '{PLACE} defends 3 easier, permanently',
-        after: 'Every quirk of every door he fitted, in pencil. One address gets a whole page.',
-        apply: (s) => { s.hardenThere = -3; } },
-      { text: 'Buy the keyring', cost: { funds: 14 },
-        shows: '+2 sets of keys',
-        after: 'A pound of brass and two masters that still turn. He does not ask what you want them for, which is its own kind of receipt.',
-        apply: (s) => { s.keys = (s.keys || 0) + 2; } },
-      { text: 'Let him retire in peace',
-        shows: '{DISTRICT} cools by 3, from {SUSP}',
-        after: 'You buy nothing, shake his hand, and leave. Somewhere a stack of secrets goes to a skip, unread.',
-        apply: (s) => { s.coolHere = 3; } },
+      { text: 'Pay his price', cost: { funds: 6 },
+        shows: '+1 set of keys',
+        after: 'Brass changes hands. He writes the job in the book, the way he writes everything in the book.',
+        apply: (s) => { s.keys = (s.keys || 0) + 1; } },
+      { text: 'Pay for the page too', cost: { funds: 10 },
+        shows: '+1 set of keys \u00b7 your jobs leave his book, and the fixer remembers',
+        after: 'He tears the page out and burns it in the ashtray while you watch. That is what the extra buys: a witness who chose not to be one.',
+        apply: (s) => { s.keys = (s.keys || 0) + 1; s.face = { who: 'fixer', by: 1 }; } },
+      { text: 'Take the key and pay him never',
+        shows: '+1 set of keys \u00b7 the book changes hands within the week \u2014 it will be about your doors',
+        after: 'He counts it twice, says nothing, and writes a little longer than usual. You know exactly what you just bought, and it was not the key.',
+        apply: (s) => { s.keys = (s.keys || 0) + 1; s.face = { who: 'fixer', by: -2 };
+          s.later = { id: 'book_changes_hands', minTurns: 4, maxTurns: 8, subject: { district: s.here } }; } },
+    ],
+  },
+{
+    // The sequel the shorted fixer named. Dealt by the planted queue only.
+    id: 'book_changes_hands',
+    kind: 'closing',
+    face: 'fixer',
+    tier: 'incident',
+    covenant: ['map', 'person'],
+    once: true,
+    cond: () => false,
+    title: 'The Book Changes Hands',
+    flavor: 'The ledger got sold to someone who reads. Every door you keyed in {DISTRICT} is a line in it, and the lines join up.',
+    choices: [
+      { text: 'Buy it back at the new price', cost: { funds: 14 },
+        shows: 'the book burns \u00b7 nothing else changes hands',
+        after: 'It costs what it costs. You burn it unread, which the seller finds hilarious and you find necessary.',
+        apply: () => {} },
+      { text: 'Let them read',
+        shows: 'every door in {DISTRICT} hardens by 2, for good \u00b7 the fixer is done with you',
+        after: 'A week later every lock you knew the shape of has been changed. The new ones are better.',
+        apply: (s) => { s.hardenDistrict = 2; s.face = { who: 'fixer', by: -3 }; } },
+    ],
+  },
+{
+    // Reaction: your burn, remembered by the street that watched it.
+    id: 'the_vigil',
+    kind: 'someone',
+    tier: 'incident',
+    covenant: ['map', 'person'],
+    cond: (s) => s.act >= 1 && s.ledger('burn', 4).length > 0,
+    subject: (c, st) => {
+      const e = c.ledger('burn', 4).slice(-1)[0];
+      return e ? { buildingId: e.bid, district: e.dk } : null;
+    },
+    title: 'The Vigil',
+    flavor: 'Candles on the pavement outside the shell of {PLACE}. The street is telling itself the story again, out loud, to see if it holds.',
+    choices: [
+      { text: 'Send flowers, no name',
+        shows: '{DISTRICT} cools by 3, from {SUSP} \u00b7 the journalist hears about the fire',
+        after: 'The story settles into accident, the way stories do when somebody grieves correctly. One reporter keeps a candle stub in an envelope.',
+        apply: (s) => { s.coolHere = 3; s.face = { who: 'journalist', by: 1 }; } },
+      { text: 'Stay away',
+        shows: 'the two buildings beside the shell harden by 2, for good',
+        after: 'Nobody grieves, so the neighbours organise instead. New locks, new lights, a list of number plates.',
+        apply: (s) => { s.hardenNeighbours = 2; } },
+    ],
+  },
+{
+    // Reaction: your trucks, counted by the street they use.
+    id: 'pothole_petition',
+    kind: 'opening',
+    covenant: ['rule', 'person'],
+    cond: (s) => {
+      const by = {};
+      s.ledger('transit', 4).forEach(e => { by[e.dk] = (by[e.dk] || 0) + 1; });
+      return Object.values(by).some(n => n >= 3);
+    },
+    subject: (c) => {
+      const by = {};
+      c.ledger('transit', 4).forEach(e => { by[e.dk] = (by[e.dk] || 0) + 1; });
+      const dk = Object.keys(by).sort((a, b) => by[b] - by[a])[0];
+      return dk ? { district: dk } : null;
+    },
+    title: 'The Pothole Petition',
+    flavor: 'Somebody counted the lorries. There is a clipboard going door to door in {DISTRICT}, and your name is not on it yet.',
+    choices: [
+      { text: 'Pay for the resurfacing', cost: { funds: 8 },
+        shows: '{DISTRICT} cools by 2, from {SUSP} \u00b7 the trucks keep their speed',
+        after: 'A crew you never meet fills the holes your fleet made. The clipboard declares victory and goes home.',
+        apply: (s) => { s.coolHere = 2; } },
+      { text: 'Let the council wake up about lorries',
+        shows: 'your trucks drive at two-thirds speed for 10 turns',
+        after: 'Cameras on poles, a man with a speed gun. Everything still moves; everything moves slower.',
+        apply: (s) => { s.rule = { id: 'watched_roads', turns: 10 }; } },
+      { text: 'Ignore it',
+        shows: '+3 suspicion in {DISTRICT}, from {SUSP} \u00b7 the inspector gets a copy',
+        after: 'The petition gets photographed, stapled, and filed by somebody who files things where she can find them.',
+        apply: (s) => { s.warmHere = 3; s.face = { who: 'inspector', by: -1 }; } },
+    ],
+  },
+{
+    // The inspector, at the works fence, while a stage is on the scaffolds.
+    id: 'clipboard',
+    kind: 'closing',
+    face: 'inspector',
+    covenant: ['rule', 'person'],
+    cond: (s) => s.act >= 2 && s.works.building,
+    subject: (c) => (c.works.district ? { district: c.works.district } : null),
+    title: 'Clipboard',
+    flavor: 'A woman at the gate with a laminate and all day. She has questions about the crane, and she is not asking them loudly yet.',
+    choices: [
+      { text: 'Show her the company',
+        need: (c) => c.fronts > 0, needText: 'needs a front',
+        shows: 'the stage on the scaffolds finishes tape-proof \u00b7 the inspector remembers a real business',
+        after: 'Invoices, a sign, a firm that runs jobs the city can see. She reads it twice and closes the folder. Paper beats questions.',
+        apply: (s) => { s.tapeProofNow = true; s.face = { who: 'inspector', by: 1 }; } },
+      { text: 'The envelope', cost: { funds: 8 },
+        shows: 'she goes away \u00b7 a paid inspector is a page in somebody\u2019s file',
+        after: 'She takes it the way people take things they have taken before. The gate closes. Somewhere, a page turns over.',
+        apply: (s) => { s.face = { who: 'inspector', by: -1 }; } },
+      { text: 'Turn her away at the fence',
+        shows: 'the build holds 1 turn \u00b7 +3 suspicion in {DISTRICT}, from {SUSP}',
+        after: 'She leaves without arguing, which is worse. The crane stands still for a day while everyone on the street watches it not move.',
+        apply: (s) => { s.buildDelay = 1; s.warmHere = 3; } },
+    ],
+  },
+{
+    // The journalist, once the city has an opinion to have.
+    id: 'column_inches',
+    kind: 'someone',
+    face: 'journalist',
+    covenant: ['map', 'person'],
+    cond: (s) => s.pubTier !== 'unknown' || s.faces.journalist !== 0,
+    subject: (c) => {
+      const shell = c.shells.slice(-1)[0];
+      if (shell) return { buildingId: shell.bid, district: shell.dk };
+      return c.susp.warmest ? { district: c.susp.warmest } : null;
+    },
+    title: 'Column Inches',
+    flavor: 'She has the outage map on her wall and it is starting to look like a shape. She would rather print a better story, if somebody gave her one.',
+    choices: [
+      { text: 'Give her the fire',
+        need: (c) => c.shells.length > 0, needText: 'needs a burned shell to point at',
+        shows: '{DISTRICT} cools by 5, from {SUSP} \u00b7 the fire is fact now, in ink',
+        after: 'ARSON QUESTIONS gets the front of the local section. It is a better story than yours, which is the whole point of giving it to her.',
+        apply: (s) => { s.coolHere = 5; s.face = { who: 'journalist', by: 1 }; } },
+      { text: 'Give her nothing',
+        shows: 'she keeps digging: your warmest held building is watched, for good',
+        after: 'She thanks you for your time in a way that means the opposite. The next photograph on her wall is one of yours.',
+        apply: (s) => { s.watchWarmest = true; s.face = { who: 'journalist', by: -1 }; } },
+      { text: 'Give her the works',
+        need: (c) => c.works.groundBroken, needText: 'needs ground broken',
+        shows: 'the factory has a name in print \u00b7 public standing rises',
+        after: 'LOCAL FIRM BUILDS is not a headline anyone frames, but it is the first time the city has been told what you are on your own terms.',
+        apply: (s) => { s.pub = 6; s.face = { who: 'journalist', by: 1 }; } },
+    ],
+  },
+{
+    // The world moves without you: a building on the market, going one way
+    // or the other whether or not you act. The map changes either way.
+    id: 'sold_for_parts',
+    kind: 'opening',
+    tier: 'incident',
+    covenant: ['map'],
+    cond: (s) => s.turn >= 10,
+    subject: (c, st) => {
+      const marks = (st && st.marks) || {};
+      const dead = (bid) => !!(marks[bid] || {}).burned;
+      const held = (b) => (st.hosts || []).some(h => h.buildingId === b.id && h.owned);
+      const pool = (st.buildings || []).filter(b => b.discovered && !dead(b.id) && !held(b)
+        && (st.hosts || []).some(h => h.buildingId === b.id && !h.origin));
+      if (!pool.length) return null;
+      const b = pool[Math.floor(Math.random() * pool.length)];
+      return { buildingId: b.id, district: b.district };
+    },
+    title: 'Sold For Parts',
+    flavor: 'Word is {PLACE} is going on the market. The kind of buyer who is circling does not keep tenants, or wiring.',
+    choices: [
+      { text: 'Outbid them', cost: { funds: 12 },
+        shows: 'its doors soften by 3 \u00b7 a take there is paid for, banked',
+        after: 'You buy it the boring way, through three names none of which are yours. The keys arrive by post.',
+        apply: (s) => { s.hardenThere = -3; s.bank = 'free_take'; } },
+      { text: 'Let it happen',
+        shows: '{PLACE} boards up for good \u2014 everything in it leaves the map',
+        after: 'The vans take a week. Then plywood, then silence. The street has one more dark window and you watched it happen.',
+        apply: (s) => { s.boardUp = true; } },
+      { text: 'Tip off the tenants', cost: { funds: 4 },
+        shows: 'they dig in: {PLACE} hardens by 2 \u00b7 {DISTRICT} cools by 2, from {SUSP}',
+        after: 'A lawyer you paid for stands in a doorway reading from a folder. The circling buyer stops circling. The street remembers who knew first.',
+        apply: (s) => { s.hardenThere = 2; s.coolHere = 2; } },
     ],
   },
 {

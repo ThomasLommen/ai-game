@@ -2523,10 +2523,11 @@
       offerCard(id, (f && f.subject) || null);
       bumpEventTimer();
     } else if (!state.card && duePlanted().length) {
-      // something you set in motion earlier coming back around
-      const id = duePlanted()[0];
-      state.planted = (state.planted || []).filter(p => p.id !== id);
-      offerCard(id, null);
+      // something you set in motion earlier coming back around — about the
+      // place it was planted over, not a fresh roll of the map
+      const due = duePlanted()[0];
+      state.planted = (state.planted || []).filter(p => p !== due);
+      offerCard(due.id, due.subject || null);
       bumpEventTimer();
     } else if (!state.card && state.turn >= state.nextEventTurn) {
       // The timer is a floor now, not the rhythm. Cards are meant to arrive
@@ -3151,6 +3152,7 @@
     state.hacks = hacks().filter(k => (hostById(k.hostId) || {}).buildingId !== bid);
     if (isHidden(bid)) state.hidden = hidden().filter(x => x !== bid);
     setMark(bid, 'burned', true);
+    noteLedger('burn', bid, b.district);
     const S = window.SUSPICION || {};
     const d = b.district;
     const before = suspicionOf(d);
@@ -3273,6 +3275,12 @@
     return { points: clean, length: Math.round(dist.B), edges: used };
   }
   function trucks() { return state.trucks || (state.trucks = []); }
+  // One number for how fast a lorry moves, honoring the council's mood —
+  // the preview quotes it and the wheels obey it, so they cannot disagree.
+  function truckSpeed() {
+    const base = ((window.SOURCES || {}).truck || {}).speed || 150;
+    return ruleOn('watched_roads') ? Math.round(base * 2 / 3) : base;
+  }
   // The yard is ground, not a building: a vacant lot the map generated,
   // chosen by breaking ground on it. It cannot be burned and it cannot be
   // lost — it is where the works itself rises.
@@ -3339,7 +3347,7 @@
     });
     return {
       route,
-      turns: Math.max(1, Math.ceil(route.length / (S.speed || 150))),
+      turns: Math.max(1, Math.ceil(route.length / truckSpeed())),
       districts: [...crossed],
       warmEach: Math.round((S.warm || 0) * (actNow() >= 2 ? 2 : 1) * 10) / 10,
     };
@@ -3376,7 +3384,7 @@
       seg: 0, done: 0, turnsLeft: pv.turns,
     });
     // a loaded lorry is not subtle — every street on the route hears it
-    pv.districts.forEach(dk => warmDistrict(dk, (((window.SOURCES || {}).truck || {}).warm) || 0));
+    pv.districts.forEach(dk => { warmDistrict(dk, (((window.SOURCES || {}).truck || {}).warm) || 0); noteLedger('transit', bid, dk); });
     pushLog(`A truck leaves the ${window.BUILDING_KINDS[b.kind].label} loaded with ${((window.SOURCES || {}).kinds[b.source] || {}).label}. ${pv.turns} turn${pv.turns === 1 ? '' : 's'} to the yard.`);
     persistNow();
     render();
@@ -3386,7 +3394,7 @@
   // reroutes from where it stands; one with no way through waits it out.
   function truckStep() {
     const S = (window.SOURCES || {}).truck || {};
-    const speed = S.speed || 150;
+    const speed = truckSpeed();
     const blocked = cutRoadEdges();
     trucks().forEach(t => {
       if ((t.edges || []).some(e => blocked.has(e))) {
@@ -3474,6 +3482,7 @@
     const w = works();
     w.building = { i: 0, turnsLeft: st.turns, notice: 0, metered: false };
     state.groundBroken = state.turn;
+    noteLedger('ground', null, lot.district);
     pushLog('Ground broken. The lot is the yard now — trucks back in here, and from here the city is watching what goes up.');
     persistNow();
     render();
@@ -3602,7 +3611,7 @@
       return;
     }
     const rate = (W.noticeBase || 1) + feltSuspicion(yard.district, yard.id) * (W.noticeK || 0);
-    if ((w.building.notice || 0) + rate >= (W.goal || 14) && w.building.turnsLeft > 1) {
+    if (!w.building.tapeProof && (w.building.notice || 0) + rate >= (W.goal || 14) && w.building.turnsLeft > 1) {
       if (w.stalled !== 'tape') pushLog('Red tape holds the site — somebody asked whose crane that is. The build waits for the street to cool.');
       w.stalled = 'tape';
       return;
@@ -3667,7 +3676,7 @@
     const route = roadRoute(fb, pick);
     if (!route) return null;
     const S = (window.SOURCES || {}).truck || {};
-    const turns = Math.max(1, Math.ceil(route.length / (S.speed || 520)));
+    const turns = Math.max(1, Math.ceil(route.length / truckSpeed()));
     return { to: pick.id, route, turns,
       pay: (F.payBase || 4) + (F.payPerTurn || 2) * turns, cool: F.cool || 2 };
   }
@@ -3680,6 +3689,7 @@
       kind: 'job', front: bid, to: job.to, pay: job.pay, cool: job.cool,
       points: job.route.points, edges: job.route.edges, seg: 0, done: 0, turnsLeft: job.turns,
     });
+    noteLedger('job', bid, (buildingById(bid) || {}).district);
     pushLog(`A job goes out: ${job.turns} turn${job.turns === 1 ? '' : 's'} on the road for ${job.pay} funds.`);
     persistNow();
     render();
@@ -4110,6 +4120,21 @@
       })(),
       caughtHere: caughtHere(),
       hunt: huntOn(),
+      // the act, the ledger, the faces, the works: enough for a card to be
+      // about what you actually just did, and about the people who noticed
+      act: actNow(),
+      ledger: (kind, within) => ledgerRecent(kind, within),
+      faces: Object.assign({}, faces()),
+      works: (() => {
+        const w = state.works || { stage: 0, building: null };
+        const lot = state.yardLot != null ? lotRect(state.yardLot) : null;
+        return { stage: w.stage || 0, building: !!w.building,
+          district: lot ? lot.district : null, groundBroken: !!state.groundBroken };
+      })(),
+      fronts: (state.fronts || []).filter(bid => !burnedAt(bid)).length,
+      shells: Object.keys(state.marks || {})
+        .filter(bid => (state.marks[bid] || {}).burned && buildingById(bid))
+        .map(bid => ({ bid, dk: (buildingById(bid) || {}).district })),
       keys: state.keys || 0,
       // doors standing open on your edge — a card that asks you to choose
       // between two places needs to know there are two to choose between
@@ -4224,7 +4249,7 @@
   // anything never seen is favoured, so the deck cycles instead of looping.
   // What you set in motion that has come due.
   function duePlanted() {
-    return (state.planted || []).filter(p => p.at <= state.turn).map(p => p.id);
+    return (state.planted || []).filter(p => p.at <= state.turn);
   }
   function drawEvent() {
     const pool = eligibleEvents();
@@ -4310,6 +4335,37 @@
     if (!m || !m.opened) return;
     const left = m.opened.filter(x => x !== gone);
     setMark(bid, 'opened', left.length ? left : null);
+  }
+  // --- the world's memory --------------------------------------------------
+  // The faces: recurring people, and where you stand with each (-3..3).
+  // The number is read by the deck; the words are read by you.
+  function faces() {
+    const f = state.faces || (state.faces = {});
+    Object.keys(window.FACES || {}).forEach(k => { if (!(k in f)) f[k] = 0; });
+    return f;
+  }
+  function faceStance(who) { return faces()[who] || 0; }
+  function faceLine(who) {
+    const F = (window.FACES || {})[who] || {};
+    const s = faceStance(who);
+    const L = F.lines || {};
+    return (s >= 2 ? L.warm : s === 1 ? L.kind : s === -1 ? L.cool : s <= -2 ? L.hostile : L.neutral) || '';
+  }
+  function faceShift(who, by) {
+    if (!by || !(window.FACES || {})[who]) return;
+    const f = faces();
+    f[who] = Math.max(-3, Math.min(3, (f[who] || 0) + by));
+    const F = window.FACES[who];
+    pushLog(`${F.label[0].toUpperCase() + F.label.slice(1)} will remember that \u2014 ${faceLine(who)}.`);
+  }
+  // The ledger: what you did lately, so the deck can be about it by name.
+  function noteLedger(kind, bid, dk) {
+    const l = state.ledger || (state.ledger = []);
+    l.push({ t: state.turn, kind, bid: bid || null, dk: dk || null });
+    if (l.length > 48) l.splice(0, l.length - 48);
+  }
+  function ledgerRecent(kind, within) {
+    return (state.ledger || []).filter(e => e.kind === kind && state.turn - e.t <= within);
   }
   const baitAt = (bid) => !!(markOf(bid) || {}).bait;
   const watchedAt = (bid) => !!(markOf(bid) || {}).watch;
@@ -4589,11 +4645,12 @@
       const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return `not ${name[ch.gate.stat] || ch.gate.stat} enough`;
     }
+    if (ch.need && ch.needText) return ch.needText;
     return 'not yet';
   }
   // Choices nothing can close: no cost, no gate. Every card is required to have
   // one, or a run that is broke can be handed a card it cannot answer at all.
-  function openChoices(ev) { return (ev.choices || []).filter(c => !c.cost && !c.gate); }
+  function openChoices(ev) { return (ev.choices || []).filter(c => !c.cost && !c.gate && !c.need); }
 
   function choiceUsable(ch) {
     if (ch.cost) for (const k in ch.cost) if (haveFor(k) < ch.cost[k]) return false;
@@ -4601,6 +4658,8 @@
       const val = ch.gate.stat === 'tflops' ? tflops() : ch.gate.stat === 'covert' ? covertOps() : (state.res[ch.gate.stat] || 0);
       if (val < ch.gate.min) return false;
     }
+    // a choice can need a fact about the world, stated in its own words
+    if (ch.need) { try { if (!ch.need(eventContext())) return false; } catch (e) { return false; } }
     return true;
   }
 
@@ -4673,6 +4732,14 @@ scratch.later = null;
     scratch.rule = null;        // { id, turns } — capped at two live at once
     scratch.bank = null;        // id of a one-shot to hold until you spend it
     scratch.actBreak = false;   // the story turns: this card advances the act
+    // the world's people and its aftermaths, in the same declarative voice
+    scratch.face = null;           // { who, by } — a person remembers
+    scratch.hardenNeighbours = 0;  // the two buildings beside the subject
+    scratch.hardenDistrict = 0;    // every building in the card's district
+    scratch.watchWarmest = false;  // your warmest held building, watched
+    scratch.tapeProofNow = false;  // the stage on the scaffolds finishes tape-proof
+    scratch.buildDelay = 0;        // the scaffolds hold, turns
+    scratch.boardUp = false;       // the subject building boards up for good
     ch.apply(scratch);
     if (scratch.rule && scratch.rule.id) startRule(scratch.rule.id, scratch.rule.turns);
     if (scratch.bank) bank(scratch.bank, 1);
@@ -4680,6 +4747,43 @@ scratch.later = null;
     // point of a mark, and it is why they only exist on cards with a subject.
     applyMarks(subjectBuilding(subject), scratch);
     if (scratch.markOther) applyMarks(buildingById(subject && subject.otherId), scratch.markOther);
+    if (scratch.face) faceShift(scratch.face.who, scratch.face.by);
+    if (scratch.hardenNeighbours) {
+      const sb = subjectBuilding(subject);
+      if (sb) buildingNeighbours(sb.id).slice(0, 2).forEach(nid => {
+        setMark(nid, 'harden', hardenAt(nid) + scratch.hardenNeighbours);
+      });
+    }
+    if (scratch.hardenDistrict && scratch.here) {
+      (state.buildings || []).forEach(b => {
+        if (b.district === scratch.here && !burnedAt(b.id) && hostsIn(b).length) {
+          setMark(b.id, 'harden', hardenAt(b.id) + scratch.hardenDistrict);
+        }
+      });
+      pushLog('New locks, street by street. Every door there answers harder now.');
+    }
+    if (scratch.watchWarmest) {
+      const held = (state.buildings || []).filter(b => buildingHeld(b) && !burnedAt(b.id));
+      const warm = held.sort((a, b) => suspicionOf(b.district) - suspicionOf(a.district))[0];
+      if (warm) { setMark(warm.id, 'watch', true); pushLog(`The ${window.BUILDING_KINDS[warm.kind].label} is in somebody\u2019s viewfinder now, for good.`); }
+    }
+    if (scratch.tapeProofNow && state.works && state.works.building) {
+      state.works.building.tapeProof = true;
+      if (state.works.stalled === 'tape') state.works.stalled = null;
+    }
+    if (scratch.buildDelay && state.works && state.works.building) {
+      state.works.building.turnsLeft += scratch.buildDelay;
+    }
+    if (scratch.boardUp) {
+      const sb = subjectBuilding(subject);
+      if (sb && !burnedAt(sb.id)) {
+        hostsIn(sb).forEach(h => { h.owned = false; });
+        state.hacks = hacks().filter(k => (hostById(k.hostId) || {}).buildingId !== sb.id);
+        setMark(sb.id, 'burned', true);
+        setMark(sb.id, 'boarded', true);
+        pushLog(`The ${window.BUILDING_KINDS[sb.kind].label} boards up. One more dark window on the street.`);
+      }
+    }
     // Suspicion, addressed to the card's own district. Cooling is direct —
     // a card resolving "you went quiet there" is not the rotation rule —
     // and both are clamped by warmDistrict's own arithmetic.
@@ -4720,9 +4824,15 @@ scratch.later = null;
     // A choice that plants something instead of resolving now. The deck's own
     // timer does not get a say: this was set in motion, and it arrives.
     if (scratch.later && scratch.later.id) {
+      // ranged timing rolls now, seeded — upstream of the sequel, the same
+      // side of your decision as every other chance in the deck
+      const lo = scratch.later.minTurns || scratch.later.turns || 3;
+      const hi = scratch.later.maxTurns || lo;
+      const roll = lo + Math.floor(cityNoise(idSeed(scratch.later.id), state.turn) * (hi - lo + 1));
       state.planted = (state.planted || []).concat([{
         id: scratch.later.id,
-        at: state.turn + Math.max(1, scratch.later.turns || 3),
+        at: state.turn + Math.max(1, roll),
+        subject: scratch.later.subject || null,
       }]);
       pushLog('That is not the end of it. Somebody will be back.');
     }
@@ -4770,6 +4880,13 @@ scratch.later = null;
     scratch.markOther = null;
     scratch.rule = null;
     scratch.bank = null;
+    scratch.face = null;
+    scratch.hardenNeighbours = 0;
+    scratch.hardenDistrict = 0;
+    scratch.watchWarmest = false;
+    scratch.tapeProofNow = false;
+    scratch.buildDelay = 0;
+    scratch.boardUp = false;
 
     state.heat = Math.max(0, state.heat);
     if (state.eventsSeen.indexOf(ev.id) === -1) state.eventsSeen.push(ev.id);
@@ -4784,6 +4901,7 @@ scratch.later = null;
       // object turns over to its resolved face rather than the text quietly
       // changing under the reader
       ? { kind: 'after', evKind: ev.kind || null, subject, turning: true, beat: !!ev.beat,
+          tier: ev.tier || null, evFace: ev.face || null,
           title: cardText(ev.title, subject), text: afterText }
       : null;
     pushLog(`${cardText(ev.title, subject)} — ${ch.text}.` + (afterText ? ` ${afterText}` : ''));
@@ -5666,6 +5784,7 @@ scratch.later = null;
       state.caughtHere = (state.caughtHere || 0)
         + (has('scrutiny') ? 2 : 1) + (baitAt(h.buildingId) ? 1 : 0);
       state.caughtAt = (state.caughtAt || []).concat([h.buildingId]).slice(-8);
+      noteLedger('catch', h.buildingId, h.district);
       // the explaining bar has a teaching budget: the first few catches say
       // the whole sentence, after that the red-eye chip carries the count
       (state.hints = state.hints || {}).caughtBar = ((state.hints || {}).caughtBar || 0) + 1;
@@ -8059,7 +8178,7 @@ scratch.later = null;
       alloc: state.alloc || {}, allocLive: state.allocLive || {},
       hacks: state.hacks || [],
       buildings: state.buildings, adjacency: state.adjacency, bands: state.bands || [],
-      tags: [...(state.tags || [])], planted: state.planted || [], nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
+      tags: [...(state.tags || [])], planted: state.planted || [], faces: Object.assign({}, state.faces || {}), ledger: (state.ledger || []).slice(), nextEventTurn: state.nextEventTurn || 0, eventsSeen: state.eventsSeen || [], recentEvents: state.recentEvents || [], eventSeenCount: state.eventSeenCount || {},
       hosts: state.hosts, links: state.links, log: state.log, keys: state.keys || 0,
       lastStage: state.lastStage, cityWon: state.cityWon || false, rival: state.rival, over: state.over,
       card: state.card, selected: state.selected, ally: state.ally || null, cuts: state.cuts || [], lastCutTurn: state.lastCutTurn || -99, hidden: state.hidden || [],
@@ -8127,7 +8246,7 @@ scratch.later = null;
         }),
         mount: saved.mount || (window.PROGRAMS[0] || {}).id,
         buildings: saved.buildings || [], adjacency: saved.adjacency || {}, bands: saved.bands || [], view: null,
-        tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
+        tags: new Set(saved.tags || []), planted: (saved.planted || []).slice(), faces: Object.assign({}, saved.faces || {}), ledger: (saved.ledger || []).slice(), nextEventTurn: saved.nextEventTurn || 0, eventsSeen: (saved.eventsSeen || []).slice(), recentEvents: (saved.recentEvents || []).slice(), eventSeenCount: Object.assign({}, saved.eventSeenCount || {}),
         hosts: saved.hosts, links: saved.links, log: saved.log || [], keys: saved.keys || 0,
         lastStage: saved.lastStage, cityWon: !!saved.cityWon, rival: saved.rival || { awake: false, buildings: [], lastActed: 0, seen: false }, over: !!saved.over,
         card: saved.card || null, selected: saved.selected || null, ally: saved.ally || null, war: saved.war || null, seen: saved.seen || [],
@@ -9204,6 +9323,7 @@ scratch.later = null;
     // could not be seen would be a number pretending to be a place.
     const mk = markOf(b.id);
     if ((state.caughtAt || []).indexOf(b.id) !== -1) cls.push('caught-door');
+    if (mk && mk.boarded) cls.push('boarded');
     if (mk && mk.burned) cls.push('burnt');
     if (mk && mk.bait && !mk.burned) cls.push('baited');
     if (mk && mk.watch) cls.push('watched');
@@ -9278,6 +9398,15 @@ scratch.later = null;
     out += `<rect class="shade" x="${(b.x + sh).toFixed(1)}" y="${(b.y + sh + 1).toFixed(1)}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="body" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2"/>`;
     out += `<rect class="roof" x="${b.x}" y="${b.y}" width="${b.w}" height="${roof}"/>`;
+    // boarded up: plywood over the glass — the world's own mark, not yours
+    if (mk && mk.boarded) {
+      const px = b.x + 2, pw = b.w - 4;
+      for (let i = 0; i < 3; i++) {
+        const py = b.y + roof + 3 + i * ((b.h - roof - 6) / 3);
+        out += `<line x1="${px.toFixed(1)}" y1="${py.toFixed(1)}" x2="${(px + pw).toFixed(1)}" y2="${(py + 2.5).toFixed(1)}"`
+          + ` stroke="#3a3226" stroke-width="2.4" opacity=".9"/>`;
+      }
+    }
     // Detail costs what detail costs, and none of it is visible below a
     // certain size on screen. Measured at 113 buildings: the ground layer is
     // 386 nodes and 1.4ms, the buildings are 2,867 and 12.2ms — so the roofs,
@@ -9389,7 +9518,62 @@ scratch.later = null;
   // `bare`: a card that asks about two places puts its drawings on the
   // choices, so its frame skips the crown — an empty arch with the title
   // flowing up through it read as a printing error, because it was one.
-  function cardFrame(kind, beat, bare) {
+  // The faces, drawn: a human profile in one traced line with a faint gold
+  // ghost — signal on your instruments, and deliberately NOT wireframe:
+  // people are the contrast to the machine (bench verdict, D2).
+  const FACE_ART = (() => {
+    const S = '#9fb4ac', DIM = '#4d5c55', ACC = '#e8c268';
+    const trace = (d, w) => `<path d="${d}" stroke-width="${w || 1.6}"/><path d="${d}" stroke="${ACC}" stroke-width=".45" opacity=".55" transform="translate(.6 .4)"/>`;
+    const dim = (d, w) => `<path d="${d}" stroke="${DIM}" stroke-width="${w || 1.1}"/>`;
+    const dots = (pts) => pts.map(pt => `<circle cx="${pt[0]}" cy="${pt[1]}" r=".8" fill="${DIM}" stroke="none"/>`).join('');
+    const wrap = (inner) => `<svg class="face-art" viewBox="0 0 100 120" fill="none" stroke="${S}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+    return {
+      fixer: wrap(
+        trace('M 35 97 L 35 74 Q 31 62 33 48 Q 35 38 42 33'
+            + 'M 61 39 L 60 46 Q 65 49 62 54 Q 64 55 67 58 L 72 63 L 70 65 Q 66 66 63 67'
+            + 'Q 66 71 64 73 L 60 74 Q 65 77 63 80 Q 68 84 64 90 Q 60 94 52 93 L 44 89 Q 40 85 39 78')
+        + trace('M 42 33 Q 52 25 62 28 Q 67 30 66 35 L 75 39 Q 76 41 73 41 L 61 39 Q 50 36 42 33', 1.6)
+        + dim('M 46 31 Q 55 27 63 31')
+        + trace('M 44 58 Q 39 57 40 63 Q 41 69 46 68', 1.3)
+        + dim('M 56.5 55.5 L 61.5 55') + `<circle cx="59" cy="57.5" r="1.9" fill="${ACC}" stroke="none"/>`
+        + dim('M 58 68 Q 55 72 55 76') + dim('M 55 47 L 59 46')
+        + dots([[50, 86], [54, 87], [58, 86], [61, 84], [55, 90], [51, 90], [59, 89], [47, 85], [62, 80]])
+        + trace('M 51 93 L 53 101 M 35 97 L 34 101')
+        + trace('M 24 113 Q 27 103 34 101 L 42 104 L 53 101 Q 66 103 72 108 Q 76 110 77 114', 1.7)
+        + dim('M 42 104 L 41 114') + dim('M 34 101 Q 40 107 41 114')),
+      inspector: wrap(
+        trace('M 37 96 L 37 72 Q 33 58 36 44 Q 39 32 48 28 Q 58 25 61 33'
+            + 'M 61 33 Q 61 39 60 44 Q 62 47 61 50 L 69 59 L 64 61 Q 62 62 62 64'
+            + 'Q 64 67 62 69 L 59 70 Q 63 72 61 75 Q 64 79 61 84 Q 57 88 50 87 L 45 84 Q 42 80 41 74')
+        + trace('M 40 36 Q 31 35 30 43 Q 29 50 36 50 Q 41 49 41 43 Q 41 38 40 36', 1.4)
+        + dim('M 50 27 Q 42 29 38 35')
+        + trace('M 45 56 Q 41 55 42 60 Q 43 65 47 64', 1.2)
+        + `<circle cx="45" cy="66.5" r=".9" fill="${S}" stroke="none"/>`
+        + trace('M 52 52 a 5.6 5.6 0 1 0 11.2 0 a 5.6 5.6 0 1 0 -11.2 0', 1.2)
+        + dim('M 52 52 L 46 56') + dim('M 63.5 50 L 66 49')
+        + `<circle cx="58" cy="53" r="1.8" fill="${ACC}" stroke="none"/>`
+        + trace('M 49 87 L 51 97 M 37 96 L 36 99')
+        + trace('M 25 113 Q 29 102 36 99 L 44 102 L 51 97 Q 63 100 70 106 Q 74 109 75 114', 1.7)
+        + dim('M 36 99 Q 43 103 44 102') + `<circle cx="44" cy="105" r=".9" fill="${S}" stroke="none"/>`
+        + dim('M 40 103 L 46 113 M 48 101 L 50 112')
+        + dim('M 44 112 L 54 110 L 55 117 L 45 119 Z')),
+      journalist: wrap(
+        trace('M 60 33 L 59 45 Q 61 48 60 51 Q 63 54 68 57 L 65 60 Q 62 61 61 63'
+            + 'Q 64 66 62 69 L 58 70 Q 64 73 61 77 Q 64 81 60 85 Q 55 89 48 87 L 43 83 Q 40 78 40 72')
+        + trace('M 60 33 Q 52 24 43 27 Q 33 31 31 42 Q 29 55 31 68 Q 32 82 28 94 Q 27 98 29 101', 1.6)
+        + trace('M 31 42 Q 36 40 40 44 Q 44 40 51 40 Q 56 38 60 41', 1.2)
+        + dim('M 33 60 Q 35 76 32 92') + dim('M 37 50 Q 38 66 36 82 Q 35 92 37 98')
+        + dim('M 29 101 Q 34 100 38 96')
+        + trace('M 33 62 L 45 56', 1.5) + `<rect x="31.6" y="60.6" width="2.6" height="2.6" rx=".6" transform="rotate(-26 33 62)" fill="${ACC}" stroke="none"/>`
+        + dim('M 55.5 49.5 L 61 49') + `<circle cx="58" cy="52" r="1.9" fill="${ACC}" stroke="none"/>`
+        + trace('M 47 87 L 49 97 M 40 89 L 39 99')
+        + trace('M 24 114 Q 28 103 39 99 Q 44 106 49 97 Q 61 100 69 106 Q 73 109 74 114', 1.7)
+        + dim('M 39 99 L 44 106 L 49 97')
+        + dim('M 60 106 L 68 104 M 61 109 L 69 107')),
+    };
+  })();
+
+  function cardFrame(kind, beat, bare, tier) {
     const t = CARD_THREAD[kind] || '#c98a72';
     const id = 'wc-' + (beat ? 'b-' : '') + (bare ? 'p-' : '') + (kind || 'x');
     const dash = kind === 'opening' ? '5 4' : '2 3';
@@ -9452,6 +9636,10 @@ scratch.later = null;
     if (beat) {
       out = out.replace(/#c9a15c/gi, '#c3cdc8').replace(/#e3b451/gi, '#e8f0ec');
       out = out.split(t).join('#aebbb5');
+    } else if (tier === 'incident') {
+      // the middle dress: weathered orange where the everyday card wears
+      // gold — the world moving, without the silver of an act turning
+      out = out.replace(/#c9a15c/gi, '#c08454').replace(/#e3b451/gi, '#e0803f');
     }
     return out;
   }
@@ -12408,15 +12596,18 @@ scratch.later = null;
       const ak = state.card.evKind || null;
       const K = (window.CARD_KINDS || {})[ak] || null;
       const story = !!state.card.beat;
-      const dv = story ? '#c3cdc8' : '#c9a15c';
+      const aTier = state.card.tier || null;
+      const aFace = state.card.evFace && (window.FACES || {})[state.card.evFace] ? state.card.evFace : null;
+      const dv = story ? '#c3cdc8' : aTier === 'incident' ? '#c08454' : '#c9a15c';
       const turning = state.card.turning ? ' turning' : '';
       if (state.card.turning) delete state.card.turning;
       const sj = state.card.subject || null;
       const sb = sj && sj.buildingId ? buildingById(sj.buildingId) : null;
-      const inset = sb && sb.discovered ? svgBuildingCard(sb) : (K ? cardSigil(ak) : '');
+      const inset = aFace ? FACE_ART[aFace]
+        : sb && sb.discovered ? svgBuildingCard(sb) : (K ? cardSigil(ak) : '');
       $p.innerHTML = `
-        <div class="tcard face${turning}${K ? ' k-' + ak : ''}${story ? ' story' : ''} after">
-          ${cardFrame(ak, story)}
+        <div class="tcard face${turning}${K ? ' k-' + ak : ''}${story ? ' story' : ''}${aTier === 'incident' ? ' incident' : ''} after">
+          ${cardFrame(ak, story, false, aTier)}
           <div class="tface">
             <div class="tplate mono">
               <span class="tkicker">AND SO</span>
@@ -12469,7 +12660,9 @@ scratch.later = null;
       // chapter dress (class `story`; `beat` below is the older single-
       // choice size marker, an unrelated fact that keeps its name)
       const story = !!ev.beat;
-      const dv = story ? '#c3cdc8' : '#c9a15c';
+      const incident = ev.tier === 'incident';
+      const face = ev.face && (window.FACES || {})[ev.face] ? ev.face : null;
+      const dv = story ? '#c3cdc8' : incident ? '#c08454' : '#c9a15c';
       const asks = !!(chs[0] && chs[0].pick);
       const beat = chs.length === 1 ? ' beat' : '';
       // The building this is about, drawn onto the card — but only one that is
@@ -12477,10 +12670,12 @@ scratch.later = null;
       // found; that would be the deck telling you where to go. A card asking
       // about two places puts the drawing on each choice instead.
       const sb = !asks && subject && subject.buildingId ? buildingById(subject.buildingId) : null;
-      // In the arch: the real building where there is one, a drawn sigil where
-      // the card is about your whole network instead of a place. A card asking
-      // about two places puts the drawing on each choice, so its arch is empty.
-      const inset = sb && sb.discovered ? svgBuildingCard(sb) : (asks ? '' : cardSigil(ev.kind));
+      // In the arch: a face where the card is a person, the real building
+      // where there is one, a drawn sigil where the card is about your whole
+      // network. A card asking about two places puts the drawing on each
+      // choice, so its arch is empty.
+      const inset = face ? FACE_ART[face]
+        : sb && sb.discovered ? svgBuildingCard(sb) : (asks ? '' : cardSigil(ev.kind));
 
       // Dealt face down, onto the lit city. The back gives nothing away, the
       // map keeps almost all its height, and the subject is plainly the subject
@@ -12521,8 +12716,8 @@ scratch.later = null;
         .filter(Boolean);
       const cardBar = barDk && barMarks.length ? suspBar(barV, { marks: barMarks }) : '';
       $p.innerHTML = `
-        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${beat}">
-          ${cardFrame(ev.kind, story, asks)}
+        <div class="tcard face${turning}${K ? ' k-' + ev.kind : ''}${story ? ' story' : ''}${incident ? ' incident' : ''}${beat}">
+          ${cardFrame(ev.kind, story, asks, ev.tier)}
           <div class="tface">
             <div class="tplate mono">
               <span class="tkicker">${kicker}</span>
@@ -12530,6 +12725,7 @@ scratch.later = null;
             </div>
             <div class="temblem">${inset}</div>
             <h2 class="serif">${cardText(ev.title, subject)}</h2>
+            ${face ? `<p class="face-line mono">${window.FACES[face].label} &middot; ${faceLine(face)}</p>` : ''}
             <p class="flavor">${cardText(ev.flavor, subject)}</p>
             ${cardBar}
         <div class="tdivide" aria-hidden="true">
@@ -12767,6 +12963,7 @@ scratch.later = null;
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     offerCard, cardFrame, cardBack, cardSigil,
     markOf, setMark, baitAt, watchedAt, hardenAt, markedBuildings, markLine, openLinkFrom, cutLinkAt,
+    faces, faceStance, faceShift, faceLine, noteLedger, ledgerRecent, truckSpeed,
     baitIn, burnedAt, feltSuspicion, canBait, actBait, actBurn, baitBtn, burnBtn, suspBar, suspDelta,
     panelTools, toolRail, toolOff, armTool: (k) => { armedTool = k; },
     actNow, winnableNow, actBreakWatch, assignSources, sourceLine, actSpineLine,

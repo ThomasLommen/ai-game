@@ -877,6 +877,19 @@ footer .build { opacity: .55; font-size: 10px; }
 .tcard.story .tmark { color: #b9c4bf; }
 .tcard.story { animation-duration: 840ms; }
 .tcard.story.turning { animation-duration: 780ms; }
+/* the incident tier: the middle dress — weathered orange where the everyday
+   card wears gold. The world moving, without the silver of an act turning. */
+.tcard.incident .tkicker { color: #e0803f; }
+/* a person on the card: their portrait stands in the arch, and one line
+   under the title says where you stand — in words, not a number */
+.temblem .face-art {
+  width: calc(96px * var(--card-k)); height: calc(115px * var(--card-k));
+  display: block;
+}
+.face-line {
+  font-size: calc(10.5px * var(--card-k)); letter-spacing: .08em;
+  color: var(--ink-dim); font-style: italic; margin: calc(2px * var(--card-k)) 0 0;
+}
 
 @keyframes cardTurn {
   from { transform: rotateY(-92deg) scale(.82); opacity: .35; }
@@ -947,6 +960,7 @@ footer .build { opacity: .55; font-size: 10px; }
 .bldg.burnt .body, .bldg.burnt .roof { fill: #17150f; }
 .bldg.burnt .win { fill: #0c0b08; opacity: .5; }
 .bldg.burnt { filter: saturate(.3); }
+.bldg.boarded { filter: saturate(.15) brightness(.9); }
 /* a street that was not there before, and one that is gone for good */
 .wire.opened { stroke-dasharray: none; }
 .sel-desc.mark-line { color: var(--item); }

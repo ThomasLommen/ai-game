@@ -1843,7 +1843,23 @@ function sampleContexts(window) {
     war: null,
     standing: { score: 0, bought: 0, filed: 0, settling: 0, spin: 0, tier: 0, footprint: 0, short: 0, exposure: 0, audits: 0, caught: 0, trust: 0, gone: false },
     plant: { count: 0, slots: 2, room: 2, flocks: 0, has: () => false },
+    // the world's memory, which the deck now reads (see the living-deck work)
+    act: 1, ledger: () => [], faces: { fixer: 0, inspector: 0, journalist: 0 },
+    works: { stage: 0, building: false, district: null, groundBroken: false },
+    fronts: 0, shells: [],
   }, o.over || {});
+
+  // states where the world's memory has something in it, so the reaction
+  // cards are reachable by the same standard as everything else
+  const led = (kind, dk, n) => () => Array.from({ length: n }, (_, i) => ({ t: 1, kind, bid: 'b' + i, dk }));
+  out.push(base({ over: { held: 6, turn: 12, act: 2, ledger: led('burn', 'commercial', 1) } }));
+  out.push(base({ over: { held: 6, turn: 20, act: 2, ledger: led('transit', 'industrial', 4) } }));
+  out.push(base({ over: { held: 8, turn: 30, act: 2, fronts: 1,
+    works: { stage: 1, building: true, district: 'industrial', groundBroken: true } } }));
+  out.push(base({ over: { held: 8, turn: 30, act: 2, pubTier: 'noticed',
+    faces: { fixer: 0, inspector: -1, journalist: 1 },
+    shells: [{ bid: 'x', dk: 'commercial' }],
+    susp: { by: { commercial: 12 }, max: 12, warmest: 'commercial', talking: 1, spoken: 6 } } }));
 
   // A war is a whole second half of the deck, and none of the contexts above
   // ever has one — every wartime card was unreachable by construction.
@@ -10210,7 +10226,7 @@ test('deck: every living card knows what kind of moment it is', () => {
   const { window } = loadNetwork({ cityOnly: true });
   const kinds = window.CARD_KINDS;
   const living = window.EVENTS.filter(e => e.choices.some(c => c.after));
-  assert.equal(living.length, 63, 'the living deck changed size without this test noticing');
+  assert.equal(living.length, 69, 'the living deck changed size without this test noticing');
   living.forEach(e => {
     assert.ok(e.kind, `${e.id} has no kind — it will render as an unmarked card`);
     assert.ok(kinds[e.kind], `${e.id} claims a kind nobody designed: ${e.kind}`);
@@ -11206,7 +11222,7 @@ test('cards: a choice can set something in motion that comes back later', () => 
   s.turn = p.at;
   // joined, not deepEqual: the array is built inside the vm realm, so it is
   // never prototype-equal to one written out here
-  assert.equal(d.duePlanted().join(','), p.id, 'and then it is');
+  assert.equal(d.duePlanted().map(x => x.id).join(','), p.id, 'and then it is');
 
   // it arrives through the deck rather than waiting on the deck's own timer
   s.card = null;
@@ -12682,4 +12698,211 @@ test('act 2: the morning after defines the nouns, and the label carries the spin
   // and it retires when the lights come on
   d.works().stage = window.WORKS.stages.length;
   assert.equal(d.actSpineLine(), null, 'the spine outlived the works');
+});
+
+
+// --- the living deck: covenant, faces, ledger, sequels ----------------------
+// Every card must move the world, a rule, a person, or the future — funds
+// alone are a sweetener, never the card. The lint ratchets: it validates
+// every covenant-bearing card, and the count only goes up.
+
+test('covenant: fields are valid, faces exist, and the batch is present', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const LEGS = ['map', 'rule', 'person', 'sequel'];
+  const TIERS = ['incident'];
+  const carrying = window.EVENTS.filter(e => e.covenant);
+  assert.ok(carrying.length >= 7, 'the covenant batch shrank');
+  carrying.forEach(e => {
+    assert.ok(Array.isArray(e.covenant) && e.covenant.length, e.id + ': covenant must name its legs');
+    e.covenant.forEach(l => assert.ok(LEGS.includes(l), e.id + ': unknown covenant leg ' + l));
+  });
+  window.EVENTS.forEach(e => {
+    if (e.face) {
+      assert.ok(window.FACES[e.face], e.id + ': unknown face ' + e.face);
+      assert.ok((e.covenant || []).includes('person'), e.id + ': a face card is a person card');
+    }
+    if (e.tier) assert.ok(TIERS.includes(e.tier), e.id + ': unknown tier ' + e.tier);
+  });
+  ['locksmiths_ledger', 'book_changes_hands', 'the_vigil', 'pothole_petition',
+    'clipboard', 'column_inches', 'sold_for_parts'].forEach(id =>
+    assert.ok(window.EVENTS.some(e => e.id === id), 'missing card: ' + id));
+  assert.ok(!window.EVENTS.some(e => e.id === 'the_locksmith'), 'the retired locksmith still deals');
+});
+
+test('faces: stance clamps, speaks in words, and survives a save', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  assert.equal(d.faceStance('fixer'), 0);
+  assert.ok(/customer/.test(d.faceLine('fixer')), 'the neutral line is wrong');
+  d.faceShift('fixer', 1);
+  assert.ok(/kindly/.test(d.faceLine('fixer')), 'one kindness did not read');
+  d.faceShift('fixer', -9);
+  assert.equal(d.faceStance('fixer'), -3, 'stance did not clamp');
+  assert.ok(/done with you/.test(d.faceLine('fixer')), 'the hostile line is wrong');
+  const s2 = d.deserialize(JSON.parse(JSON.stringify(d.serialize())));
+  assert.equal((s2.faces || {}).fixer, -3, 'the fixer forgot in a save');
+});
+
+test('the vigil: a burn is remembered, by name, and both answers mark the world', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const b = s.buildings.find(x => d.hostsIn(x).length && (s.adjacency[x.id] || []).length >= 2);
+  d.hostsIn(b).forEach(h => { h.owned = true; });
+  s.ap = 9;
+  d.noteDistrictAct(b.district, 6);
+  assert.equal(d.actBurn(b.id), true, 'the rig could not burn');
+  assert.ok(d.ledgerRecent('burn', 2).length === 1, 'the ledger missed the fire');
+  const ev = d.eventById('the_vigil');
+  assert.ok(ev.cond(d.eventContext()), 'the vigil is not eligible after a burn');
+  const sj = d.safeSubject(ev);
+  assert.equal(sj.buildingId, b.id, 'the vigil is not about the building that burned');
+  // answer B: the neighbours organise
+  d.offerCard('the_vigil', sj);
+  if (s.card.facedown) s.card.facedown = false;
+  d.resolveEvent(1);
+  s.card = null;
+  const hardened = (s.adjacency[b.id] || []).slice(0, 2).filter(nid => d.hardenAt(nid) >= 2);
+  assert.ok(hardened.length >= 1, 'nobody organised');
+});
+
+test('the ledger of trucks: the petition names the busiest street', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const ev = d.eventById('pothole_petition');
+  assert.ok(!ev.cond(d.eventContext()), 'a petition with no lorries counted');
+  for (let i = 0; i < 3; i++) d.noteLedger('transit', null, 'commercial');
+  assert.ok(ev.cond(d.eventContext()), 'three transits did not raise it');
+  assert.equal(ev.subject(d.eventContext(), s).district, 'commercial', 'the wrong street complained');
+  // the council answer slows the fleet, truthfully in one number
+  const base = d.truckSpeed();
+  d.offerCard('pothole_petition', { district: 'commercial' });
+  if (s.card.facedown) s.card.facedown = false;
+  d.resolveEvent(1);
+  s.card = null;
+  assert.ok(d.truckSpeed() < base, 'watched roads did not slow the wheels');
+});
+
+test('the fixer: shorting him plants a named sequel, and the book collects', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(x => { x.discovered = true; });
+  s.res.funds = 30;
+  const sj = { district: 'commercial' };
+  d.offerCard('locksmiths_ledger', sj);
+  if (s.card.facedown) s.card.facedown = false;
+  const keys0 = s.keys || 0;
+  d.resolveEvent(2);                       // take the key and short him
+  s.card = null;
+  assert.equal(s.keys, keys0 + 1, 'no key for the money');
+  assert.equal(d.faceStance('fixer'), -2, 'he forgave the short');
+  const pl = (s.planted || []).find(x => x.id === 'book_changes_hands');
+  assert.ok(pl, 'no sequel planted');
+  assert.ok(pl.at - s.turn >= 4 && pl.at - s.turn <= 8, 'the week is the wrong length: ' + (pl.at - s.turn));
+  assert.equal((pl.subject || {}).district, 'commercial', 'the sequel forgot its street');
+  // it arrives about that street, and letting them read hardens it
+  d.offerCard('book_changes_hands', pl.subject);
+  if (s.card.facedown) s.card.facedown = false;
+  const doors = s.buildings.filter(b => b.district === 'commercial' && d.hostsIn(b).length && !d.burnedAt(b.id));
+  d.resolveEvent(1);
+  s.card = null;
+  assert.ok(doors.every(b => d.hardenAt(b.id) >= 2), 'the book was let read and nothing changed');
+  assert.equal(d.faceStance('fixer'), -3, 'he is somehow not done with you');
+});
+
+test('clipboard: the front answers her, and the stage finishes tape-proof', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.act = 2; s.ap = 9; s.res.funds = 99; s.suspicion = {};
+  s.buildings.forEach(b => { b.discovered = true; });
+  s.hosts.forEach(h => { h.discovered = true; h.owned = true; });
+  assert.equal(d.actBreakGround(d.openLots()[0]), true, d.breakShort(d.openLots()[0]));
+  const ev = d.eventById('clipboard');
+  assert.ok(ev.cond(d.eventContext()), 'no inspector at a live site');
+  // choice A needs a front, and says so
+  const chsProbe = ev.choices;
+  assert.equal(d.choiceUsable(chsProbe[0]), false, 'the company showed papers it does not have');
+  assert.ok(/front/.test(d.shortOf(chsProbe[0])), 'the refusal does not say why');
+  // open the front first — a card on the table blocks map actions, rightly
+  const F = window.SOURCES.front;
+  const spot = s.buildings.find(b => (F.kinds || []).indexOf(b.kind) !== -1 && d.hostsIn(b).length);
+  assert.equal(d.actFront(spot.id), true, 'the rig could not open a front');
+  d.offerCard('clipboard', ev.subject(d.eventContext(), s));
+  if (s.card.facedown) s.card.facedown = false;
+  const chs = d.cardChoices(ev, s.card);
+  assert.equal(d.choiceUsable(chs[0]), true, 'a real front did not open the answer');
+  d.resolveEvent(0);
+  s.card = null;
+  assert.equal(d.works().building.tapeProof, true, 'the stage is not tape-proof');
+  // scorch the street: a tape-proof stage keeps pouring
+  d.warmDistrict(d.lotRect(s.yardLot).district, 30);
+  const left = d.works().building.turnsLeft;
+  d.worksStep();
+  assert.notEqual(d.works().stalled, 'tape', 'the tape held a proofed stage');
+  assert.ok(d.works().building === null || d.works().building.turnsLeft < left, 'no progress on a proofed stage');
+});
+
+test('sold for parts: letting it happen boards the place up, visibly and for good', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.turn = 12;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const ev = d.eventById('sold_for_parts');
+  assert.ok(ev.cond(d.eventContext()), 'the market never opens');
+  const sj = d.safeSubject(ev);
+  assert.ok(sj && sj.buildingId, 'nothing on the market');
+  const b = d.buildingById(sj.buildingId);
+  d.offerCard('sold_for_parts', sj);
+  if (s.card.facedown) s.card.facedown = false;
+  d.resolveEvent(1);                        // let it happen
+  s.card = null;
+  assert.equal(d.burnedAt(b.id), true, 'the shell still answers');
+  assert.ok((d.markOf(b.id) || {}).boarded, 'boarded without the mark');
+  const svg = d.svgBuilding(b);
+  assert.ok(svg.includes('boarded'), 'the map does not show the plywood');
+});
+
+test('column inches: silence is watched, and the works can be given a name', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  s.buildings.forEach(b => { b.discovered = true; });
+  const mine = s.buildings.find(b => d.hostsIn(b).length);
+  d.hostsIn(mine).forEach(h => { h.owned = true; });
+  d.noteDistrictAct(mine.district, 8);
+  d.faceShift('journalist', 1);             // she knows you: the card is live
+  const ev = d.eventById('column_inches');
+  assert.ok(ev.cond(d.eventContext()), 'she never calls');
+  d.offerCard('column_inches', ev.subject(d.eventContext(), s));
+  if (s.card.facedown) s.card.facedown = false;
+  const chs = d.cardChoices(ev, s.card);
+  assert.equal(d.choiceUsable(chs[0]), false, 'she printed a fire that never happened');
+  d.resolveEvent(1);                        // give her nothing
+  s.card = null;
+  assert.ok((d.markOf(mine.id) || {}).watch, 'the silence went unwatched');
+  assert.equal(d.faceStance('journalist'), 0, 'digging did not cool her');
+});
+
+test('the face on the card: portrait in the arch, stance under the title, incident wears orange', () => {
+  const { window } = loadNetwork({ cityOnly: true });
+  const d = window.__netDebug;
+  const s = d.state;
+  const $p = window.document.getElementById('panel');
+  d.offerCard('locksmiths_ledger', { district: 'commercial' });
+  if (s.card.facedown) s.card.facedown = false;
+  d.render();
+  assert.ok($p.innerHTML.includes('face-art'), 'no portrait in the arch');
+  assert.ok($p.innerHTML.includes('the fixer'), 'no name plate');
+  assert.ok($p.innerHTML.includes('customer'), 'no stance line under the title');
+  s.card = null;
+  d.offerCard('sold_for_parts', null);
+  if (s.card.facedown) s.card.facedown = false;
+  d.render();
+  assert.ok(/tcard face[^"]*incident/.test($p.innerHTML), 'the incident tier lost its dress');
+  s.card = null;
 });
