@@ -419,3 +419,53 @@ High run-to-run variance, but two blocks dominate every run:
 Bot income also confirmed the shopfront restriction has teeth: variants
 that never held a shop ran 0 jobs and starved. The morning card now says
 where the sign goes.
+
+
+## The country and the war are deleted (2026-08-23)
+
+Verdict 3 of the plan said `country.js` and the war machinery go **when
+Act 2 ships — not before, and not later**. Act 2 shipped, so they went.
+
+Measured first: with a getter on every country.js export, a full
+city-only playthrough read `WAR`, `FORCES`, `WAR_INFO`,
+`COUNTRY_ACTIONS`, `AGENT_APPROACHES` and `COUNTRY_INFO` **zero times**.
+The war was already a dead system being carried.
+
+**Gone:** the war engine (766 lines) and its HUD, the country map and
+its panel, regions, the land generator, roads, travel, consolidation,
+presence, agents-out, the rival AI, the scope button, `city_kinds`,
+city prizes, and 43 cards. Ladder stage 5 (*Mobilised* — "this is the
+war") went with the war it named. `country.js` itself is deleted; the
+city machinery it was holding — the terrain, the response, the ladder,
+the plant, the paperwork — moved into `data.js` where it belongs.
+
+**Kept, deliberately:** REGIONS and TERRAIN, as the palette of ground a
+city is generated on. Only `home` is built today; the rest are terrain,
+not geography.
+
+**Consequences taken rather than papered over:**
+
+- **Losing the city ends the run.** The response taking your city used
+  to bounce you to the country map. There is no country: the city is
+  the game, so that is the ending.
+- **Presence retires from every formula it appeared in** — tflops, the
+  heat floor, the strike threshold, covert.ops, heat drift, reach. It
+  has been zero for the whole of city-only play, so this changes no
+  number; it removes six terms that were multiplying by nothing.
+- **Footprint is the plant you own**, which is likewise what has
+  actually been driving the ladder all along.
+- **The agents allocation dial retires** with the agents it fed.
+- Four presence-gated cards were **re-gated on doors held** rather than
+  deleted, and three face cards now cost public standing on their
+  ignore-branches — which puts the deck's bad end back in reach after
+  the regional cards left.
+
+Deck 166 → 124. app.js 13,190 → 10,618 lines. Tests 603 → 452, all
+green and none skipped: the deleted suites went with their systems, and
+the harness has one mode now instead of a gate to open.
+
+**Flagged for the playtest, not silently retuned:** with presence gone,
+ladder pressure tops out around 139 (99 from a full plant + 40 from
+pegged heat) against thresholds 55/90/130. *Enforcement* (130) is now
+at the edge of reachable. If it should land more readily, that is a
+threshold change to grill, not one to make while you are playing.

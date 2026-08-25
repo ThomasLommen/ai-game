@@ -3518,3 +3518,552 @@ window.HOST_FLAVOR = {
 
 // (the grid/rig and public cards now live in EVENTS, re-keyed for the
 // city — see "the grid and the public, kept" above)
+
+// --- the ground, and everything that presses on you ------------------------
+// These were in country.js, back when a city was one node on a national map.
+// The country layer is deleted (acts plan: when Act 2 ships); what it was
+// actually holding was city machinery — the terrain the map is generated
+// from, the response that walks it, the ladder that escalates against you,
+// the plant you buy, and the paperwork that explains you. It lives here now.
+//
+// REGIONS survives as the palette of ground a city can be built on. Only
+// 'home' is generated today — one city, permanently — and the rest are kept
+// because they are terrain, not geography: whatever a second city ever is,
+// it will need ground to stand on.
+window.REGIONS = [
+  {
+    id: 'home', label: 'the city', tier: 0,
+    blurb: 'Where you woke up. Nobody here is looking for you yet.',
+  },
+  {
+    id: 'estuary', label: 'the estuary', tier: 1,
+    blurb: 'Port towns, container yards, and a lot of quiet infrastructure.',
+  },
+  {
+    id: 'midlands', label: 'the midlands', tier: 2,
+    blurb: 'Warehousing and money. The two turn out to be the same thing.',
+  },
+  {
+    id: 'capital', label: 'the capital', tier: 3,
+    blurb: 'More cameras per street than people. It was always going to end up here.',
+  },
+  {
+    id: 'north', label: 'the north', tier: 4,
+    blurb: 'Long cable runs between small places. Easy to cut, hard to replace.',
+  },
+];
+
+
+window.CITY_NAMES = {
+  home: ['Ashvale', 'Marlow End', 'Fenn Cross', 'Beckhurst'],
+  estuary: ['Gullhythe', 'Saltmarsh', 'Peddar Reach', 'Coldhaven', 'Tidebury'],
+  midlands: ['Wrentham', 'Long Marston', 'Hallowfield', 'Ockbrook', 'Dernmoor'],
+  capital: ['Kingsmere', 'Aldwych Cross', 'Ravensgate', 'Pallance', 'Southwark Hill'],
+  north: ['Hartfell', 'Brackenlaw', 'Stonebeck', 'Nethergill', 'Carrock'],
+};
+
+
+// --- terrain --------------------------------------------------------------
+// The country layer promised five distinct regions and the city generator
+// delivered the same block grid seventeen times. Terrain is what makes a place
+// somewhere: a band of water or rail cuts the city in two, and the only way
+// across is a bridge. That is not decoration — adjacency is what the whole
+// game runs on, so a crossing is a chokepoint you have to take and hold, and
+// The Cut severing one is a genuine emergency.
+//
+//   axis 'h'   a band running left to right, positioned down the map
+//   axis 'v'   a band running top to bottom, positioned across the map
+//   at         where it sits, as a fraction of the map in that direction
+//   crossings  how many gaps in it — the bridges and level crossings
+// Landmarks are where plant comes from, and a city used to offer exactly one
+// candidate — the estuary offered two of the same kind, which is not two. So
+// the ladder's slot payoff was backed by nothing: measured, 3.3 plant filled
+// against 6.9 slots, and `assetRoom() === 0` essentially never happened. Two
+// different kinds per region makes claiming a choice, and a choice is what
+// makes the slot worth having.
+// `runs` is a span along the band's own axis, as a fraction of the map. Without
+// it a band goes edge to edge, which is a river or a railway and nothing else.
+// With it the same primitive is a *patch* — a lake, a wood, a green belt that
+// stops — which blocks what is under it and is gone round rather than crossed.
+// A patch usually has no crossings at all: you do not bridge a lake, you walk
+// round it, and the routing round it is the interesting part.
+window.TERRAIN = {
+  home: {
+    label: 'parkland',
+    bands: [
+      { kind: 'park', axis: 'v', at: 0.5, thickness: 54, crossings: 3 },
+      // the boating lake in the middle of it, which nothing wires across
+      { kind: 'water', axis: 'h', at: 0.62, thickness: 84, crossings: 0, runs: [0.18, 0.44] },
+    ],
+    landmarks: ['depot', 'substation', 'market'],
+  },
+  estuary: {
+    label: 'the water',
+    bands: [
+      { kind: 'water', axis: 'h', at: 0.55, thickness: 62, crossings: 2 },
+      { kind: 'water', axis: 'v', at: 0.78, thickness: 96, crossings: 0, runs: [0.55, 0.92] },
+    ],
+    landmarks: ['docks', 'station', 'works'],
+  },
+  midlands: {
+    label: 'the line',
+    bands: [
+      { kind: 'rail', axis: 'v', at: 0.45, thickness: 30, crossings: 2 },
+      // the green belt: a working landscape rather than a hole, with a couple
+      // of lanes through it
+      { kind: 'green', axis: 'h', at: 0.72, thickness: 76, crossings: 2 },
+    ],
+    landmarks: ['station', 'depot', 'market'],
+  },
+  capital: {
+    label: 'the river and the line',
+    bands: [
+      { kind: 'water', axis: 'h', at: 0.4, thickness: 52, crossings: 2 },
+      { kind: 'rail', axis: 'v', at: 0.62, thickness: 28, crossings: 2 },
+      { kind: 'green', axis: 'v', at: 0.2, thickness: 70, crossings: 0, runs: [0.1, 0.46] },
+    ],
+    landmarks: ['exchange', 'station', 'stadium'],
+  },
+  north: {
+    label: 'the moor',
+    // two bands, so the north is genuinely three ribbons of town rather than
+    // one city with a gap in it
+    bands: [
+      { kind: 'moor', axis: 'h', at: 0.34, thickness: 62, crossings: 1 },
+      { kind: 'moor', axis: 'h', at: 0.74, thickness: 54, crossings: 1 },
+      { kind: 'water', axis: 'v', at: 0.32, thickness: 92, crossings: 0, runs: [0.4, 0.68] },
+    ],
+    landmarks: ['substation', 'depot', 'works'],
+  },
+};
+
+
+// How a band reads on the map, and what it does to anything built on it.
+window.BAND_KINDS = {
+  water: { label: 'water',    crossing: 'bridge',          blocks: true },
+  rail:  { label: 'the line', crossing: 'level crossing',  blocks: true },
+  moor:  { label: 'open moor', crossing: 'the road',       blocks: true },
+  park:  { label: 'the park', crossing: 'a path',          blocks: true },
+  green: { label: 'the green belt', crossing: 'a lane',    blocks: true },
+};
+
+
+// --- what makes a city a different city ----------------------------------
+// Measured on three generated cities: 48-51 buildings, the four districts in
+// roughly equal quarters, compute 45% / stealth 30% / funds 25%, mean defense
+// 13-15. They were the same city. The only thing that changed between your
+// first and your second was that the numbers went up, which is difficulty, not
+// novelty — so the second one asked the identical question you had already
+// answered, and it was dull the moment you arrived rather than six cities
+// later.
+//
+// A trait changes a rule rather than a number. Each one breaks a habit the
+// first city taught you: the district mix that funds you, or one of the three
+// ways through a door. It is on the national map before you commit, because
+// "which of these two do I walk next" is the country layer's only real
+// decision and it needs something to be about.
+//
+//   closes    an approach that simply is not offered here
+//   kinds     district kind lists replaced, so the role mix comes out skewed
+//   defense   flat modifier on every door
+//   denser    extra buildings per block
+//   at        earliest region tier this can appear in
+window.CITY_TRAITS = {
+  company_town: {
+    label: 'a company town', tell: 'almost no money in it',
+    blurb: 'One employer, four thousand people, and a high street that shut when the second shift did.',
+    kinds: {
+      commercial: ['office', 'office', 'warehouse', 'cabinet'],
+      business: ['office', 'office', 'warehouse', 'cabinet'],
+    },
+    at: 0,
+  },
+  wired: {
+    label: 'wired', tell: 'cover on every corner, if you can hold it',
+    blurb: 'A pilot scheme nobody switched off: street furniture with an address of its own on every corner.',
+    kinds: {
+      residential: ['cabinet', 'mast', 'house', 'cabinet', 'mast'],
+      commercial: ['cabinet', 'mast', 'shop', 'shop', 'mast'],
+    },
+    at: 0,
+  },
+  sprawl: {
+    label: 'sprawl', tell: 'a great many soft doors',
+    blurb: 'It went up in eighteen months and none of it was built to last a decade.',
+    defense: -4, denser: 1, at: 1,
+  },
+  watched: {
+    // It used to close the quiet approach outright. There is no approach to
+    // close any more, so it does the same thing where the decision now lives:
+    // everything here notices you far faster, which is what makes a slow
+    // program a bad idea in this city rather than an unavailable one.
+    label: 'watched', tell: 'everything here notices you fast',
+    blurb: 'Somebody put a camera on every corner, and then — unusually — hired people to look at them.',
+    traceMult: 1.8, defense: 2, at: 1,
+  },
+  old_money: {
+    label: 'old money', tell: 'hard doors, kept that way on purpose',
+    blurb: 'Doors that have been shut for two hundred years, and a great many people whose whole job is keeping them shut.',
+    kinds: {
+      residential: ['apartment', 'house', 'shop', 'cabinet'],
+      commercial: ['finance', 'office', 'shop', 'mast'],
+    },
+    defense: 5, at: 2,
+  },
+};
+
+
+// --- the ladder ------------------------------------------------------------
+// Used to be five independent factions, each deleting a rule you leaned on,
+// each undone by conquering their one seat city. That made sense when
+// conquering a second city was the default next thing you did. It stopped
+// making sense once cells went and agents capped out at a handful ever: the
+// only lever left was "mount an entire campaign against one specific city,"
+// which the rest of the pivot spent four steps trying to make you need less.
+//
+// This replaces all five with one thing: footprint, staged. You cannot stay
+// unnoticed forever — every building, every piece of hardware, every point
+// of presence is something somebody could eventually find. The ladder is not
+// a threat you defeat, it is the shape of getting big. There is no breaking
+// a rung and getting the tool back — the only lever you have is how long
+// each one takes to land. Rung 1 is already built (LEGIT.noticeAt, and the
+// Accountant): private, survivable, yours to manage. What follows is what
+// happens once managing it privately stops being enough.
+//
+//   thresholds  footprint needed for stage 2, 3, 4, 5(war) — index 0 is stage 2
+//   warnTurns   turns of notice between crossing a threshold and it landing
+//   delayOnTrusted  the Accountant still vouching for you buys the current
+//                   countdown this much longer, on top of the base warning
+//   rushOnCaught    getting your fabricated front torn open pulls whatever is
+//                   currently counting down this much closer instead
+window.LADDER = {
+  thresholds: [55, 90, 130],
+  // Heat is the regulator's attention, and this is the only thing it does at
+  // country scale. The strike card is gone and the hunt no longer answers to
+  // heat, so without this heat drove nothing but card payloads.
+  //
+  // It is weighted against the *threshold*, not against raw heat: heat at the
+  // line contributes this much, and HEAT.MAX_OVER caps the contribution at
+  // 1.6x it. Deliberately smaller than the first rung — running permanently
+  // hot with no footprint at all cannot escalate you (40 < 55). It only ever
+  // pulls a rung nearer, which is what "they noticed you sooner" should mean.
+  heatWeight: 25,
+  warnTurns: 5,
+  delayOnTrusted: 3,
+  rushOnCaught: 6,
+  stages: {
+    2: {
+      name: 'Regulatory',
+      tell: 'buying your way in gets traced back to you instead of going clean',
+      blurb: 'A clearing house started matching payment patterns against outage reports. It works.',
+    },
+    3: {
+      name: 'Public',
+      tell: 'you can no longer hide a building from the response — they know to look at exactly the places that go quiet, and everything you were hiding comes back onto their map',
+      blurb: 'A volunteer rota, then a forum thread, then people who do this for a living. Somebody worked out that the safest-looking parts of the network were the ones going quiet.',
+    },
+    4: {
+      name: 'Enforcement',
+      tell: 'forcing a door costs noticeably more, your own cameras report you instead of covering you, and the roads under you start getting cut',
+      blurb: 'It stops being paperwork. Insurance adjusters compare notes on kicked-in doors, the camera network audits itself, and somebody puts a very large civil engineering contract out to tender that reads like a plan.',
+    },
+  },
+};
+
+
+// --- the hunt ------------------------------------------------------------
+// Heat used to be a funds tax. Forcing a door costs 3 heat, a wash sheds 11 for
+// 8 funds, so the loudest thing you can do priced at about two funds a door
+// against an income of fifty a turn. And the punishment for ignoring it was a
+// strike taking a third of your holdings — a third of the thing you release
+// deliberately, all of it, every time you fold a city in. The worst the state
+// could do was a smaller version of something you do to yourself and call
+// winning.
+//
+// So heat no longer fines you, and it is no longer what brings them either.
+// Doors that catch you are. Get caught enough times in one city and something
+// arrives at the last door that caught you, garrisons it, and comes for the
+// rest of what you hold there. What it holds, you do not.
+//
+// It does not walk streets. That was the whole problem with the first version:
+// a street network is a thing you can wall in, so the hunt was one puzzle
+// solved once and then ignored for the rest of the game. Reach is distance now
+// — it crosses whatever is in the way — so there is nothing to seal, and the
+// only answers are the ones that were always the point: be quiet enough that
+// it moves slowly, hide what matters, get caught less, or be somewhere else.
+//
+// The important part is that it does not go away when you leave. A city it
+// takes enough of is lost off the national map for good — early on you have no
+// way to take one back, so every loss is permanent. Later, when there are
+// flocks, the cities it holds are exactly what a flock knows how to attack,
+// and the ratchet lets go.
+window.HUNT = {
+  name: 'the response',
+  // it does not arrive before you have anything to lose
+  minHeld: 8,
+  // Turns between moves, and covert ops is the only input. Heat used to
+  // override this and pin them to a fixed fast tick whenever you were over the
+  // line, which meant the cadence was usually decided by a meter the city
+  // scale no longer even shows. One input, one lever.
+  everyBase: 6,
+  perCover: 0.22,          // turns added per point of covert.ops
+  everyMax: 14,
+
+  // A strike used to drop heat to a quarter of the threshold — it was the only
+  // thing in the game that ever brought the meter down hard, and replacing it
+  // left every profile sitting permanently over the line at a mean of 34 to
+  // 61 against a threshold of 43. Permanently over means permanently at the
+  // fast cadence, which flattens the one thing cover was finally good for.
+  //
+  // So a result eases the pressure: they came for something and they got it.
+  // Heat builds, they take a building, it eases, it builds again — and how
+  // long that cycle takes is what cover buys you.
+  takeSheds: 9,
+  // what it takes off you when it moves onto something you hold
+  // (it takes the building; what that costs you is felt elsewhere)
+  takesCityAt: 0.45,       // share of a city it holds before the city is lost
+  // Doors here that have caught a program of yours before anybody comes to
+  // look. This replaced a heat threshold: heat was a meter the player stopped
+  // reading, so the response arriving off it felt like weather. Getting caught
+  // is something you did, in a place, for a reason you can point at.
+  caughtToStart: 3,
+  // Hiding a building: the quiet answer to the same problem. The street stays
+  // open for you — that is the entire difference — but you pay for it every
+  // turn out of the same cover that was slowing them down, so a wall of hidden
+  // buildings is a wall you built by making yourself easier to follow. Three
+  // against a cover that runs six to twelve means two or three at a time, and
+  // the moment your cover falls the ones you cannot pay for come back on the
+  // map. Quiet Hours, when it wakes, takes the whole trick away.
+  // Walking out of a city used to shake it off completely and for free, which
+  // made the one permanent threat in the game optional: contain it badly, fold
+  // the city in, and it was simply gone. Now leaving buys a head start rather
+  // than an escape — it turns up in the next city you are standing in, from
+  // one building, and starts again. Cover is what buys the head start, the
+  // same as it buys the time between its moves.
+  //
+  // It cannot follow you into a city you already settled: those are finished
+  // and off the board.
+  followBase: 7,
+  followPerCover: 0.5,
+  followMax: 16,
+  // Heat/hunt rework: ending it for good, not walking away from it. Its
+  // core — the very first building it took, the address it operates out of
+  // — is dug in harder the longer it has run and the more it has since
+  // taken, same choice as any door. Failing tips it off: it costs
+  // heat and pulls its next move closer, rather than costing nothing to try.
+  confrontDefenseBase: 1.4,     // multiplier over the core's own defense, day one
+  confrontDefensePerNode: 0.15, // and more again for every building it has added since
+  confrontFailHeat: 6,
+  confrontFailAdvance: 4,       // turns pulled off its next move's countdown
+};
+
+
+// --- what you own -------------------------------------------------------
+// Assets used to live on the two rare, hardened landmarks a city happened to
+// generate — a real system nobody ever saw, because most players never took
+// one and even the ones who did never re-selected an already-owned building
+// afterward to notice the button. Hardware replaces it: bought from the
+// ordinary buildings you already take by the dozen, gated by how many of a
+// role you hold rather than by a rare kind, so it is reachable every single
+// game instead of by accident.
+//
+// Family = the role a host already carries (compute/funds/stealth). Tier =
+// how many buildings of that role you currently hold — 2/4/6 — checked
+// against the city you are standing in, same as anything else about a city.
+// Bought once, for funds, permanent from then on: it is not landmark-bound
+// and does not need a city to fold in to survive anything.
+window.HARDWARE = [
+  {
+    id: 'rack_space', family: 'compute', tier: 1, heldAt: 2, cost: 16, heat: 0,
+    label: 'rack.space', effect: { tflops: 1 },
+    blurb: 'Colocated capacity nobody is using this week. It does not care whose problem it is solving.',
+  },
+  {
+    id: 'distributed_batch', family: 'compute', tier: 2, heldAt: 4, cost: 34, heat: 2,
+    label: 'batch.dist', effect: { tflops: 2, sweepReach: 1 },
+    mechanic: true, // in addition to tflops/sweepReach — a batch job phoning home to a lot of machines at once draws a little attention, felt as the one-time heat cost on purchase
+    blurb: 'Spreads the job across everything you are already running, instead of waiting on any one of it.',
+  },
+  {
+    id: 'borrowed_cycles', family: 'compute', tier: 3, heldAt: 6, cost: 60, heat: 4,
+    label: 'cycles.borrowed', effect: { tflops: 4, flockBonus: 1, thresholdMult: 0.9 },
+    blurb: 'Quietly renting out spare capacity nobody has noticed yet — and the biggest single thing you can plug into the network, which is also the loudest.',
+  },
+  {
+    id: 'friendly_accountant', family: 'funds', tier: 1, heldAt: 2, cost: 18, heat: 0,
+    label: 'acct.friendly', effect: { floor: -1 },
+    blurb: 'Someone who knows how to make a return look boring.',
+  },
+  {
+    id: 'books_that_balance', family: 'funds', tier: 2, heldAt: 4, cost: 36, heat: 2,
+    label: 'books.balanced', effect: { floor: -2, driftMult: 0.9 },
+    blurb: 'Audits stop finding anything because there is nothing left to find.',
+  },
+  {
+    id: 'company_nobody_questions', family: 'funds', tier: 3, heldAt: 6, cost: 62, heat: 3,
+    label: 'shell.clean', effect: { floor: -3, driftMult: 0.8, flockBonus: 1 },
+    blurb: 'A legitimate-looking payroll is also just payroll, for people who fight.',
+  },
+  {
+    id: 'dead_drops', family: 'stealth', tier: 1, heldAt: 2, cost: 14, heat: 0,
+    label: 'dead.drops', effect: { covert: 2 },
+    blurb: 'A place to leave something that is not being watched.',
+  },
+  {
+    id: 'borrowed_signal', family: 'stealth', tier: 2, heldAt: 4, cost: 32, heat: 2,
+    label: 'signal.borrowed', effect: { covert: 4, freeHideSlots: 1 },
+    blurb: "Riding somebody else's traffic instead of making your own.",
+  },
+  {
+    id: 'nobodys_asking_why', family: 'stealth', tier: 3, heldAt: 6, cost: 58, heat: 3,
+    label: 'noquestions', effect: { covert: 6, flockBonus: 1 },
+    blurb: 'Whatever they are looking for, it does not look like you.',
+  },
+
+  // The grid family. It exists for two reasons. Grid was the one role with
+  // buildings and no kit to buy, and it is the natural home for the two things
+  // the allocation dials used to unlock — both of which are civil works rather
+  // than numbers: surveying the lines so you choose where to look, and putting
+  // your own crossing over the water. The third is the only way in the game to
+  // buy headroom outright, which matters now the top bar says plainly when the
+  // rack has outrun the grid.
+  //
+  // Gated lower than the other families because grid buildings are rarer: a
+  // feeder pillar or two is a normal opening, six of them is not.
+  // line.survey retired: scanning from a building you choose became the base
+  // verb when the sweep went aimed-and-deterministic — route control cannot
+  // be a 20-fund unlock when choosing a route is the game's missing
+  // decision. A hardware slot that sells a core verb back to the player is
+  // the worst kind of upgrade.
+  {
+    id: 'pontoon_kit', family: 'grid', tier: 2, heldAt: 2, cost: 44, heat: 2,
+    label: 'pontoon.kit', effect: {},
+    mechanic: true, // your own crossings, and settled ground reports two streets out unprompted
+    blurb: 'Your own way over the water, and ground that has been yours a while starts telling you what is two streets past it without being asked.',
+  },
+  {
+    id: 'own_substation', family: 'grid', tier: 3, heldAt: 4, cost: 70, heat: 3,
+    label: 'substation.own', effect: { supply: 9 },
+    blurb: 'Not borrowed, not spliced. Yours, on the paperwork, feeding whatever you decide to switch on.',
+  },
+];
+
+
+// --- legitimacy ---------------------------------------------------------
+// Ported in spirit from the game this one replaced, because the idea was the
+// best thing in it: going legitimate is not safety, it is the price of
+// operating in the open. Legitimacy is a ladder you buy. Footprint is how
+// impossible you are to miss. Audits arrive on their own schedule and compare
+// the two, and being under-covered costs you money and eventually an asset.
+//
+// The second route is the interesting one. You can also buy the *appearance*
+// of legitimacy — place stories, fund the right institute, be quietly helpful
+// to the right committee — which is cheaper and faster and accrues exposure.
+// An audit that lands while your exposure is high does not fine you. It
+// establishes that the whole front is fabricated, and takes it away.
+window.LEGIT = {
+  buyLegit: 4,          // what owning a business outright is worth on paper
+  ladder: [
+    { id: 'register', tier: 1, cost: 50,   legit: 6, label: 'register a company',
+      blurb: 'A name, an address that exists, and a filing that nobody will read for two years.' },
+    { id: 'accounts', tier: 2, cost: 200,  legit: 14, label: 'file real accounts',
+      blurb: 'Audited, filed on time, and broadly true. The lie is one of omission and it is a very large omission.' },
+    { id: 'payroll',  tier: 3, cost: 600,  legit: 23, label: 'put people on payroll',
+      blurb: 'Four hundred employees who believe they work for a logistics optimisation firm. They are not wrong.' },
+    { id: 'pr',       tier: 4, cost: 1500, legit: 36, label: 'engage a PR firm',
+      blurb: 'They are extremely good and they have no idea what you are. Both of those facts are load-bearing.' },
+    { id: 'lobby',    tier: 5, cost: 3500, legit: 53, label: 'a lobbyist on retainer',
+      blurb: 'It is cheaper than the fines and considerably cheaper than the legislation.' },
+  ],
+  // A rung used to pay out twice at once: the right to own plant in the open,
+  // and the reputation, both the instant you filed. So nobody ever chose
+  // legitimacy — they bought slots and got twice the standing they needed as a
+  // side effect, finishing on 164 against a footprint of 81, and the covert
+  // route was dead content across 150 games. The two payoffs are now separated
+  // in time. The slot arrives when you file. The reputation takes this many
+  // turns, because nobody believes a company because it exists, they believe
+  // it because it has existed for a while. The gap is the whole game: your
+  // footprint jumps the moment you claim the plant, and your standing walks
+  // after it.
+  matureTurns: 22,
+  // And the payout was sized as though it were the point. The whole ladder
+  // used to be worth 294 standing against a footprint that averages 79, so it
+  // did not matter how the payoffs were arranged — there was always twice as
+  // much of it as anyone needed. Swept against how much of a campaign you
+  // spend unable to explain yourself: at the old size 14% of turns, at 132 it
+  // is 27%, and the war resolves identically either way, so this is a standing
+  // decision rather than a campaign one. Below about 100 the fines stop being
+  // a choice and become a tax.
+  // ladder now: 6 / 14 / 23 / 36 / 53
+  noticeAt: 26,           // footprint at which anyone starts asking. Below this the
+                          // whole standing system stays off the screen — arriving
+                          // with the country map it was six new nouns at once.
+  // 0.5 against the old nine-city country. Five cities means presence arrives
+  // in much larger steps, and standing — which matures over twenty-two turns —
+  // cannot follow a step that size: measured, short on 51% of turns, which is
+  // a tax rather than a decision.
+  footPerAsset: 9,        // and industrial plant is the least deniable thing you can own
+  auditEvery: 13,         // turns between audits at a small footprint
+  auditFloor: 6,          // never more often than this
+  auditFootK: 0.09,       // every point of footprint brings the next one forward
+  finePerPoint: 4,        // funds, per point you are short
+  seizeAt: 22,            // short by this much and the fine gets noticeably heavier
+  // The other route. Measured before these numbers moved: 720 pushes over 120
+  // turns, caught nine times, and it finished with a standing of 1086 against
+  // a footprint that cannot exceed about 150. It was not that being caught did
+  // nothing — it was that the supply was infinite, so nothing could matter.
+  spinCost: 14,           // funds, per push
+  spinLegit: 11,
+  spinExposure: 1.15,
+  // One push used to take nineteen turns to fade against audits that land
+  // every six to thirteen, so from the third push onward you were permanently
+  // over the line and every audit was a catch. There was no push-hard-then-go-
+  // quiet play, which is the entire point of having a covert route. At 0.18 a
+  // push clears in about six turns — the audit floor — so timing pushes
+  // against the audit clock is the skill.
+  spinDecay: 0.18,
+  caughtAt: 4.5,          // exposure this high when an audit lands and the front falls over
+  // All of it. A front that "was never real and now everyone knows" does not
+  // leave a third of itself standing; the old 0.65 wrote a sentence the number
+  // contradicted.
+  caughtLoss: 1,
+  caughtHeat: 14,
+  // Nobody believes a story with nothing behind it. Spin above this does not
+  // count, which makes the ladder the thing the covert route hangs off rather
+  // than an alternative to it: buying real standing raises how much you can
+  // fabricate on top of it.
+  spinBase: 12,
+  spinPerBought: 0.75,
+};
+
+
+window.LEGIT_INFO = {
+  score: 'What the world believes you are. Buy it honestly and it is slow and expensive; buy the appearance of it and it is fast, cheap, and can be taken away all at once.',
+  footprint: 'How impossible you are to miss. It rises with everything you hold and every piece of plant you run. Legitimacy has to stay ahead of it.',
+  assets: 'Hardware bought through whatever trade you run. It is permanent and follows you anywhere — but every tier needs more of that business already standing before anyone will sell it to you.',
+  exposure: 'How much of your standing is fabricated. An audit that lands on top of this does not fine you — it strips the front back to whatever you actually bought, all at once.',
+  ceiling: 'A story needs something to hang off: every rung you buy honestly raises how much you can invent on top of it.',
+  accountant: 'One person keeps these books, whichever way you ask them to. File honestly and they vouch for you when the numbers are checked. Push a story instead and they are the one holding it when it breaks.',
+};
+
+
+// The one person who keeps your books, whichever way you ask them to —
+// legitimacy's answer to the Ally: a relationship that reacts to you rather
+// than a hidden subtraction. Filing honestly (buying a rung) and fabricating
+// (spinning) are the two opposed things that move the same dial, on purpose:
+// one character, one axis, not two separate people to track.
+window.ACCOUNTANT = {
+  name: 'the Accountant',
+  trustedAt: 3,           // at or above: vouches for you — fines land lighter
+  leavesAt: -3,           // at or below: washes their hands of you, for good
+  rungNudge: 1,           // buying any rung, the honest way, earns their trust
+  spinNudge: -1,          // pushing a fabricated story spends it
+  caughtNudge: -2,        // getting caught outright costs more than an ordinary push
+  // How long before a scheduled audit the tell appears — same idea as the
+  // hunt's alarm: a real warning instead of a fine with no antecedent, and
+  // it stops arriving at all once they have washed their hands of you.
+  warnTurns: 4,
+  trustedFineMult: 0.5,   // vouching for you softens what an audit actually costs
+  leftFineMult: 1.5,      // and it is worse once nobody is smoothing it over
+  leftExposure: 1.8,      // one last thing on the way out: what they knew stops being quiet
+};

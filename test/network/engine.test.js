@@ -903,102 +903,6 @@ test('persistence: the rival and its territory survive a round trip', () => {
   assert.equal(round.rival.seen, true);
 });
 
-// --- the country ---------------------------------------------------------
-// The layer above the city. The city map is not replaced by it: a defended
-// city on the national map *is* the building game, and a finished one collapses
-// into a single number that keeps paying.
-
-// Hold a city up to its consolidate bar without playing it out building by
-// building — the country tests are about what happens above the streets.
-function holdToGoal(d) {
-  const goal = d.cityGoal();
-  let n = 0;
-  for (const b of d.state.buildings) {
-    if (n >= goal) break;
-    const h = d.hostsIn(b)[0];
-    if (h && !h.owned) { h.owned = true; h.discovered = true; b.discovered = true; n++; }
-  }
-  return n;
-}
-
-// Home base pivot, step 1c: home is never folded in, so any test exercising
-// what folding a city in actually does has to be standing in a different
-// one first — hold enough of home to open the country map (same as the
-// player would), then walk to the nearest defended city reachable from it.
-function enterDefendedCity(d, window) {
-  const s = d.state;
-  holdToGoal(d);
-  assert.equal(d.setScope('country'), true, 'country map opens once home is held enough');
-  const target = d.countryFrontier().find(c => window.CITY_KINDS[c.kind].contest);
-  assert.ok(target, 'there is a defended city to walk to');
-  s.ap = 9;
-  assert.equal(d.actReach(target.id), true, 'walks into it');
-  return target;
-}
-
-
-// --- the country as land -------------------------------------------------
-// It was five horizontal bars with the cities spaced evenly along each, plus
-// jitter. Nothing drawn on the nodes could fix an arrangement that says rows.
-
-
-
-
-
-
-
-
-// Skipped: home base pivot step 1c removes consolidating/leaving the home
-// city entirely (it is never folded in), which is exactly what this test
-// exercises. The 80%-tflops-floor invariant it checks is real, but it is a
-// property of a mechanic on its way out for the home city specifically, not
-// a bug in the 1a resize. Revisit (rewrite or delete) once 1c lands.
-test.skip('country: a city you finish stops being streets and becomes presence', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const s = d.state;
-
-  holdToGoal(d);
-  const tflopsBefore = d.tflops();
-  const heldBefore = d.owned().length;
-  assert.ok(heldBefore > 5, 'you were holding real ground');
-
-  s.ap = 9;
-  d.actConsolidate();
-
-  assert.equal(d.owned().length, 0, 'the streets are released — you hold the city now');
-  assert.ok(s.country.presence > 0, 'and it converted into presence');
-  // Winning must not gut you. Presence buys back most of the tflops the
-  // streets were giving — you trade some depth for reach and standing income,
-  // but never so much that the next region becomes unplayable.
-  assert.ok(d.tflops() >= tflopsBefore * 0.8,
-    `tflops collapsed from ${tflopsBefore} to ${d.tflops()} on consolidating`);
-  assert.ok(d.heatFloor() > 0, 'a national operation cannot hide completely');
-});
-
-
-
-
-
-
-// Fold in enough defended cities that `share` of the country is finished.
-// Home counts toward the defended denominator (CITY_KINDS.home.contest is
-// true) but can never contribute to the numerator — home base pivot step
-// 1c, it is never folded in — so it is excluded from what gets marked here
-// even though conquest()'s own math still divides by its presence.
-function conquerTo(d, window, share) {
-  const homeId = d.state.country.homeId;
-  const defended = d.state.country.cities.filter(c => window.CITY_KINDS[c.kind].contest && c.id !== homeId);
-  const want = Math.ceil(share * defended.length);
-  defended.slice(0, want).forEach(c => { c.taken = true; c.consolidated = true; });
-  // You cannot fold a city in without having taken most of its doors — about
-  // nineteen of forty-six — and the ladder's first rung is keyed to doors
-  // rather than to cities. A helper that conquered without ever holding
-  // anything described a state no game can be in, and left that rung asleep.
-  if (want > 0) d.state.everHeld = Math.max(d.state.everHeld || 0, want * 19);
-  return d.conquest();
-}
-
 test('ladder: a landed stage never reverts, whatever footprint does afterward', () => {
   const { window } = loadNetwork();
   const d = window.__netDebug;
@@ -2198,28 +2102,6 @@ test('tree: Pontoon lays your own way across the terrain', () => {
 
 
 
-// --- what you built, kept -------------------------------------------------
-// Folding a city in converted forty turns of work into one number and an empty
-// screen, five times a campaign. The map filling up is the best feeling the
-// game has and it was being deleted. This keeps a photograph of it — a record,
-// not an asset: nothing can be done with it and it never churns.
-
-function settle(d, window) {
-  const s = d.state;
-  // Home is never folded in (home base pivot step 1c) — settle a different
-  // city instead, the first time this is called on a fresh board. A second
-  // call, already standing somewhere else, is left alone.
-  if (d.currentCity().id === s.country.homeId) enterDefendedCity(d, window);
-  const c = d.currentCity();
-  const need = Math.ceil(s.buildings.length * window.CITY_KINDS[c.kind].share);
-  s.hosts.slice(0, need + 2).forEach(h => { h.owned = true; h.discovered = true; });
-  s.ap = 9;
-  d.actConsolidate();
-  return c;
-}
-
-
-
 
 
 
@@ -2580,27 +2462,6 @@ test('hide: it survives a save and does not leak into the next city', () => {
   assert.equal(d.hidden().length, 0, 'and it does not follow you across the border');
 });
 
-function walkOn(d, window) {
-  // finish here and step into the next city that is not already settled.
-  // Home is never folded in (home base pivot step 1c) — settle a different
-  // city instead, same as settle() does.
-  const s = d.state;
-  const co = s.country;
-  if (d.currentCity().id === co.homeId) enterDefendedCity(d, window);
-  s.hosts.forEach(h => { h.owned = true; h.discovered = true; });
-  s.buildings.forEach(b => { b.discovered = true; });
-  d.actConsolidate();
-  // a defended city: a town folds in from a distance, so reaching one settles
-  // it on the spot and there is nothing to walk into. Home is excluded: it
-  // can never be consolidated, so it would otherwise always qualify.
-  const next = co.cities.find(c => !c.consolidated && !c.lost && c.id !== co.at && c.id !== co.homeId
-    && window.CITY_KINDS[c.kind].contest);
-  d.actReach(next.id);
-  d.enterCity(next.id);
-  s.scope = 'city';
-  return next;
-}
-
 
 test('chase: cover is what buys the distance', () => {
   const { window } = loadNetwork();
@@ -2701,32 +2562,7 @@ test('traits: a company town genuinely starves you of funds', () => {
 // logarithmic in presence. A prize is the part that does not decay.
 
 
-test('prizes: nothing is offered before the point it would mean anything', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  const defended = d.state.country.cities
-    .filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
-  defended.forEach((c, i) => {
-    if (!c.prize) return;
-    assert.ok(window.CITY_PRIZES[c.prize].at <= i,
-      `${c.prize} turned up at city ${i}, before its ${window.CITY_PRIZES[c.prize].at}`);
-  });
-});
 
-test('prizes: every one of them survives presence going out of fashion', () => {
-  const { window } = loadNetwork();
-  const P = window.CITY_PRIZES;
-  Object.keys(P).forEach(k => {
-    const e = P[k].effect || {};
-    const keys = Object.keys(e).filter(x => e[x]);
-    assert.ok(keys.length, `${k} promises nothing`);
-    // presence, tflops and cover all decay. A prize must land somewhere capped
-    // or scarce instead, or it is the same decaying reward with a new name.
-    const lasting = ['plantGift', 'plantSlots', 'standing', 'poolGift', 'auditDelay'];
-    keys.forEach(x => assert.ok(lasting.indexOf(x) !== -1,
-      `${k} pays in ${x}, which is the thing that decays`));
-  });
-});
 
 
 
@@ -3962,24 +3798,6 @@ test('held: the rival keeps its own look, no halo and no lights', () => {
   assert.ok(!svg.includes('class="glow"'), 'their holdings are not haloed like yours');
   assert.ok(!svg.includes('win lit'), 'and their lights are not on for you');
 });
-
-// --- the war -------------------------------------------------------------
-// The last act. Heat retires, the state mobilises, and the pressure stops
-// being a number in the HUD and starts being things on the map walking at you.
-
-// A country most of the way taken — the state the war is supposed to open in.
-function conqueredCountry(d, W, share) {
-  const s = d.state, co = s.country;
-  // home counts as defended (CITY_KINDS.home.contest is true) but can never
-  // be consolidated (home base pivot step 1c)
-  const defended = co.cities.filter(c => W.CITY_KINDS[c.kind].contest && c.id !== co.homeId);
-  defended.slice(0, Math.ceil(defended.length * (share === undefined ? 0.85 : share)))
-    .forEach(c => {
-      c.known = true; c.taken = true; c.consolidated = true;
-      c.granted = c.worth; co.presence += c.worth;
-    });
-  return defended;
-}
 
 
 
@@ -5987,20 +5805,6 @@ test('grid: a grid building says what it supplies instead of claiming to pay not
 // Every mechanic that used to be a capability node now also answers to an
 // allocation threshold. Both sources are live while the tree is still here.
 
-test('funds: insight is not a resource any more, anywhere', () => {
-  const { window } = loadNetwork();
-  const d = window.__netDebug;
-  assert.equal(d.state.res.insight, undefined, 'you do not start with any');
-  assert.equal(window.STAT_INFO.insight, undefined, 'and there is nothing to explain');
-  // no host type pays it, and nothing on the country map does either
-  Object.keys(window.HOST_TYPES).forEach(k => {
-    assert.equal((window.HOST_TYPES[k].yield || {}).insight, undefined, `${k} still pays insight`);
-  });
-  assert.equal(window.COUNTRY.presenceYield.insight, undefined, 'presence does not pay it');
-  // and the turn cannot produce it
-  d.state.hosts.forEach(h => { h.owned = true; });
-  assert.equal(d.perTurnIncome().insight, undefined, 'the world does not hand it out');
-});
 
 test('funds: a compute holding is worth threads, a funds holding is worth money', () => {
   const { window } = loadNetwork();

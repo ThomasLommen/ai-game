@@ -13,7 +13,7 @@ const BUILD = '__BUILD__';
 const CACHE = 'network-cache-' + BUILD;
 const ASSETS = [
   './', './index.html', './style.css',
-  './data.js', './country.js', './app.js', './manifest.json',
+  './data.js', './app.js', './manifest.json',
 ];
 
 self.addEventListener('install', (event) => {

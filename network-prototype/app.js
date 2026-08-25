@@ -2195,7 +2195,7 @@
   // --- the hunt ----------------------------------------------------------
   // Crossing the threshold no longer fines you: it starts something, inside the
   // city you are standing in, that walks along the streets and takes what you
-  // hold. See country.js for why the fine could never have worked.
+  // hold. See LEGIT in data.js for why the fine could never have worked.
   function hunt() { return state.hunt || null; }
   function huntOn() { const h = hunt(); return !!(h && h.on); }
   function huntHolds(bid) { return huntOn() && state.hunt.nodes.indexOf(bid) !== -1; }
