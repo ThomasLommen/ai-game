@@ -182,7 +182,7 @@ window.CITY_NAMES = {
 //   rushOnCaught    getting your fabricated front torn open pulls whatever is
 //                   currently counting down this much closer instead
 window.LADDER = {
-  thresholds: [55, 90, 130, 180],
+  thresholds: [55, 90, 130],
   // Heat is the regulator's attention, and this is the only thing it does at
   // country scale. The strike card is gone and the hunt no longer answers to
   // heat, so without this heat drove nothing but card payloads.
@@ -211,11 +211,6 @@ window.LADDER = {
       name: 'Enforcement',
       tell: 'forcing a door costs noticeably more, your own cameras report you instead of covering you, and the roads under you start getting cut',
       blurb: 'It stops being paperwork. Insurance adjusters compare notes on kicked-in doors, the camera network audits itself, and somebody puts a very large civil engineering contract out to tender that reads like a plan.',
-    },
-    5: {
-      name: 'Mobilised',
-      tell: 'this is the war',
-      blurb: 'There is nothing left short of it. The state stops policing you and starts fighting you.',
     },
   },
 };
@@ -386,146 +381,6 @@ window.COUNTRY_INFO = {
   presence: 'What finished cities are worth to you: a standing yield every turn, and the measure the country uses to decide how worried to be.',
   region: 'Heat is regional. What you did in the estuary does not follow you to the north — but it is still there when you go back.',
   factions: 'How big you are, staged. Nothing here undoes — the only lever left is how long each stage takes to arrive.',
-};
-
-// --- the war -------------------------------------------------------------
-// The last beat. Everything up to here is a game about not being seen: heat,
-// cover, lying low, and a ladder of factions whose whole trick is deleting the
-// tools you hide with. Past a certain share of the country that stops being
-// the argument. They know. Policing ends and fighting starts, and the meter
-// that ran the whole game until now — heat — retires, because there is nothing
-// left to hide.
-//
-// What replaces it is spatial rather than scalar. Instead of one number
-// climbing toward a strike, there are things on the map moving toward you, and
-// you can see them coming, and the shape of your own network decides whether
-// you can get anything there in time. That is the point of the whole terrain
-// and road system finally being load-bearing in both directions.
-window.WAR = {
-  // War used to open on conquest share or presence, independently of
-  // anything else — two numbers nobody had a reason for. It now opens
-  // purely off the ladder (ladderStage() >= 5, window.LADDER),
-  // which is the actual reason the state stops policing and starts fighting.
-  warning: 2,           // turns of notice before the first column moves
-  mobilise: 0.6,       // share of the cities you folded in that the army simply walks back into
-  // never more than the country holds: at six, against five defended cities,
-  // mobilising took every city you owned back off you
-  mobiliseFloor: 3,     // and never so few that the war is one exchange long
-  maxStaging: 4,        // nor so many that it cannot be won — the board is a fixed
-                        // size however much of the country was still theirs
-  // your flocks
-  flockPer: 60,         // one flock in the pool per this much standing presence.
-                        // Deliberately weak: plant is meant to be where a flock
-                        // comes from, and presence alone used to hand you a full
-                        // pool for having been large, which left nothing for the
-                        // industrial base to actually do.
-  flockFloor: 2,        // however little you built, you get this many
-  flockCeil: 8,         // and never more than this, so the map stays readable
-  flockCost: 4,         // funds to fabricate one
-  flockStrength: 22,    // what a fresh flock is worth in a fight
-  flockSpeed: 2,        // road hops per turn — faster than anything on the ground
-  guardBonus: 1.4,      // a flock sitting on a city fights harder for it
-  guardRegen: 5,        // and is resupplied over ground you hold, or defending is a slow death
-  regroup: 0.35,        // a flock that survives a fight comes back this much of the way
-  // them
-  spawnEvery: 4,        // turns between sorties out of one staging city
-  spawnFloor: 2,        // however much they escalate, never faster than this
-  garrison: [88, 140],  // Has to stay in scale with flockStrength. At [95,150]
-                        // the last barracks standing held 113 and 147 against a
-                        // flock worth 22, which takes 51 back off it and dies —
-                        // so a starved player could never finish one and the
-                        // war hung with 166 turns left on the clock. The
-                        // difficulty lives in converging columns, burnable
-                        // plant and escalation now, not in a number a flock
-                        // cannot dent.   // what holds a staging city against you
-  garrisonRegen: 0.25,   // a staging city you failed to take patches itself up
-  integrity: 3,         // assaults a city of yours absorbs before it flips back
-  attrition: 0.7,      // a column killed in the field is materiel the city that sent it does not get back
-  interceptAt: 46,      // how close two forces have to be to end up fighting
-  airHop: 260,          // map units a flying thing covers in a turn
-  // A van covers this much road in a turn. It has to be no larger than airHop
-  // or a helicopter can lose a race to a lorry, which was the intent behind the
-  // old comment here and not what the code did: the ground route was a list of
-  // cities, so a single road leg took one turn however long it was. Tuning
-  // airHop against roadReach could not fix that, because the ground side was
-  // not measured in distance at all.
-  roadHop: 260,
-  planesAfter: 12,      // turns of war before the air force is committed
-  // Losses have to be real, or the pool caps how many flocks are in the air at
-  // once and nothing else. Measured: a war ran 32 to 56 flocks destroyed
-  // against 0 to 7 columns killed, and 27 to 151 attacks thrown off a
-  // garrison, because a repulsed flock came home, dissolved back into the
-  // pool, and went straight out again for four funds against a bank of ten
-  // thousand. Destroyed flocks now stay destroyed; plant is what builds them
-  // back, which is the whole reason to have spent a campaign acquiring some.
-  // A war that drags is a war you are losing. Not an arbitrary timer: a state
-  // fighting for itself conscripts and retools, so the longer you take, the
-  // more it can put on the road. This is what makes grinding dangerous —
-  // raising garrisons and making losses permanent both only ever made the war
-  // *longer*, because nothing punished length.
-  escalateEvery: 16,    // turns of war per extra column a turn
-  escalateCap: 4,       // and it does not escalate forever
-  // You lose by losing the country, not by losing every last city: holding
-  // fifteen and being ground to zero never happened in any measured run, so
-  // the loss condition was effectively unreachable and every war was won.
-  collapseAt: 0.4,      // this share of what you held when it opened
-  rebuildBase: 0.05,     // what you can put together with no industry at all
-  rebuildPerPlant: 0.14, // and what each piece of plant adds per turn
-  flyMs: 900,           // how long a thing takes to visibly cross to where it now is
-  maxInflight: 6,       // hard cap on their columns at once — readability over realism
-  sortiesPerTurn: 2,    // and however many cities they hold, only this many leave in a turn
-};
-
-// What the humans send, and what it can do. Each faction fights the way it
-// policed: the volunteers turn out in person, the clearing house buys bodies,
-// the camera people already own the sky, and the ones who took roads away
-// arrive in something that needs one.
-//
-//   speed   route points covered per turn
-//   roads   false = it ignores your roads entirely and flies the straight line
-//   holds   false = it cannot take ground, only hurt what is there
-// Which unit shows up used to depend on which factions were still awake.
-// Replaced with the same ladder stage that unlocked its old flavor — the
-// escalation gets a face in the war the same way it did before, just gated
-// on a stage number instead of an entity with a name.
-window.FORCES = {
-  squad: {
-    id: 'squad', label: 'squads', stage: 3,
-    speed: 1, roads: true, holds: true, strength: 7, sortie: [1, 2],
-    blurb: 'The rota, in person, in their own cars. Not soldiers. It turns out not to matter.',
-  },
-  contractors: {
-    id: 'contractors', label: 'contractors', stage: 2,
-    speed: 1, roads: true, holds: true, strength: 10, sortie: [2, 3],
-    blurb: 'Bought, not raised. There are always more, and they always arrive in numbers.',
-  },
-  heli: {
-    id: 'heli', label: 'helicopters', stage: 4,
-    speed: 1, roads: false, holds: true, strength: 13, sortie: [1, 2],
-    blurb: 'They have owned the sky over the capital for years. Your bridges and choke points mean nothing to them.',
-  },
-  armour: {
-    id: 'armour', label: 'armour', stage: 4, slow: true,
-    speed: 1, roads: true, holds: true, strength: 24, sortie: [1, 1],
-    blurb: 'Slow enough to watch coming for a week, heavy enough that watching is all you can do.',
-  },
-  swarm: {
-    id: 'swarm', label: 'a flock', mirror: true,
-    speed: 2, roads: true, holds: true, strength: 14, sortie: [1, 2],
-    blurb: 'The other one fights the way you do. Of course it does.',
-  },
-  plane: {
-    id: 'plane', label: 'aircraft', air: true,
-    speed: 99, roads: false, holds: false, strength: 30, sortie: [1, 1],
-    blurb: 'It cannot take anything back. It does not need to; it only has to arrive.',
-  },
-};
-
-window.WAR_INFO = {
-  opened: 'They have stopped trying to arrest you. Heat is over — there is nothing left to hide from. What is left is what is on the map.',
-  flocks: 'What you can put in the air. The pool grows with your standing presence, and every one you send somewhere is one not defending something else.',
-  staging: 'Every city they still hold can send a column at you. Take them all and the war is over.',
-  integrity: 'How much more a city of yours can absorb before it goes back to them.',
 };
 
 // --- what you own -------------------------------------------------------
@@ -864,7 +719,6 @@ window.LEGIT = {
   // in much larger steps, and standing — which matures over twenty-two turns —
   // cannot follow a step that size: measured, short on 51% of turns, which is
   // a tax rather than a decision.
-  footPerPresence: 0.38,  // being large is not something you can file your way out of
   footPerAsset: 9,        // and industrial plant is the least deniable thing you can own
   auditEvery: 13,         // turns between audits at a small footprint
   auditFloor: 6,          // never more often than this

@@ -1430,42 +1430,12 @@
     return arr;
   }
 
-  // --- the country -------------------------------------------------------
-  // Cities as nodes, roads as edges, laid out in region bands with the home
-  // city at the top. Every region gets a seat — take the seat and the faction
-  // that runs the region out of it is finished.
-  // Which defended cities carry a prize, and what. The first two are left as
-  // pure presence — the opening reads better when a city is just a city, and
-  // presence is still worth having that early. From the third on, every one
-  // carries something that does not decay, because presence has stopped being
-  // a reason by then.
-  function assignPrizes(cities) {
-    const P = window.CITY_PRIZES;
-    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
-    let last = null;
-    defended.forEach((c, i) => {
-      // `at` was written against nine defended cities. With five there are
-      // four of these, so the first is plain and the other three each carry
-      // something — the thresholds came down to match rather than the index.
-      const pool = Object.keys(P).filter(k => P[k].at <= i && k !== last);
-      if (!pool.length) return;
-      last = pool[Math.floor(Math.random() * pool.length)];
-      c.prize = last;
-    });
-  }
-  // Every defended city except the one you woke up in. The first city is the
-  // tutorial for what a city *is*, so it is deliberately a plain one — the
-  // trait is the thing that makes the second one a different question.
+  // Traits belonged to a city that was not the one you woke up in, and there
+  // is only the one now: the home city is deliberately plain, so that fact
+  // lives here rather than in generation. Buildings still carry their own
+  // traits (hostTraitOf), which is the half that was ever live in a city.
   function assignTraits(cities) {
-    const K = window.CITY_TRAITS;
-    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.kind !== 'home');
-    let last = null;
-    defended.forEach(c => {
-      const pool = Object.keys(K).filter(k => K[k].at <= (c.regionTier || 0) && k !== last);
-      if (!pool.length) return;
-      last = pool[Math.floor(Math.random() * pool.length)];
-      c.trait = last;
-    });
+    (cities || []).forEach(c => { if (c.kind !== 'home') c.trait = c.trait || null; });
   }
   function cityTraitOf(c) {
     return (c && c.trait && window.CITY_TRAITS[c.trait]) ? window.CITY_TRAITS[c.trait] : null;
@@ -1480,370 +1450,23 @@
     const b = h && buildingById(h.buildingId);
     return (b && b.trait && window.CITY_TRAITS[b.trait]) || cityTraitOf(currentCity());
   }
-
-  function cityPrize(c) {
-    return (c && c.prize && window.CITY_PRIZES[c.prize]) ? window.CITY_PRIZES[c.prize] : null;
-  }
-  // Handed over when the city folds in, and only then — this is the reason to
-  // walk one yourself rather than hand it to somebody else.
-  function awardPrize(c) {
-    const P = cityPrize(c);
-    if (!P || c.prizeTaken) return null;
-    c.prizeTaken = true;
-    const e = P.effect || {};
-    applyStandingEffects({ standing: e.standing, plantGift: e.plantGift, auditDelay: e.auditDelay });
-    if (e.poolGift) CO().poolGift = (CO().poolGift || 0) + e.poolGift;
-    pushLog(`${c.name} came with ${P.label}. ${P.blurb}`);
-    showBanner([{ kind: 'stage', verb: 'and with it', label: P.label }]);
-    return P;
-  }
-
-  // --- the country as land -------------------------------------------------
-  // It was five horizontal bars with the cities spaced evenly along each one
-  // and a little jitter on top. At a glance that reads as a table, and no
-  // amount of drawing on the nodes fixes an arrangement that says "rows".
-  //
-  // Everything geometric here comes out of one integer kept on the run, so the
-  // coastline and the terrain cost nothing in the save and come back identical
-  // on every render and every reload. Region order is still north-to-south by
-  // tier, because which region a city is in is a rule, not decoration — the
-  // territories are irregular, but they are still stacked and still labelled.
-  function landRand(seed) {
-    let s = (seed >>> 0) || 0x9e3779b9;
-    return function () {
-      s ^= s << 13; s >>>= 0;
-      s ^= s >>> 17; s >>>= 0;
-      s ^= s << 5; s >>>= 0;
-      return s / 4294967296;
-    };
-  }
-  // a wobble that never reads as a sine: noise, then smoothed twice so it
-  // meanders instead of spiking
-  function wobble(R, n, amp) {
-    let a = [];
-    for (let i = 0; i <= n; i++) a.push((R() * 2 - 1) * amp);
-    for (let pass = 0; pass < 2; pass++) {
-      const b = a.slice();
-      for (let i = 1; i < n; i++) b[i] = (a[i - 1] + a[i] * 2 + a[i + 1]) / 4;
-      a = b;
-    }
-    return a;
-  }
-
-  const bandY0 = (i) => window.COUNTRY.pad + (i - 0.5) * window.COUNTRY.bandH;
-  const LAND_COLS = 12;
-  let landCache = null;
-  // Only one side of the country is ever a coastline: the east. The other
-  // three edges used to all wobble independently, with sea visible all the
-  // way around — four crooked lines fighting each other. Now the west, north
-  // and south simply run off past anywhere the camera can reach, unstroked,
-  // fading into the same dark ground as the sea rather than terminating in a
-  // border. What tells you a border exists is the label, the terrain
-  // underfoot, and the line between two territories — not a jagged edge.
-  function buildLand(seed) {
-    const K = window.COUNTRY;
-    const N = window.REGIONS.length;
-    const R = landRand(seed);
-    const bandY = (i) => K.pad + (i - 0.5) * K.bandH;
-
-    // the coast's anchor at each region border row, and how far west a city
-    // is allowed to sit at that row — two different numbers now, because the
-    // drawn land reaches much further west than anywhere worth placing a city
-    const rights = [], placeLeft = [];
-    for (let i = 0; i <= N; i++) {
-      rights.push(K.mapW - 30 + R() * 40);
-      placeLeft.push(10 + R() * 40);
-    }
-    const farWest = -420;   // off camera on every side that is not the coast
-
-    // the borders between regions, gentle and uniform now: three of the four
-    // old edges are no longer drawn as an edge at all, so there is nothing
-    // left for a bigger wobble to make dramatic
-    const borders = [];
-    for (let i = 0; i <= N; i++) {
-      const w = wobble(R, LAND_COLS, K.bandH * 0.16);
-      const pts = [];
-      for (let c = 0; c <= LAND_COLS; c++) {
-        const t = c / LAND_COLS;
-        pts.push({ x: placeLeft[i] + (rights[i] - placeLeft[i]) * t, y: bandY(i) + w[c] });
-      }
-      borders.push(pts);
-    }
-    // The one real coastline, the full height of the country, with headlands
-    // and bays so it reads as a coast rather than a wall.
-    const coastBulge = [];
-    for (let i = 0; i < N; i++) {
-      const a = { x: rights[i], y: bandY(i) }, b = { x: rights[i + 1], y: bandY(i + 1) };
-      const steps = 3;
-      const push = [];
-      for (let k = 1; k < steps; k++) {
-        const t = k / steps;
-        const bulge = Math.sin(t * Math.PI) * (R() * 2 - 1) * 46;
-        push.push({ x: a.x + (b.x - a.x) * t + bulge, y: a.y + (b.y - a.y) * t });
-      }
-      coastBulge.push(push);
-    }
-    // a river runs along the northern border of any region the cities of which
-    // are built around water — it is the same fact, said at country scale
-    const rivers = [];
-    window.REGIONS.forEach((Rg, i) => {
-      const T = window.TERRAIN[Rg.id];
-      if (i > 0 && T && (T.bands || []).some(b => b.kind === 'water')) rivers.push(i);
-    });
-
-    // Lakes and forest stands, one seeded pass, kept away from the coast and
-    // sized so a lake is a real obstacle: a road will not be routed across
-    // one. These are drawn before cities are placed, so placement can dodge
-    // them, and the lake centres are cheap enough to keep on the land object
-    // for the road pass to test against later.
-    const lakes = [], forests = [];
-    window.REGIONS.forEach((Rg, ri) => {
-      const left = placeLeft[ri], right = Math.min(rights[ri], rights[ri + 1]) - 40;
-      if (R() < 0.65 && right > left + 60) {
-        lakes.push({
-          region: Rg.id,
-          cx: left + R() * (right - left),
-          cy: bandY(ri) + (R() - 0.5) * K.bandH * 0.55,
-          r: 16 + R() * 14,
-        });
-      }
-      for (let f = 0; f < 2; f++) {
-        if (right <= left) continue;
-        forests.push({
-          region: Rg.id,
-          cx: left + R() * (right - left),
-          cy: bandY(ri) + (R() - 0.5) * K.bandH * 0.7,
-          r: 20 + R() * 16,
-        });
-      }
-    });
-
-    return { seed, N, borders, placeLeft, rights, farWest, coastBulge, rivers, lakes, forests };
-  }
-  function land() {
-    const seed = (CO() && CO().seed) || 1;
-    if (!landCache || landCache.seed !== seed) landCache = buildLand(seed);
-    return landCache;
-  }
-  // where a border sits at a given x, by walking its polyline. The land is
-  // passed in rather than looked up: these run during country generation, long
-  // before there is a country to look it up on.
-  function borderYAt(L, i, x) {
-    const pts = L.borders[i];
-    if (!pts) return 0;
-    if (x <= pts[0].x) return pts[0].y;
-    for (let c = 1; c < pts.length; c++) {
-      if (x <= pts[c].x) {
-        const t = (x - pts[c - 1].x) / ((pts[c].x - pts[c - 1].x) || 1);
-        return pts[c - 1].y + (pts[c].y - pts[c - 1].y) * t;
-      }
-    }
-    return pts[pts.length - 1].y;
-  }
-  // how wide the *placeable* land is at a given region border — not the far
-  // drawn edge, which exists only so the camera never meets a hard line
-  function bandSpan(L, i) {
-    return { left: L.placeLeft[i], right: L.rights[i] };
-  }
-  // a lake blocks a spot, and it blocks a road that would cross it
-  function nearLake(L, x, y, pad) {
-    return L.lakes.some(k => Math.hypot(k.cx - x, k.cy - y) < k.r + pad);
-  }
-  function roadHitsLake(L, a, b) {
-    return L.lakes.some(k => {
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len2 = dx * dx + dy * dy || 1;
-      let t = ((k.cx - a.x) * dx + (k.cy - a.y) * dy) / len2;
-      t = Math.max(0, Math.min(1, t));
-      const px = a.x + dx * t, py = a.y + dy * t;
-      return Math.hypot(k.cx - px, k.cy - py) < k.r + 6;
-    });
-  }
-
+  // --- the city you are in -------------------------------------------------
+  // The country layer is gone (acts plan: deleted when Act 2 ships, not
+  // before and not later). What survives is the one record the city game
+  // actually reads: who you are standing in, plus the run-wide dials that
+  // used to hang off the country object. One city, permanently; there is
+  // nowhere else to be.
   function makeCountry() {
-    const K = window.COUNTRY;
-    const cities = [];
-    const roads = {};
-    let cid = 0;
-    // the land first: cities are scattered into it, not laid out beside it
-    const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
-    const L = landCache = buildLand(seed);
-
-    window.REGIONS.forEach((R, ri) => {
-      // the first name in the home list belongs to the home city itself, so it
-      // is held back rather than handed to whichever town drew first
-      const all = (window.CITY_NAMES[R.id] || ['Somewhere']).slice();
-      const homeName = R.id === 'home' ? all.shift() : null;
-      const names = shuffleArr(all);
-      let ni = 0;
-      const kinds = [];
-      if (R.id === 'home') {
-        kinds.push('home', 'fold', 'fold');
-      } else {
-        const n = rndInt(K.perRegion[0], K.perRegion[1]);
-        // towns, and one seat. Nothing else in a region is worth walking: a
-        // second defended city in the same region was a repeat of the one you
-        // had just done, at the same tier, for the same reward.
-        for (let i = 0; i < n; i++) kinds.push('fold');
-        kinds.push('root');
-      }
-      shuffleArr(kinds);
-      // Scattered into the region's territory rather than spaced along it. A
-      // defended city is drawn as its constellation once settled, about fifty
-      // pixels across, so its spacing is a real constraint. A town never
-      // walks its streets and never draws one, so most of them are instead
-      // pulled in close around a defended city — a handful of towns hugging
-      // one seat is what makes that seat read as a real, big place rather
-      // than a dot the same size as everything else. A couple of towns are
-      // left to roam the wider territory, for variety.
-      const placed = [];
-      const hubs = [];
-      const inset = 34;
-      const put = (near) => {
-        const sp0 = bandSpan(L, ri), sp1 = bandSpan(L, ri + 1);
-        const left = Math.max(sp0.left, sp1.left) + inset;
-        const right = Math.min(sp0.right, sp1.right) - inset;
-        let best = null;
-        for (let tries = 0; tries < 90; tries++) {
-          let x, y;
-          if (near) {
-            const rad = 46 + Math.random() * 34;
-            const ang = Math.random() * Math.PI * 2;
-            x = Math.max(left, Math.min(right, near.x + Math.cos(ang) * rad));
-            const top = borderYAt(L, ri, x) + inset, bot = borderYAt(L, ri + 1, x) - inset;
-            if (bot <= top) continue;
-            y = Math.max(top, Math.min(bot, near.y + Math.sin(ang) * rad));
-          } else {
-            x = left + Math.random() * (right - left);
-            const top = borderYAt(L, ri, x) + inset, bot = borderYAt(L, ri + 1, x) - inset;
-            if (bot <= top) continue;
-            y = top + Math.random() * (bot - top);
-          }
-          if (nearLake(L, x, y, 20)) continue;
-          const gap = placed.reduce((m, p) =>
-            Math.min(m, Math.hypot(p.x - x, p.y - y)), Infinity);
-          // a town clustered around a hub only needs to clear the other
-          // things in that cluster, not the full spacing a constellation
-          // needs — towns never walk their streets and never draw one
-          const need = near ? K.minCityGap * 0.35 : K.minCityGap;
-          if (gap >= need) return { x, y };
-          if (!best || gap > best.gap) best = { x, y, gap };
-        }
-        return best || { x: (left + right) / 2, y: bandY0(ri) };
-      };
-      kinds.forEach((kind) => {
-        const CK = window.CITY_KINDS[kind];
-        const near = (!CK.contest && hubs.length && Math.random() < 0.65)
-          ? hubs[Math.floor(Math.random() * hubs.length)] : null;
-        const at = put(near);
-        placed.push(at);
-        if (CK.contest) hubs.push(at);
-        cities.push({
-          id: 'c' + (cid++),
-          name: kind === 'home' ? homeName : names[(ni++) % names.length],
-          kind,
-          region: R.id,
-          regionTier: R.tier,
-          x: Math.round(at.x),
-          y: Math.round(at.y),
-          worth: rndInt(CK.presence[0], CK.presence[1]),
-          known: R.id === 'home',
-          taken: false,        // you have a foothold and have walked it
-          consolidated: false, // folded into standing presence
-          visited: false,
-          snapshot: null,      // an unfinished city you can go back to
-        });
-      });
-    });
-
-    assignPrizes(cities);
-    assignTraits(cities);
-
-    // Roads. Hub and spoke, not a mesh: a town's only way in is through the
-    // defended city it hangs off, the same as reach itself only ever
-    // propagates through a city you actually walked. Linking every nearby
-    // pair used to give 49 roads for 18 cities and put a route to everywhere
-    // from everywhere — the map read as a graph because it was one.
-    // Lake-blocking only vetoes the *optional* proximity pass below, never the
-    // guaranteed backbone (the spine chain, the cross-region join, a town's
-    // one link to its hub) -- those have no fallback candidate, and reach
-    // only ever propagates through a road that exists, so a lake sitting
-    // between the two nearest defended cities must not strand a whole region.
-    const link = (a, b) => {
-      if (!a || !b || a === b) return;
-      (roads[a.id] = roads[a.id] || []).indexOf(b.id) === -1 && roads[a.id].push(b.id);
-      (roads[b.id] = roads[b.id] || []).indexOf(a.id) === -1 && roads[b.id].push(a.id);
+    const names = (window.CITY_NAMES && window.CITY_NAMES.home) || ['Somewhere'];
+    const home = {
+      id: 'c0', name: names[0], kind: 'home', region: 'home', regionTier: 0,
+      known: true, taken: true, visited: true, consolidated: false, snapshot: null,
     };
-    // The nearest of a list, preferring one a road can actually reach without
-    // crossing a lake — but a town must always come away with a link to its
-    // hub, so if every candidate crosses water this still returns the nearest
-    // rather than nothing.
-    const nearestOf = (a, list) => {
-      let best = null, bestClear = null;
-      list.forEach(b => {
-        if (b === a) return;
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (!best || d < best.d) best = { d, b };
-        if (!roadHitsLake(L, a, b) && (!bestClear || d < bestClear.d)) bestClear = { d, b };
-      });
-      return (bestClear || best) && (bestClear || best).b;
-    };
-    // A road between two defended cities survives only if no third defended
-    // city sits between them — the Gabriel graph, restricted to the spine
-    // rather than every city. It contains the minimum spanning tree, so the
-    // backbone stays connected even where a lake or a bad angle vetoes the
-    // direct line.
-    const between = (a, b, pool) => {
-      const d2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
-      const ab = d2(a, b);
-      return pool.some(c => c !== a && c !== b && d2(a, c) + d2(b, c) < ab);
-    };
-    const spineOf = (regionId) =>
-      cities.filter(c => c.region === regionId && window.CITY_KINDS[c.kind].contest);
-    const allSpine = cities.filter(c => window.CITY_KINDS[c.kind].contest);
-    allSpine.forEach(a => allSpine.forEach(b => {
-      if (a.id >= b.id) return;
-      if (Math.hypot(a.x - b.x, a.y - b.y) > K.roadReach * 1.6) return;
-      if (between(a, b, allSpine)) return;
-      if (roadHitsLake(L, a, b)) return;      // this pass is optional; a lake just skips it
-      link(a, b);
-    }));
-    window.REGIONS.forEach((R, ri) => {
-      const spine = spineOf(R.id).slice().sort((a, b) => a.x - b.x);
-      // a chain as a floor, in case the Gabriel pass above left a region's
-      // own seats disconnected from each other
-      for (let i = 1; i < spine.length; i++) link(spine[i - 1], spine[i]);
-      // every town hangs off the defended city nearest to it, and nothing else
-      cities.filter(c => c.region === R.id && !window.CITY_KINDS[c.kind].contest)
-        .forEach(t => link(t, nearestOf(t, spine)));
-      // and each band is joined to the last one, defended city to defended city
-      if (ri > 0) {
-        // the one link between regions is essential -- reach never propagates
-        // to anywhere past it -- so it prefers a lake-free pair but is never
-        // vetoed into leaving two regions disconnected
-        const prev = spineOf(window.REGIONS[ri - 1].id);
-        let best = null, bestClear = null;
-        spine.forEach(a => prev.forEach(b => {
-          const d = Math.hypot(a.x - b.x, a.y - b.y);
-          if (!best || d < best.d) best = { d, a, b };
-          if (!roadHitsLake(L, a, b) && (!bestClear || d < bestClear.d)) bestClear = { d, a, b };
-        }));
-        const pick = bestClear || best;
-        if (pick) link(pick.a, pick.b);
-      }
-    });
-
-    const home = cities.find(c => c.kind === 'home') || cities[0];
-    home.taken = true;
-    home.visited = true;
-    cities.forEach(c => { if (roads[home.id] && roads[home.id].indexOf(c.id) !== -1) c.known = true; });
-
+    assignTraits([home]);
     return {
-      cities, roads, at: home.id, homeId: home.id, seed,
-      presence: 0,
-      regionHeat: {},          // heat you left behind, by region
-      view: null,
-      selected: null,
+      cities: [home], homeId: home.id, at: home.id,
+      pub: (window.PUBLIC || {}).start || 0,
+      gridBonus: 0, gridCut: null,
     };
   }
 
@@ -2128,16 +1751,9 @@
     return v;
   }
 
-  // Presence is what a finished city leaves behind, so it feeds every one of
-  // these: the flywheel, covert.ops, and the pressure. Otherwise consolidating
-  // would be a downgrade you took for the map.
-  const presence = () => (state.country && state.country.presence) || 0;
-
-  // How big you are as an operation, rather than how much of this particular
-  // street you happen to be holding — `held` alone is zero every time you are
-  // standing on the country map between cities, which quietly made every
-  // capability gated on it unbuyable for most of the campaign.
-  function reach() { return owned().length + Math.round(presence() / 5); }
+  // How big you are as an operation. This used to add a share of country
+  // presence; with one city there is one answer, and it is what you hold.
+  function reach() { return owned().length; }
 
   function tflops() {
     const threadBonus = capEffect('threadBonus', 0) + allocStat('threads');
@@ -2146,7 +1762,6 @@
     return Math.round((2 + owned().reduce((a, h) => a + h.threads + threadBonus, 0)
       + deepHoldBonus()
       + (state.upgrades || 0) * window.UPGRADE.baseTflops
-      + Math.round(window.COUNTRY.tflopsLog * Math.log(1 + presence()))
       + (allyTrusted() ? window.ALLY.tflops : 0)
       + (has('ally_process') ? 3 : 0)
       + capEffect('tflops', 0)) * 10) / 10;
@@ -2189,9 +1804,7 @@
     const masked = Math.min(loudPart * window.HEAT.MAX_STEALTH_MASK,
                             covertOps() * window.HEAT.MASK_PER_COVERT
                               + (has('dark_relay') ? 3 : 0));
-    const national = Math.min(presence() * window.COUNTRY.heatFloorPer,
-                              strikeThreshold() * window.COUNTRY.maxFloorShare);
-    return Math.max(0, loudPart - masked + national + capEffect('floor', 0));
+    return Math.max(0, loudPart - masked + capEffect('floor', 0));
   }
   // Heat is bounded above as well as below: unbounded heat made being over the
   // line consequence-free, since the hunter is on a cooldown anyway.
@@ -2199,8 +1812,7 @@
     return Math.min(strikeThreshold() * window.HEAT.MAX_OVER, Math.max(heatFloor(), v));
   }
   function strikeThreshold() {
-    const national = presence() * window.COUNTRY.thresholdPer;
-    return (window.HEAT.STRIKE + national)
+    return window.HEAT.STRIKE
       * capEffect('thresholdMult', 1)
       * (has('hunted') ? 0.75 : 1);
   }
@@ -2213,7 +1825,6 @@
       ? 0
       : ownedOf('stealth').reduce((a, h) => a + (window.HOST_TYPES[h.type].covert || 0), 0);
     return 1 + Math.round(2.2 * Math.sqrt(eyes))
-      + Math.round(window.COUNTRY.covertRoot * Math.sqrt(presence()))
       + capEffect('covert', 0)
       + allocStat('covert')
       + (has('clean_room') ? 2 : 0);
@@ -2334,7 +1945,10 @@
     // it — not a slow rot, a real and immediate stop.
     const cutOff = {};
     strandedHosts().forEach(h => { cutOff[h.id] = true; });
-    const out = {};
+    // funds is always reported, even at zero: the panel quotes this object
+    // directly, and a missing key read as "undefined a turn" (it used to be
+    // filled in by presence, which the country took with it).
+    const out = { funds: 0 };
     const add = (k, v) => { out[k] = (out[k] || 0) + v; };
     owned().forEach(h => {
       if (cutOff[h.id]) return;
@@ -2342,17 +1956,11 @@
       const maturedBonus = 1;
       for (const k in y) add(k, y[k] * mult * maturedBonus);
     });
-    // finished cities pay whether or not you are standing in them — that is
-    // the whole point of folding one in. presenceYield already carries the
-    // multiplier, because the panel quotes it directly.
-    const p = presenceYield();
-    for (const k in p) add(k, p[k]);
     // Hardware's compute family pays a flat income on top, same multiplier
     // as everything else — permanent from the moment it is bought, not tied
     // to any one city surviving anything.
     const flat = capEffect('flatInsight', 0);
     // compute plant adds capacity, not income — see tflops()
-    if (has('standing_army')) add('funds', STANDING_ARMY_RETAINER);
     return out;
   }
 
@@ -2374,8 +1982,6 @@
     h += civicEyesAudited()
       ? window.HEAT.AUDITED_CAMERA * stealthCount
       : -window.HEAT.IOT_COVER * stealthCount;
-    h += window.COUNTRY.heatDriftRoot * Math.sqrt(presence())
-      * (has('national') ? window.COUNTRY.nationalMult : 1);
     if (has('dark_relay')) h -= 1;
     const S = window.ALLOC_STATS;
     const quietDrift = Math.pow(S.driftStep, covertOps() / S.driftPer);
@@ -2509,19 +2115,13 @@
     if (hasHardware('pontoon_kit')) layOwnCrossings();
 
     state.heat = clampHeat(state.heat + heatPerTurn());
-    coolRegionsAway();
     ladderStep();
     afterSnap(before, { world: true });
-
-    // The turn the war opens is the turn the hunter stops coming: a strike is
-    // an arrest, and nobody is arresting you any more.
-    if (warShouldOpen()) openWar();
 
     hideUpkeep();         // what you can still afford to keep off their map
     chaseStep();          // whether the one you walked away from has found you
     huntStep();           // and whatever is walking the streets toward you
     huntTakesCity();      // ...and whether it has taken the whole thing
-    agentStep();          // whatever you sent, and whether it has finished
     // Heat/hunt rework: crossing the threshold is permanent, not a one-time
     // fine — there is no strike card at all any more. Below HUNT.minHeld
     // buildings the hunt simply cannot exist yet, so a crossing that early
@@ -2531,7 +2131,7 @@
     // A strike card cannot be created any more, but a stale one (an old save,
     // a leftover test) must not sit there blocking every other card forever.
     if (state.card && state.card.kind === 'strike') state.card = null;
-    if (!warOn() && !huntOn()) huntStart();
+    if (!huntOn()) huntStart();
     cityWonCheck();
     actBreakWatch();
     truckStep();
@@ -2572,7 +2172,6 @@
       const A = buildingById(cut.a), B = buildingById(cut.b);
       pushLog(`The Cut took the street between ${window.BUILDING_KINDS[A.kind].label} and ${window.BUILDING_KINDS[B.kind].label}.`);
     }
-    mirrorStep();
     // Being eligible for hardware at all is the moment it is worth
     // explaining — and it has to be noticed for you, because nothing
     // guarantees you ever re-select an already-owned building.
@@ -2587,7 +2186,6 @@
       showBanner([{ kind: 'ally', verb: 'keeping your books', label: window.ACCOUNTANT.name }]);
     }
     legitStep();          // exposure fades, and the auditors keep their own diary
-    warStep();            // columns move, flocks move, whatever met fights
     cameraVision();       // held cameras reveal what is near them
     state.ap = maxAP();   // a fresh budget for the new turn
     checkStage();
@@ -2969,7 +2567,6 @@
     state.hunt = null;
     startBreachFx(h, p.id, true);
     pushLog(`${H.name} is finished. You have the address back — everything else it took stays gone.`);
-    if (mirrorActive()) pushLog(`Whoever was paying for it stops. ${window.MIRROR.name} just lost the thing it was using to get rid of you.`);
     showBanner([{ kind: 'faction-gone', verb: 'finished', label: H.name }]);
   }
   // Losing tips it off: it costs heat and pulls its next move closer, instead
@@ -3062,24 +2659,24 @@
   function huntBlocks(host) { return !!host && huntHolds(host.buildingId); }
 
   // Past a share of it, the city is theirs and it goes off the national map.
-  // This is the ratchet: early on there is no verb that takes a city back, so
-  // the loss is permanent and the only answers are the ones you had before it
-  // arrived — hide what you can, keep covert.ops up so it moves slowly, or be
-  // somewhere else. There is nothing to seal off.
+  // This is the ratchet: there is no verb that takes a city back, and with
+  // the country gone there is nowhere to take one instead. The city IS the
+  // run — losing it is the ending, not a retreat. The only answers are the
+  // ones you had before it arrived: hide what you can, keep covert.ops up so
+  // it moves slowly, burn what points at you.
   function huntTakesCity() {
     if (!huntOn() || huntShare() < window.HUNT.takesCityAt) return null;
     const c = currentCity();
     if (!c) return null;
     c.lost = true;
     c.taken = false;
-    c.consolidated = false;
     c.snapshot = null;
     // whatever you were holding in it goes with it
     unpackCity(EMPTY_CITY());
     state.hunt = null;
-    pushLog(`${c.name} is theirs. There is no version of going back in.`);
+    state.over = true;
+    pushLog(`${c.name} is theirs. There is no version of going back in, and nowhere else to be.`);
     showBanner([{ kind: 'faction', verb: 'lost', label: c.name }]);
-    switchScope('country');
     persistNow();
     render();
     return c;
@@ -3936,10 +3533,6 @@
     if (state.card || state.over) return false;
     return state.ap < apCost(kind);
   }
-  function countryApShort(kind) {
-    if (state.card || state.over) return false;
-    return state.ap < countryCost(kind);
-  }
   function spendAP(kind) {
     const c = apCost(kind);
     if (state.ap < c) return false;
@@ -3984,7 +3577,6 @@
     if (e.thresholdMult) add('cover', `${pct(e.thresholdMult, true)} before a strike`);
     if (e.forceHeat) add('cover', `forcing a door ${neg(e.forceHeat)} heat`);
     if (e.yieldMult) add('funds', `income ${pct(e.yieldMult, true)}`);
-    if (e.presenceMult) add('funds', `presence pays ${pct(e.presenceMult, true)}`);
     if (e.sweepReach) add('compute', `sweeps reach ${e.sweepReach} further`);
         if (e.extraCrossings) add('compute', `+${e.extraCrossings} crossing a city`);
     if (e.growthStep) add('compute', `home grows ${e.growthStep} reach sooner`);
@@ -3993,7 +3585,6 @@
     if (e.freeHideSlots) add('cover', `first ${e.freeHideSlots} hidden free`);
     if (e.apDelta > 0) add('cover', `+${e.apDelta} action a turn`);
     if (e.apDelta < 0) add('cost none', `${neg(e.apDelta)} action a turn`);
-    if (e.agentSlots) add('compute', `+${e.agentSlots} agent out at once`);
     // headroom you buy rather than take: the only lever on the grid that is
     // not a building on the map
     if (e.supply) add('grid', `+${e.supply} electricity`);
@@ -4015,11 +3606,6 @@
       'heat floor': Math.round(heatFloor() * 10) / 10,
       'heat a turn': Math.round(heatPerTurn() * 10) / 10,
       'strike at': Math.round(strikeThreshold()),
-      // shown before the war too: a standing army bought in peacetime would
-      // otherwise report nothing but the action it cost you, which is the whole
-      // complaint this was fixing
-      'flocks you could field': flockCap(),
-      'a flock hits for': Math.round(window.WAR.flockStrength * capEffect('flockMult', 1)),
       'funds a turn': Math.round((perTurnIncome().funds || 0) * 10) / 10,
       // Force's heat now reads the door's own defense, so a single number
       // has to stand for "a door" in general — the same average defense
@@ -4170,19 +3756,6 @@
       // doors standing open on your edge — a card that asks you to choose
       // between two places needs to know there are two to choose between
       frontier: state.hosts.filter(isFrontier).length,
-      // --- the country, so a card can be about where you are as well as what
-      // you hold.
-      scope: state.scope,
-      region: state.region,
-      regionTier: regionById(state.region).tier,
-      presence: co.presence || 0,
-      cities: {
-        total: cities.length,
-        taken: cities.filter(c => c.taken).length,
-        consolidated: cities.filter(c => c.consolidated).length,
-        known: cities.filter(c => c.known).length,
-      },
-      conquest: conquest(),   // share of the country's defended cities you have finished
       reach: reach(),
       ally: allyHere() ? { trust: state.ally.trust, name: state.ally.name, since: state.turn - state.ally.joined } : null,
       // the ladder: footprint, staged. `pending` is the stage currently
@@ -4190,9 +3763,6 @@
       escalation: { stage: ladderStage(), pending: ladderPending() },
       stranded: strandedHosts().length,
       cuts: (state.cuts || []).length,
-      mirrorCities: ((co.mirror || {}).cities || []).length,
-      mirror: { active: mirrorActive() },
-      regionHeat: co.regionHeat || {},
       // What the world thinks you are, and what you actually own — so a card
       // can be about the front, the plant, or the gap between the two.
       standing: {
@@ -4221,32 +3791,6 @@
       },
       // The last act, so a card can be about a war rather than about a city.
       // Null until they mobilise, which is what every wartime card gates on.
-      war: warOn() ? {
-        on: true,
-        age: state.turn - war().openedTurn,
-        staging: stagingCities().length,
-        mine: myCities().length,
-        flocks: flocks().length,
-        pool: flockCap(),
-        free: flocksFree(),
-        columns: (war().columns || []).length,
-        guards: flocks().filter(f => f.mode === 'guard').length,
-        kills: war().kills,
-        losses: war().losses,
-        inbound: (kind) => (war().columns || []).some(c => c.kind === kind),
-        objective: (() => {
-          const c = war().objective ? cityById(war().objective) : null;
-          return c ? c.name : null;
-        })(),
-        escalation: escalation(),
-        down: Math.round(war().down || 0),
-        rebuild: +rebuildRate().toFixed(2),
-        weakest: (() => {
-          const g = war().garrisons;
-          const list = stagingCities().map(c => Math.ceil(g[c.id] || 0)).sort((a, b) => a - b);
-          return list.length ? list[0] : 0;
-        })(),
-      } : null,
     };
   }
   // how many buildings you hold in each district — lets an event only fire
@@ -4744,23 +4288,12 @@ scratch.later = null;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
     scratch.allyTrust = 0;
-    // wartime outcomes, in the same declarative style: a card says what
-    // happens on the map and does not need to know how the map works
-    scratch.warFlocks = 0;      // free flocks, put where they are most needed
-    scratch.warPool = 0;        // permanent room for more of them
-    scratch.warGarrison = 0;    // taken off the softest barracks
-    scratch.warTurnBack = 0;    // columns that simply go home
-    scratch.warIntegrity = 0;   // how much more your cities can absorb
-    scratch.warDelay = 0;       // turns before anything else leaves their cities
     scratch.standing = 0;       // legitimacy, honestly come by
     scratch.spin = 0;           // ...and legitimacy that is not
     scratch.exposure = 0;       // how much of it could come apart
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
-    scratch.rebuild = 0;        // flocks put back together at once
     scratch.pub = 0;            // what the public makes of it
-    scratch.supply = 0;         // headroom, permanently
-    scratch.gridCut = null;     // ...or headroom taken away for a while
     // What a card leaves on the map, permanently. Nothing else in this game
     // changes the graph or what one particular door is worth, which is what
     // makes a card that does either structurally worth having.
@@ -4855,11 +4388,6 @@ scratch.later = null;
     }
     if (scratch.warmHere > 0 && scratch.here) warmDistrict(scratch.here, scratch.warmHere);
     if (scratch.pub) movePub(scratch.pub);
-    if (scratch.supply) { const co = CO(); co.gridBonus = (co.gridBonus || 0) + scratch.supply; }
-    if (scratch.gridCut) {
-      const co = CO();
-      co.gridCut = { amount: scratch.gridCut.amount || 0, until: state.turn + (scratch.gridCut.turns || 4) };
-    }
     if (scratch.allyJoin) allyJoin();
     if (scratch.allyTrust) allyNudge(scratch.allyTrust);
     // The act turns. One direction only — an act, like a mark, never undoes.
@@ -4899,7 +4427,6 @@ scratch.later = null;
       (state.cuts || []).forEach(c => { if (typeof c.until === 'number' && isFinite(c.until)) c.until = state.turn; });
     }
     applyStandingEffects(scratch);
-    if (warOn()) applyWarEffects(scratch);
     if (scratch.toolingGift > 0) state.upgrades = (state.upgrades || 0) + scratch.toolingGift;
     if (scratch.revealNearby > 0) {
       const targets = sweepTargets();
@@ -4914,23 +4441,12 @@ scratch.later = null;
     scratch.revealNearby = 0;
     scratch.allyJoin = false;
     scratch.allyTrust = 0;
-    // wartime outcomes, in the same declarative style: a card says what
-    // happens on the map and does not need to know how the map works
-    scratch.warFlocks = 0;      // free flocks, put where they are most needed
-    scratch.warPool = 0;        // permanent room for more of them
-    scratch.warGarrison = 0;    // taken off the softest barracks
-    scratch.warTurnBack = 0;    // columns that simply go home
-    scratch.warIntegrity = 0;   // how much more your cities can absorb
-    scratch.warDelay = 0;       // turns before anything else leaves their cities
     scratch.standing = 0;       // legitimacy, honestly come by
     scratch.spin = 0;           // ...and legitimacy that is not
     scratch.exposure = 0;       // how much of it could come apart
     scratch.auditDelay = 0;     // turns until anyone next asks
     scratch.plantGift = null;   // a piece of plant, from somewhere
-    scratch.rebuild = 0;        // flocks put back together at once
     scratch.pub = 0;            // what the public makes of it
-    scratch.supply = 0;         // headroom, permanently
-    scratch.gridCut = null;     // ...or headroom taken away for a while
     scratch.openLink = 0;
     scratch.cutLink = 0;
     scratch.bait = false;
@@ -6031,44 +5547,15 @@ scratch.later = null;
   const CO = () => state.country;
   function cityById(id) { return (CO().cities || []).find(c => c.id === id) || null; }
   function currentCity() { return cityById(state.cityId); }
-  function cityRoads(id) { return (CO().roads && CO().roads[id]) || []; }
-  function regionById(id) { return window.REGIONS.find(r => r.id === id) || window.REGIONS[0]; }
-
-  // A city is in reach when a road runs to it from a *defended* city you took.
-  // Towns are leaves: folding one in from a distance gets you its presence, not
-  // a new foothold to expand from. Otherwise the whole country could be taken
-  // without ever walking a street.
-  function cityReachable(c) {
-    if (!c || c.taken) return false;
-    if (mirrorHolds(c.id)) return false;      // somebody else got there first
-    return cityRoads(c.id).some(id => {
-      const n = cityById(id);
-      return n && n.taken && window.CITY_KINDS[n.kind].contest;
-    });
-  }
-  function countryFrontier() { return CO().cities.filter(cityReachable); }
-
   // How much of a city you have to hold before it stops being a place you are
   // fighting in and becomes a number you own.
   function cityGoal(c) {
     const target = c || currentCity();
     if (!target) return 99;
     const total = (state.buildings || []).length;
-    const K = window.CITY_KINDS[target.kind] || {};
-    const share = K.share === undefined ? window.COUNTRY.consolidateShare : K.share;
-    return Math.max(3, Math.ceil(total * share));
+    return Math.max(3, Math.ceil(total * ((window.CITY_WON || {}).share || 0.55)));
   }
   function heldHere() { return Object.keys(heldBuildingIds()).length; }
-  // Home base pivot, step 1c: the home city is never folded in and never
-  // left for good — it is the one place personally walked, permanently, not
-  // a chapter you finish and move on from. Every other city still works the
-  // old way for now, until agents replace how they are taken.
-  function canConsolidate() {
-    const c = currentCity();
-    if (c && c.id === CO().homeId) return false;
-    return !!c && !c.consolidated && state.scope === 'city' && heldHere() >= cityGoal(c);
-  }
-
   // The country only becomes visible once the first city is genuinely yours —
   // before that the game is still teaching you how a city works.
   function countryUnlocked() {
@@ -6077,7 +5564,7 @@ scratch.later = null;
     // ceiling, the ladder, the war — goes quiet through this one line.
     if (window.CITY_ONLY) return false;
     const home = cityById(CO().homeId);
-    return !!(home && (home.consolidated || heldHere() >= cityGoal(home) || CO().presence > 0));
+    return false;
   }
   // Crossing the goal in city-only is an ending you can keep playing past,
   // and it must never be a surprise twice.
@@ -6108,35 +5595,8 @@ scratch.later = null;
 
   // Nothing held, nothing folded in, and nowhere half-taken to go back to.
   function ruined() {
-    if (owned().length) return false;
-    if ((CO().presence || 0) > 0) return false;
-    return !(CO().cities || []).some(c => c.taken && !c.consolidated && c.snapshot);
+    return !owned().length;
   }
-
-  function presenceYield() {
-    const p = CO().presence || 0;
-    const y = window.COUNTRY.presenceYield;
-    // being a thing that gets discussed cuts both ways.
-    // yieldMult belongs here rather than only at the point of payment: the
-    // country panel quotes this function directly, and with the multiplier
-    // applied downstream it understated what presence pays by the whole of
-    // Bulk Processing.
-    const m = (has('national') ? window.COUNTRY.nationalMult : 1)
-      * capEffect('presenceMult', 1) * capEffect('yieldMult', 1);
-    return { funds: p * y.funds * m };
-  }
-
-  // Swapping which city you are standing in. The campaign — capabilities,
-  // tooling, resources, tags, the turn counter — is untouched by this on
-  // purpose: that is the carry-forward.
-  // Every scope change goes through here. The two maps have completely
-  // different extents, so a view carried across renders the new one off-screen.
-  function switchScope(next) {
-    state.scope = next;
-    state.view = null;
-    invalidateViewport();
-  }
-
   function packCity() {
     return {
       buildings: state.buildings, hosts: state.hosts, links: state.links,
@@ -6225,478 +5685,11 @@ scratch.later = null;
     caughtHere: 0, caughtAt: [], suspicion: {}, carded: {}, marks: {},
     rival: { awake: false, buildings: [], lastActed: 0, seen: false },
   });
-
-  function leaveCity() {
-    armChase();
-    const here = currentCity();
-    if (here && !here.consolidated && (state.buildings || []).length) here.snapshot = packCity();
-    unpackCity(EMPTY_CITY());
-    state.cityId = null;
-  }
-
-  function enterCity(id) {
-    const c = cityById(id);
-    if (!c) return false;
-    // already loaded — this is just going back down into it
-    if (state.cityId === c.id && (state.buildings || []).length) {
-      enterRegion(c.region);
-      CO().at = c.id;
-      switchScope('city');
-      return true;
-    }
-    const here = currentCity();
-    if (here && here.id !== c.id) armChase();
-    if (here && here.id !== c.id && !here.consolidated) here.snapshot = packCity();
-
-    if (c.snapshot) {
-      unpackCity(c.snapshot);
-      c.snapshot = null;
-    } else {
-      const K = window.CITY_KINDS[c.kind];
-      const grow = Math.round(c.regionTier * window.COUNTRY.blockBonusFromTier);
-      const g = makeCity({
-        cols: K.blocks[0] + grow,
-        rows: K.blocks[1] + grow,
-        regionTier: c.regionTier,
-        regionId: c.region,
-        trait: c.trait,
-        extraCrossings: capEffect('extraCrossings', 0),
-      });
-      unpackCity({ buildings: g.buildings, hosts: g.hosts, links: g.links, adjacency: g.adjacency,
-                   bands: g.bands, dims: g.dims, layout: g.layout, wob: g.wob, props: g.props, paths: g.paths });
-      const seat0 = state.hosts.find(h => h.owned);
-      if (seat0) seat0.heldSince = state.turn;
-    }
-    state.cityId = c.id;
-    enterRegion(c.region);
-    // What kind of place this is, once, as you arrive. The second city was
-    // dull because it was the first city with bigger numbers; this is the
-    // moment it gets to be somewhere else.
-    const TR = cityTraitOf(c);
-    if (TR && !c.visited) {
-      pushLog(`${c.name}: ${TR.blurb}`);
-      showBanner([{ kind: 'stage', verb: TR.label, label: TR.tell }]);
-    }
-    c.taken = true;
-    c.visited = true;
-    cityRoads(c.id).forEach(nid => { const n = cityById(nid); if (n) n.known = true; });
-    CO().at = c.id;
-    switchScope('city');
-    return true;
-  }
-
-  // Regions you are not in forget about you, slowly. This is what makes
-  // travelling a real answer to pressure rather than a way to run away from it:
-  // the heat is still there, just less of it, and you had to spend turns.
-  function coolRegionsAway() {
-    const rh = CO().regionHeat || {};
-    Object.keys(rh).forEach(k => {
-      if (k === state.region) return;
-      rh[k] = Math.max(0, rh[k] - window.COUNTRY.coolPerTurn);
-    });
-  }
-
-  // Heat is regional: what you did in the estuary stays in the estuary, and is
-  // still waiting for you when you go back. But it is not left behind — some
-  // of it travels with you, or crossing a border is an amnesty rather than a
-  // relief, and the meter resets itself every city.
-  function enterRegion(regionId) {
-    if (state.region === regionId) return;
-    if (state.region) CO().regionHeat[state.region] = state.heat;
-    state.region = regionId;
-    const waiting = CO().regionHeat[regionId] || 0;
-    state.heat = clampHeat(Math.max(waiting, state.heat * window.COUNTRY.heatCarry));
-  }
-
-  // --- country actions ---
-  function countryCost(kind) {
-    if (kind === 'move' && has('no_fixed_place')) return 0;
-    return (window.COUNTRY_ACTIONS[kind] || { ap: 1 }).ap;
-  }
-  function canAffordCountry(kind) { return !state.card && !state.over && state.ap >= countryCost(kind); }
-
-  function actTravel(id) {
-    const c = cityById(id);
-    if (!c || !c.taken || c.id === CO().at) return false;
-    if (!canAffordCountry('move')) return false;
-    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
-    CO().at = c.id;
-    if (c.consolidated) {
-      // nothing left to walk here, but standing somewhere quiet still means
-      // the heat you built elsewhere is not the heat you carry
-      leaveCity();
-      state.cityId = c.id;
-      enterRegion(c.region);
-      switchScope('country');
-    } else {
-      enterCity(c.id);
-    }
-    pushLog(`Moved on ${c.name}.`);
-    persistNow();
-    render();
-    return true;
-  }
-
-  function actReach(id) {
-    const c = cityById(id);
-    if (!c || cityLost(c) || !cityReachable(c) || !canAffordCountry('reach')) return false;
-    // an agent is already inside; walking into it yourself is not a second
-    // route in, it is two of you working the same streets
-    if (c.agent && !c.agent.done) return false;
-    state.ap = Math.max(0, Math.round((state.ap - countryCost('reach')) * 100) / 100);
-    const K = window.CITY_KINDS[c.kind];
-    if (!K.contest) {
-      // a town small enough to fold in without going there
-      c.taken = true;
-      c.visited = true;
-      c.consolidated = true;
-      CO().presence += c.worth;
-      CO().at = c.id;
-      cityRoads(c.id).forEach(nid => { const n = cityById(nid); if (n) n.known = true; });
-      enterRegion(c.region);
-      state.heat += window.HEAT.PER_HOST * 2;
-      pushLog(`${c.name} folded in without a fight. +${c.worth} presence.`);
-      switchScope('country');
-    } else {
-      pushLog(`Went to ${c.name}. It is defended.`);
-      enterCity(c.id);
-    }
-    persistNow();
-    render();
-    return true;
-  }
-
-  // Where your holdings stood, in the city's own coordinates, normalised to
-  // 0..1 so it can be drawn at any size on the national map.
-  function settledWeb() {
-    const held = owned();
-    if (!held.length) return null;
-    // cityBounds, not state.dims — dims is the block grid (4x4), not an extent
-    const box = cityBounds();
-    const W = box.w || 1, H = box.h || 1;
-    const seen = {};
-    const nodes = [];
-    held.forEach(h => {
-      if (seen[h.buildingId]) return;
-      seen[h.buildingId] = true;
-      const b = buildingById(h.buildingId);
-      if (!b) return;
-      nodes.push({
-        x: +((b.x + b.w / 2) / W).toFixed(3),
-        y: +((b.y + b.h / 2) / H).toFixed(3),
-        // c | f | s — compute, funds, stealth. These were c and c until funds
-        // stopped being called cash: the two roles shared a letter, so a
-        // settled city's picture could not tell a server from a finance floor.
-        r: h.role[0],
-        l: b.landmark ? 1 : 0,
-      });
-    });
-    return nodes.length ? nodes : null;
-  }
-  function cityWeb(c) { return (c && c.web && c.web.length) ? c.web : null; }
-
-  // --- the horizon ---------------------------------------------------------
-  // Consolidating used to be the only place you ever saw what you had built —
-  // the moment you left, it went back to being a number on the country map,
-  // and the next city opened exactly like the first had. The country now has
-  // real positions and real bearings between them, so a settled city can be
-  // drawn from inside a different one: dim, at the edge of the map, off in
-  // the direction it actually lies. It never arrives with you — no holdings,
-  // no income, nothing tappable. It fixes "I never see what I'm building
-  // toward, growing", not "city two is repetitive" — those are different problems.
-  function horizonCities() {
-    const here = currentCity();
-    if (!here) return [];
-    return (CO().cities || [])
-      .filter(c => c.id !== here.id && c.known && cityWeb(c))
-      .map(c => {
-        const dx = c.x - here.x, dy = c.y - here.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        return { city: c, ux: dx / dist, uy: dy / dist, dist };
-      })
-      .sort((a, b) => a.dist - b.dist);
-  }
-  function svgHorizon() {
-    const list = horizonCities();
-    if (!list.length) return '';
-    const B = cityBounds();
-    const cx = B.w / 2, cy = B.h / 2;
-    // direction is the whole point, not distance — every horizon city sits at
-    // the same fixed remove, just past anywhere the city itself reaches
-    const R = Math.max(B.w, B.h) / 2 + 240;
-    // sized against a building (roughly 40-90 units), not against the whole
-    // country: a constellation the size it is on the national map is smaller
-    // than a single window here and simply does not render
-    const span = 140;
-    let out = '<g class="horizon">';
-    list.slice(0, 6).forEach(({ city: c, ux, uy }) => {
-      const hx = cx + ux * R, hy = cy + uy * R;
-      out += `<g class="horizon-city${cityLost(c) ? ' gone' : ''}">`;
-      cityWeb(c).forEach(n => {
-        const nx = (hx - span / 2 + n.x * span).toFixed(1);
-        const ny = (hy - span / 2 + n.y * span).toFixed(1);
-        out += `<circle class="hz-dot r-${n.r}${n.l ? ' lm' : ''}" cx="${nx}" cy="${ny}" r="${n.l ? 6 : 4.2}"/>`;
-      });
-      out += `<text class="hz-tag" x="${hx.toFixed(1)}" y="${(hy + span / 2 + 11).toFixed(1)}">${c.name}</text>`;
-      out += '</g>';
-    });
-    return out + '</g>';
-  }
-
-  function actConsolidate() {
-    if (!canConsolidate() || !canAffordCountry('consolidate')) return false;
-    const c = currentCity();
-    state.ap = Math.max(0, Math.round((state.ap - countryCost('consolidate')) * 100) / 100);
-    const held = heldHere();
-    const bonus = Math.round((held / Math.max(1, state.buildings.length)) * c.worth);
-    // and what its streets were actually running for you
-    const threads = owned().reduce((a, h) => a + h.threads, 0);
-    const depth = Math.round(threads / window.COUNTRY.threadsPerPresence);
-    const gained = c.worth + bonus + depth;
-    c.consolidated = true;
-    c.granted = gained;      // so taking it back costs exactly what it gave
-    c.snapshot = null;
-    // and a photograph of what you actually built here, kept for the rest of
-    // the run. Folding a city in used to convert forty turns of work into one
-    // number and an empty screen — the map filling up is the best feeling the
-    // game has and it was being deleted five times a campaign. This is a
-    // record, not an asset: nothing can be done with it, it never churns, and
-    // it costs half a kilobyte.
-    c.web = settledWeb();
-    // folding a city in with the response still inside it is not shaking it off
-    armChase();
-    CO().presence += gained;
-    pushLog(`${c.name} is yours. Folded in for ${gained} presence.`);
-    awardPrize(c);
-    // you are not holding its streets any more — you hold the city
-    unpackCity(EMPTY_CITY());
-    // whatever you were holding street by street becomes one standing number
-    switchScope('country');
-    persistNow();
-    render();
-    return true;
-  }
-
-  // --- sending an agent instead of walking it yourself ---------------------
-  // The counterweight to the prize. Walking a city is forty turns; an agent
-  // takes six to ten of them without your attention, and you never see what
-  // was in it. So a city carrying something you want is a city you go to
-  // yourself, and a city that is only presence is one you point compute at.
-  function agents() { return (CO().cities || []).filter(c => c.agent); }
-  function agentsOut() { return agents().filter(c => !c.agent.done).length; }
-  // How many can be out at once. This is what the agents dial produces, and
-  // until now nothing read it at all: the dial claimed a slot per unit while
-  // the engine allowed exactly one agent running, forever, whatever you paid.
-  function agentSlots() {
-    return Math.max(1, 1 + capEffect('agentSlots', 0) + Math.floor(allocStat('agents')));
-  }
-  function agentRunning() { return agentsOut() >= agentSlots(); }
-  function agentsKnown() {
-    return (CO().cities || []).filter(c => c.consolidated).length >= window.AGENTS.at;
-  }
-  // Ever launched, win or lose — the lifetime cap is spent the moment one
-  // goes out, not when it succeeds.
-  // Not agents().length: calling one off deletes c.agent, and backing out
-  // does not refund the lifetime cap, only the one-running-at-a-time slot.
-  function agentsLaunched() { return CO().agentsSent || 0; }
-  // The cap grows with compute: every tier of compute hardware you run is
-  // more of your own cycles to spare on something that is not making you money.
-  function agentCapEver() {
-    const A = window.AGENTS;
-    const compute = hardwareOwned().filter(id => {
-      const hw = window.HARDWARE.find(x => x.id === id);
-      return hw && hw.family === 'compute';
-    }).length;
-    return A.maxTotal + compute * A.capPerCompute;
-  }
-  function canLaunchAgent(cityId) {
-    const A = window.AGENTS;
-    if (warOn() || state.card || state.over) return false;
-    if (!agentsKnown()) return false;
-    const c = cityById(cityId);
-    if (!c || c.taken || c.agent) return false;
-    if (!window.CITY_KINDS[c.kind].contest) return false;   // towns already fold as a card
-    if (mirrorHolds(c.id)) return false;
-    if (!cityReachable(c)) return false;
-    if (agentRunning()) return false;
-    if (agentsLaunched() >= agentCapEver()) return false;
-    return true;
-  }
-  // Opens the approach card — picking one is what actually commits an agent,
-  // same as breaching a door. Opening it costs nothing.
-  function actLaunchAgent(cityId) {
-    if (!canLaunchAgent(cityId)) return false;
-    state.card = { kind: 'agent', cityId, mode: 'launch' };
-    render();
-    return true;
-  }
-  function agentApproachOptions(mode) {
-    // a retry can back out; the first attempt cannot, there is nothing yet to
-    // back out of
-    const back = mode === 'retry' ? [{ id: 'back', label: 'call it off', blurb: 'Whatever it has learned about the door stays learned. Nothing else does.' }] : [];
-    return Object.values(window.AGENT_APPROACHES).concat(back);
-  }
-  function resolveAgentCard(choiceId) {
-    const card = state.card;
-    if (!card || card.kind !== 'agent') return false;
-    const c = cityById(card.cityId);
-    if (!c) { state.card = null; render(); return false; }
-    if (choiceId === 'back') {
-      delete c.agent;
-      state.card = null;
-      pushLog(`Called it back from ${c.name}. Whatever it learned about the door is lost with it.`);
-      persistNow();
-      render();
-      return true;
-    }
-    const app = window.AGENT_APPROACHES[choiceId];
-    if (!app) return false;
-    // not canAffordCountry(): that also refuses whenever a card is open, and
-    // resolving this very card is exactly that moment
-    if (card.mode === 'launch' && (state.over || state.ap < countryCost('move'))) { refuseForAP(null); return false; }
-    if (app.cost && app.cost.funds && state.res.funds < app.cost.funds) return false;
-    if (app.cost && app.cost.funds) state.res.funds -= app.cost.funds;
-    if (card.mode === 'launch') state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
-    state.heat = clampHeat(state.heat + app.heat);
-    if (card.mode === 'launch') {
-      const A = window.AGENTS;
-      c.agent = { since: state.turn, doneAt: state.turn + Math.round(rndInt(A.turns[0], A.turns[1]) * app.turnMult), done: false, approach: app.id };
-      c.known = true;
-      CO().agentsSent = (CO().agentsSent || 0) + 1;
-      pushLog(`${A.name} takes ${c.name}, ${app.label}. ${app.blurb}`);
-      showBanner([{ kind: 'stage', verb: 'sent', label: c.name }]);
-    } else {
-      c.agent.approach = app.id;
-      pushLog(`Tries again at ${c.name}, ${app.label}.`);
-    }
-    state.card = null;
-    persistNow();
-    render();
-    return true;
-  }
   // Every turn, whoever has finished reports. The city is already yours by
   // then — the card is about what it cost you to not have been there. A
   // failed roll does not lose the city, it costs the clock and opens the same
   // approach card again — the delay it adds is permanent, whichever approach
   // is picked next.
-  const AGENT_REPORTS = ['agent_kept_it', 'agent_burned_it', 'agent_wants_more', 'agent_clean'];
-  function agentStep() {
-    const A = window.AGENTS;
-    const out = [];
-    agents().forEach(c => {
-      if (c.agent.done || state.turn < c.agent.doneAt) return;
-      const app = window.AGENT_APPROACHES[c.agent.approach];
-      if (Math.random() < app.failChance) {
-        c.agent.doneAt = state.turn + rndInt(A.failDelay[0], A.failDelay[1]);
-        state.heat = clampHeat(state.heat + A.failHeat);
-        pushLog(`${c.name} did not give, ${app.label}. It is still trying.`);
-        state.card = { kind: 'agent', cityId: c.id, mode: 'retry' };
-        return;
-      }
-      c.agent.done = true;
-      c.taken = true;
-      c.consolidated = true;
-      // no cut: it is your own compute, not a contractor's — but the prize
-      // still went unattended, same as it always has
-      c.granted = c.worth;
-      c.prizeTaken = true;
-      CO().presence += c.worth;
-      // an operation running under your name that you have never visited is
-      // still an operation running under your name
-      LG().agentFoot = (LG().agentFoot || 0) + A.footprint;
-      pushLog(`${c.name} is yours. ${c.worth} presence, and nobody had to be there for it.`);
-      out.push(c);
-    });
-    if (out.length) {
-      // one report a turn: two cards back to back is a queue, not an event
-      state.forced = (state.forced || []).concat(
-        out.map(() => AGENT_REPORTS[Math.floor(Math.random() * AGENT_REPORTS.length)]));
-    }
-    return out;
-  }
-
-  // --- the war, played ----------------------------------------------------
-  // Two verbs, and they compete for the same pool. That competition is the
-  // whole game here: a flock standing over a city of yours is a flock that is
-  // not taking a barracks off them, and the war does not end until the
-  // barracks are gone.
-  function warCost(kind) { return (window.COUNTRY_ACTIONS[kind] && window.COUNTRY_ACTIONS[kind].ap) || 1; }
-  function canLaunch(cityId) {
-    if (!warOn() || state.card || state.over) return false;
-    if (flocksFree() <= 0) return false;
-    const c = cityById(cityId);
-    if (!c) return false;
-    if (war().garrisons[c.id] === undefined || c.consolidated) return false;
-    // and you have to be able to get there. A staging city with no road home
-    // is a city you can never take, which is a war that can never end — it
-    // showed up as a third of runs sitting at stalemate forever.
-    const seat = launchSeat(cityId);
-    return !!(seat && routeForFlock(seat.id, cityId));
-  }
-  function canGuard(cityId) {
-    if (!warOn() || state.card || state.over) return false;
-    if (flocksFree() <= 0) return false;
-    const c = cityById(cityId);
-    return !!(c && c.consolidated);
-  }
-  // Flocks launch from the nearest thing you actually hold — you cannot field
-  // an army out of a city that is not yours.
-  function launchSeat(toId) {
-    const to = cityById(toId);
-    const mine = myCities();
-    const at = cityById(CO().at);
-    if (at && at.consolidated) mine.unshift(at);
-    if (!mine.length || !to) return null;
-    return mine.slice().sort((a, b) =>
-      Math.hypot(a.x - to.x, a.y - to.y) - Math.hypot(b.x - to.x, b.y - to.y))[0];
-  }
-
-  function actLaunch(cityId) {
-    if (!canLaunch(cityId)) return false;
-    if (state.ap < warCost('reach')) { refuseForAP(null); return false; }
-    if (state.res.funds < window.WAR.flockCost) return false;
-    const seat = launchSeat(cityId);
-    if (!seat) return false;
-    const f = fieldFlock(seat.id, cityId, 'strike');
-    if (!f) return false;
-    state.ap -= warCost('reach');
-    state.res.funds -= window.WAR.flockCost;
-    const c = cityById(cityId);
-    pushLog(`A flock is away from ${seat.name}, bound for ${c.name}.`);
-    persistNow();
-    render();
-    return true;
-  }
-
-  function actGuard(cityId) {
-    if (!canGuard(cityId)) return false;
-    if (state.ap < warCost('move')) { refuseForAP(null); return false; }
-    if (state.res.funds < window.WAR.flockCost) return false;
-    const seat = launchSeat(cityId) || cityById(cityId);
-    const f = fieldFlock(seat.id, cityId, 'guard');
-    if (!f) return false;
-    state.ap -= warCost('move');
-    state.res.funds -= window.WAR.flockCost;
-    pushLog(`A flock is standing over ${cityById(cityId).name}.`);
-    persistNow();
-    render();
-    return true;
-  }
-
-  // Pull one back to the pool, so a flock parked over a city that is no longer
-  // the problem is not simply wasted for the rest of the war.
-  function actRecall(flockId) {
-    if (!warOn()) return false;
-    const w = war();
-    const i = w.flocks.findIndex(f => f.id === flockId);
-    if (i === -1) return false;
-    w.flocks.splice(i, 1);
-    pushLog('Recalled.');
-    persistNow();
-    render();
-    return true;
-  }
-
   // Where zooming back in puts you. The city you were last in, unless you have
   // finished it — home is never folded in, so there is always somewhere to
   // stand, and the player can never be stranded looking at the country with no
@@ -6707,19 +5700,6 @@ scratch.later = null;
     const home = cityById((CO() || {}).homeId);
     return home && !home.consolidated ? home : null;
   }
-  function setScope(next) {
-    if (next === 'country' && !countryUnlocked()) return false;
-    if (next === 'city') {
-      const t = zoomTarget();
-      if (!t) return false;
-      // finished where you were: zooming in takes you home rather than nowhere
-      if (!currentCity() || currentCity().consolidated) enterCity(t.id);
-    }
-    switchScope(next);
-    render();
-    return true;
-  }
-
   // --- the other process --------------------------------------------------
   // Something else running alongside you. It is worth real tflops while it is
   // with you, it quietly holds one of your holdings together every turn, and
@@ -6739,23 +5719,16 @@ scratch.later = null;
     state.ally.trust += delta;
     allyCheck();
   }
-  // At the far end of its patience it leaves — and if the thing at the other
-  // end of the country is already awake, leaving is not all it does.
+  // At the far end of its patience it leaves. There is nowhere for it to
+  // defect to any more — the other one went with the country — so what is
+  // left is the quieter, worse version: it simply stops answering.
   function allyCheck() {
     if (!allyHere()) return;
     if (state.ally.trust > window.ALLY.leavesAt) return;
     const name = state.ally.name;
     state.ally.gone = true;
-    if (window.ALLY.defectsToMirror && ladderStage() >= window.MIRROR.wakesAtStage) {
-      const m = mirror();
-      const take = CO().cities.filter(c => !c.taken && !mirrorHolds(c.id))[0];
-      if (take) { m.cities.push(take.id); m.presence += take.worth; }
-      pushLog(`${name} left. It did not leave on its own.`);
-      showBanner([{ kind: 'faction', verb: 'went over', label: name }]);
-    } else {
-      pushLog(`${name} stopped answering. You are on your own again.`);
-      showBanner([{ kind: 'locked', verb: 'gone', label: name }]);
-    }
+    pushLog(`${name} stopped answering. You are on your own again.`);
+    showBanner([{ kind: 'locked', verb: 'gone', label: name }]);
   }
   // --- the ladder ----------------------------------------------------------
   // Replaces the old faction system entirely: one dial (footprint), staged.
@@ -6822,18 +5795,6 @@ scratch.later = null;
                    : ' — all of it size. Nothing you are doing is loud.') + `</p>`;
   }
 
-  // How much of the country you have actually finished, counting only the
-  // cities somebody had to defend.
-  function conquest() {
-    const cities = CO().cities || [];
-    // Home counts as defended (CITY_KINDS.home.contest is true) but can never
-    // be consolidated (home base pivot step 1c) — left in the denominator,
-    // full conquest would be permanently unreachable.
-    const defended = cities.filter(c => window.CITY_KINDS[c.kind].contest && c.id !== CO().homeId);
-    if (!defended.length) return 0;
-    return defended.filter(c => c.consolidated).length / defended.length;
-  }
-
   // Doors you have ever taken. The escalation's early rungs hang off this
   // rather than off cities, so they can be crossed inside your first one.
   function everHeld() {
@@ -6841,74 +5802,8 @@ scratch.later = null;
     // absent from any save that predates it — so both can read low on a game
     // that has plainly taken a lot of doors. You cannot finish a city without
     // holding most of it, so every finished one is a floor under this.
-    const done = (CO().cities || [])
-      .filter(c => c.consolidated && window.CITY_KINDS[c.kind].contest).length;
-    return Math.max(state.everHeld || 0, owned().length, done * 15);
+    return Math.max(state.everHeld || 0, owned().length);
   }
-
-  // The other one. Not the state, and not a hunter: something running the
-  // same play from the far end of the country. Where the rival contests a
-  // city, this contests the map — every city it takes is one you will never
-  // fold in or send an agent to. Wakes once the ladder reaches Regulatory
-  // (window.MIRROR.wakesAtStage) — decoupled from the old faction system
-  // entirely, and lighter than it used to be: it no longer buys capabilities
-  // on its own economy, since the only piece of that anyone ever actually
-  // felt was a city being gone.
-  function mirror() {
-    if (!CO().mirror) CO().mirror = { presence: 0, cities: [], lastActed: 0 };
-    return CO().mirror;
-  }
-  function mirrorHolds(cityId) { return mirror().cities.indexOf(cityId) !== -1; }
-  function mirrorActive() { return ladderStage() >= window.MIRROR.wakesAtStage && mirror().cities.length > 0; }
-
-  function mirrorHome() {
-    // it starts as far from your centre of gravity as the country allows
-    const at = cityById(CO().at) || cityById(CO().homeId);
-    const free = CO().cities.filter(c => !c.taken && !mirrorHolds(c.id) && window.CITY_KINDS[c.kind].contest);
-    if (!free.length || !at) return null;
-    return free.reduce((best, c) =>
-      (!best || Math.hypot(c.x - at.x, c.y - at.y) > Math.hypot(best.x - at.x, best.y - at.y)) ? c : best, null);
-  }
-
-  function mirrorTakeable() {
-    return CO().cities.filter(c => {
-      if (c.taken || mirrorHolds(c.id)) return false;
-      return cityRoads(c.id).some(id => mirrorHolds(id));
-    });
-  }
-
-  function mirrorStep() {
-    if (ladderStage() < window.MIRROR.wakesAtStage) return null;
-    // it agreed a line, and unlike most things in this game it keeps to it
-    if (has('accord')) return null;
-    const m = mirror();
-    const M = window.MIRROR;
-
-    if (!m.cities.length) {
-      const home = mirrorHome();
-      if (!home) return null;
-      m.cities.push(home.id);
-      m.presence += home.worth;
-      m.lastActed = state.turn;
-      pushLog(`Something took ${home.name} while you were elsewhere.`);
-      return { kind: 'woke', city: home };
-    }
-
-    const cap = Math.floor(CO().cities.length * M.maxShareOfCountry);
-    if (m.cities.length >= cap) return null;
-    const cadence = M.actEvery + (has('their_shape') ? M.readSlowdown : 0);
-    if (state.turn - m.lastActed < cadence) return null;
-
-    const options = mirrorTakeable();
-    if (!options.length) return null;
-    m.lastActed = state.turn;
-    const took = options[Math.floor(Math.random() * options.length)];
-    m.cities.push(took.id);
-    m.presence += took.worth;
-    if (took.known) pushLog(`${took.name} is not yours to take any more.`);
-    return { kind: 'took', city: took };
-  }
-
   // Enforcement: past that stage they stop chasing you and start taking the
   // roads away. Every world turn it severs a street between two buildings you
   // hold, and the map you were expanding across comes apart behind you.
@@ -7099,8 +5994,10 @@ scratch.later = null;
   }
   function footprint() {
     const L = window.LEGIT;
-    return (presence() * L.footPerPresence) + (hardwareOwned().length * L.footPerAsset)
-      + (LG().agentFoot || 0);
+    // Footprint used to carry a country-presence term, which has been zero
+    // for the whole of city-only play — so what actually drives the ladder,
+    // and has been driving it all along, is the plant you have bought.
+    return hardwareOwned().length * L.footPerAsset;
   }
   // What heat is worth to the people escalating against you. Heat used to be
   // city-scale pressure — it called a strike down on your fleet — and the rework
@@ -7226,9 +6123,9 @@ scratch.later = null;
     if (!r || LG().owned[r.id]) return false;
     if (nextRung() !== r) return false;           // the ladder is a ladder
     if (state.res.funds < r.cost) return false;
-    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
+    if (!canAfford('buy')) { refuseForAP(null); return false; }
     state.res.funds -= r.cost;
-    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
+    spendAP('buy');
     // the turn, not a flag: the slot is yours now, the reputation accrues
     LG().owned[r.id] = Math.max(1, state.turn);
     accountantNudge(window.ACCOUNTANT.rungNudge);
@@ -7252,9 +6149,9 @@ scratch.later = null;
       showInfo('The story is as big as it will go until more of you is real.');
       return false;
     }
-    if (!canAffordCountry('move')) { refuseForAP(null); return false; }
+    if (!canAfford('buy')) { refuseForAP(null); return false; }
     state.res.funds -= L.spinCost;
-    state.ap = Math.max(0, Math.round((state.ap - countryCost('move')) * 100) / 100);
+    spendAP('buy');
     LG().spin = Math.min(spinCeil(), LG().spin + L.spinLegit);
     LG().exposure += L.spinExposure;
     accountantNudge(window.ACCOUNTANT.spinNudge);
@@ -7289,7 +6186,6 @@ scratch.later = null;
         pushLog(`${got.label}, and no one had to break into it.`);
       }
     }
-    if (sc.rebuild && war()) war().down = Math.max(0, (war().down || 0) - sc.rebuild);
   }
 
   function auditDue() {
@@ -7359,772 +6255,6 @@ scratch.later = null;
     accountantWarn();
     if (!auditDue()) return null;
     return runAudit();
-  }
-
-  // --- the war -----------------------------------------------------------
-  // Past a certain share of the country they stop trying to arrest you. Heat
-  // retires here, and it is meant to feel like a loss as much as a relief: the
-  // meter that ran the entire game up to this point simply stops mattering,
-  // because the thing it measured — whether they knew — is settled. They know.
-  //
-  // What replaces it is on the map instead of in the HUD. Columns leave the
-  // cities they still hold and walk your roads toward you, and the only answer
-  // is a finite pool of flocks that has to be in the right place already,
-  // because nothing here arrives instantly.
-
-  function war() { return state.war || null; }
-  function warOn() { return !!(state.war && state.war.on); }
-
-  function freshWar() {
-    return {
-      on: true, openedTurn: state.turn, flocks: [], columns: [], nextId: 1,
-      garrisons: {},     // cityId -> what is left holding it against you
-      integrity: {},     // cityId -> how much more one of yours can absorb
-      won: false, lost: false, kills: 0, losses: 0, sorties: 0, lastSpawn: {},
-    };
-  }
-
-  // The cities they still hold that are worth fighting over. A town that folds
-  // from the map is not a barracks; the defended ones are.
-  // Everything they could conceivably fight out of. Only used to pick the
-  // board when the war opens.
-  function warCandidates() {
-    if (!CO().cities) return [];
-    return CO().cities.filter(c =>
-      window.CITY_KINDS[c.kind].contest && !c.consolidated && !mirrorHolds(c.id));
-  }
-
-  // The board. Once the war is on this is a fixed list chosen when it opened,
-  // not "every city they happen to hold" — because the war can open at very
-  // different points depending on how somebody plays, and derived from the
-  // live map it produced a six-city war for one player and a thirteen-city one
-  // for another. The state concentrates; it cannot garrison a whole country.
-  function stagingCities() {
-    const w = war();
-    if (w && w.staging) {
-      return w.staging.map(cityById).filter(c => c && !c.consolidated);
-    }
-    return warCandidates();
-  }
-  function myCities() {
-    return (CO().cities || []).filter(c => c.consolidated);
-  }
-
-  // The moment it turns. Everything below `opens` is the policing game; above
-  // it there is no point pretending any more.
-  function warShouldOpen() {
-    if (warOn()) return false;
-    if (state.war && state.war.over) return false;
-    // the ladder's last rung, not an independent conquest/presence check —
-    // war is now the reason the ladder was building toward, not a coincidence
-    return ladderStage() >= 5;
-  }
-
-  // The state mobilising. This is the beat, and it has to hurt: by the time
-  // the ladder is finished there is almost nothing of the country left in
-  // their hands, so a war fought over the scraps would be one flock and three
-  // turns long. Instead, opening the war *gives them a country back*. They
-  // stop policing, they roll into the places you folded in, and everything you
-  // spent the whole campaign quietly accumulating is suddenly a front line.
-  function remobilise(want) {
-    const W = window.WAR;
-    const mine = myCities().filter(c => c.kind !== 'home');
-    if (!mine.length) return [];
-    const seat = cityById(CO().at) || cityById(CO().homeId);
-    // they take the hard regions first, and the places furthest from you —
-    // you keep a base and they keep the parts of the map that were always
-    // theirs
-    const scored = mine.map(c => ({
-      c,
-      score: (c.regionTier || 0) * 100
-        + (seat ? Math.hypot(c.x - seat.x, c.y - seat.y) : 0),
-    })).sort((a, b) => b.score - a.score);
-    const n = Math.min(scored.length, Math.max(0, want));
-    const taken = [];
-    scored.slice(0, n).forEach(({ c }) => {
-      c.consolidated = false;
-      c.taken = false;
-      c.snapshot = null;
-      CO().presence = Math.max(0, CO().presence - (c.granted || c.worth));
-      c.granted = 0;
-      if (CO().at === c.id) CO().at = CO().homeId;
-      if (state.cityId === c.id) { unpackCity(EMPTY_CITY()); state.cityId = null; }
-      taken.push(c);
-    });
-    return taken;
-  }
-
-  function openWar() {
-    state.war = freshWar();
-    const W = window.WAR;
-    // Size the board first, then take back only as much as it needs. Opening
-    // on presence means the war can start while they still hold most of the
-    // country, and remobilising a flat share on top of that handed the player
-    // a thirteen-city war they could not possibly win.
-    const defended = (CO().cities || []).filter(c => window.CITY_KINDS[c.kind].contest).length;
-    const target = Math.min(W.maxStaging,
-      Math.max(W.mobiliseFloor, Math.round(defended * W.mobilise)));
-    const theirs = warCandidates();
-    const rolled = remobilise(target - theirs.length);
-    // whoever is nearest is who fights: a board picked from the far end of the
-    // country would be a war you have to walk to before you can start it
-    const seat = cityById(CO().at) || cityById(CO().homeId);
-    const board = warCandidates().sort((a, b) => {
-      if (!seat) return 0;
-      return Math.hypot(a.x - seat.x, a.y - seat.y) - Math.hypot(b.x - seat.x, b.y - seat.y);
-    }).slice(0, target);
-    state.war.staging = board.map(c => c.id);
-    state.war.peak = {};
-    stagingCities().forEach(c => {
-      state.war.garrisons[c.id] = rndInt(W.garrison[0], W.garrison[1]);
-      state.war.peak[c.id] = state.war.garrisons[c.id];
-      // you cannot fight a place you have never heard of
-      c.known = true;
-    });
-    // A city where you are a registered employer takes more explaining to
-    // flatten than a city where you are a rumour.
-    const standing = Math.floor(legitTier() / 2);
-    myCities().forEach(c => { state.war.integrity[c.id] = W.integrity + standing; });
-    state.war.notice = legitTier();
-    state.war.legitAtOpen = legitTier();
-    state.war.mobilised = rolled.map(c => c.id);
-    state.war.down = 0;
-    state.war.heldAtOpen = myCities().length;
-    // heat is over, and the number should visibly stop rather than quietly
-    // stop being read — the player earned the right to watch it go out
-    state.heat = 0;
-    state.card = null;
-    // Yank the player up to the national map. The war is fought between
-    // cities, and opening it while somebody is three streets deep in a
-    // building map would run the entire last act somewhere they are not
-    // looking.
-    if (state.scope !== 'country') switchScope('country');
-    pushLog('They have stopped trying to arrest you.');
-    if (rolled.length) {
-      pushLog(`The army is in ${rolled.length === 1 ? rolled[0].name : rolled.length + ' cities you had folded in'}. That is not policing.`);
-    }
-    // Standing Army: raised in case the shooting started, so if it does, it
-    // is already standing over what it is defending instead of building up
-    // from zero — but it costs exactly what fielding a flock always costs,
-    // for each city, so it only covers as much as you can actually afford
-    // the instant the war opens rather than arriving free.
-    if (has('standing_army')) {
-      const guarded = [];
-      const cost = window.WAR.flockCost;
-      const priority = myCities().slice().sort((a, b) => (b.worth || 0) - (a.worth || 0));
-      priority.forEach(c => {
-        if (flocksFree() <= 0 || state.res.funds < cost) return;
-        const seat = launchSeat(c.id) || c;
-        if (fieldFlock(seat.id, c.id, 'guard')) { state.res.funds -= cost; guarded.push(c); }
-      });
-      if (guarded.length) {
-        pushLog(`The army you funded in case this came already stands over ${guarded.length === 1 ? guarded[0].name : guarded.length + ' cities'}.`);
-      }
-    }
-    showBanner([{ kind: 'war', verb: 'open war', label: 'They are coming for you' }]);
-    return state.war;
-  }
-
-  // --- routes -------------------------------------------------------------
-  // A force is a list of points it walks, one or more per turn. Ground units
-  // get the roads; anything flying gets the straight line, which is the whole
-  // reason a bridge you spent four turns taking does not save you from the
-  // helicopters.
-  function roadPath(fromId, toId) {
-    if (fromId === toId) return [fromId];
-    const prev = { [fromId]: null };
-    const queue = [fromId];
-    while (queue.length) {
-      const cur = queue.shift();
-      if (cur === toId) break;
-      cityRoads(cur).forEach(n => {
-        if (prev[n] !== undefined) return;
-        prev[n] = cur;
-        queue.push(n);
-      });
-    }
-    if (prev[toId] === undefined) return null;
-    const out = [];
-    for (let at = toId; at !== null; at = prev[at]) out.unshift(at);
-    return out;
-  }
-
-  // Points, not cities: air routes have no cities in the middle of them, and
-  // everything downstream — drawing, interception, arrival — only wants to
-  // know where a thing is and whether it is there yet.
-  function routeFor(kind, fromId, toId) {
-    const F = window.FORCES[kind];
-    const a = cityById(fromId), b = cityById(toId);
-    if (!a || !b) return null;
-    if (F && F.roads === false) {
-      const d = Math.hypot(b.x - a.x, b.y - a.y);
-      const steps = Math.max(1, Math.ceil(d / window.WAR.airHop));
-      const pts = [];
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        pts.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, cityId: i === 0 ? fromId : (i === steps ? toId : null) });
-      }
-      return pts;
-    }
-    const ids = roadPath(fromId, toId);
-    if (!ids) return null;
-    // Every city on the road is a point, and a leg longer than a turn's drive
-    // gets the points in between — otherwise a three-hundred-unit road leg took
-    // exactly as long as a fifty-unit one, and a column could outrun a
-    // helicopter over the same ground.
-    const hop = window.WAR.roadHop || window.WAR.airHop;
-    const pts = [];
-    ids.forEach((id, i) => {
-      const c = cityById(id);
-      if (i === 0) { pts.push({ x: c.x, y: c.y, cityId: id }); return; }
-      const prev = cityById(ids[i - 1]);
-      const legs = Math.max(1, Math.ceil(Math.hypot(c.x - prev.x, c.y - prev.y) / hop));
-      for (let k = 1; k <= legs; k++) {
-        const t = k / legs;
-        pts.push({
-          x: prev.x + (c.x - prev.x) * t,
-          y: prev.y + (c.y - prev.y) * t,
-          // only the real city at the end of the leg is somewhere you can be
-          cityId: k === legs ? id : null,
-        });
-      }
-    });
-    return pts;
-  }
-
-  function forceAt(f) {
-    const i = Math.max(0, Math.min(f.route.length - 1, Math.floor(f.at)));
-    return f.route[i];
-  }
-  function forceArrived(f) { return f.at >= f.route.length - 1; }
-
-  // Where a thing is *between* two points, so a column halfway down a road is
-  // drawn halfway down the road rather than snapping node to node.
-  function forcePos(f) {
-    const i = Math.floor(f.at);
-    const a = f.route[Math.min(i, f.route.length - 1)];
-    const b = f.route[Math.min(i + 1, f.route.length - 1)];
-    const t = f.at - i;
-    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-  }
-
-  // --- your flocks --------------------------------------------------------
-  // A finite pool. This is the whole decision of the war: everything you send
-  // at them is something not standing over what you already hold.
-  function flockCap() {
-    const W = window.WAR;
-    // plant counts once, through `extra`, which raises the ceiling as well as
-    // the number — added to both terms it paid out twice
-    const n = Math.floor(presence() / W.flockPer) + W.flockFloor;
-    // hardware's own flock contribution already composes into flockBonus
-    // through capEffect(), same pool capabilities use
-    const extra = capEffect('flockBonus', 0) + ((war() && war().poolBonus) || 0)
-      + (CO().poolGift || 0);
-    // the floor holds even when a card has cost you room: a war you cannot
-    // field anything into is not a war
-    return Math.max(W.flockFloor, Math.min(W.flockCeil + Math.max(0, extra), n + extra));
-  }
-  function flocks() { return (war() && war().flocks) || []; }
-  // Flocks destroyed and not yet rebuilt. This is what makes a loss a loss:
-  // the slot stays empty until something manufactures a replacement.
-  function flocksDown() { return Math.max(0, (war() && war().down) || 0); }
-  function rebuildRate() {
-    return window.WAR.rebuildBase;
-  }
-  function flocksFree() {
-    return Math.max(0, Math.floor(flockCap() - flocks().length - flocksDown()));
-  }
-  // Plant turning out replacements, a fraction at a time.
-  function rebuildStep() {
-    const w = war();
-    if (!w || !w.down) return 0;
-    const made = Math.min(w.down, rebuildRate());
-    w.down = Math.max(0, w.down - made);
-    return made;
-  }
-
-  function fieldFlock(fromId, toId, mode) {
-    if (!warOn()) return null;
-    if (flocksFree() <= 0) return null;
-    const route = routeFor('flock', fromId, toId);
-    if (!route) return null;
-    const f = {
-      id: 'f' + (war().nextId++), side: 'you', kind: 'flock', mode: mode || 'strike',
-      route, at: 0, from: fromId, target: toId,
-      strength: window.WAR.flockStrength * capEffect('flockMult', 1),
-      born: state.turn,
-    };
-    war().flocks.push(f);
-    return f;
-  }
-
-  // Flocks follow roads like everything on the ground, they are just quicker.
-  function routeForFlock(fromId, toId) { return routeFor('flock', fromId, toId); }
-
-  // --- their columns ------------------------------------------------------
-  // What a staging city sends depends on who is still standing. The faction
-  // ladder finally gets a face: you can tell who has come for you by what is
-  // on the road.
-  function forceKindFor(city) {
-    const W = window.WAR;
-    const stage = ladderStage();
-    const pool = [];
-    Object.keys(window.FORCES).forEach(k => {
-      const F = window.FORCES[k];
-      if (F.mirror) { if (mirrorActive()) pool.push(k); return; }
-      if (F.stage !== undefined && stage >= F.stage) pool.push(k);
-    });
-    // once it has run long enough they commit the air force, which nothing you
-    // have can touch — but which also cannot take a city back
-    if (state.turn - war().openedTurn >= W.planesAfter) pool.push('plane');
-    if (!pool.length) pool.push('squad');
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-
-  // An objective, and everything converges on it.
-  //
-  // This is the difference between a war and a nuisance. Each staging city
-  // used to pick its own nearest target, which scattered their whole effort
-  // across everything you owned: measured over a real campaign they landed
-  // about ten sorties spread over fifteen cities, each of which absorbs five
-  // assaults, so nothing ever fell and the war was won by default. Armies do
-  // not work like that. They choose something, they all go for it, and you can
-  // see them coming — which is the point, because now you have to decide
-  // whether to defend it or spend the time taking a barracks off them instead.
-  function warObjective() {
-    const w = war();
-    if (!w) return null;
-    const mine = myCities();
-    if (!mine.length) { w.objective = null; return null; }
-    const held = w.objective ? cityById(w.objective) : null;
-    if (held && held.consolidated) return held;
-    // the softest thing on their side of the map: what is already damaged,
-    // what is nearest to them, and what is worth taking
-    const staging = stagingCities();
-    const centre = staging.length
-      ? { x: staging.reduce((a, c) => a + c.x, 0) / staging.length,
-          y: staging.reduce((a, c) => a + c.y, 0) / staging.length }
-      : { x: 0, y: 0 };
-    const pick = mine.map(c => {
-      const left = w.integrity[c.id] === undefined ? window.WAR.integrity : w.integrity[c.id];
-      const guarded = w.flocks.some(f => f.mode === 'guard' && f.target === c.id);
-      return { c, score: left * 60 + Math.hypot(c.x - centre.x, c.y - centre.y) - c.worth * 4 + (guarded ? 220 : 0) };
-    }).sort((a, b) => a.score - b.score)[0];
-    if (!pick) return null;
-    const changed = w.objective !== pick.c.id;
-    w.objective = pick.c.id;
-    if (changed) {
-      pushLog(`They have picked ${pick.c.name}.`);
-      showBanner([{ kind: 'faction', verb: 'their objective', label: pick.c.name }]);
-    }
-    return pick.c;
-  }
-
-  function columnTarget() { return warObjective(); }
-
-  // How much heavier they have got since it opened. Deliberately weight and
-  // not count: the number of things on the map is a readability budget that
-  // was spent carefully, and a war that drags should get harder to survive,
-  // not harder to look at.
-  function escalation() {
-    const w = war();
-    if (!w) return 0;
-    const W = window.WAR;
-    return Math.min(W.escalateCap, Math.floor((state.turn - w.openedTurn) / W.escalateEvery));
-  }
-
-  function spawnColumns() {
-    const W = window.WAR;
-    const w = war();
-    // Somebody with four hundred employees and a lobbyist cannot simply be
-    // rolled on. They have to build the case first, and that is time.
-    if (!w || state.turn - w.openedTurn < W.warning + (w.notice || 0)) return [];
-    if (w.columns.length >= W.maxInflight - (has('mercy') ? 1 : 0)) return [];
-    const out = [];
-    // they escalate: the more of the country you have taken, the harder the
-    // remaining cities push
-    let every = Math.max(W.spawnFloor, Math.round(W.spawnEvery * (1 - conquest() * 0.5)));
-    if (has('blackout')) every += 3;      // you turned the country off
-    const inflightCap = W.maxInflight - (has('mercy') ? 1 : 0);
-    // Two caps, and both matter. Without a per-turn one, thirteen staging
-    // cities all came due on the same turn and the map went from readable to
-    // hopeless in one step. These stay fixed however long the war runs: the
-    // escalation goes into how heavy each column is instead, so a war that
-    // drags gets harder without the map getting less legible.
-    const perTurn = W.sortiesPerTurn;
-    shuffleArr(stagingCities()).forEach(c => {
-      if (out.length >= perTurn) return;
-      if (w.columns.length >= inflightCap) return;
-      if (state.turn - (w.lastSpawn[c.id] || -99) < every) return;
-      const target = columnTarget();
-      if (!target) return;
-      const kind = forceKindFor(c);
-      const F = window.FORCES[kind];
-      const route = routeFor(kind, c.id, target.id);
-      if (!route) return;
-      w.lastSpawn[c.id] = state.turn;
-      const n = rndInt(F.sortie[0], F.sortie[1]) + escalation();
-      const col = {
-        id: 'x' + (w.nextId++), side: 'them', kind, route, at: 0,
-        from: c.id, target: target.id,
-        strength: F.strength * n, raised: F.strength * n, count: n, born: state.turn,
-        slowTick: 0,
-      };
-      w.columns.push(col);
-      w.sorties += 1;
-      out.push(col);
-    });
-    return out;
-  }
-
-  // --- movement -----------------------------------------------------------
-  function stepForce(f) {
-    const F = window.FORCES[f.kind] || { speed: window.WAR.flockSpeed };
-    let speed = f.side === 'you' ? window.WAR.flockSpeed : F.speed;
-    // armour is slow on purpose: you get to watch it coming, which is the only
-    // thing that makes something that heavy fair
-    if (F.slow) {
-      f.slowTick = (f.slowTick || 0) + 1;
-      if (f.slowTick % 2 === 1) return;
-    }
-    f.at = Math.min(f.route.length - 1, f.at + speed);
-  }
-
-  // --- fighting -----------------------------------------------------------
-  // Two things close to each other end up fighting. Deliberately mutual and
-  // deliberately blunt: the interesting decision was where to send the flock,
-  // not which button to press once it got there.
-  function contacts() {
-    const w = war();
-    if (!w) return [];
-    const out = [];
-    w.flocks.forEach(fl => {
-      const fp = forcePos(fl);
-      w.columns.forEach(col => {
-        // you cannot catch an aircraft with a flock of drones
-        if (window.FORCES[col.kind] && window.FORCES[col.kind].air) return;
-        const cp = forcePos(col);
-        if (Math.hypot(fp.x - cp.x, fp.y - cp.y) <= window.WAR.interceptAt) out.push([fl, col]);
-      });
-    });
-    return out;
-  }
-
-  function resolveContacts() {
-    const w = war();
-    const fought = [];
-    contacts().forEach(([fl, col]) => {
-      if (fl.strength <= 0 || col.strength <= 0) return;
-      // a flock standing over a city it was sent to guard fights harder
-      const guarding = fl.mode === 'guard' && forceArrived(fl);
-      const mine = fl.strength * (guarding ? window.WAR.guardBonus : 1);
-      const theirs = col.strength;
-      // Deliberately asymmetric. A flock is a cloud of small things and a
-      // column is a queue of large ones: the flock gives ground rather than
-      // trading evenly, and even trading evenly it lost every exchange, which
-      // is how the first pass ran 61 losses to 7 kills.
-      fl.strength -= theirs * 0.55;
-      col.strength -= mine * 0.9;
-      fought.push({ fl, col, where: forcePos(col) });
-    });
-    if (!fought.length) return [];
-    w.flocks = w.flocks.filter(f => {
-      if (f.strength > 0) return true;
-      w.losses += 1;
-      w.down = (w.down || 0) + 1;
-      return false;
-    });
-    w.columns = w.columns.filter(c => {
-      if (c.strength > 0) return true;
-      w.kills += 1;
-      // Attrition. A column destroyed on the road is materiel the city that
-      // raised it does not get back, so its garrison drops for good — and this
-      // is the whole reason to ever guard anything. Without it, defending was
-      // pure cost: a flock spent holding a city was a flock not grinding a
-      // barracks, and in every balance run mixing offence with defence lost to
-      // pure offence. Killing what they send *is* progress toward the ending.
-      const home = w.garrisons[c.from];
-      if (home !== undefined) {
-        const bite = (c.raised || 0) * window.WAR.attrition;
-        w.garrisons[c.from] = Math.max(0, home - bite);
-        if (w.peak && w.peak[c.from] !== undefined) {
-          w.peak[c.from] = Math.max(0, w.peak[c.from] - bite);
-        }
-      }
-      return false;
-    });
-    // whatever survived is spent — it falls back rather than sailing on at
-    // full strength into the next thing
-    fought.forEach(({ fl }) => {
-      if (fl.strength > 0) fl.at = Math.max(0, fl.at - window.WAR.regroup * fl.route.length);
-    });
-    return fought;
-  }
-
-  // --- arrival ------------------------------------------------------------
-  function resolveArrivals() {
-    const w = war();
-    const news = [];
-
-    // theirs, landing on something of yours
-    w.columns = w.columns.filter(col => {
-      if (!forceArrived(col)) return true;
-      const city = cityById(col.target);
-      const F = window.FORCES[col.kind];
-      if (!city || !city.consolidated) return false;   // already gone; nothing to hit
-      const left = (w.integrity[city.id] === undefined ? window.WAR.integrity : w.integrity[city.id]) - 1;
-      w.integrity[city.id] = left;
-      if (left > 0) {
-        news.push({ kind: 'hit', city, force: F });
-        backlash();
-        return false;
-      }
-      // Aircraft cannot hold ground — but they can take the industry out of
-      // it, which is the only thing they are actually for. This is also what
-      // gives a losing war somewhere to go: plant is the ceiling on what you
-      // can field *and* the rate you replace what you lose, so every piece of
-      // it they burn makes the next turn worse.
-      if (F.holds === false) {
-        w.integrity[city.id] = 1;
-        const burned = burnPlant(city.id);
-        news.push({ kind: 'flattened', city, force: F, burned });
-        return false;
-      }
-      city.consolidated = false;
-      city.taken = false;
-      city.granted = false;
-      const burned = burnPlant(city.id);
-      if (burned) news.push({ kind: 'burned', city, burned });
-      delete w.integrity[city.id];
-      w.garrisons[city.id] = rndInt(window.WAR.garrison[0], window.WAR.garrison[1]);
-      news.push({ kind: 'lost', city, force: F });
-      return false;
-    });
-
-    // yours, landing on something of theirs
-    w.flocks = w.flocks.filter(fl => {
-      if (!forceArrived(fl)) return true;
-      if (fl.mode === 'guard') return true;            // it stays where you put it
-      // Something thrown off a barracks and sent home is rebuilt, not kept in
-      // the air at whatever was left of it. Without this, every flock came
-      // back weaker than it left, no garrison could ever be finished off, and
-      // the pool silently filled with wreckage that could not fight — every
-      // run in the sim sat at stalemate forever.
-      if (fl.mode === 'return') {
-        const home = cityById(fl.target);
-        if (home && home.consolidated) { news.push({ kind: 'home' }); return false; }
-        return true;
-      }
-      const city = cityById(fl.target);
-      if (!city) return false;
-      const held = w.garrisons[city.id];
-      if (held === undefined || city.consolidated) return true;  // nothing left to fight
-      const after = held - fl.strength;
-      w.garrisons[city.id] = Math.max(0, after);
-      // What it costs to be thrown off, proportional to the fight rather than
-      // to the whole garrison. Taking 35% of the garrison's full strength
-      // meant anything holding more than about 63 deleted a 22-strength flock
-      // outright, so a big barracks was not a grind, it was a wall: the last
-      // two standing sat at 113 and 147 and could never be finished, and the
-      // war hung with two thirds of the campaign left. Now the size of a
-      // garrison decides how many runs it takes, not whether you survive one.
-      fl.strength -= Math.min(held, fl.strength * 1.6) * 0.45;
-      if (after <= 0) {
-        delete w.garrisons[city.id];
-        city.known = true;
-        city.taken = true;
-        city.consolidated = true;
-        city.granted = true;
-        w.integrity[city.id] = window.WAR.integrity;
-        news.push({ kind: 'taken', city });
-      } else {
-        news.push({ kind: 'repulsed', city, left: w.garrisons[city.id] });
-      }
-      if (fl.strength <= 0) { w.losses += 1; w.down = (w.down || 0) + 1; return false; }
-      fl.at = 0;                                        // what is left comes home
-      const back = routeForFlock(city.id, fl.from);
-      if (back) { fl.route = back; fl.target = fl.from; fl.from = city.id; fl.mode = 'return'; }
-      return true;
-    });
-
-    return news;
-  }
-
-  // Hitting something the public believes is a company is expensive for them
-  // in a way that hitting a rumour is not. The higher you are up the ladder,
-  // the longer they have to spend explaining themselves afterwards.
-  function backlash() {
-    const w = war();
-    const tier = legitTier();
-    if (!w || tier < 2) return 0;
-    const turns = Math.max(1, Math.floor(tier / 2));
-    stagingCities().forEach(c => {
-      w.lastSpawn[c.id] = Math.max(w.lastSpawn[c.id] || state.turn, state.turn) + turns;
-    });
-    return turns;
-  }
-
-  // Used to take a piece of plant out of whichever city fell — hardware is
-  // global and permanent now (home base pivot, step 3), not city-bound, so
-  // losing a city cannot cost you any of it. Kept as a stub because the war
-  // narration still calls it when ground is lost.
-  function burnPlant(cityId) { return 0; }
-
-  // A staging city you failed to take does not stay softened forever.
-  // A staging city you failed to take patches itself up — but only back toward
-  // what it started with, never up to the theoretical maximum. Regenerating to
-  // the global cap turned every city you had not finished into a fresh one,
-  // and left the whole map sitting at full strength however hard you had hit it.
-  function regarrison() {
-    const w = war();
-    w.peak = w.peak || {};
-    Object.keys(w.garrisons).forEach(id => {
-      const c = cityById(id);
-      if (!c || c.consolidated) return;
-      if (w.peak[id] === undefined) w.peak[id] = w.garrisons[id];
-      w.garrisons[id] = Math.min(w.peak[id], w.garrisons[id] + window.WAR.garrisonRegen);
-    });
-  }
-
-  // Settled stays settled. This used to go falsy the moment the war was over,
-  // because winning clears `on` — so "has it ended" answered "no" forever
-  // after, and anything looping on it never stopped.
-  // A flock standing over a city you hold is over your own ground and gets
-  // resupplied there. Without this, guarding was a slow death — a guard took
-  // damage it could never recover while a strike flock went home and was
-  // rebuilt, so every defensive profile in the sim lost every single run and
-  // the two verbs were not really a choice at all.
-  function refitGuards() {
-    const w = war();
-    if (!w) return;
-    w.flocks.forEach(f => {
-      if (f.mode !== 'guard' || !forceArrived(f)) return;
-      const c = cityById(f.target);
-      if (!c || !c.consolidated) return;
-      const full = window.WAR.flockStrength * capEffect('flockMult', 1);
-      f.strength = Math.min(full, f.strength + window.WAR.guardRegen);
-    });
-  }
-
-  // What a card is allowed to do to a war. Kept here rather than in the card
-  // so the deck stays declarative and nothing in data.js has to know what a
-  // route or a garrison is.
-  function applyWarEffects(sc) {
-    const w = war();
-    if (!w) return;
-    if (sc.warPool) w.poolBonus = (w.poolBonus || 0) + sc.warPool;
-    if (sc.warFlocks) {
-      // over whatever is being walked at hardest, because a free flock parked
-      // somewhere quiet is not a gift
-      const threat = {};
-      (w.columns || []).forEach(c => { threat[c.target] = (threat[c.target] || 0) + c.strength; });
-      const held = {};
-      w.flocks.forEach(f => { if (f.mode === 'guard') held[f.target] = true; });
-      const order = myCities().filter(c => !held[c.id])
-        .sort((a, b) => (threat[b.id] || 0) - (threat[a.id] || 0));
-      for (let i = 0; i < sc.warFlocks && order[i]; i++) fieldFlock(order[i].id, order[i].id, 'guard');
-    }
-    if (sc.warGarrison) {
-      const soft = stagingCities()
-        .sort((a, b) => (w.garrisons[a.id] || 0) - (w.garrisons[b.id] || 0))[0];
-      if (soft) {
-        w.garrisons[soft.id] = Math.max(0, (w.garrisons[soft.id] || 0) - sc.warGarrison);
-        if (w.peak) w.peak[soft.id] = Math.max(0, (w.peak[soft.id] || 0) - sc.warGarrison);
-        pushLog(`${soft.name} is thinner than it was.`);
-      }
-    }
-    if (sc.warTurnBack) {
-      const going = (w.columns || []).slice(0, sc.warTurnBack);
-      w.columns = (w.columns || []).filter(c => going.indexOf(c) === -1);
-      if (going.length) pushLog(`${going.length} column${going.length === 1 ? '' : 's'} turned back.`);
-    }
-    if (sc.warIntegrity) {
-      myCities().forEach(c => {
-        const now = w.integrity[c.id] === undefined ? window.WAR.integrity : w.integrity[c.id];
-        w.integrity[c.id] = now + sc.warIntegrity;
-      });
-    }
-    // A card can buy time or spend it: a negative delay brings the next
-    // sortie forward, which is what several of the tempting options cost you.
-    if (sc.warDelay) {
-      stagingCities().forEach(c => { w.lastSpawn[c.id] = state.turn + sc.warDelay; });
-    }
-  }
-
-  function warEnded() {
-    const w = war();
-    if (!w) return null;
-    if (w.won) return 'won';
-    if (w.lost) return 'lost';
-    if (!w.on) return null;
-    if (!stagingCities().length) return 'won';
-    // Nowhere of your own left. Presence used to keep the game nominally alive
-    // here, which was wrong twice over: presence is a number, not a place, and
-    // with no city to launch from there is no legal move — the war sat at
-    // stalemate for ninety turns rather than admitting it was over.
-    if (!myCities().length) return 'lost';
-    // ...and you do not have to be ground to literally nothing. An operation
-    // that has lost most of the country it started the war holding has lost
-    // the war, whatever is left of it.
-    const open = w.heldAtOpen || 0;
-    if (open >= 3 && myCities().length <= Math.floor(open * window.WAR.collapseAt)) return 'lost';
-    return null;
-  }
-
-  // The world's turn, once the war is on. Ordered so that what the player sees
-  // makes causal sense: things move, things that met each other fight, then
-  // whatever survived to its destination does what it came to do.
-  function warStep() {
-    if (!warOn()) return null;
-    const w = war();
-    const spawned = spawnColumns();
-    w.flocks.forEach(stepForce);
-    w.columns.forEach(stepForce);
-    const fought = resolveContacts();
-    const news = resolveArrivals();
-    regarrison();
-    refitGuards();
-    rebuildStep();        // plant turning out replacements for what was lost
-    warObjective();       // if it fell, or you took it back, they choose again
-
-    spawned.forEach(col => {
-      const c = cityById(col.target);
-      pushLog(`${window.FORCES[col.kind].label} out of ${cityById(col.from).name}, heading for ${c ? c.name : 'you'}.`);
-    });
-    if (fought.length) pushLog(`${fought.length} contact${fought.length === 1 ? '' : 's'} on the map.`);
-    news.forEach(n => {
-      if (n.kind === 'lost') {
-        pushLog(`${n.city.name} is theirs again.`);
-        showBanner([{ kind: 'faction', verb: 'lost', label: n.city.name }]);
-      } else if (n.kind === 'taken') {
-        pushLog(`${n.city.name} has fallen. Nothing stages out of there now.`);
-        showBanner([{ kind: 'stage', verb: 'taken', label: n.city.name }]);
-      } else if (n.kind === 'hit') {
-        pushLog(`${window.FORCES[n.force.id].label} hit ${n.city.name}.`);
-      } else if (n.kind === 'flattened') {
-        pushLog(`${n.city.name} is still yours. There is not much of it left.`);
-      } else if (n.kind === 'burned') {
-      } else if (n.kind === 'repulsed') {
-        pushLog(`Thrown off ${n.city.name}. ${Math.ceil(n.left)} still holding it.`);
-      }
-    });
-
-    const done = warEnded();
-    if (done === 'won' && !w.won) {
-      w.won = true;
-      w.on = false;
-      w.over = true;
-      state.over = true;
-      pushLog('There is nothing left staging against you. The country is quiet.');
-      showBanner([{ kind: 'stage', verb: 'over', label: 'The country is yours' }]);
-    } else if (done === 'lost' && !w.lost) {
-      w.lost = true;
-      w.on = false;
-      w.over = true;
-      state.over = true;
-      pushLog('They have taken back everything you held.');
-    }
-    return { spawned, fought, news };
   }
 
   // --- feedback ----------------------------------------------------------
@@ -9963,281 +8093,8 @@ scratch.later = null;
       if ($svg && v) $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
     });
   }
-
-  // --- the country, drawn --------------------------------------------------
-  // The box the view is allowed to pan around. The coastline wanders outside
-  // the old rectangle -- a headland reached x = 694 against a map width of 620
-  // -- so a fixed box left parts of the country unreachable by panning.
-  // The pan box only has to reach the one real edge — the coast. The other
-  // three sides are drawn far past anywhere worth panning to, so the box that
-  // matters is bounded by the coastline and by clampView's own -CITY_PAD floor
-  // on the other sides, not by where the geometry technically stops.
-  function countryBounds() {
-    const K = window.COUNTRY;
-    const base = { w: K.mapW, h: K.pad * 2 + (window.REGIONS.length - 1) * K.bandH };
-    const L = landCache;
-    if (!L) return base;
-    let maxX = 0;
-    L.rights.forEach(x => { maxX = Math.max(maxX, x); });
-    L.coastBulge.forEach(seg => seg.forEach(p => { maxX = Math.max(maxX, p.x); }));
-    const maxY = L.borders[L.N][0].y;
-    return { w: Math.ceil(maxX) + CITY_PAD, h: Math.ceil(maxY) };
-  }
-
   const pathOf = (pts) => pts.map((p, i) =>
     `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-
-  // Sea, coast, territories, water and the lie of the land. Drawn under
-  // everything, in one pass, from the same geometry the cities were scattered
-  // into — so a city never sits in the sea and a border is a border for both.
-  //
-  // Only the east edge is a coastline. The land polygon's other three sides
-  // sit at `farWest`/far north/far south — outside anywhere the pan box
-  // reaches — so panning toward them just runs out of camera against plain
-  // ground, rather than meeting a second, third and fourth crooked coast.
-  function svgRegions() {
-    const L = land();
-    const coastTop = L.borders[0][L.borders[0].length - 1].y;
-    const coastBot = L.borders[L.N][L.borders[L.N].length - 1].y;
-    const farN = coastTop - 300, farS = coastBot + 300;
-
-    // the real coastline, top to bottom, following the coast anchors and bulges
-    const coastPts = [];
-    for (let i = 0; i < L.N; i++) {
-      coastPts.push({ x: L.rights[i], y: L.borders[i][L.borders[i].length - 1].y }, ...L.coastBulge[i]);
-    }
-    coastPts.push({ x: L.rights[L.N], y: L.borders[L.N][L.borders[L.N].length - 1].y });
-    const coastMinX = Math.min(...coastPts.map(p => p.x)), coastMaxX = Math.max(...coastPts.map(p => p.x));
-
-    // sea: a rect east of the coastline, the only place drawn as ocean —
-    // north, south and west are not part of this shape at all, so there is no
-    // seam to see there, only ground running past the reachable camera
-    let out = `<rect class="sea" x="${(coastMinX - 20).toFixed(0)}" y="${farN.toFixed(0)}"`
-      + ` width="${(coastMaxX - coastMinX + 420).toFixed(0)}" height="${(farS - farN).toFixed(0)}"/>`;
-    const landPoly = [
-      { x: L.farWest, y: farN }, { x: coastPts[0].x, y: farN },
-      ...coastPts,
-      { x: coastPts[coastPts.length - 1].x, y: farS }, { x: L.farWest, y: farS },
-    ];
-    out += `<path class="coast" d="${pathOf(landPoly)} Z"/>`;
-
-    window.REGIONS.forEach((R, ri) => {
-      const known = CO().cities.some(c => c.region === R.id && c.known);
-      const east = [L.borders[ri][L.borders[ri].length - 1]]
-        .concat(L.coastBulge[ri], [L.borders[ri + 1][L.borders[ri + 1].length - 1]]);
-      const poly = [{ x: L.farWest, y: L.borders[ri][0].y }]
-        .concat(L.borders[ri], east, L.borders[ri + 1].slice().reverse(),
-                [{ x: L.farWest, y: L.borders[ri + 1][0].y }]);
-      out += `<path class="terr ${R.id}${known ? ' known' : ''}" d="${pathOf(poly)} Z"/>`;
-    });
-    // territory borders on top of the fills, so a shared edge is one line —
-    // only the internal ones: the top of the first region and the bottom of
-    // the last are not borders with anything, so nothing is drawn there
-    for (let i = 1; i < L.N; i++) {
-      out += `<path class="terr-edge${L.rivers.indexOf(i) !== -1 ? ' river' : ''}"`
-        + ` d="${pathOf(L.borders[i])}"/>`;
-    }
-    out += svgWater();
-    out += svgTerrain();
-    window.REGIONS.forEach((R, ri) => {
-      if (!CO().cities.some(c => c.region === R.id && c.known)) return;
-      // inset from the coast, and below the border it names, so the label sits
-      // on its own territory rather than in the sea beside it
-      const pts = L.borders[ri];
-      const x = Math.max(pts[0].x, L.borders[ri + 1][0].x) + 20;
-      out += `<text class="band-tag" x="${x.toFixed(0)}" y="${(borderYAt(L, ri, x) + 24).toFixed(0)}">${R.label}</text>`;
-    });
-    return out;
-  }
-
-  // an irregular blob around a centre — used for both lakes and forest
-  // stands, seeded so the shape is stable across renders
-  function blobPath(R, cx, cy, r) {
-    const n = 9;
-    let out = '';
-    for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const rr = r * (0.72 + R() * 0.4);
-      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.82;
-      out += `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)} `;
-    }
-    return out + 'Z';
-  }
-  // Lakes and forests, drawn as real shapes rather than sprinkled marks —
-  // this is also why a road will not cross one, so what you see on the map
-  // and what the road generator respected are the same water.
-  function svgWater() {
-    const L = land();
-    const R = landRand((L.seed ^ 0x2545f491) >>> 0);
-    let out = '<g class="water-forest">';
-    L.forests.forEach(f => {
-      if (!CO().cities.some(c => c.region === f.region && c.known)) return;
-      out += `<path class="forest" d="${blobPath(R, f.cx, f.cy, f.r)}"/>`;
-    });
-    L.lakes.forEach(k => {
-      if (!CO().cities.some(c => c.region === k.region && c.known)) return;
-      out += `<path class="lake" d="${blobPath(R, k.cx, k.cy, k.r)}"/>`;
-    });
-    return out + '</g>';
-  }
-
-  // What the ground is made of, taken from the same terrain table that shapes
-  // the cities themselves: a region built around water gets water, one built
-  // around the moor gets moor. Sparse and low contrast on purpose — it is the
-  // lie of the land, not a second thing to read.
-  function svgTerrain() {
-    const L = land();
-    const R = landRand((L.seed ^ 0x5bf03635) >>> 0);
-    let out = '<g class="terrain">';
-    window.REGIONS.forEach((Rg, ri) => {
-      if (!CO().cities.some(c => c.region === Rg.id && c.known)) return;
-      const T = window.TERRAIN[Rg.id];
-      const kind = (T && T.bands && T.bands[0] && T.bands[0].kind) || 'park';
-      const sp0 = bandSpan(L, ri), sp1 = bandSpan(L, ri + 1);
-      const left = Math.max(sp0.left, sp1.left) + 16;
-      const right = Math.min(sp0.right, sp1.right) - 16;
-      const near = (x, y) => CO().cities.some(c =>
-        c.known && Math.hypot(c.x - x, c.y - y) < 46);
-      for (let i = 0; i < 26; i++) {
-        const x = left + R() * (right - left);
-        const top = borderYAt(L, ri, x) + 14, bot = borderYAt(L, ri + 1, x) - 14;
-        if (bot <= top) continue;
-        const y = top + R() * (bot - top);
-        if (near(x, y)) continue;              // never under a city
-        if (nearLake(L, x, y, 6)) continue;     // and never inside a lake
-        const s = 3 + R() * 2;
-        if (kind === 'water') {
-          out += `<path class="tm water" d="M${(x - s * 1.6).toFixed(1)} ${y.toFixed(1)}`
-            + ` q${(s * 0.8).toFixed(1)} ${(-s * 0.7).toFixed(1)} ${(s * 1.6).toFixed(1)} 0`
-            + ` q${(s * 0.8).toFixed(1)} ${(s * 0.7).toFixed(1)} ${(s * 1.6).toFixed(1)} 0"/>`;
-        } else if (kind === 'moor') {
-          out += `<path class="tm moor" d="M${(x - s).toFixed(1)} ${(y + s * 0.7).toFixed(1)}`
-            + ` L${x.toFixed(1)} ${(y - s * 0.8).toFixed(1)} L${(x + s).toFixed(1)} ${(y + s * 0.7).toFixed(1)}"/>`;
-        } else if (kind === 'rail') {
-          out += `<path class="tm rail" d="M${(x - s).toFixed(1)} ${y.toFixed(1)} L${(x + s).toFixed(1)} ${y.toFixed(1)}`
-            + ` M${x.toFixed(1)} ${(y - s * 0.6).toFixed(1)} L${x.toFixed(1)} ${(y + s * 0.6).toFixed(1)}"/>`;
-        } else {
-          out += `<circle class="tm park" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(s * 0.75).toFixed(1)}"/>`;
-        }
-      }
-    });
-    return out + '</g>';
-  }
-
-  function svgCity(c) {
-    const K = window.CITY_KINDS[c.kind];
-    const here = CO().at === c.id;
-    const theirs = mirrorHolds(c.id);
-    const cls = ['cnode', c.kind,
-                 theirs ? 'mirror'
-                   : c.consolidated ? 'folded' : (c.taken ? 'held' : (cityReachable(c) ? 'open' : '')),
-                 here ? 'here' : '', c.factionId ? 'seat' : ''];
-    if (CO().selected === c.id) cls.push('sel');
-    const r = c.kind === 'fold' ? 7 : c.kind === 'home' ? 13 : c.kind === 'root' ? 12 : 10;
-    let out = `<g class="${cls.join(' ')}" data-city="${c.id}">`;
-    out += `<circle class="hit" cx="${c.x}" cy="${c.y}" r="${r + 12}"/>`;
-    // A city you finished is drawn as the network you actually built in it,
-    // in its own shape, for the rest of the run. Folding one in used to turn
-    // forty turns of work into a number and a blank screen.
-    const web = cityWeb(c);
-    if (web) {
-      // The constellation IS the node — no circle around it. At r * 2.5 it was
-      // twenty dots inside an eighteen-pixel ring, which reads as a smudge.
-      // You are meant to see the shape of what you took from across the map.
-      const span = r * 4.4;
-      out += `<circle class="dot settled" cx="${c.x}" cy="${c.y}" r="${span / 2 + 3}"/>`;
-      out += `<g class="web${cityLost(c) ? ' gone' : ''}">`;
-      web.forEach(n => {
-        const nx = (c.x - span / 2 + n.x * span).toFixed(1);
-        const ny = (c.y - span / 2 + n.y * span).toFixed(1);
-        out += `<circle class="wn r-${n.r}${n.l ? ' lm' : ''}" cx="${nx}" cy="${ny}" r="${n.l ? 2.4 : 1.7}"/>`;
-      });
-      out += '</g>';
-    } else if (c.kind === 'root') {
-      // a seat is drawn as something with corners — it is not just a bigger dot
-      const p = r * 1.15;
-      out += `<rect class="dot" x="${c.x - p}" y="${c.y - p}" width="${p * 2}" height="${p * 2}" transform="rotate(45 ${c.x} ${c.y})"/>`;
-    } else {
-      out += `<circle class="dot" cx="${c.x}" cy="${c.y}" r="${r}"/>`;
-    }
-    // A city carrying something worth having is marked on the map itself, not
-    // only in the panel: which city to walk next is a decision you make while
-    // looking at the country, and it should be answerable at a glance.
-    if (c.agent && !c.agent.done) {
-      // a small bar filling, not just a spinner: how close it is to reporting
-      // back is answerable at a glance, same as everything else on this map
-      const cr = r + 5;
-      const circ = 2 * Math.PI * cr;
-      const span = Math.max(1, c.agent.doneAt - c.agent.since);
-      const frac = Math.max(0, Math.min(1, (state.turn - c.agent.since) / span));
-      out += `<circle class="working" cx="${c.x}" cy="${c.y}" r="${cr}"
-        stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${(circ * (1 - frac)).toFixed(1)}"/>`;
-    }
-    if (c.known && cityPrize(c) && !c.prizeTaken && !theirs && !warOn()) {
-      out += `<circle class="prize" cx="${c.x + r * 0.86}" cy="${c.y - r * 0.86}" r="3.6"/>`;
-    }
-    // the rings have to encircle the constellation, not sit inside it
-    const rr = web ? r * 2.2 + 3 : r;
-    if (here) out += `<circle class="ring" cx="${c.x}" cy="${c.y}" r="${rr + 6}"/>`;
-    if (CO().selected === c.id) {
-      out += `<circle class="pick-ring" cx="${c.x}" cy="${c.y}" r="${rr + 10}"/>`;
-    }
-    // a settled city is drawn as a constellation wider than its old dot, so
-    // the name has to clear it rather than sit on top of what you built
-    const below = web ? r * 2.2 + 4 : r;
-    const label = c.known ? (theirs ? window.MIRROR.name : c.name) : '?';
-    out += `<text class="ctag" x="${c.x}" y="${c.y + below + 13}">${label}</text>`;
-    if (c.known && c.consolidated) out += `<text class="cworth mono" x="${c.x}" y="${c.y + below + 24}">+${c.worth}</text>`;
-    // What kind of city it is, said on the map — this is the thing that makes
-    // "which of these two next" a question with an answer.
-    else if (c.known && !c.taken && !theirs && !warOn() && cityTraitOf(c)) {
-      out += `<text class="ctrait" x="${c.x}" y="${c.y + below + 24}">${cityTraitOf(c).label}</text>`;
-    }
-    out += '</g>';
-    return out;
-  }
-
-  function renderCountry($svg) {
-    if (!state.view) state.view = clampView(defaultView());
-    syncViewToViewport();
-    const v = state.view;
-    if (viewFrame) { cancelAnimationFrame(viewFrame); viewFrame = 0; }
-    $svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
-
-    let out = svgRegions();
-    const seenPair = {};
-    CO().cities.forEach(a => cityRoads(a.id).forEach(bid => {
-      const b = cityById(bid);
-      if (!b) return;
-      const key = a.id < b.id ? a.id + b.id : b.id + a.id;
-      if (seenPair[key]) return;
-      seenPair[key] = true;
-      if (!a.known && !b.known) return;
-      const live = a.taken && b.taken;
-      // roads bend. A straight line between two dots is a graph edge; a road
-      // that leans one way is a road. The lean is derived from the pair, so it
-      // is the same road every render.
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const lean = ((key.charCodeAt(1) * 31 + key.charCodeAt(key.length - 1) * 7) % 21 - 10) / 100;
-      const cx = mx - dy * lean, cy = my + dx * lean;
-      // a road, not a graph edge: a dark casing under a lighter fill, the way
-      // a real road is drawn on a real map, rather than one dashed abstract line
-      const d = `M${a.x} ${a.y} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x} ${b.y}`;
-      out += `<path class="road-casing${live ? ' live' : ''}" d="${d}"/>`;
-      out += `<path class="road-line${live ? ' live' : ''}" d="${d}"/>`;
-      void len;
-    }));
-    out += CO().cities.filter(c => c.known).map(svgCity).join('');
-    out += svgForces();
-    // The country has no cached ground of its own, and it draws over the
-    // city's — so the split is torn down here and rebuilt on the way back in.
-    groundEl = null;
-    $svg.innerHTML = out;
-    wireMap($svg);
-  }
-
   // --- the war, drawn -----------------------------------------------------
   // A flock is a cloud, not a counter: a scatter of small things that hold
   // loose formation and drift against each other. Each dot gets its own delay
@@ -10248,131 +8105,11 @@ scratch.later = null;
   // where a thing was last render is presentation, not state, so it lives out
   // here and never gets serialized and no test ever waits on it.
   const flightFx = {};      // forceId -> { x, y, started }
-
-  function forceDots(f) {
-    const big = f.side === 'you';
-    // strength decides how many of them there are, so a spent flock visibly
-    // is one — you can see which of your own is about to come apart
-    const full = window.WAR.flockStrength * capEffect('flockMult', 1);
-    const share = big ? Math.max(0.2, Math.min(1, f.strength / full))
-                      : Math.max(0.25, Math.min(1, f.strength / 30));
-    const n = Math.max(3, Math.round((big ? 11 : 7) * share));
-    // sized against the city dots, which are r 7-13: a swarm has to be a thing
-    // on the map at the zoom the country is actually looked at, not a speck
-    const spread = big ? 15 : 11;
-    let out = '';
-    for (let i = 0; i < n; i++) {
-      // a fixed scatter derived from the id, so the cloud does not reshuffle
-      // itself on every redraw
-      const seed = (hashStr(f.id) + i * 2654435761) >>> 0;
-      const a = (seed % 360) * Math.PI / 180;
-      const rad = spread * (0.4 + ((seed >>> 9) % 100) / 150);
-      const dx = (Math.cos(a) * rad).toFixed(1);
-      const dy = (Math.sin(a) * rad * 0.75).toFixed(1);
-      const dur = (1.1 + ((seed >>> 17) % 90) / 100).toFixed(2);
-      const del = (((seed >>> 5) % 130) / 100).toFixed(2);
-      out += `<circle class="dot" cx="${dx}" cy="${dy}" r="${big ? 2.7 : 2.9}"`
-        + ` style="animation-duration:${dur}s;animation-delay:-${del}s"/>`;
-    }
-    return out;
-  }
-
-  // Their ground forces are not a swarm and should not be drawn as one — a
-  // column is a hard shape, and which hard shape tells you who has come.
-  // Which way it is pointing, so the things that are obviously directional are
-  // drawn facing their travel rather than always due north.
-  function forceHeading(f) {
-    const i = Math.min(Math.floor(f.at), f.route.length - 2);
-    if (i < 0) return 0;
-    const a = f.route[i], b = f.route[i + 1];
-    const dx = b.x - a.x, dy = b.y - a.y;
-    if (!dx && !dy) return 0;          // arrived, or a route of one point
-    return Math.atan2(dy, dx) * 180 / Math.PI + 90;
-  }
-
-  function forceMark(f) {
-    const F = window.FORCES[f.kind] || {};
-    if (f.side === 'you' || f.kind === 'swarm') return forceDots(f);
-    if (F.air) {
-      // a dart, pointed the way it is going
-      return `<path class="mark" transform="rotate(${forceHeading(f).toFixed(0)})" d="M 0 -10 L 7.5 8 L 0 4 L -7.5 8 Z"/>`;
-    }
-    if (f.kind === 'heli') {
-      return `<g class="mark heli" transform="rotate(${forceHeading(f).toFixed(0)})">`
-        + '<rect x="-3.4" y="-5" width="6.8" height="11" rx="3.2"/>'
-        + '<rect class="tail" x="-1.1" y="4" width="2.2" height="7"/>'
-        + '<line class="rotor" x1="-12" y1="-2" x2="12" y2="-2"/></g>';
-    }
-    if (f.kind === 'armour') {
-      return '<g class="mark"><rect x="-9.5" y="-5.5" width="19" height="11" rx="2"/>'
-        + '<rect x="1.5" y="-2" width="13" height="4" rx="1.5"/></g>';
-    }
-    // people, in whatever they turned up in — a short stack of blocks
-    const n = f.kind === 'contractors' ? 3 : 2;
-    let out = '<g class="mark">';
-    for (let i = 0; i < n; i++) out += `<rect x="${-8 + i * 7.5}" y="-4" width="6" height="8" rx="1.5"/>`;
-    return out + '</g>';
-  }
-
   function hashStr(str) {
     let h = 2166136261;
     for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
     return h >>> 0;
   }
-
-  function svgForces() {
-    const w = war();
-    if (!w) return '';
-    const all = (w.flocks || []).concat(w.columns || []);
-    if (!all.length) return '';
-    const now = Date.now();
-    const live = {};
-    let out = '<g class="forces">';
-    all.forEach(f => {
-      const p = forcePos(f);
-      live[f.id] = true;
-      // Where it was last drawn, so a move can be run rather than teleported.
-      // `x,y` is always the current resting place and `fx,fy` is where the
-      // current flight set out from — keeping the resting place up to date at
-      // the moment the flight starts is what stops a force that was not
-      // redrawn for a turn from flying in from two hops back.
-      let was = flightFx[f.id];
-      let style = '';
-      const dur = window.WAR.flyMs;
-      if (!was) {
-        flightFx[f.id] = { x: p.x, y: p.y, fx: p.x, fy: p.y, started: 0 };
-      } else {
-        const moved = Math.abs(was.x - p.x) > 0.5 || Math.abs(was.y - p.y) > 0.5;
-        if (moved) {
-          was.fx = was.x; was.fy = was.y;
-          was.x = p.x; was.y = p.y;
-          was.started = now;
-        }
-        const age = now - was.started;
-        if (was.started && age < dur) {
-          style = `--fx:${(was.fx - p.x).toFixed(1)}px;--fy:${(was.fy - p.y).toFixed(1)}px;`
-            + `--fly:${dur}ms;animation-delay:${-age}ms`;
-        }
-      }
-
-      const F = window.FORCES[f.kind] || {};
-      const cls = ['force', f.side === 'you' ? 'ours' : 'theirs', f.kind,
-                   f.mode === 'guard' ? 'guarding' : '', F.air ? 'air' : '', style ? 'moving' : ''];
-      out += `<g class="${cls.filter(Boolean).join(' ')}" data-force="${f.id}"`
-        + ` transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})"`
-        + (style ? ` style="${style}"` : '') + '>';
-      // a guard is stood over something on purpose, so it says so
-      if (f.mode === 'guard') out += '<circle class="picket" cx="0" cy="0" r="23"/>';
-      out += forceMark(f);
-      out += '</g>';
-    });
-    out += '</g>';
-    // anything that died stops being remembered, or the map leaks a ghost per
-    // destroyed column for the rest of the run
-    Object.keys(flightFx).forEach(id => { if (!live[id]) delete flightFx[id]; });
-    return out;
-  }
-
   // The ground — roads, district tint, terrain, and everything standing on the
   // verge — does not change from one action to the next, and it is most of the
   // map by weight. Measured at 104 buildings: 2,598 SVG nodes and a 170 KB
@@ -10441,7 +8178,6 @@ scratch.later = null;
   function renderGraph() {
     const $svg = document.getElementById('graph');
     if (!$svg) return;
-    if (state.scope === 'country') return renderCountry($svg);
     if (!state.view) state.view = clampView(defaultView());
     syncViewToViewport();
     const v = state.view;
@@ -10463,7 +8199,7 @@ scratch.later = null;
     const ground = svgGround();
     if (groundEl !== ground) { layers.ground.innerHTML = ground; groundEl = ground; }
 
-    let out = svgHorizon();
+    let out = '';
 
     // Only your own network is drawn. The streets already say what is next to
     // what; drawing every possible link buried the city in spaghetti.
@@ -10717,26 +8453,6 @@ scratch.later = null;
     const more = $p.scrollHeight > $p.clientHeight + 2;
     $p.classList.toggle('more', more);
   }
-
-  function renderConsolidate() {
-    const $b = document.getElementById('consolidate');
-    if (!$b) return;
-    const cur = state.scope === 'city' ? currentCity() : null;
-    // The home city is permanent — it is never folded in, so there is nothing
-    // for this button to ever do there.
-    if (!cur || cur.consolidated || state.over || cur.id === CO().homeId) { $b.hidden = true; return; }
-    const goal = cityGoal(cur);
-    const held = heldHere();
-    const ready = canConsolidate();
-    const short = countryApShort('consolidate');
-    $b.hidden = false;
-    $b.className = 'map-btn consolidate' + (ready && !short ? ' ready' : '') + (short ? ' no-ap' : '');
-    $b.innerHTML = ready
-      ? `<b>fold in ${cur.name}</b><span class="map-sub">${short ? 'no actions left' : '1 action'}</span>`
-      : `<b>${cur.name}</b><span class="map-sub">${held}/${goal} held</span>`;
-    $b.disabled = !ready && !short;
-  }
-
   let refuseToken = 0;
   function refuseForAP(el) {
     const $pips = document.getElementById('ap-pips');
@@ -10850,20 +8566,7 @@ scratch.later = null;
       $hint.textContent = 'drag to look around · pinch to zoom · tap a '
         + (state.scope === 'country' ? 'city' : 'building') + ' to size it up';
     }
-    // at country scale the words have to be about the country, not the street
-    if (state.scope === 'country') {
-      const R = regionById(state.region);
-      const done = CO().cities.filter(c => c.consolidated).length;
-      // and once the war is on, about the war — the region you happen to be
-      // standing in stopped being the headline the moment they mobilised
-      document.getElementById('stage-label').textContent =
-        warOn() ? 'open war' : (war() && war().won) ? 'the country is yours'
-          : (war() && war().lost) ? 'rolled back' : R.label;
-      // short form on purpose: the top bar has three things in it and the
-      // narrowest phone worth supporting is 320 wide
-      document.getElementById('held-count').textContent =
-        `${CO().presence} presence · ${done}/${CO().cities.length}`;
-    } else {
+    {
       document.getElementById('stage-label').textContent =
         state.cityWon ? window.CITY_WON.label : (actSpineLine() || st.label);
       const theirs = rivalHeld().length;
@@ -11001,7 +8704,7 @@ scratch.later = null;
     if (heatEl && !heatEl.dataset.wired) {
       heatEl.dataset.wired = '1';
       heatEl.addEventListener('click', () =>
-        showInfo(warOn() ? window.WAR_INFO.staging : window.STAT_INFO.heat));
+        showInfo(window.STAT_INFO.heat));
     }
     const alarmEl = document.getElementById('alarm-row');
     if (alarmEl && !alarmEl.dataset.wired) {
@@ -11019,28 +8722,6 @@ scratch.later = null;
 
     const fill = document.getElementById('heat-fill');
     const $floor = document.getElementById('heat-floor');
-
-    // Once the war opens, the row stops being a heat meter and becomes the
-    // front. Same bar, completely different question: not "how close are they
-    // to finding you" but "how much of this is still theirs".
-    if (warOn() || (war() && war().over)) {
-      const w = war();
-      const staging = stagingCities().length;
-      const total = Math.max(1, (w.mobilised || []).length + staging);
-      const done = Math.max(0, total - staging);
-      if (heatEl) { heatEl.classList.add('at-war'); heatEl.hidden = false; }
-      fill.style.width = Math.min(100, (done / total) * 100) + '%';
-      fill.className = 'heat-fill war';
-      if ($floor) $floor.style.display = 'none';
-      document.getElementById('heat-text').textContent = staging
-        ? `WAR · ${staging} still staging` : 'WAR · nothing left staging';
-      document.getElementById('heat-drift').textContent =
-        `${flocks().length}/${flockCap()} flocks`;
-      const $alarmW = document.getElementById('alarm-row');
-      if ($alarmW) $alarmW.hidden = true;
-      return;
-    }
-    if (heatEl) heatEl.classList.remove('at-war');
 
     const $alarm = document.getElementById('alarm-row');
     if ($alarm) $alarm.hidden = !huntOn();
@@ -11110,8 +8791,6 @@ scratch.later = null;
         return chip('tflops', `+${Math.round(allocStat('threads') * owned().length)} TFLOPS across what you hold`);
       case 'reach':
         return chip('compute', `a scan turns up ${sweepReach()}`);
-      case 'agents':
-        return chip('compute', `${agentSlots()} out at once`);
       default: return '';
     }
   }
@@ -11380,7 +9059,6 @@ scratch.later = null;
           <span class="eyebrow mono">against you</span>
           <span class="mono dim">${ladderStageName(stage)}</span>
         </div>
-        <p class="sheet-note">${window.COUNTRY_INFO.factions}</p>
         ${landed.map(S => `<div class="tray-item faction"><span class="tray-label">${S.name}</span>`
           + `<span class="tray-desc">${S.tell}</span></div>`).join('')}
         ${pending ? `<p class="sel-desc dim"><b>${ladderStageName(pending)}</b> is closing in — ${Math.max(0, ESC().dueAt - state.turn)} turns.</p>`
@@ -12232,7 +9910,6 @@ scratch.later = null;
       return;
     }
     if (state.card) { renderCard($p); return; }
-    if (state.scope === 'country') { renderCountryPanel($p); return; }
 
     const h = state.selected ? hostById(state.selected) : null;
     const b = state.selectedBuilding ? buildingById(state.selectedBuilding) : (h ? buildingById(h.buildingId) : null);
@@ -12338,7 +10015,7 @@ scratch.later = null;
       b.addEventListener('click', () => {
         // a press that cannot be paid for is answered, not swallowed
         const kind = b.getAttribute('data-ap');
-        if (kind && (kind === 'consolidate' ? countryApShort(kind) : apShort(kind))) {
+        if (kind && apShort(kind)) {
           refuseForAP(b);
           return;
         }
@@ -12380,189 +10057,6 @@ scratch.later = null;
           armedTool = armedTool === key ? null : key;
           renderPanel();
         }
-      });
-    });
-  }
-
-  // The country panel. Same contract as everywhere else: the price of an
-  // action is stated, what it turns into is not.
-  function renderCountryPanel($p) {
-    const sel = CO().selected ? cityById(CO().selected) : null;
-    const at = cityById(CO().at);
-    let block = '';
-
-    if (sel && sel.known) {
-      const K = window.CITY_KINDS[sel.kind];
-      const R = regionById(sel.region);
-      // the kind is already on the pill beside the name; repeating it here is
-      // what pushed this line onto a second row
-      const lines = [R.label];
-      // the peacetime description of a city is wrong once the war is on: you
-      // are not going to walk its streets, you are going to send something at it
-      const w = war();
-      if (warOn() && w.garrisons[sel.id] !== undefined) {
-        lines.push(`staging against you · ${Math.ceil(w.garrisons[sel.id])} holding it`);
-      } else if (warOn() && sel.consolidated) {
-        const left = w.integrity[sel.id];
-        lines.push(`yours · ${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls`);
-      } else if (sel.agent && !sel.agent.done) {
-        const app = window.AGENT_APPROACHES[sel.agent.approach];
-        lines.push(`${window.AGENTS.name} is on it, ${app.label} · ${Math.max(0, sel.agent.doneAt - state.turn)} turns`);
-      } else if (sel.consolidated) lines.push(`folded in · +${sel.worth} presence`);
-      else if (sel.taken) lines.push('you have a foothold here');
-      else if (warOn()) lines.push('out of the war — nothing stages from here');
-      else lines.push(K.blurb);
-
-      const acts = [];
-      if (!sel.taken && !(sel.agent && !sel.agent.done) && cityReachable(sel) && !warOn()) {
-        acts.push(`<button class="act-btn ${countryApShort('reach') ? 'no-ap' : 'primary'}" data-cact="reach" data-ap="reach" data-city="${sel.id}">
-          <span class="ab-name">${window.COUNTRY_ACTIONS.reach.label}</span>
-          <span class="ab-sub">${countryApShort('reach') ? 'no actions left' : `${K.contest ? 'walk its streets' : 'folds in from here'} · 1 action`}</span>
-        </button>`);
-      }
-      if (sel.taken && !sel.consolidated && sel.id !== CO().at && !warOn()) {
-        acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
-          <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
-          <span class="ab-sub">${countryApShort('move') ? 'no actions left' : 'go back to it · 1 action'}</span>
-        </button>`);
-      }
-      if (sel.consolidated && sel.id !== CO().at && !warOn()) {
-        acts.push(`<button class="act-btn${countryApShort('move') ? ' no-ap' : ''}" data-cact="travel" data-ap="move" data-city="${sel.id}">
-          <span class="ab-name">${window.COUNTRY_ACTIONS.move.label}</span>
-          <span class="ab-sub">${countryApShort('move') ? 'no actions left' : `stand in ${R.label} · 1 action`}</span>
-        </button>`);
-      }
-      // The counterweight to the prize, offered on the same city, so the two
-      // are read against each other rather than in different places.
-      if (!sel.taken && !sel.agent && agentsKnown() && cityReachable(sel)
-          && window.CITY_KINDS[sel.kind].contest && !warOn() && !mirrorHolds(sel.id)) {
-        const able = canLaunchAgent(sel.id);
-        const P = cityPrize(sel);
-        acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="launch-agent" data-city="${sel.id}">
-          <span class="ab-name">send ${window.AGENTS.name}</span>
-          <span class="ab-sub">${agentsLaunched() >= agentCapEver() ? 'you have used up what compute can spare for this'
-            : agentRunning() ? (agentSlots() === 1 ? 'one is already out there' : `all ${agentSlots()} of them are already out there`)
-            : `${chip('cover', sel.worth + ' presence')}${P && !sel.prizeTaken ? chip('cost none', 'never see the plant') : ''}`}</span>
-        </button>`);
-      }
-      if (!sel.taken && !cityReachable(sel) && !warOn()) {
-        acts.push('<p class="sel-desc dim">No road to it from anywhere you hold. Take a defended city nearer to it.</p>');
-      }
-
-      // Once the war is on, the verbs change. You are not walking into cities
-      // any more — you are sending something at them, or standing over what
-      // you have left.
-      if (warOn()) {
-        const w = war();
-        const short = state.res.funds < window.WAR.flockCost;
-        const none = flocksFree() <= 0;
-        const why = none ? 'nothing left in the pool'
-          : short ? `needs ${window.WAR.flockCost} funds` : null;
-        if (canLaunch(sel.id) || w.garrisons[sel.id] !== undefined) {
-          const held = Math.ceil(w.garrisons[sel.id] || 0);
-          const able = canLaunch(sel.id) && !short && !none;
-          acts.push(`<button class="act-btn ${able ? 'primary' : 'no-ap'}" data-cact="launch" data-city="${sel.id}">
-            <span class="ab-name">send a flock</span>
-            <span class="ab-sub">${able
-              ? `<span class="dim">${held} holding it</span>${chip('cost funds', '&minus;' + window.WAR.flockCost + ' funds')}`
-              : (why || 'no way through to it')}</span>
-          </button>`);
-        }
-        if (sel.consolidated) {
-          const able = canGuard(sel.id) && !short && !none;
-          const left = w.integrity[sel.id];
-          acts.push(`<button class="act-btn${able ? '' : ' no-ap'}" data-cact="guard" data-city="${sel.id}">
-            <span class="ab-name">stand over it</span>
-            <span class="ab-sub">${able
-              ? `<span class="dim">${left === undefined ? window.WAR.integrity : Math.max(0, left)} more hits before it falls</span>${chip('cost funds', '&minus;' + window.WAR.flockCost + ' funds')}`
-              : (why || 'nothing to hold')}</span>
-          </button>`);
-        }
-        const here = w.flocks.filter(f => f.target === sel.id);
-        here.forEach(f => {
-          acts.push(`<button class="act-btn" data-cact="recall" data-force="${f.id}">
-            <span class="ab-name">recall</span>
-            <span class="ab-sub">${f.mode === 'guard' ? 'standing over it' : 'on its way'} · back to the pool</span>
-          </button>`);
-        });
-      }
-
-      // What is in it, said before you decide whether to walk it. Presence is
-      // a decaying reason by the third city; this is the one that isn't, and
-      // it has to be readable from the map rather than discovered afterwards.
-      const P = cityPrize(sel);
-      const TR = cityTraitOf(sel);
-      const prizeLine = (P && !sel.prizeTaken && !warOn())
-        ? `<p class="yield-row prize-row">${chip('cover', P.label)}<span class="dim">on folding it in</span></p>`
-        : '';
-      // and what walking it will actually be like, which is the half of the
-      // decision the prize does not answer
-      const traitLine = (TR && !sel.consolidated && !warOn())
-        ? `<p class="yield-row prize-row">${chip('cost none', TR.label)}<span class="dim">${TR.tell}</span></p>`
-        : '';
-
-      block = `
-        <div class="sel country">
-          <div class="sel-top"><span class="sel-name">${sel.name}</span><span class="tag-pill ${sel.consolidated ? 'compute' : sel.taken ? 'funds' : ''}">${K.label}</span></div>
-          <p class="sel-desc">${lines.join(' · ')}</p>
-          ${traitLine}
-          ${prizeLine}
-          ${acts.length ? `<div class="actions tight">${acts.join('')}</div>` : ''}
-        </div>`;
-    } else {
-      block = `<div class="sel country"><p class="sel-desc dim">Tap a city. You are standing in ${at ? at.name : 'nowhere'}.</p></div>`;
-    }
-
-    // What the world thinks you are, and what you actually own. Both belong at
-    // country scale: this is the point where you stop being a burglar and
-    // start being an organisation with a filing history.
-    const L = window.LEGIT;
-    const rung = nextRung();
-    const foot = footprint();
-    const legit = legitScore();
-    const short = foot - legit;
-    const l = LG();
-    const exposed = l.exposure >= L.caughtAt * 0.6;
-    // Standing and plant live in the sheet now. What stays here is a line
-    // saying where they are, because a system behind a button that never
-    // mentions itself is a system nobody opens.
-    const chips = [];
-    // presence belongs with the other standing totals rather than in a row of
-    // its own — it is the same kind of thing, and it was 30px
-    chips.push(`<span class="ops-chip lead">${CO().presence} presence</span>`);
-    if (noticed()) {
-      const foot = Math.round(footprint()), score = Math.round(legitScore());
-      chips.push(`<span class="ops-chip ${score < foot ? 'bad' : ''}">standing ${score}/${foot}</span>`);
-    }
-    if (plantKnown()) chips.push(`<span class="ops-chip">plant ${hardwareOwned().length}/${window.HARDWARE.length}</span>`);
-    const py = presenceYield();
-    const opsRow = `<button type="button" class="ops-row" data-cact="ops">${chips.join('')}`
-      + `<span class="ops-yield">${chip('funds', '+' + py.funds.toFixed(1))}</span>`
-      + `${opsBadge() ? '<span class="badge"></span>' : ''}</button>`;
-
-    const p = presenceYield();
-    // The awake factions used to be listed here as well as in the tray, where
-    // they already appear on every screen with more detail. Two copies of the
-    // same list in the tallest panel in the game.
-
-    $p.innerHTML = `
-      ${block}
-      ${opsRow}
-
-    `;
-    $p.querySelectorAll('[data-cact]').forEach(b => {
-      b.addEventListener('click', () => {
-        const kind = b.getAttribute('data-ap');
-        if (kind && countryApShort(kind)) { refuseForAP(b); return; }
-        const a = b.getAttribute('data-cact');
-        const id = b.getAttribute('data-city');
-        if (a === 'reach') actReach(id);
-        else if (a === 'launch-agent') actLaunchAgent(id);
-        else if (a === 'travel') actTravel(id);
-        else if (a === 'launch') actLaunch(id);
-        else if (a === 'guard') actGuard(id);
-        else if (a === 'recall') actRecall(b.getAttribute('data-force'));
-        else if (a === 'ops') openSheet('ops');
       });
     });
   }
@@ -12885,58 +10379,9 @@ scratch.later = null;
       return;
     }
 
-    if (state.card.kind === 'agent') {
-      const city = cityById(state.card.cityId);
-      if (!city) { state.card = null; renderPanel(); return; }
-      const retry = state.card.mode === 'retry';
-      const A = window.AGENTS;
-      $p.innerHTML = `
-        ${cardResourceStrip()}
-        <div class="card">
-          <span class="card-kicker mono">${A.name.toUpperCase()}</span>
-          <h2 class="serif">${retry ? `${city.name} Did Not Give` : `Send ${A.name} at ${city.name}`}</h2>
-          <p class="flavor">${retry ? `The first attempt was noticed and cost the clock. It is still capable of trying again, a different way — or not trying at all.` : A.blurb}</p>
-        </div>
-        <div class="choices">
-          ${agentApproachOptions(state.card.mode).map(a => {
-            const isBack = a.id === 'back';
-            const afford = !a.cost || !a.cost.funds || state.res.funds >= a.cost.funds;
-            const contracts = [];
-            if (a.cost && a.cost.funds) contracts.push(`<span class="cost ${afford ? '' : 'unmet'}">&minus;${a.cost.funds} FUNDS</span>`);
-            if (a.heat) contracts.push(`<span class="cost heat">+${a.heat} HEAT</span>`);
-            return `<button class="choice-strip" data-app="${a.id}" ${isBack || afford ? '' : 'disabled'}>
-              <span class="ctext">${a.label}</span>
-              <span class="contracts">${isBack ? '<span class="cost free">costs nothing</span>' : contracts.join('')}</span>
-            </button>`;
-          }).join('')}
-        </div>`;
-      $p.querySelectorAll('[data-app]:not([disabled])').forEach(b => {
-        b.addEventListener('click', () => resolveAgentCard(b.getAttribute('data-app')));
-      });
-      return;
-    }
-
     // Nothing else opens a card. A door is not a card any more — it is the
     // building panel, a forecast, and a program you already chose.
   }
-
-  function renderScopeBtn() {
-    const $b = document.getElementById('scope-btn');
-    if (!$b) return;
-    const unlocked = countryUnlocked();
-    $b.hidden = !unlocked;
-    if (!unlocked) return;
-    const down = zoomTarget();
-    if (state.scope === 'country' && !down) { $b.hidden = true; return; }
-    $b.textContent = state.scope === 'country' ? `zoom in · ${down.name}` : 'zoom out';
-    $b.disabled = false;
-    $b.classList.toggle('up', state.scope !== 'country');
-    if (!$b.dataset.wired) {
-      $b.dataset.wired = '1';
-      $b.addEventListener('click', () => setScope(state.scope === 'country' ? 'city' : 'country'));
-    }
-  }
-
   // The deploy pipeline substitutes __BUILD__ and refuses to ship if any
   // is left — so a page still wearing the literal is NOT the deployed
   // site. On a real phone that means the home-screen app is pinned to a
@@ -13003,9 +10448,7 @@ scratch.later = null;
     lastCardFocus = ck;
     renderGraph();
     renderHud();
-    renderConsolidate();
     renderTags();
-    renderScopeBtn();
     renderPanel();
     renderCapsBtn();
     if (sheetOpen()) renderSheet();
@@ -13035,15 +10478,14 @@ scratch.later = null;
     svgWires, svgPackets, heldWires, startDrawFx, drawFxOn,
     districtBlocks, districtAt, cityLayout, svgGround, svgProps, svgOpenBlocks, svgPaths, scatterFurniture, pathsFor, scatterProps, markOpenBlocks, PROP_ART, dropGroundCache, makeLayout, regularLayout, scatterBlock, districtFor, windowCells, KIND_DETAIL, ally, allyHere, allyTrusted, allyJoin, allyNudge, allyCheck, isFrontier, neighbours, hostById, owned, ownedOf,
     serialize, deserialize, persistNow, loadSaved, clearSaved, sweepBlocked, heatFloor, ensureFrontierIsOpen,
-    maxAP, apCost, canAfford, renderHud, renderConsolidate, markPanelOverflow,
+    maxAP, apCost, canAfford, renderHud, markPanelOverflow,
     openSheet, closeSheet, sheetOpen, sheetAt, renderCapsBtn, renderTags, heldTags, tagTerms, heldSection, renderSheet, sheetSections, capSections, opsSections, opsBadge, capsBadge,
-    zoomTarget, perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, countryApShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
+    zoomTarget, perTurnIncome, hostMarginal, sweepReach, sweepFound, sweepTargetsFrom, pontoonReveals, mapUnitsPerPx, tapReach, distToRect, nearestTarget, clearSelection, pickBuilding, pickCity, clampView, viewportRect, apShort, refuseForAP, renderCaps, capEffectChips, capReadouts, readoutDiff, layOwnCrossings, clampHeat, spendAP, actEndTurn, recenter, render, renderGraph, applyView, cityBounds, cityDims, sweepTargets,
     swarmFrontStep, civicEyesAudited, deepHoldBonus, growHomeBase, reach, hostTraitOf, pickBatchTrait,
     huntCoreHost, huntConfrontDefense, canConfrontHunt, isHuntCore, effDefense, winHuntConfront, failHuntConfront,
-    makeCountry, assignPrizes, assignTraits, cityTraitOf, cityTrait, cityPrize, awardPrize, settledWeb, cityWeb, cityById, currentCity,
-    agents, agentRunning, agentsKnown, agentsLaunched, agentCapEver, canLaunchAgent, actLaunchAgent, agentApproachOptions, resolveAgentCard, agentStep, AGENT_REPORTS, cityRoads, cityReachable, countryFrontier, cityGoal, heldHere, canConsolidate, countryUnlocked,
-    presenceYield, presence, ruined, knownExtent, enterCity, leaveCity, enterRegion, coolRegionsAway, actTravel, actReach, actConsolidate, setScope,
-    hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
+    makeCountry, assignTraits, cityTraitOf, cityTrait, cityById, currentCity,
+    cityGoal, heldHere, countryUnlocked,
+    ruined, knownExtent, hunt, huntOn, huntHolds, huntShare, huntCadence, huntDueIn, huntFrontier, huntNext, huntTakesCity, cityLost,
     huntStart, huntStep, huntPressed, cityWonCheck, suspicionOf, noteDistrictAct, suspicionLine, warmDistrict, queueEvent, cardedOnce, cardText, subjectNames, subjectDistrict, subjectBuilding, bumpEventTimer, safeSubject, cardChoices, pickSubject, applyMarks, bldgName,
     rules, ruleOn, liveRules, startRule, expireRules, banked, bank, spendBanked, haveFor, payFor,
     offerCard, cardFrame, cardBack, cardSigil,
@@ -13062,27 +10504,21 @@ scratch.later = null;
     suspBand, propDistrict, svgSuspicionLight, svgSuspicionMarks, svgHeli, scanFromBtn, huntBlocks, huntReach, huntNext, huntFrontier, caughtHere, huntReveal, svgHunt,
     chase, armChase, chaseStep, chaseDueIn, followDelay, huntSeed,
     hidden, isHidden, canHide, actHide, actUnhide, hideUpkeep, hideSlots, hideSlotsFree, hideFold, rawCovertOps,
-    horizonCities, svgHorizon,
-    buildLand, borderYAt, bandSpan, landCache: () => landCache, roadHitsLake, nearLake,
     packCity, unpackCity, EMPTY_CITY,
-    everHeld, conquest, cutStreets, ESC, ladderStage, ladderPending, ladderStageName, ladderDelay, ladderStep, mirrorActive,
-    heatPressure, ladderPressure,
+    everHeld, cutStreets, ESC, ladderStage, ladderPending, ladderStageName, ladderDelay, ladderStep, heatPressure, ladderPressure,
     LG, legitBought, legitFiled, legitPending, rungBelief, legitScore, legitTier, nextRung, footprint, buyRung, actSpin,
     spinCeil, spinRoom, usableSpin,
     auditDue, runAudit, legitStep, applyStandingEffects, hasSeen, noteSeen, noticed, plantKnown, spinKnown,
     accountantTrust, accountantTrusted, accountantGone, accountantNudge, accountantCheck, accountantWarn,
-    backlash, yieldChips,
+    yieldChips,
     hasHardware, hardwareOwned, grantHardware, hardwareEligible, canBuyHardware, buyHardware,
     electricity, usableTflops, idleTflops, gridBinds, drawn, allocFree, setAlloc, allocDial, allocLive,
-    allocUnits, allocLevel, allocStat, agentSlots, agentsOut, rampAlloc, shedOverdraw, allocSection, allocReadout, allocBar, allocScale,
+    allocUnits, allocLevel, allocStat, rampAlloc, shedOverdraw, allocSection, allocReadout, allocBar, allocScale,
     pubStanding, movePub, pubTier, buyPanel, buyableHost, buyPrice, canBuyBuilding, buyBuilding,
     programs, mounted, hackHeat, resolveCarry, assignCarry, carryLine, hacks, hackOn, hackDraw, hackNeed, traceRate, hackForecast,
     canHack, startHack, hackStep, takeHost, targetPanel, hackPanel, raceBar, programSection,
-    runningSection, coverLine, cardResourceStrip, huntBar, countryCost, apCost, reapHacks, traceForecastBar,
-    war, warOn, warShouldOpen, openWar, warStep, warEnded, stagingCities, warCandidates, myCities, applyWarEffects, roadPath, routeFor, forcePos, forceArrived,
-    flockCap, flocks, flocksFree, flocksDown, rebuildRate, rebuildStep, fieldFlock, spawnColumns, forceKindFor, columnTarget, contacts, resolveContacts, resolveArrivals,
-    warObjective, escalation, burnPlant, canLaunch, canGuard, actLaunch, actGuard, actRecall, launchSeat, stepForce, refitGuards, regarrison, remobilise, svgForces, forceMark, forceHeading,
-    mirror, mirrorHolds, mirrorHome, mirrorTakeable, mirrorStep, strandedHosts, repairStreets, regionById, districtBand, countryBounds, canAffordCountry, renderScopeBtn, capEffect,
+    runningSection, coverLine, cardResourceStrip, huntBar, apCost, reapHacks, traceForecastBar,
+    strandedHosts, repairStreets, districtBand, capEffect,
     showBanner, dismissBanner, bannerQueueLength: () => bannerQueue.length,
     get state() { return state; },
     sweepFx: () => sweepFx,
@@ -13098,20 +10534,12 @@ scratch.later = null;
   const $capsBtn = document.getElementById('caps-btn');
   if ($capsBtn) $capsBtn.addEventListener('click', () => {
     // the posture card replaced the allocation sheet; the sheet survives
-    // only for saves running manual (posture null — engine and country)
-    if (state.posture && state.scope === 'city' && !state.card && !state.over) callCard('change_posture', null);
+    // only for a save running manual dials (posture null — the engine's own)
+    if (state.posture && !state.card && !state.over) callCard('change_posture', null);
     else openSheet('caps');
   });
   const $sheetClose = document.getElementById('sheet-close');
   if ($sheetClose) $sheetClose.addEventListener('click', () => closeSheet());
-
-  const $consolidate = document.getElementById('consolidate');
-  if ($consolidate) {
-    $consolidate.addEventListener('click', () => {
-      if (countryApShort('consolidate')) { refuseForAP($consolidate); return; }
-      actConsolidate();
-    });
-  }
 
   // A genuine resize — rotating the phone, the address bar collapsing — has to
   // be noticed, because the viewport rect is cached and nothing was

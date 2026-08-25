@@ -91,11 +91,9 @@ function loadNetwork(preload = {}) {
     const full = path.join(ROOT, file);
     vm.runInContext(fs.readFileSync(full, 'utf8'), context, { filename: full });
   }
-  // The shipped game is city-only (window.CITY_ONLY in data.js) — the country
-  // is gated off, dormant. The tests load with the gate OPEN by default so the
-  // dormant machinery keeps its coverage and cannot rot; tests about the gate
-  // itself pass { cityOnly: true } to test what actually ships.
-  if (!preload.cityOnly) sandbox.window.CITY_ONLY = false;
+  // The country layer is deleted (acts plan: "not before, not later"). The
+  // city IS the game, so there is one mode and no gate to open — the
+  // `cityOnly` option survives only because every caller passes it.
   return sandbox;
 }
 

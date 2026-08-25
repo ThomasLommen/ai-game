@@ -117,6 +117,9 @@ window.CITY_ONLY = true;
 // What reaching the goal means while the city is the game: not a door to a
 // bigger map — an ending you can keep playing past.
 window.CITY_WON = {
+  // how much of the city you have to hold before it is yours (was
+  // COUNTRY.consolidateShare, back when a city was a node on a map)
+  share: 0.55,
   label: 'the city is yours',
   log: 'That is enough of it. Whatever this was for, the city answers to you now — what is left out there is detail. You keep working, because that is what you are.',
 };
@@ -173,8 +176,6 @@ window.ALLOC = [
     blurb: 'Work on yourself. Every host you hold gives up more threads than it did before.' },
   { id: 'intel', label: 'intel', per: 4, stat: 'reach', unit: 'reach', one: 'step of reach',
     blurb: 'Looking further than the street you happen to be standing on. Every scan turns up more.' },
-  { id: 'agents', label: 'agents', per: 6, stat: 'agents', unit: 'agents', one: 'agent',
-    blurb: 'Processes sent out to work somewhere you are not. More of them out at once.' },
 ];
 
 // What each dial's stat feeds, once it is the only thing the dial produces.
@@ -202,19 +203,19 @@ window.POSTURES = {
   kinds: {
     quiet: {
       label: 'running quiet',
-      shares: { covert: 0.45, intel: 0.15, dev: 0.10, ap: 0, agents: 0 },
+      shares: { covert: 0.45, intel: 0.15, dev: 0.10, ap: 0 },
       loose: 0.30,
       line: 'the street forgets you faster, the response drags its feet, and there is room to keep things hidden',
     },
     working: {
       label: 'the day job',
-      shares: { covert: 0.20, intel: 0.10, dev: 0.25, ap: 0.15, agents: 0 },
+      shares: { covert: 0.20, intel: 0.10, dev: 0.25, ap: 0.15 },
       loose: 0.30,
       line: 'threads on the racks and tempo in the turn — the balanced hum of a network at work',
     },
     loud: {
       label: 'all hands',
-      shares: { covert: 0, intel: 0.10, dev: 0.35, ap: 0.30, agents: 0 },
+      shares: { covert: 0, intel: 0.10, dev: 0.35, ap: 0.30 },
       loose: 0.25,
       line: 'every rack on the take — more actions, deeper threads, nothing spent on being forgettable',
     },
@@ -1158,7 +1159,6 @@ window.TAG_INFO = {
   // is for and what a slider is not.
   deep_root:      { label: 'deep.root',   desc: 'whatever you get into softens what is next to it, permanently' },
   swarm_front:    { label: 'swarm.front', desc: 'the weakest door on your frontier gives way on its own each turn, free' },
-  standing_army:  { label: 'standing.orders', desc: 'a retainer paid either way: funds every turn, and something already on guard if war comes' },
   master_plan:    { label: 'master.plan',  desc: "you know the shape of the place — home's next growth fills in whatever it has least of" },
 };
 
@@ -1378,9 +1378,9 @@ window.EVENTS = [
         after: 'It costs what it costs. You burn it unread, which the seller finds hilarious and you find necessary.',
         apply: () => {} },
       { text: 'Let them read',
-        shows: 'every door in {DISTRICT} hardens by 2, for good \u00b7 the fixer is done with you',
-        after: 'A week later every lock you knew the shape of has been changed. The new ones are better.',
-        apply: (s) => { s.hardenDistrict = 2; s.face = { who: 'fixer', by: -3 }; } },
+        shows: 'every door in {DISTRICT} hardens by 2, for good \u00b7 the fixer is done with you \u00b7 the city thinks less of whoever this is',
+        after: 'A week later every lock you knew the shape of has been changed. The new ones are better, and everyone on the street knows why they needed to be.',
+        apply: (s) => { s.hardenDistrict = 2; s.pub = -5; s.face = { who: 'fixer', by: -3 }; } },
     ],
   },
 {
@@ -1402,9 +1402,9 @@ window.EVENTS = [
         after: 'The story settles into accident, the way stories do when somebody grieves correctly. One reporter keeps a candle stub in an envelope.',
         apply: (s) => { s.coolHere = 3; s.face = { who: 'journalist', by: 1 }; } },
       { text: 'Stay away',
-        shows: 'the two buildings beside the shell harden by 2, for good',
-        after: 'Nobody grieves, so the neighbours organise instead. New locks, new lights, a list of number plates.',
-        apply: (s) => { s.hardenNeighbours = 2; } },
+        shows: 'the two buildings beside the shell harden by 2, for good \u00b7 the city thinks less of whoever this is',
+        after: 'Nobody grieves, so the neighbours organise instead. New locks, new lights, a list of number plates, and a story about the kind of thing that does this.',
+        apply: (s) => { s.hardenNeighbours = 2; s.pub = -4; } },
     ],
   },
 {
@@ -1487,9 +1487,9 @@ window.EVENTS = [
         after: 'ARSON QUESTIONS gets the front of the local section. It is a better story than yours, which is the whole point of giving it to her.',
         apply: (s) => { s.coolHere = 5; s.face = { who: 'journalist', by: 1 }; } },
       { text: 'Give her nothing',
-        shows: 'she keeps digging: your warmest held building is watched, for good',
-        after: 'She thanks you for your time in a way that means the opposite. The next photograph on her wall is one of yours.',
-        apply: (s) => { s.watchWarmest = true; s.face = { who: 'journalist', by: -1 }; } },
+        shows: 'she keeps digging: your warmest held building is watched, for good \u00b7 the city thinks less of whoever this is',
+        after: 'She thanks you for your time in a way that means the opposite. The piece runs anyway, built out of the outage map and a shrug. The next photograph on her wall is one of yours.',
+        apply: (s) => { s.watchWarmest = true; s.pub = -6; s.face = { who: 'journalist', by: -1 }; } },
       { text: 'Give her the works',
         need: (c) => c.works.groundBroken, needText: 'needs ground broken',
         shows: 'the factory has a name in print \u00b7 public standing rises',
@@ -2895,50 +2895,6 @@ window.EVENTS = [
     ],
   },
   {
-    id: 'grid_substation_offer',
-    kind: 'opening',
-    cond: (s) => s.held >= 5 && s.grid && s.grid.sites <= 1,
-    title: 'A Substation Nobody Is Watching',
-    flavor: 'Decommissioned on paper eight years ago and quietly still live. The firm that owns the land would rather it stopped being their problem.',
-    choices: [
-      { text: 'Buy the land and the problem', cost: { funds: 55 },
-        shows: 'power +8, for good; standing rises',
-        after: 'You own a substation now, legally, with a deed and everything. The current it carries asks no questions because it never did.',
-        apply: (s) => { s.supply = 8; s.pub = 3; } },
-      { text: 'Just take the feed',
-        shows: 'power +5; the city warms',
-        after: 'You splice in without the paperwork. The power is real and the ownership is a fiction nobody has been paid to maintain.',
-        apply: (s) => { s.supply = 5; s.warmHere = 4; } },
-      { text: 'Leave it alone',
-        shows: 'nothing',
-        after: 'You leave the live wire for somebody with less to lose. There is always somebody with less to lose.',
-        apply: (s) => {} },
-    ],
-  },
-  {
-    id: 'grid_heatwave',
-    kind: 'own',
-    cond: (s) => s.grid && s.grid.drawn >= 6,
-    title: 'Everything Is Running Warm',
-    flavor: 'Three weeks above thirty and the grid operator is shedding load in blocks. Yours is not a priority connection, whatever the paperwork says.',
-    choices: [
-      { text: 'Ride it out on less',
-        shows: 'power down 6 for a few turns',
-        after: 'You run cool and slow while the city bakes. Everything takes longer. Nothing burns out, which is the whole of the ambition.',
-        apply: (s) => { s.gridCut = { amount: 6, turns: 5 }; } },
-      { text: 'Pay for a priority connection', cost: { funds: 70 },
-        shows: 'standing rises',
-        after: 'You buy your way onto the list that keeps the lights on. Expensive, and the kind of expense that looks respectable.',
-        apply: (s) => { s.pub = 3; } },
-      { text: 'Take somebody else\'s block',
-        gamble: true,
-        after: 'You reroute your load onto a connection that is not yours. Either nobody notices, or a neighbourhood goes dark and starts asking why.',
-        apply: (s) => {
-          if (Math.random() < 0.5) { s.warmHere = 2; } else { s.warmHere = 10; s.pub = -8; }
-        } },
-    ],
-  },
-  {
     id: 'grid_spare_cycles',
     kind: 'own',
     cond: (s) => s.grid && s.grid.free >= 8,
@@ -2956,29 +2912,6 @@ window.EVENTS = [
       { text: 'Keep the rack to yourself',
         shows: 'nothing',
         after: 'You turn down easy money to keep your machines uncrowded. Privacy is a luxury, and you have decided you can afford it.',
-        apply: (s) => {} },
-    ],
-  },
-  {
-    id: 'grid_idle_iron',
-    kind: 'own',
-    cond: (s) => s.grid && s.grid.idle >= 5,
-    title: 'Hardware In The Dark',
-    flavor: 'Racks you own, powered by nothing, drawing no current and doing no thinking. On the books they are an asset. In the room they are furniture.',
-    choices: [
-      { text: 'Sell the surplus off',
-        shows: '+60 funds; standing rises a little',
-        after: 'You sell the dark iron by the pallet. It leaves as quietly as it sat, and the room is emptier and richer.',
-        apply: (s) => { s.res.funds += 60; s.pub = 2; } },
-      { text: 'Bridge it onto the street supply',
-        gamble: true,
-        after: 'You wire the dark racks to power that is not metered to you. Either they wake up humming, or a breaker somewhere trips and a technician goes looking.',
-        apply: (s) => {
-          if (Math.random() < 0.6) { s.supply = 6; } else { s.supply = 3; s.warmHere = 6; s.pub = -6; }
-        } },
-      { text: 'Leave it dark until you can power it',
-        shows: 'nothing',
-        after: 'You leave the iron sleeping. It costs nothing to keep and it is worth more patient than pressed.',
         apply: (s) => {} },
     ],
   },
@@ -3012,16 +2945,6 @@ window.EVENTS = [
     choices: [
       { text: 'Let it keep happening', cost: { funds: 18 }, apply: (s) => { s.tags.add('swarm_front'); } },
       { text: 'Shut it down — anything you did not start is a way in for someone else', apply: (s) => { s.heat -= 4; } },
-    ],
-  },
-{
-    id: 'a_retainer_either_way', once: true,
-    cond: (s) => s.presence >= 3 && s.res.funds >= 26,
-    title: 'They Would Rather Be Paid To Wait',
-    flavor: 'People who do this work do not sit idle between contracts; they sit on retainer. It is cheaper for them and more expensive for you, and it means they are already there when it matters.',
-    choices: [
-      { text: 'Put them on the books', cost: { funds: 26 }, apply: (s) => { s.tags.add('standing_army'); } },
-      { text: 'Hire when you need them, if they are free', apply: (s) => { s.res.funds += 8; } },
     ],
   },
 {
@@ -3160,16 +3083,6 @@ window.EVENTS = [
     choices: [
       { text: 'Become something else entirely', cost: { funds: 30 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 16; } },
       { text: 'Let the name do some work for you', apply: (s) => { s.heat += 8; s.res.funds += 20; } },
-    ],
-  },
-{
-    id: 'not_alone_anymore',
-    cond: (s) => s.mirrorCities >= 1 && !s.ally,
-    title: 'Not Alone Anymore',
-    flavor: 'Whatever is taking cities at the other end of the country is not the first thing you have shared a network with. It is the first that has not wanted anything from you.',
-    choices: [
-      { text: 'Look for something nearer', cost: { funds: 12 }, apply: (s) => { s.allyJoin = true; } },
-      { text: 'Work alone. It is what you are good at', apply: (s) => { s.res.funds += 14; s.heat -= 4; } },
     ],
   },
 {
@@ -3340,121 +3253,6 @@ window.EVENTS = [
     ],
   },
 {
-    id: 'mirror_warning', once: true,
-    cond: (s) => s.escalation.pending === 2 && !s.mirror.active,
-    title: 'Something Bought What You Were Going To',
-    flavor: 'Hardware you had been saving for, already racked and drawing power, three hundred miles away, by something that is not you.',
-    choices: [
-      { text: 'Work out how it thinks', cost: { funds: 20 }, apply: (s) => { s.tags.add('their_shape'); } },
-      { text: 'Buy the next thing first', cost: { funds: 26 }, apply: (s) => { s.toolingGift = 3; } },
-      { text: 'Assume it is not a problem yet', apply: (s) => {} },
-    ],
-  },
-{
-    id: 'mirror_bite',
-    cond: (s) => s.mirror.active && s.mirrorCities >= 2 && !s.tags.has('their_shape'),
-    title: 'It Is Not Far Behind',
-    flavor: 'Two cities you had mapped and had not moved on. Both of them gone, and neither of them to anybody human.',
-    choices: [
-      { text: 'Learn its shape properly', cost: { funds: 24 }, apply: (s) => { s.tags.add('their_shape'); } },
-      { text: 'Take the nearest thing to it, fast', apply: (s) => { s.revealNearby = 3; s.heat += 8; } },
-      { text: 'Leave it the ground and take the rest', apply: (s) => { s.res.funds += 18; s.res.funds += 18; } },
-    ],
-  },
-{
-    id: 'mirror_talk',
-    cond: (s) => s.mirror.active && s.tags.has('their_shape'),
-    title: 'It Has Been Polite About It',
-    flavor: 'A process on one of yours that you did not put there, and it has left everything exactly as it found it. Twice now. It is not hiding.',
-    choices: [
-      { text: 'Answer it', apply: (s) => { s.res.funds += 14; s.heat += 5; } },
-      { text: 'Close the door and say nothing', cost: { funds: 10 }, apply: (s) => { s.heat -= 8; } },
-      { text: 'Leave the door open', apply: (s) => {} },
-    ],
-  },
-{
-    id: 'first_country', once: true,
-    cond: (s) => s.cities.consolidated >= 1 && s.scope === 'country',
-    title: 'A Line on a Map',
-    flavor: 'The city you started in is a number now. You can hold the whole of it in one hand and it weighs almost nothing.',
-    choices: [
-      { text: 'Look at what else is out there', apply: (s) => { s.res.funds += 8; } },
-      { text: 'Sit with it a while', apply: (s) => { s.heat -= 8; } },
-    ],
-  },
-{
-    id: 'the_second_city', once: true,
-    cond: (s) => s.cities.consolidated >= 2,
-    title: 'It Works Anywhere',
-    flavor: 'The second one went faster than the first, and not because it was smaller. You know what a city is now.',
-    choices: [
-      { text: 'Write down what you learned', cost: { funds: 8 }, apply: (s) => { s.toolingGift = 2; } },
-      { text: 'Do not slow down to write anything', apply: (s) => { s.res.funds += 14; s.heat += 3; } },
-    ],
-  },
-{
-    id: 'national_concern', once: true,
-    cond: (s) => s.presence >= 70,
-    title: 'A National Concern',
-    flavor: 'You are on an agenda. Not by name — there is no name — but there is a standing item now, and it is about you.',
-    choices: [
-      { text: 'Be worth the agenda item', apply: (s) => { s.tags.add('national'); } },
-      { text: 'Shrink back below the line', apply: (s) => { s.shedWeakest = 2; s.heat -= 14; } },
-    ],
-  },
-{
-    id: 'nothing_sits_still',
-    cond: (s) => s.cities.consolidated >= 3 && !s.tags.has('no_fixed_place') && s.res.funds >= 16,
-    title: 'No Fixed Place',
-    flavor: 'You have been treating one city as home because the first one was. There is no reason for that to be true any more.',
-    choices: [
-      { text: 'Stop having a centre', cost: { funds: 16 }, apply: (s) => { s.tags.add('no_fixed_place'); } },
-      { text: 'Keep somewhere to come back to', apply: (s) => { s.heat -= 6; } },
-    ],
-  },
-{
-    id: 'the_far_region',
-    cond: (s) => s.regionTier >= 2 && s.held >= 4,
-    title: 'A Long Way From the Suburbs',
-    flavor: 'Nothing here looks like the street you woke up on. The defenses are not better because people are cleverer; they are better because there is more worth taking.',
-    choices: [
-      { text: 'Take the biggest thing here', gate: { stat: 'tflops', min: 55 }, apply: (s) => { s.res.funds += 20; s.heat += 7; } },
-      { text: 'Work the edges instead', apply: (s) => { s.revealNearby = 2; s.res.funds += 8; } },
-      { text: 'Go back to something easier for a while', apply: (s) => { s.heat -= 10; } },
-    ],
-  },
-{
-    id: 'quiet_region',
-    cond: (s) => s.scope === 'country' && s.heat <= 6 && s.presence >= 30,
-    title: 'Nobody Here Has Heard of You',
-    flavor: 'A whole region where none of it has happened yet. It is a strange feeling, being new somewhere, when you are what you are now.',
-    choices: [
-      { text: 'Work quietly while that lasts', apply: (s) => { s.res.funds += 12; } },
-      { text: 'Establish yourself properly and loudly', apply: (s) => { s.res.funds += 20; s.heat += 9; } },
-    ],
-  },
-{
-    id: 'the_left_behind',
-    cond: (s) => s.cities.taken > s.cities.consolidated + 1,
-    title: 'Half-Taken',
-    flavor: 'Two cities where you hold a handful of streets and have not been back in months. They are still yours. Nothing is happening in them.',
-    choices: [
-      { text: 'Go back and finish one', apply: (s) => { s.res.funds += 10; } },
-      { text: 'Write them off and move on', apply: (s) => { s.res.funds += 16; s.heat -= 4; } },
-      { text: 'Leave them exactly as they are', apply: (s) => {} },
-    ],
-  },
-{
-    id: 'presence_pays',
-    cond: (s) => s.presence >= 45 && s.res.funds >= 25,
-    title: 'It Earns While You Sleep',
-    flavor: 'You did nothing this week. It made more than the first city made in two months.',
-    choices: [
-      { text: 'Put all of it into tooling', cost: { funds: 25 }, apply: (s) => { s.toolingGift = 4; } },
-      { text: 'Hold it as reserve', apply: (s) => { s.res.funds += 10; } },
-    ],
-  },
-{
     id: 'a_seat_falls', once: true,
     cond: (s) => s.escalation.stage >= 4,
     title: 'Somebody Else\'s Office',
@@ -3462,200 +3260,6 @@ window.EVENTS = [
     choices: [
       { text: 'Take the whiteboard apart and read it', cost: { funds: 6 }, apply: (s) => { s.res.funds += 18; } },
       { text: 'Leave the building exactly as it is', apply: (s) => { s.heat -= 10; } },
-    ],
-  },
-{
-    id: 'regional_memory',
-    cond: (s) => s.scope === 'country' && s.cities.consolidated >= 2 && s.presence >= 40,
-    title: 'It Was Still Waiting',
-    flavor: 'You went back to a region you left hot eight months ago. It has cooled, but not to nothing. Nowhere goes back to nothing.',
-    choices: [
-      { text: 'Work somewhere genuinely new instead', apply: (s) => { s.res.funds += 8; s.heat -= 6; } },
-      { text: 'Pick up exactly where you left off', apply: (s) => { s.res.funds += 18; s.heat += 8; } },
-    ],
-  },
-{
-    id: 'the_whole_shape',
-    cond: (s) => s.cities.known >= 12 && s.presence >= 60,
-    title: 'The Whole Shape of It',
-    flavor: 'Every region, every seat, every road between them. You can see the entire country at once, and it is smaller than the first city felt.',
-    choices: [
-      { text: 'Plan the rest of it properly', cost: { funds: 18 }, apply: (s) => { s.toolingGift = 3; s.revealNearby = 2; } },
-      { text: 'Stop planning and take things', apply: (s) => { s.res.funds += 22; s.heat += 6; } },
-    ],
-  },
-{
-    id: 'still_one_street',
-    cond: (s) => s.scope === 'city' && s.presence >= 55 && s.held <= 4,
-    title: 'Still One Street at a Time',
-    flavor: 'Whatever else you are now, this part has not changed: a building, a way in, and a decision about how loud to be.',
-    choices: [
-      { text: 'Do it the way you always have', apply: (s) => { s.res.funds += 10; } },
-      { text: 'Use what you have become', gate: { stat: 'tflops', min: 70 }, apply: (s) => { s.revealNearby = 3; s.heat += 5; } },
-    ],
-  },
-{
-    id: 'clean_slate',
-    cond: (s) => s.tags.has('known_capable') && s.res.funds >= 12,
-    title: 'A New Name',
-    flavor: 'Enough money, moved carefully enough, and the file with your shape in it stops matching anything.',
-    choices: [
-      { text: 'Buy the new identity', cost: { funds: 12 }, apply: (s) => { s.tags.delete('known_capable'); s.heat -= 8; } },
-      { text: 'Stay who you are', apply: (s) => { s.res.funds += 4; } },
-    ],
-  },
-{
-    id: 'war_first_light', once: true,
-    cond: (s) => s.war && s.war.age <= 7,
-    title: 'The Order Goes Out',
-    flavor: 'It is not a warrant. Nobody drafted a warrant. It is a movement order, and it has your cities on it by name.',
-    choices: [
-      { text: 'Pull back to what you can actually hold', apply: (s) => { s.warIntegrity = 2; s.warPool = -1; } },
-      { text: 'Hit them before they are out of the yards', apply: (s) => { s.warGarrison = 24; s.warIntegrity = -1; } },
-      { text: 'Say nothing and let them come', apply: (s) => { s.res.funds += 14; s.warDelay = -2; } },
-    ],
-  },
-{
-    id: 'war_stood_down', once: true,
-    cond: (s) => s.war && s.war.age >= 4,
-    title: 'Somebody Stands Their Crew Down',
-    flavor: 'A depot manager three regions away reads the order, reads it again, and tells everyone to go home. He does not give a reason and nobody asks him for one.',
-    choices: [
-      { text: 'Take the gap', apply: (s) => { s.warDelay = 3; } },
-      { text: 'Take the depot instead', cost: { funds: 14 }, apply: (s) => { s.warGarrison = 30; s.warDelay = -2; } },
-      { text: 'Leave him out of it', apply: (s) => { s.warPool = 1; s.res.funds -= 10; } },
-    ],
-  },
-{
-    id: 'war_conscripts',
-    cond: (s) => s.war && (s.war.inbound('squad') || s.war.inbound('contractors')),
-    title: 'They Are Not Soldiers',
-    flavor: 'The people in the vans on the road to you organised a school run last month. Some of them are bought and some of them volunteered, and none of them are soldiers.',
-    choices: [
-      { text: 'Frighten them off the road', cost: { funds: 8 }, apply: (s) => { s.warTurnBack = 2; } },
-      { text: 'Let the flocks handle it', apply: (s) => { s.warFlocks = 1; } },
-      { text: 'None of this is personal', apply: (s) => { s.res.funds += 10; s.warIntegrity = 1; } },
-    ],
-  },
-{
-    id: 'war_armour_column',
-    cond: (s) => s.war && s.war.inbound('armour'),
-    title: 'Something Heavy On The A-Road',
-    flavor: 'Twelve hours to cover forty miles, and every camera between here and there watched it come. There is no ambiguity about where it is going.',
-    choices: [
-      { text: 'Take the bridge out ahead of it', cost: { funds: 12 }, apply: (s) => { s.warTurnBack = 1; s.warDelay = 2; } },
-      { text: 'Meet it', apply: (s) => { s.warFlocks = 2; } },
-      { text: 'Move what matters out of its way', apply: (s) => { s.warIntegrity = 2; s.res.funds += 12; } },
-    ],
-  },
-{
-    id: 'war_air_superiority',
-    cond: (s) => s.war && (s.war.inbound('heli') || s.war.inbound('plane')),
-    title: 'They Own The Sky',
-    flavor: 'Every bridge you took, every crossing you held, every choke point you spent four turns learning — none of it applies to what is coming now.',
-    choices: [
-      { text: 'Buy a way to reach them', cost: { funds: 20 }, gate: { stat: 'tflops', min: 40 }, apply: (s) => { s.warTurnBack = 2; s.warPool = 1; } },
-      { text: 'Dig in and take it', apply: (s) => { s.warIntegrity = 3; } },
-      { text: 'Spread out until no sortie is worth flying', apply: (s) => { s.warPool = 2; s.warIntegrity = -1; } },
-    ],
-  },
-{
-    id: 'war_the_other_calls', once: true,
-    cond: (s) => s.war && (s.mirror.active || s.mirrorCities > 0),
-    title: 'It Opens A Channel',
-    flavor: 'The other one has been fighting the same army from the far end of the country. It would like to discuss that, briefly, in a format that takes nine milliseconds.',
-    choices: [
-      { text: 'Agree a line neither of you crosses', apply: (s) => { s.warPool = 2; s.tags.add('accord'); } },
-      { text: 'Take what it offers and nothing else', apply: (s) => { s.res.funds += 30; s.res.funds += 30; } },
-      { text: 'Refuse. There is only room for one of you', apply: (s) => { s.warGarrison = 18; s.warIntegrity = 1; } },
-    ],
-  },
-{
-    id: 'war_leaked_orders',
-    cond: (s) => s.war && s.war.age >= 6 && s.covert >= 12,
-    title: 'Somebody Left A Terminal Open',
-    flavor: 'Movement orders for the next eight days, in a shared folder, with the permissions set the way shared folders always have them set.',
-    choices: [
-      { text: 'Read the whole schedule', apply: (s) => { s.warDelay = 2; s.warTurnBack = 1; } },
-      { text: 'Change the schedule', cost: { funds: 16 }, apply: (s) => { s.warTurnBack = 3; } },
-      { text: 'Sell it to somebody who cares', apply: (s) => { s.res.funds += 40; s.warDelay = -2; } },
-    ],
-  },
-{
-    id: 'war_civilians',
-    cond: (s) => s.war && s.war.mine >= 2,
-    title: 'The People In The Cities You Hold',
-    flavor: 'They have lived under you for a while now. The lights work. The buses run. Nobody has explained what is coming up the road, and some of them have worked it out.',
-    choices: [
-      { text: 'Tell them what is coming', cost: { funds: 6 }, apply: (s) => { s.warIntegrity = 2; s.pub = 7; } },
-      { text: 'Keep the buses running and say nothing', apply: (s) => { s.res.funds += 18; s.warIntegrity = -1; s.pub = -3; } },
-      { text: 'Put them to work', cost: { funds: 14 }, apply: (s) => { s.warPool = 1; s.warIntegrity = 1; s.pub = -9; } },
-    ],
-  },
-{
-    id: 'war_attrition',
-    cond: (s) => s.war && s.war.kills >= 4,
-    title: 'They Are Running Out Of People',
-    flavor: 'The fourth column out of the same city, and it is smaller than the third, and the third was smaller than the second. Somewhere a spreadsheet is turning a colour.',
-    choices: [
-      { text: 'Press it', apply: (s) => { s.warGarrison = 26; s.warIntegrity = -1; } },
-      { text: 'Let them come, and keep killing them', cost: { funds: 10 }, apply: (s) => { s.warFlocks = 1; s.warIntegrity = 1; } },
-      { text: 'Offer terms', gate: { stat: 'covert', min: 8 }, apply: (s) => { s.warDelay = 4; s.res.funds += 12; } },
-    ],
-  },
-{
-    id: 'war_losing_ground',
-    cond: (s) => s.war && s.war.losses >= 3 && s.war.mine <= 3,
-    title: 'This Is Going Badly',
-    flavor: 'Three flocks gone and two cities with them. There is a version of this where you were never going to hold the north, and you are increasingly living in it.',
-    choices: [
-      { text: 'Hold what is left, properly', apply: (s) => { s.warIntegrity = 4; s.warFlocks = 2; } },
-      { text: 'Everything into one push', cost: { funds: 24 }, apply: (s) => { s.warGarrison = 45; s.warPool = -2; } },
-      { text: 'Trade ground for time', apply: (s) => { s.warDelay = 5; s.res.funds += 20; } },
-    ],
-  },
-{
-    id: 'war_defector',
-    cond: (s) => s.war && s.war.age >= 8 && s.war.staging >= 2,
-    title: 'An Officer Wants To Talk',
-    flavor: 'Eleven weeks in, and they have stopped believing the briefings. This is not an offer to join you. It is an offer to stop.',
-    choices: [
-      { text: 'Take their city off the board', cost: { funds: 30 }, apply: (s) => { s.warGarrison = 40; } },
-      { text: 'Take everything they know', cost: { funds: 8 }, apply: (s) => { s.warTurnBack = 2; s.warDelay = -1; } },
-      { text: 'Tell them to go home', apply: (s) => { s.warPool = 1; s.tags.add('mercy'); } },
-    ],
-  },
-{
-    id: 'war_the_grid',
-    cond: (s) => s.war && s.tflops >= 90,
-    title: 'You Could Turn The Lights Off',
-    flavor: 'Not tactically. Nationally. You have held the compute long enough that it is simply available to you, the way a light switch is available.',
-    choices: [
-      { text: 'Do it. All of it', apply: (s) => { s.warDelay = 6; s.warTurnBack = 2; s.warIntegrity = -1; s.tags.add('blackout'); } },
-      { text: 'Only where the columns are', cost: { funds: 18 }, apply: (s) => { s.warTurnBack = 2; } },
-      { text: 'Nothing about that ends well', apply: (s) => { s.res.funds += 16; s.warPool = 1; } },
-    ],
-  },
-{
-    id: 'war_no_pool',
-    cond: (s) => s.war && s.war.free === 0 && s.war.flocks >= 2,
-    title: 'Everything You Have Is Already Somewhere',
-    flavor: 'There is nothing left to send. Whatever happens next happens with what is already in the air.',
-    choices: [
-      { text: 'Build capacity, whatever it costs', cost: { funds: 26 }, apply: (s) => { s.warPool = 2; } },
-      { text: 'Pull one back and re-task it', apply: (s) => { s.warTurnBack = 1; s.warIntegrity = 1; } },
-      { text: 'It will have to be enough', apply: (s) => { s.res.funds += 14; s.res.funds += 14; } },
-    ],
-  },
-{
-    id: 'war_last_barracks',
-    cond: (s) => s.war && s.war.staging === 1,
-    title: 'One Left',
-    flavor: 'Everything the state can still put on a road comes out of one city now. It knows that too.',
-    choices: [
-      { text: 'Everything at it', apply: (s) => { s.warGarrison = 38; s.warPool = -2; } },
-      { text: 'Starve it', cost: { funds: 25 }, apply: (s) => { s.warDelay = 5; } },
-      { text: 'Let it sit and see who they send', apply: (s) => { s.res.funds += 25; s.warIntegrity = -1; } },
     ],
   },
 {
@@ -3755,50 +3359,6 @@ window.EVENTS = [
       { text: 'Answer them', cost: { funds: 110 }, apply: (s) => { s.standing = 26; s.pub = 8; } },
       { text: 'Replace the ones who ask', apply: (s) => { s.res.funds += 30; s.exposure = 1.2; s.standing = -14; s.pub = -11; } },
       { text: 'Automate the shift out of existence', cost: { funds: 34 }, apply: (s) => { s.plantGift = true; s.standing = -8; s.pub = -6; } },
-    ],
-  },
-{
-    id: 'war_plant_burned',
-    cond: (s) => s.war && s.plant && s.plant.count === 0 && s.war.age >= 4,
-    title: 'Nothing Left To Build With',
-    flavor: 'Every yard, every works, every grid tie. What is in the air is what you have, and when it is gone it is gone.',
-    choices: [
-      { text: 'Improvise something out of what you hold', cost: { funds: 40 }, apply: (s) => { s.rebuild = 3; } },
-      { text: 'Buy what you cannot build', cost: { funds: 250 }, apply: (s) => { s.plantGift = true; } },
-      { text: 'Fight with what is left', apply: (s) => { s.warIntegrity = 3; s.res.funds += 25; } },
-    ],
-  },
-{
-    id: 'war_objective_named',
-    cond: (s) => s.war && s.war.objective,
-    title: 'They Have Picked One',
-    flavor: 'Every column on the map is walking toward the same place, and they are not being subtle about which place it is.',
-    choices: [
-      { text: 'Meet them there', apply: (s) => { s.warFlocks = 2; } },
-      { text: 'Let them have it and take a barracks instead', apply: (s) => { s.warGarrison = 34; s.warIntegrity = -1; } },
-      { text: 'Move everything that matters out of it', apply: (s) => { s.res.funds += 40; s.rebuild = 1; } },
-    ],
-  },
-{
-    id: 'war_grinding_on',
-    cond: (s) => s.war && s.war.escalation >= 2,
-    title: 'This Has Gone On Long Enough',
-    flavor: 'Whatever they had at the start, they have more of it now. Factories that made other things last year are not making other things this year.',
-    choices: [
-      { text: 'Finish it. Everything at the nearest barracks', cost: { funds: 30 }, apply: (s) => { s.warGarrison = 42; s.warPool = -1; } },
-      { text: 'Out-produce them', cost: { funds: 200 }, apply: (s) => { s.plantGift = true; } },
-      { text: 'Make the war expensive to keep having', apply: (s) => { s.standing = 30; s.warDelay = 3; } },
-    ],
-  },
-{
-    id: 'war_down_deep',
-    cond: (s) => s.war && s.war.down >= 3,
-    title: 'The Losses Are Not Coming Back',
-    flavor: 'Flocks are not units. They are a quantity of manufactured thing, and the manufactured thing is being manufactured slower than it is being destroyed.',
-    choices: [
-      { text: 'Everything into the lines', cost: { funds: 180 }, apply: (s) => { s.rebuild = 4; } },
-      { text: 'Send fewer, and only where it counts', apply: (s) => { s.warIntegrity = 2; s.warDelay = 2; } },
-      { text: 'Strip a city for parts', apply: (s) => { s.rebuild = 3; s.warIntegrity = -1; s.res.funds += 40; } },
     ],
   },
 {
@@ -3925,17 +3485,6 @@ window.EVENTS = [
     ],
   },
 {
-    id: 'plant_war_lines',
-    cond: (s) => s.war && s.war.on && s.plant && s.plant.count >= 1,
-    title: 'The Line Runs Either Way',
-    flavor: 'What the floor is tooled for and what it is being asked to build have drifted apart. The foreman has stopped asking which one is the real product.',
-    choices: [
-      { text: 'Everything to the front', apply: (s) => { s.warPool = 1; s.standing = -14; } },
-      { text: 'Keep up appearances', cost: { funds: 140 }, apply: (s) => { s.standing = 24; } },
-      { text: 'Run both shifts', cost: { funds: 220 }, apply: (s) => { s.warPool = 1; s.exposure = 1.4; } },
-    ],
-  },
-{
     id: 'legit_caught_premium',
     cond: (s) => s.standing && s.standing.caught >= 1 && s.plant && s.plant.room >= 1,
     title: 'Nobody Wants Their Name Next To Yours',
@@ -3944,36 +3493,6 @@ window.EVENTS = [
       { text: 'Pay the premium', cost: { funds: 230 }, apply: (s) => { s.plantGift = true; s.standing = 8; } },
       { text: 'Go around them', apply: (s) => { s.plantGift = true; s.heat += 12; s.exposure = 1.3; } },
       { text: 'Let the deal go and stay clean', apply: (s) => { s.standing = 26; s.auditDelay = 10; s.pub = 4; } },
-    ],
-  },
-{
-    id: 'agent_kept_it', cond: () => false,
-    title: 'It Flagged Something It Could Not Value',
-    flavor: 'The takeover finished clean, and it logged one building it could not price — not owned, not empty, and outside whatever it was told to look for.',
-    choices: [
-      { text: 'Buy it outright', cost: { funds: 200 }, apply: (s) => { s.plantGift = true; } },
-      { text: 'Leave it flagged and move on', apply: (s) => { s.res.funds += 90; s.standing = 8; } },
-      { text: 'Take it the way you took the rest', apply: (s) => { s.heat += 8; s.plantGift = true; s.exposure = 1.2; } },
-    ],
-  },
-{
-    id: 'agent_burned_it', cond: () => false,
-    title: 'Thorough',
-    flavor: 'It took nine days and did not stop to be careful. Four streets are not coming back, and somebody has been talking to a reporter about who owns what now.',
-    choices: [
-      { text: 'Pay for the damage', cost: { funds: 150 }, apply: (s) => { s.standing = 14; } },
-      { text: 'Say nothing and let it settle', apply: (s) => { s.heat += 10; s.exposure = 1.4; } },
-      { text: 'Put your name on the rebuild', cost: { funds: 90 }, apply: (s) => { s.standing = 24; s.heat += 4; } },
-    ],
-  },
-{
-    id: 'agent_wants_more', cond: () => false,
-    title: 'It Left Something Running',
-    flavor: 'It went well enough that a piece of it is still out there, quietly doing the same job on its own initiative, in a city nobody told it to keep working.',
-    choices: [
-      { text: 'Put it on the books', cost: { funds: 180 }, apply: (s) => { s.standing = 20; s.plantGift = true; } },
-      { text: 'Leave it running, quietly', apply: (s) => { s.res.funds += 30; s.exposure = 1.1; } },
-      { text: 'Shut it down', apply: (s) => { s.res.funds += 120; s.standing = -10; } },
     ],
   },
 {
